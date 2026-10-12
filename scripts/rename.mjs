@@ -1,0 +1,544 @@
+#!/usr/bin/env node
+/**
+ * Rename a fresh copy of the kit to your app — `docs/ADAPTING.md` §1 as one command.
+ *
+ *   node scripts/rename.mjs [--dry-run] [--force] [--skip-install]
+ *                           [--domain <apex>] [--colour <#hex>] <slug> ["Display Name"]
+ *
+ * Walks every text file git knows about (tracked + untracked, `.gitignore` honoured, plus
+ * `apps/web/.dev.vars` when it exists so the local DB URL follows the compose file), applies the
+ * nine ordered replacement classes from `scripts/lib/rename-lib.mjs`, then checks and reports the
+ * rows a rename cannot do blindly ("careful rows", the letters in `docs/ADAPTING.md`):
+ *
+ *   (a) the API-key display handles `API_KEY_PREFIX_LENGTH` / `REDACTED_KEY_CHARS` — fixed;
+ *       `API_KEY_PREFIX` itself must come out as `<snake>_` — checked, warned
+ *   (b) `apps/web/migrations/**` names the RLS role — rename BEFORE the first migration — warned
+ *   (c) the docker `container_name`s / volume — renamed, reported
+ *   (d) staging names keep `-staging` — the parity test is the proof — reported
+ *   (e) `--colour` rewrites the light theme's primary hex; the rest of the palette is yours — reported
+ *   (f) `LogoMark` / `logo.svg` / `favicon.svg` are a human choice — reported
+ *
+ * First it DELETES the kit's own tests — every file under a `kitOnly` glob in `.rocketflare.json`
+ * (`apps/web/tests/kit-only/**`) — and unwires their vitest project from the package.json scripts:
+ * they assert what only the kit is, so a copy never carries them (`docs/CONCEPTS.md` §13).
+ *
+ * It also detaches the copy's version: the root `package.json` restarts at 0.1.0 and `CHANGELOG.md`
+ * starts empty, while the root version is still the kit's (`restartAppVersion`). The kit version the
+ * copy came from stays in `.rocketflare.json`.
+ *
+ * `--dry-run` prints the per-file table and touches nothing (and skips the dirty-tree check).
+ * The real run refuses a dirty tree without `--force`, writes, runs `pnpm install` (the lockfile
+ * follows the package names), regenerates `docs/plugin-api.md` (its summaries are cut at a fixed
+ * width) and `biome check --write` (a shorter or longer name re-wraps lines),
+ * then prints the verify line. Exit 0 ok · 1 error · 2 usage. Zero dependencies, Node ≥ 24.
+ */
+import { execFileSync, spawnSync } from 'node:child_process'
+import {
+  existsSync,
+  lstatSync,
+  readdirSync,
+  readFileSync,
+  rmdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { formatJson } from './lib/json-format.mjs'
+import {
+  API_KEY_HANDLE_MARGIN,
+  applyColour,
+  applyReplacements,
+  CLASS_IDS,
+  deriveNames,
+  isBinary,
+  isExcluded,
+  KIT,
+  KIT_MANIFEST_FILE,
+  OPT_IN_IGNORED_PATHS,
+  parseArgs,
+  prefixGuard,
+  REDACTED_KEY_MARGIN,
+  readIntConstant,
+  readStringConstant,
+  renameKitManifest,
+  restartAppVersion,
+  rewriteIntConstant,
+  rewritePrefixComments,
+  USAGE,
+} from './lib/rename-lib.mjs'
+import { kitOnlyGlobs, matchesAny, stripKitOnlyWiring } from './lib/upgrade-lib.mjs'
+
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const HASH_TS = 'apps/web/src/api/utils/core/hash.ts'
+const CLI_CONFIG_TS = 'apps/cli/src/config.ts'
+const INDEX_CSS = 'apps/web/src/ui/index.css'
+const INDEX_HTML = 'apps/web/src/ui/index.html'
+const MIGRATIONS_DIR = 'apps/web/migrations/'
+const DEV_VARS = 'apps/web/.dev.vars'
+// The two package.json files that could wire the kit-only vitest project into a script.
+const PACKAGE_JSONS = ['package.json', 'apps/web/package.json']
+
+const out = (...lines) => console.log(lines.join('\n'))
+const warn = (...lines) => console.error(lines.join('\n'))
+
+function git(args) {
+  return execFileSync('git', args, { cwd: REPO_ROOT, encoding: 'utf8' })
+}
+
+/** Best-effort: running containers by name, or [] when docker is absent. */
+function runningContainers() {
+  try {
+    return execFileSync('docker', ['ps', '--format', '{{.Names}}'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: 5000,
+    })
+      .split('\n')
+      .filter(Boolean)
+  } catch {
+    return []
+  }
+}
+
+/**
+ * `.rocketflare.json`, or null when it is missing or unreadable. Read as plain JSON, like
+ * `stampManifest`: the rename grows no dependency on `manifest.mjs`.
+ */
+function readKitManifest() {
+  const file = path.join(REPO_ROOT, '.rocketflare.json')
+  try {
+    return existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The kit's own tests (`kitOnly` in `.rocketflare.json`, `docs/CONCEPTS.md` §13): every file git
+ * knows about under one of those globs. They assert things only the kit is — its version chain, its
+ * release and rename machinery — so a copy never carries them, and this is where a copy is born.
+ */
+function kitOnlyFiles() {
+  const globs = kitOnlyGlobs(readKitManifest())
+  return git(['ls-files', '-z', '--cached', '--others', '--exclude-standard'])
+    .split('\0')
+    .filter(rel => rel && matchesAny(rel, globs) && existsSync(path.join(REPO_ROOT, rel)))
+    .sort()
+}
+
+/** Delete one file, then every parent directory it leaves empty (never the repo root). */
+function removeWithEmptyParents(rel) {
+  rmSync(path.join(REPO_ROOT, rel), { force: true })
+  let dir = path.dirname(path.join(REPO_ROOT, rel))
+  while (dir.startsWith(`${REPO_ROOT}${path.sep}`) && readdirSync(dir).length === 0) {
+    rmdirSync(dir)
+    dir = path.dirname(dir)
+  }
+}
+
+/** Repo-relative POSIX paths of every candidate file: git's view + the opt-in ignored ones. */
+function candidateFiles(skip = new Set()) {
+  const listed = git(['ls-files', '-z', '--cached', '--others', '--exclude-standard'])
+    .split('\0')
+    .filter(Boolean)
+  const set = new Set(listed)
+  for (const p of OPT_IN_IGNORED_PATHS) if (existsSync(path.join(REPO_ROOT, p))) set.add(p)
+  const files = []
+  for (const rel of [...set].sort()) {
+    if (isExcluded(rel) || skip.has(rel)) continue
+    let st
+    try {
+      st = lstatSync(path.join(REPO_ROOT, rel))
+    } catch {
+      continue // in the index, gone on disk (a staged deletion)
+    }
+    if (!st.isFile()) continue // symlinks (AGENTS.md → CLAUDE.md) and directories
+    files.push(rel)
+  }
+  return files
+}
+
+function renderTable(rows) {
+  const header = ['file', ...CLASS_IDS, 'total']
+  const body = rows.map(r => [r.rel, ...CLASS_IDS.map(id => r.counts[id] || ''), r.total])
+  const totals = ['TOTAL', ...CLASS_IDS.map(id => rows.reduce((n, r) => n + r.counts[id], 0))]
+  totals.push(rows.reduce((n, r) => n + r.total, 0))
+  const all = [header, ...body, totals].map(row => row.map(String))
+  const widths = header.map((_, i) => Math.max(...all.map(row => row[i].length)))
+  const line = row =>
+    row.map((cell, i) => (i === 0 ? cell.padEnd(widths[i]) : cell.padStart(widths[i]))).join('  ')
+  const rule = widths.map(w => '-'.repeat(w)).join('  ')
+  return [line(all[0]), rule, ...all.slice(1, -1).map(line), rule, line(all.at(-1))].join('\n')
+}
+
+function main(argv) {
+  const args = parseArgs(argv)
+  if ('help' in args) {
+    out(USAGE)
+    return 0
+  }
+  if ('error' in args) {
+    warn(`error: ${args.error}`, '', USAGE)
+    return 2
+  }
+  let names
+  try {
+    names = deriveNames(args.slug, args.display, { domain: args.domain, colour: args.colour })
+  } catch (err) {
+    warn(`error: ${err.message}`, '', USAGE)
+    return 2
+  }
+
+  // ------------------------------------------------------------- preconditions
+  let top
+  try {
+    top = git(['rev-parse', '--show-toplevel']).trim()
+  } catch {
+    warn('error: not a git checkout — the walker uses `git ls-files` for .gitignore semantics')
+    return 1
+  }
+  if (path.resolve(top) !== REPO_ROOT) {
+    warn(`error: git toplevel ${top} is not the repo this script lives in (${REPO_ROOT})`)
+    return 1
+  }
+  const dirty = git(['status', '--porcelain']).trim()
+  if (dirty && !args.dryRun && !args.force) {
+    warn(
+      'error: the git tree is not clean — commit or stash first so the rename is one reviewable diff',
+      '       (or pass --force). `git status --short` shows:',
+      dirty
+        .split('\n')
+        .slice(0, 10)
+        .map(l => `         ${l}`)
+        .join('\n')
+    )
+    return 1
+  }
+
+  out(
+    `${args.dryRun ? 'DRY RUN — ' : ''}renaming ${KIT.display} → ${names.display}`,
+    `  slug ${names.slug} · snake ${names.snake} · UPPER ${names.upper} · domain ${names.domain}` +
+      (names.colour ? ` · colour ${names.colour}` : ''),
+    ''
+  )
+
+  // ------------------------------------------------------------- kit-only tests
+  // Deleted, not renamed: a copy's gate must never run a test that is only true of the kit (the
+  // one that made every app red asserted the root version IS the kit's). Nothing else in the tree
+  // imports them; the only wiring is the `kit-only` vitest project in a package.json script, which
+  // is unwired below. `vitest.config.ts` registers that project only while its directory exists.
+  const kitOnly = kitOnlyFiles()
+
+  // ------------------------------------------------------------- the pass
+  const rows = []
+  const skippedBinary = []
+  const edits = new Map() // rel → new content, written at the end
+  for (const rel of candidateFiles(new Set(kitOnly))) {
+    const abs = path.join(REPO_ROOT, rel)
+    const buf = readFileSync(abs)
+    if (isBinary(buf)) {
+      skippedBinary.push(rel)
+      continue
+    }
+    const before = buf.toString('utf8')
+    // The Launch kit manifest keeps its `kit` block: it names the kit, not the app.
+    const result =
+      rel === KIT_MANIFEST_FILE
+        ? renameKitManifest(before, names)
+        : applyReplacements(before, names)
+    if (result.total === 0) continue
+    rows.push({ rel, counts: result.counts, total: result.total })
+    edits.set(rel, result.text)
+  }
+  const current = rel => edits.get(rel) ?? readFileSync(path.join(REPO_ROOT, rel), 'utf8')
+
+  const unwired = []
+  for (const rel of PACKAGE_JSONS) {
+    if (!existsSync(path.join(REPO_ROOT, rel))) continue
+    const { text, removed, edited } = stripKitOnlyWiring(current(rel))
+    if (removed.length === 0 && edited.length === 0) continue
+    edits.set(rel, text)
+    unwired.push(
+      `${rel}: ${[...edited.map(n => `${n} (--project dropped)`), ...removed.map(n => `${n} (removed)`)].join(', ')}`
+    )
+  }
+
+  // ------------------------------------------------------------- the app's own version
+  // A copy is its own product: its root version restarts at 0.1.0 and its CHANGELOG starts
+  // empty, instead of carrying on from the kit's number and the kit's releases. The kit version
+  // it came from stays in `.rocketflare.json` `kit.version`, which the pass never touches.
+  const restarted = restartAppVersion(current('package.json'), readKitManifest()?.kit?.version)
+  if (restarted) {
+    edits.set('package.json', restarted.packageJson)
+    edits.set('CHANGELOG.md', restarted.changelog)
+  }
+
+  // ------------------------------------------------------------- careful rows
+  const report = []
+  // (a) API-key display handles
+  {
+    const hash = current(HASH_TS)
+    const cli = current(CLI_CONFIG_TS)
+    const guard = prefixGuard(names, {
+      apiKeyPrefixLength: readIntConstant(hash, 'API_KEY_PREFIX_LENGTH'),
+      redactedKeyChars: readIntConstant(cli, 'REDACTED_KEY_CHARS'),
+    })
+    const a = guard.apiKeyPrefixLength
+    const r = guard.redactedKeyChars
+    if (a.current === null || r.current === null) {
+      report.push(
+        `(a) API-key handles: could not read API_KEY_PREFIX_LENGTH (${HASH_TS}) or REDACTED_KEY_CHARS ` +
+          `(${CLI_CONFIG_TS}) — set them to ${a.required} / ${r.required} by hand (prefix \`${guard.prefix}\` is ${guard.prefixLength} chars)`
+      )
+    } else {
+      if (a.change) {
+        edits.set(
+          HASH_TS,
+          rewriteIntConstant(
+            hash,
+            'API_KEY_PREFIX_LENGTH',
+            a.required,
+            guard.prefix,
+            API_KEY_HANDLE_MARGIN
+          )
+        )
+      }
+      if (r.change) {
+        edits.set(
+          CLI_CONFIG_TS,
+          rewritePrefixComments(
+            rewriteIntConstant(
+              cli,
+              'REDACTED_KEY_CHARS',
+              r.required,
+              guard.prefix,
+              REDACTED_KEY_MARGIN
+            ),
+            guard.prefix,
+            REDACTED_KEY_MARGIN
+          )
+        )
+      }
+      // The handle arithmetic assumes the key starts with exactly `<snake>_`; a prefix the pass
+      // renamed to anything else (the bare kit name becomes the hyphenated slug) breaks that.
+      const keyPrefix = readStringConstant(edits.get(HASH_TS) ?? hash, 'API_KEY_PREFIX')
+      if (keyPrefix !== guard.prefix) {
+        report.push(
+          `(a) WARNING: API_KEY_PREFIX in ${HASH_TS} reads ${keyPrefix === null ? 'as nothing' : `'${keyPrefix}'`}` +
+            ` after the rename, not '${guard.prefix}' — keys, handles and the key tests expect '${guard.prefix}'; set it by hand.`
+        )
+      }
+      const show = (label, v) =>
+        `${label} ${v.current}${v.change ? ` → ${v.required}` : ' (unchanged)'}`
+      report.push(
+        `(a) API-key handles for prefix \`${guard.prefix}\` (${guard.prefixLength} chars): ` +
+          `${show('API_KEY_PREFIX_LENGTH', a)} in ${HASH_TS}; ${show('REDACTED_KEY_CHARS', r)} in ${CLI_CONFIG_TS}` +
+          ` — set to prefix + ${API_KEY_HANDLE_MARGIN} / + ${REDACTED_KEY_MARGIN} so a listed key still shows token characters` +
+          ' (the CLI tests assume exactly prefix + 4). Existing keys keep working; only the display handle changes.'
+      )
+    }
+  }
+  // (b) migrations / RLS role / EMBEDDING_DIM
+  {
+    const migrationRows = rows.filter(row => row.rel.startsWith(MIGRATIONS_DIR))
+    const containers = runningContainers()
+    const oldDev = `${KIT.slug}-dev-postgres`
+    const oldTest = `${KIT.slug}-test-postgres`
+    // The dev container carries a per-checkout suffix (scripts/dev-db.mjs), the test one does not.
+    const live = containers.filter(c => c === oldTest || c === oldDev || c.startsWith(`${oldDev}-`))
+    const hasDevVars = existsSync(path.join(REPO_ROOT, DEV_VARS))
+    const lines = [
+      `(b) ${migrationRows.length} files under ${MIGRATIONS_DIR} rename the RLS role \`${KIT.slug}_app\` → \`${names.snake}_app\` ` +
+        '(SQL + meta snapshots). A database that already ran the OLD migrations keeps the old role and policies:',
+      '    rename BEFORE the first migration. If a dev DB exists, drop it and migrate again —',
+      `    \`pnpm dev:db:down\` BEFORE the rename (the compose file names the old container), or afterwards`,
+      `    \`pnpm dev:db:status\` names this checkout's container and volume (both carry a per-checkout`,
+      `    suffix); \`docker rm -f <container>\` + \`docker volume rm <project>_${KIT.slug}-dev-data\`, then \`pnpm dev:db:up && pnpm db:migrate\`.`,
+      '    The renamed compose volume is a fresh, empty database, so the new migrations apply cleanly.',
+    ]
+    if (live.length > 0) {
+      lines.push(
+        `    WARNING: ${live.join(', ')} ${live.length === 1 ? 'is' : 'are'} RUNNING right now — that database was migrated under the old name.`
+      )
+    } else if (hasDevVars) {
+      lines.push(
+        `    NOTE: ${DEV_VARS} exists (${edits.has(DEV_VARS) ? 'its DB URL is renamed too; counts only, never echoed' : 'unchanged'}) — if its database was ever migrated, drop it as above.`
+      )
+    }
+    lines.push(
+      '    EMBEDDING_DIM (1024, packages/shared/src/ai/config.ts) is a column type in the same migrations —',
+      '    change it now or never (docs/ADAPTING.md §3), not after data exists.'
+    )
+    report.push(lines.join('\n'))
+  }
+  // (c) containers
+  report.push(
+    `(c) Docker names: container_name \`${names.slug}-dev-postgres\` / \`${names.slug}-test-postgres\`, volume ` +
+      `\`${names.slug}-dev-data\`, database \`${names.snake}_dev\` / \`${names.snake}_test\`, owner \`${names.snake}\` ` +
+      `(kept a plain SQL identifier: db-roles.ts refuses a hyphenated owner, so a hyphenated slug uses its snake form here). Renamed automatically. ` +
+      'Two checkouts never collide either way: scripts/dev-db.mjs gives each its own compose project, container suffix and port.'
+  )
+  // (d) staging suffix
+  report.push(
+    `(d) Staging names keep their suffix: \`${names.slug}-staging\`, \`${names.slug}-jobs-staging\`, ` +
+      `\`${names.slug}-agent-run-staging\`, \`${names.slug}-files-staging\` in apps/web/wrangler.staging.toml. ` +
+      'apps/web/tests/config/wrangler-parity.test.ts is the check — `pnpm web test:config`.'
+  )
+  // (e) colour
+  if (names.colour) {
+    const r = applyColour({ css: current(INDEX_CSS), html: current(INDEX_HTML) }, names.colour)
+    edits.set(INDEX_CSS, r.css)
+    edits.set(INDEX_HTML, r.html)
+    report.push(
+      [
+        `(e) Colour: light-theme primary ${r.from} → ${r.to} in ${INDEX_CSS} (${r.cssReplacements} occurrences: ` +
+          '--color-primary, --surface-active, --focus-ring; plus --dc-primary-rgb)' +
+          `${r.htmlReplaced ? ` and <meta name="theme-color"> in ${INDEX_HTML}` : ''}. Left for you:`,
+        ...r.manual.map(m => `      - ${m}`),
+        '    Then run the contrast gate: `pnpm web test:ui` (tests/ui/contrast.test.ts).',
+      ].join('\n')
+    )
+  } else {
+    report.push(
+      `(e) Colour: unchanged (no --colour). The brand hexes live in the header block of ${INDEX_CSS}; ` +
+        'after any change run `pnpm web test:ui` (contrast gate).'
+    )
+  }
+  // (f) logo
+  report.push(
+    '(f) Logo: apps/web/src/ui/components/shared/LogoMark.tsx, apps/web/src/ui/public/logo.svg and ' +
+      'favicon.svg still carry the kit mark — replace the paths in all three yourself (not touched).'
+  )
+
+  // ------------------------------------------------------------- output
+  if (args.dryRun) {
+    out(renderTable(rows), '')
+  } else {
+    const totals = Object.fromEntries(
+      CLASS_IDS.map(id => [id, rows.reduce((n, r) => n + r.counts[id], 0)])
+    )
+    out(
+      `${rows.length} files, ${rows.reduce((n, r) => n + r.total, 0)} replacements: ` +
+        CLASS_IDS.map(id => `${id} ${totals[id]}`).join(' · '),
+      ''
+    )
+  }
+  if (skippedBinary.length > 0) {
+    out(`skipped ${skippedBinary.length} binary file(s): ${skippedBinary.join(', ')}`, '')
+  }
+  out(
+    `Kit-only tests (docs/CONCEPTS.md §13): ${args.dryRun ? 'would delete' : 'deleting'} ${kitOnly.length} file(s) — ` +
+      'they assert what only the kit is (its version chain, its release and rename machinery), so a copy never carries them.',
+    ...kitOnly.map(rel => `  - ${rel}`),
+    ...(unwired.length > 0
+      ? ['  unwired the kit-only vitest project:', ...unwired.map(u => `    ${u}`)]
+      : []),
+    ''
+  )
+  out(
+    restarted
+      ? `Version: ${restarted.from} (the kit's) → ${restarted.to}, and CHANGELOG.md starts empty — ` +
+          `the app numbers its own releases; the kit version stays in .rocketflare.json.`
+      : 'Version: left as it is (the root version is not the kit’s, so it is already the app’s own).',
+    ''
+  )
+  out('Careful rows (docs/ADAPTING.md §1):', ...report.map(r => `  ${r}`), '')
+  out(
+    `Preserved as upstream: the rocketflare-dev org and its repos (the kit, plugins, the neon-proxy image, plugin CI), ${KIT.preserved.join(', ')}. Not touched by design: ` +
+      'LICENSE, CONTRIBUTING.md, CODE_OF_CONDUCT.md, SECURITY.md, the two svgs, this tool, ' +
+      'the rf-adapt skill and .rocketflare.json (it names the kit, and gets an `app` block instead).',
+    ''
+  )
+
+  if (args.dryRun) {
+    out('Dry run — nothing written. Re-run without --dry-run to apply.')
+    return 0
+  }
+
+  // ------------------------------------------------------------- write + finish
+  let written = 0
+  for (const [rel, content] of edits) {
+    writeFileSync(path.join(REPO_ROOT, rel), content)
+    written += 1
+  }
+  for (const rel of kitOnly) removeWithEmptyParents(rel)
+  stampManifest(names)
+  out(`wrote ${written} files, deleted ${kitOnly.length} kit-only test file(s).`, '')
+
+  if (args.skipInstall) {
+    out(
+      '--skip-install: run `pnpm install` (relinks @' +
+        names.slug +
+        '/* and rewrites pnpm-lock.yaml)'
+    )
+    out(
+      'then `node scripts/plugin-api-doc.mjs` (its summaries are cut at a width the new name moves)'
+    )
+    out('and `pnpm lint:fix` (the new name re-wraps some lines) yourself, then:')
+  } else {
+    out('$ pnpm install')
+    const install = spawnSync('pnpm', ['install'], { cwd: REPO_ROOT, stdio: 'inherit' })
+    if (install.status !== 0) {
+      warn(
+        'error: pnpm install failed — fix it (offline? use --skip-install and install later), ' +
+          'then run `pnpm install && pnpm lint:fix` before the verify line.'
+      )
+      return 1
+    }
+    // docs/plugin-api.md cuts each summary at a fixed width, so a longer or shorter name moves
+    // the cut, and the gate's "docs/plugin-api.md is up to date" step fails an unregenerated copy.
+    out('', '$ node scripts/plugin-api-doc.mjs   (summaries are cut at a width the name moves)')
+    const doc = spawnSync('node', ['scripts/plugin-api-doc.mjs'], {
+      cwd: REPO_ROOT,
+      stdio: 'inherit',
+    })
+    if (doc.status !== 0) {
+      warn('note: plugin-api-doc failed — run `node scripts/plugin-api-doc.mjs` before committing.')
+    }
+    out('', '$ pnpm lint:fix   (biome re-wraps the lines the new name changed)')
+    const fix = spawnSync('pnpm', ['lint:fix'], { cwd: REPO_ROOT, stdio: 'inherit' })
+    if (fix.status !== 0) {
+      warn('note: biome reported problems it could not fix — `pnpm lint` will show them.')
+    }
+    out('')
+  }
+  out(
+    'Verify (the gate — it starts the test database itself):',
+    '  pnpm gate',
+    '',
+    'Then review the diff (`git diff --stat`), commit, and update docs/ADAPTING.md §1 for your app.'
+  )
+  return 0
+}
+
+/**
+ * Record the app's names in `.rocketflare.json`, which the pass itself skips (it names the KIT).
+ * That `app` block is what later tells `scripts/upgrade.mjs` how to translate a kit diff into
+ * this app's names — and a non-null `app` is also what tells the kit's own release checks that
+ * this is a copy, not the kit.
+ */
+function stampManifest(names) {
+  // The one literal spelling left in the toolchain, on purpose: this file is on `EXCLUDED_PATHS`
+  // (the tool must keep working after it has run) and the name is in `KIT.preserved` besides, so
+  // it is safe twice over — and the rename must not grow a dependency on `manifest.mjs`, which is
+  // the thing it is about to stamp.
+  const file = path.join(REPO_ROOT, '.rocketflare.json')
+  if (!existsSync(file)) {
+    warn(
+      'note: .rocketflare.json is missing — `pnpm kit:upgrade` will not work until it is restored.'
+    )
+    return
+  }
+  const manifest = JSON.parse(readFileSync(file, 'utf8'))
+  manifest.app = { slug: names.slug, display: names.display, domain: names.domain }
+  writeFileSync(file, formatJson(manifest))
+  out(`stamped .rocketflare.json — app ${names.slug}, kit ${manifest.kit.version}.`)
+}
+
+try {
+  process.exitCode = main(process.argv.slice(2))
+} catch (err) {
+  warn(`error: ${err instanceof Error ? err.message : String(err)}`)
+  process.exitCode = 1
+}

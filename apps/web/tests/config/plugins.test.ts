@@ -100,9 +100,6 @@ describe('the plugin boundary', () => {
     expect(pluginIdOfPath('apps/web/src/plugins/orders/api/routes.ts')).toBe('orders')
     expect(pluginIdOfPath('packages/shared/src/plugins/orders/index.ts')).toBe('orders')
     expect(pluginIdOfPath('apps/web/src/plugins/server.ts')).toBeNull()
-    // The sixth barrel, added with worker-exports: without it this file reads as a plugin
-    // called 'worker-exports', and its own line reads as a deep import into one.
-    expect(pluginIdOfPath('apps/web/src/plugins/worker-exports.ts')).toBeNull()
     // An import specifier carries no extension, which is the spelling that used to read as a plugin
     // called "index".
     expect(pluginIdOfPath('packages/shared/src/plugins/index')).toBeNull()
@@ -132,9 +129,6 @@ describe('the plugin boundary', () => {
     expect(deepImportIssue('apps/web/src/ui/App.tsx', '@/plugins/orders/ui')).toBeNull()
     // The schema barrel names a plugin's inner file by design — that line IS the installation.
     expect(deepImportIssue('apps/web/src/plugins/schema.ts', './orders/db/schema')).toBeNull()
-    expect(
-      deepImportIssue('apps/web/src/plugins/worker-exports.ts', './orders/worker-exports')
-    ).toBeNull()
   })
 })
 
@@ -290,7 +284,7 @@ describe('installed plugins', () => {
   it('declares no API prefix or mount that collides with another plugin', () => {
     // Deduped WITHIN a plugin first, because both repetitions are normal and neither is a
     // collision: a prefix outside `/api` has to appear in `mounts` (the router) AND in
-    // `apiPrefixes` (the SPA catch-all, the parity test, `run_worker_first`), and one router may be
+    // `apiPrefixes` (the SPA catch-all and the Node server's static-file fallthrough), and one router may be
     // mounted at two prefixes — the analytics plugin's `/cubejs-api` and `/mcp` are both
     // (drizzle-cube's adapter registers absolute paths). What must never happen is TWO plugins
     // claiming one prefix, because Hono matches in registration order and the loser is invisible.

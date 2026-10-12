@@ -144,16 +144,12 @@ export interface ServerPlugin<S extends SharedPlugin = SharedPlugin> {
      * best-effort, exactly like `onTenantCreated`. There is no `Tenant` to hand over: the row and
      * everything `tenantRef()` cascades from it are already gone, which is why this takes the id.
      *
-     * A plugin's TABLES need nothing here — the cascade took them. What needs this is R2 objects
-     * (the kit purges its own `tenants/<id>/` prefix), KV keys and Durable Object state.
+     * A plugin's TABLES need nothing here — the cascade took them. What needs this is stored
+     * objects (the kit purges its own `tenants/<id>/` prefix) and any state keyed outside Postgres.
      *
-     * **Durable Object state is purgeable only because instance names are derived.** There is no
-     * API that enumerates the instances of a namespace, so state is reachable only where the KEYS
-     * are known: derive every instance name from the tenant id, keep the set FINITE, and loop the
-     * names this plugin DECLARES rather than trying to discover instances. `NotificationsHub` is
-     * already that shape — `idFromName(tenantId)`, one instance per tenant — and a plugin that
-     * wants one DO per row cannot be purged under this rule. The escape hatch for that case is a
-     * purge-intent ledger: a table carrying `tenant_id` with NO foreign key, so it survives the
+     * **External state is purgeable only where its keys are derivable.** Derive every key from the
+     * tenant id, keep the set FINITE, and visit the keys this plugin DECLARES rather than trying to
+     * discover them. The escape hatch for state keyed per row is a purge-intent ledger: a table carrying `tenant_id` with NO foreign key, so it survives the
      * cascade and still names the rows to visit (`access_requests.requested_tenant_id` and
      * `user_sessions.selected_tenant_id` are the precedent for a tenant reference that outlives the
      * tenant). It is **deferred until somebody needs it** and deliberately not built.

@@ -117,5 +117,5 @@ export function uuidParam(c: AppContext, name: string): string {
  */
 export function streamDatabase(c: AppContext): DatabaseHandle {
   const cfg = c.get('config')
-  return openDatabase({ ...cfg, HYPERDRIVE: c.env.HYPERDRIVE })
+  return openDatabase(cfg)
 }

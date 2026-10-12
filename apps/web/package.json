@@ -3,35 +3,26 @@
   "version": "0.1.0",
   "private": true,
   "license": "MIT",
-  "description": "Rocketpod kit web app: Hono API + React UI on Node (and, until M6b, Cloudflare Workers), Postgres + Drizzle",
+  "description": "Rocketpod kit web app: Hono API + React UI on Node, Postgres + Drizzle",
   "type": "module",
-  "cfld": {
-    "name": "rocketpod",
-    "port": 3000
-  },
   "scripts": {
     "dev": "node scripts/dev-server.mjs --start",
     "dev:stop": "node scripts/dev-server.mjs --stop",
     "dev:status": "node scripts/dev-server.mjs --status",
-    "dev:api": "mkdir -p dist/ui && node scripts/dev-db.mjs env -- wrangler dev --port ${DEV_API_PORT:-3001}",
+    "dev:api": "mkdir -p dist/ui && PORT=${DEV_API_PORT:-3001} node scripts/dev-db.mjs env -- dotenv -e .env -- tsx watch src/node/server.ts all",
     "dev:ui": "vite",
-    "dev:node": "node scripts/dev-db.mjs env -- dotenv -e .dev.vars -- tsx watch src/node/server.ts all",
-    "dev:tunnel": "node scripts/cfld.mjs -- node scripts/tunnel-dev.mjs",
-    "cfld": "node scripts/cfld.mjs",
     "dev:db:up": "node scripts/dev-db.mjs up",
     "dev:db:down": "node scripts/dev-db.mjs down",
     "dev:db:status": "node scripts/dev-db.mjs status",
-    "types": "wrangler types --strict-vars=false --env-file .dev.vars.example",
-    "typecheck": "pnpm types && tsc --noEmit",
+    "typecheck": "tsc --noEmit",
     "lint": "biome check . --diagnostic-level=error",
     "lint:all": "biome check .",
     "lint:fix": "biome check --write .",
     "format": "biome format . --write",
-    "build": "pnpm build:ui && pnpm build:api && pnpm build:server",
+    "build": "pnpm build:ui && pnpm build:server",
     "build:ui": "vite build",
-    "build:api": "wrangler deploy --dry-run --outdir dist/api",
     "build:server": "node scripts/build-server.mjs",
-    "clean": "rm -rf dist coverage .wrangler",
+    "clean": "rm -rf dist coverage",
     "test": "pnpm test:shared && pnpm test:isolated",
     "test:shared": "NODE_ENV=test dotenv -e .env.test -- vitest run --project api --no-isolate",
     "test:isolated": "NODE_ENV=test dotenv -e .env.test -- vitest run --project api-isolated --project driver --project ui --project config --project kit-only",
@@ -43,17 +34,13 @@
     "test:coverage": "NODE_ENV=test dotenv -e .env.test -- vitest run --coverage",
     "test:db:up": "docker compose -f docker-compose.test.yml up -d",
     "test:db:down": "docker compose -f docker-compose.test.yml down",
-    "db:generate": "dotenv -e .dev.vars -- drizzle-kit generate",
-    "db:migrate": "dotenv -e .dev.vars -- tsx scripts/db-roles.ts --phase=role && dotenv -e .dev.vars -- tsx scripts/migrate.ts && dotenv -e .dev.vars -- tsx scripts/db-roles.ts --phase=grants",
+    "db:generate": "dotenv -e .env -- drizzle-kit generate",
+    "db:migrate": "dotenv -e .env -- tsx scripts/db-roles.ts --phase=role && dotenv -e .env -- tsx scripts/migrate.ts && dotenv -e .env -- tsx scripts/db-roles.ts --phase=grants",
     "db:migrate:ci": "tsx scripts/db-roles.ts --phase=role && tsx scripts/migrate.ts && tsx scripts/db-roles.ts --phase=grants",
-    "db:roles": "dotenv -e .dev.vars -- tsx scripts/db-roles.ts",
-    "db:studio": "dotenv -e .dev.vars -- drizzle-kit studio",
-    "db:check": "dotenv -e .dev.vars -- tsx scripts/test-db-connection.ts",
-    "seed": "dotenv -e .dev.vars -- tsx scripts/seed.ts",
-    "deploy": "pnpm build:ui && wrangler deploy",
-    "deploy:staging": "pnpm build:ui && wrangler deploy -c wrangler.staging.toml",
-    "provision": "tsx scripts/provision.ts",
-    "provision:cloudflare": "bash scripts/cf-provision.sh"
+    "db:roles": "dotenv -e .env -- tsx scripts/db-roles.ts",
+    "db:studio": "dotenv -e .env -- drizzle-kit studio",
+    "db:check": "dotenv -e .env -- tsx scripts/test-db-connection.ts",
+    "seed": "dotenv -e .env -- tsx scripts/seed.ts"
   },
   "dependencies": {
     "@ag-ui/core": "0.0.59",
@@ -91,7 +78,6 @@
     "zustand": "^5.0.15"
   },
   "devDependencies": {
-    "@cliftonc/cfld": "^0.2.5",
     "@iarna/toml": "^2.2.5",
     "@tailwindcss/postcss": "^4.3.3",
     "@tailwindcss/typography": "^0.5.20",
@@ -118,7 +104,6 @@
     "tsx": "^4.23.13",
     "typescript": "^5.9.3",
     "vite": "^6.4.3",
-    "vitest": "^3.2.7",
-    "wrangler": "^4.147.0"
+    "vitest": "^3.2.7"
   }
 }

@@ -1,6 +1,7 @@
 /**
  * `resolveClientIp` (`src/api/utils/routes/client-ip.ts`), the one rule for a client's address:
- * the socket on Node unless trusted proxies are declared, Cloudflare's header on the Worker.
+ * the socket unless trusted proxies are declared; the first X-Forwarded-For entry when the runtime
+ * knows no socket (a bare `app.request`). `cf-connecting-ip` is never read (M6b).
  */
 import { describe, expect, it } from 'vitest'
 import { resolveClientIp } from '@/api/utils/routes/client-ip'
@@ -16,7 +17,7 @@ describe('resolveClientIp', () => {
       resolveClientIp({
         clientAddress: '203.0.113.9',
         trustedProxyHops: 0,
-        header: headers({ 'x-forwarded-for': '1.1.1.1', 'cf-connecting-ip': '2.2.2.2' }),
+        header: headers({ 'x-forwarded-for': '1.1.1.1' }),
       })
     ).toBe('203.0.113.9')
   })
@@ -47,13 +48,16 @@ describe('resolveClientIp', () => {
     )
   })
 
-  it('Worker (no socket address): cf-connecting-ip, else the first X-Forwarded-For entry', () => {
+  it('no socket address: the first X-Forwarded-For entry, and never cf-connecting-ip', () => {
     expect(
       resolveClientIp({
         trustedProxyHops: 0,
         header: headers({ 'cf-connecting-ip': '2.2.2.2', 'x-forwarded-for': '1.1.1.1' }),
       })
-    ).toBe('2.2.2.2')
+    ).toBe('1.1.1.1')
+    expect(
+      resolveClientIp({ trustedProxyHops: 0, header: headers({ 'cf-connecting-ip': '2.2.2.2' }) })
+    ).toBe(null)
     expect(
       resolveClientIp({
         trustedProxyHops: 0,

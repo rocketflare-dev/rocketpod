@@ -1,10 +1,14 @@
 # CONCEPTS — what is built, and why
 
+> **Rocketpod (M6b).** Cloudflare is gone: no Worker, tomls, bindings, wrangler or provisioning.
+> Passages below that still name them describe Rocketflare and are rewritten in ROADMAP M8; the
+> runtime as it is now is `.claude/rules/runtime.md` and `docs/DESIGN-SELFHOSTED.md`.
+
 One section per subsystem: what it does, the invariant it protects, the decision behind it
 (D-numbers), and its **Known gaps**. Check here before assuming a capability exists; update it when
 you change one. **Keep it short** — a section states the rule and points at where the detail lives.
 Conventions and mechanics belong in `.claude/rules/*.md` and the per-directory `CLAUDE.md` files;
-setup in `SETUP.md`; Cloudflare topology in `docs/DEPLOY.md`; RLS in `docs/RLS.md`.
+setup in `SETUP.md`; the runtime in `.claude/rules/runtime.md`; RLS in `docs/RLS.md`.
 
 | § | Section | § | Section |
 |---|---|---|---|
@@ -18,7 +22,7 @@ setup in `SETUP.md`; Cloudflare topology in `docs/DEPLOY.md`; RLS in `docs/RLS.m
 | 8 | [Analytics](#8-analytics) | 16 | [Plugins](#16-plugins) |
 |  |  | 17 | [Connectors](#17-connectors) |
 
-**Layout (D26).** A pnpm workspace: `apps/web` (the Worker — Hono API + React UI, §§1–10),
+**Layout (D26).** A pnpm workspace: `apps/web` (the Node server — Hono API + React UI, §§1–10),
 `apps/cli` (§11), `packages/shared` (zod contracts, §12), and `apps/evals` (developer-run eval
 suites on vitest 4, §9 — never part of the gate).
 
@@ -153,7 +157,7 @@ is sent as `client_secret_basic` only (no `private_key_jwt`).
 - **Routes are thin** and never run long work (§5).
 - **Local dev ports**: Vite :3000 proxies to `wrangler dev` :3001 (or `pnpm web dev:node`, the
   Node entry on `PORT`, default 3001), both `strictPort`, unless
-  `DEV_UI_PORT` / `DEV_API_PORT` are set (shell, then `.dev.vars`; `scripts/lib/dev-ports.mjs` is the
+  `DEV_UI_PORT` / `DEV_API_PORT` are set (shell, then `.env`; `scripts/lib/dev-ports.mjs` is the
   one reader). `APP_URL` follows the UI port by hand — the Worker cannot read the shell — and
   outside production CORS/CSRF also allow the loopback twin of `APP_URL` and of the request's own
   loopback origin. `SETUP.md` 1.6.
@@ -164,7 +168,7 @@ is sent as `client_secret_basic` only (no `private_key_jwt`).
   `SETUP.md` 1.10.
 
 **Known gaps:** on Node, uploads answer 503 until `STORAGE_*` is configured; `pnpm dev` still runs `wrangler dev` (M7 switches it); `pnpm dev:tunnel` always targets :3000 (cfld reads `package.json`); `pnpm dev:api`
-alone reads `DEV_API_PORT` from the shell only, not `.dev.vars`; no `/api/ready` smoke step against a preview; no OpenAPI (`@hono/zod-openapi` is the
+alone reads `DEV_API_PORT` from the shell only, not `.env`; no `/api/ready` smoke step against a preview; no OpenAPI (`@hono/zod-openapi` is the
 path); no per-PR previews.
 
 ## 4. Database
@@ -360,7 +364,7 @@ connection cap per tenant or user (the DO had none either) and no metrics.
   `deleteMany` in calls of ≤ 1000, a streamed body. S3 lower-cases metadata keys, so the originals
   ride in `x-amz-meta-rp-keys` and come back case-preserved. Locally and in tests the store is the
   **Versity S3 Gateway** (Apache-2.0) in the compose files — MinIO's images are no longer published
-  for anonymous pulls; `pnpm dev:db:up` starts it and writes the `STORAGE_*` lines into `.dev.vars`.
+  for anonymous pulls; `pnpm dev:db:up` starts it and writes the `STORAGE_*` lines into `.env`.
 
 **Known gaps:** `avatarUrl` is global but the object is tenant-scoped (initials fallback elsewhere);
 re-uploads leave the old object; no listing endpoint, quotas or presigned URLs; unbranded templates.
@@ -515,7 +519,7 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
 - **Evals (D33)**: `apps/evals`, its own workspace package because vitest-evals needs vitest 4 and
   the kit's suites are on vitest 3. `pnpm eval [suite] [--model x] [--judge-model y] [--compare]`
   runs `suites/**/*.eval.ts` against the TEST database with real models (the platform
-  `ANTHROPIC_API_KEY` from `.dev.vars`; no key → every suite skips and says why). **Targets are
+  `ANTHROPIC_API_KEY` from `.env`; no key → every suite skips and says why). **Targets are
   in-process and go through the product's own code**: the chat target drives the real
   `POST /api/chat/conversations/:id/messages` route (so `prepareChatTurn` decides prompt, history and
   tools, as in production); the agent target runs `enqueueRun` → `claimStep` → `executeRun` →
@@ -592,48 +596,23 @@ zero-length span, not an OTLP span event, and is not traced when the answer's ro
 
 ## 10. Deployment
 
-Two standalone tomls (D6) kept identical in everything code can see by `wrangler-parity.test.ts`.
-Account-scoped names carry `-staging`. Neon uses one project with a branch and role per
-environment; under `postgres` Hyperdrive points at the direct host, under `neon` the Worker's
-`DATABASE_URL` secret holds the pooled one (D35). Tagging `X.Y.Z` (which must equal the root
-version) deploys staging; publishing the Release deploys production. `ci.yml` is ONE gate job — the
-secrets scan, then `pnpm gate` (§4), narrowed to `pnpm gate build` only on a tree Launch already
-gated when `LAUNCH_GATE_APP_ID` is set (§4, "Verified once") — which `deploy.yml` calls only when there is something to
-deploy (`guard`) and the commit has no successful CI run yet — nor, for a version-only bump (the root
-`package.json` `"version"` and nothing else, `release-check.mjs --version-only`), does its one parent:
-a commit is gated once, and the kit's
-own tags (nothing to deploy) finish in seconds with a summary saying why. The kit's renamed-copy
-and default-plugins gates, its porting-note and plugin-API checks live in `kit.yml`, which is
-`kitOnly` — a copy has no such file — and is a pull-request check, never a deploy precondition. `pnpm provision <phase>` / `/rf-provision` automates
-accounts → resources → secrets → deploy over REST. Reference: `docs/DEPLOY.md`, `SETUP.md` Part 3.
+**Removed in M6b; the container path is ROADMAP M7.** Rocketflare's Cloudflare deploy — two tomls
+and their parity test, `pnpm provision` / `/rf-provision`, `deploy.yml`, the external deployer and
+the build-once bundle — is gone. What remains: the release is the tag, which must equal the root
+`package.json` version (`release-check.mjs`), and `ci.yml` is ONE gate job — the secrets scan, then
+`pnpm gate` (§4), narrowed to `pnpm gate build` only on a tree Launch already gated when
+`LAUNCH_GATE_APP_ID` is set. `release-check.mjs --deployable` answers "the kit itself does not
+deploy, a copy does", and `gatedDecision` ("is this commit already gated?") is kept for the release
+workflow M7 adds. The production server is `pnpm build` then
+`node apps/web/dist/server.js [web|worker|all]`, configured entirely by environment variables
+(`apps/web/.env.example`); `pnpm db:migrate:ci` migrates it. The kit's renamed-copy and
+default-plugins gates, its porting-note and plugin-API checks live in `kit.yml` (`kitOnly`).
 
-**External deployer (opt-in).** A Cloudflare token that can deploy a Worker can bind any resource in
-the account into it, so a CI job holding one can reach other apps' data. With the repository
-variable `DEPLOYER_URL` set, `deploy.yml` holds no Cloudflare token and no database credential: it
-proves who it is with a GitHub OIDC token and hands the dry-run build to a deployer that checks the
-bindings, stores an undeployed version, issues short-lived migration credentials, then activates
-(`scripts/deployer.mjs`; the v1 contract is `docs/DEPLOYER.md`). Unset, the default path is unchanged.
+**Known gaps:** no image, no Compose file for the app, no Helm chart, no release workflow (M7); no
+runbook (`docs/DEPLOY.md` is Rocketflare's, kept for reference until M8); Launch cannot ship this kit
+— its contract is Cloudflare-shaped (`launch.kit.json` `$runtime`).
 
-**Build once (deployer path).** Production used to rebuild the tag, so Live never ran the bytes
-Staging validated. Now staging packs its build into `launch-bundle-<tag>.tgz` and attaches it to a
-DRAFT GitHub Release (a draft fires no `release: published`, so nothing promotes early); publishing
-the draft deploys exactly those bytes after `scripts/bundle.mjs` checks the digest, tag, commit and
-tree against the checkout. The bundle is environment-neutral — every binding and var comes from
-the toml the deployer receives — and GitHub Releases stay the external record. No asset → today's
-build (`docs/DEPLOYER.md` → Build once).
-
-**Known gaps:** no release helper beyond `kit:release`; no per-PR previews; no CLI publishing;
-provisioning HTTP calls have not been run end-to-end against live accounts; no automated
-Workers-plan check. The kit ships no deployer, only the client and the contract; the job waits for
-approval on a runner (fine for minutes, wasteful for hours — there is no re-dispatch). A deploy
-dispatched while the pushed commit's CI run is still in progress gates again rather than waiting
-for it. Build once covers only the deployer path, and only a promotion that PUBLISHES the staging
-draft: a new release created for the tag instead has no bundle, so production rebuilds. Every
-upload carries its `digest` and `source` (`bundle` | `build`), but comparing production's digest
-with staging's is the deployer's job (Launch refuses a `bundle` upload that differs), not the
-kit's; a staging dispatch from a branch packs nothing. A failed attach is a warning on a green run, not a
-red one (staging is live), and leaves that tag to build at promotion; unpromoted bundle drafts are
-pruned to the newest `BUNDLE_KEEP_DRAFTS` (5) after each attach.
+---
 
 ## 11. CLI
 
@@ -732,7 +711,7 @@ cycle). Detail: `packages/shared/CLAUDE.md`.
 
 **Known gaps:** a copy pinned before 0.10.1 has no update hook until it upgrades (and
 `.claude/settings.json` is `manual`, so that upgrade must add the hook entry by hand); summaries
-only for a GitHub-hosted kit; tomls and `.dev.vars.example` are diffed, not merged; the reject rate is not
+only for a GitHub-hosted kit; tomls and `.env.example` are diffed, not merged; the reject rate is not
 predicted; pre-manifest copies need `--adopt`; no partial upgrades; nothing checks the adopter ran
 migrations; lockstep plugin releases bump every plugin in a monorepo; a copy on 0.15.7 or older deletes
 its kit-only tests by hand once (its upgrader predates `kitOnly`); the release and rename SCRIPTS

@@ -18,10 +18,9 @@ import { ServiceUnavailableError } from '../utils/core/errors'
 import { newId } from '../utils/core/ids'
 
 /**
- * The queue NAME prefix both tomls use (`rocketpod-jobs` in production, `-staging` on staging).
- * Queue names are account-scoped, so each environment needs its own; the consumer therefore matches
- * `batch.queue` by PREFIX rather than exact name and no application code is environment-aware.
- * ADAPTING: rename the queue in BOTH tomls and change this one constant.
+ * The jobs queue's NAME (`rocketpod-jobs`, `src/node/jobs-schema.ts`). The consumer matches
+ * `batch.queue` by PREFIX rather than exact name, so an environment-suffixed queue
+ * (`rocketpod-jobs-staging`) needs no application change. ADAPTING: change this one constant.
  */
 export const JOBS_QUEUE_NAME_PREFIX = 'rocketpod-jobs'
 
@@ -40,7 +39,7 @@ export interface EnqueueOptions {
 
 /**
  * Thrown when a code path needs the queue and the platform has none: a 503 `jobs_not_configured`
- * (the Worker without its `JOBS_QUEUE` binding; a Node process built without the pg-boss producer).
+ * (a process built without the pg-boss producer).
  */
 export class JobsQueueNotConfiguredError extends ServiceUnavailableError {
   constructor() {

@@ -117,15 +117,7 @@ export const DECLARED_ENTRIES = [
  * without this, every core import of `@/plugins/api` would read as reaching into a plugin called
  * "api", and the directory would be reported as an installed plugin with no declared surface.
  */
-export const RESERVED_PLUGIN_IDS = new Set([
-  'index',
-  'server',
-  'ui',
-  'schema',
-  'types',
-  'api',
-  'worker-exports',
-])
+export const RESERVED_PLUGIN_IDS = new Set(['index', 'server', 'ui', 'schema', 'types', 'api'])
 
 // ---------------------------------------------------------------- paths and specifiers
 

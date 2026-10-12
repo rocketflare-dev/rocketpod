@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * The local dev stack: `wrangler dev` (:3001) + Vite (:3000), supervised here instead of by
+ * The local dev stack: the Node server under `tsx watch` (:3001) + Vite (:3000), supervised here instead of by
  * `concurrently` — two children of ONE node process is a tree that can actually be killed, and it
  * lets us own the output. The ports are `DEV_API_PORT` / `DEV_UI_PORT` when set, in the shell or in
- * `.dev.vars` (`scripts/lib/dev-ports.mjs`). Modes:
+ * `.env` (`scripts/lib/dev-ports.mjs`). Modes:
  *
  *   --start       (`pnpm dev`) preflight, then run both servers: a spinner while they boot, then
  *                 one ready line with the Vite URL, then only what matters (app logs, warnings,
@@ -14,7 +14,7 @@
  *                 a port (Vite is `strictPort`, so it cannot quietly land on the API's).
  *   --stop        (`pnpm dev:stop`) kill the whole tree, supervisor FIRST, looping until quiet:
  *                 a supervisor that restarts children can respawn one between passes, and
- *                 `workerd` ignores SIGTERM often enough to need SIGKILL.
+ *                 a child that ignores SIGTERM gets SIGKILL.
  *   --status      (`pnpm dev:status`) print what is running and who holds the ports; no signals.
  *
  * Ownership is deliberate: a process counts as ours only when its command line or its cwd is
@@ -23,10 +23,9 @@
  * `ps`/`lsof` only — no pidfile to go stale, no dependency to install.
  */
 import { execFileSync, spawn } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { readDevVars } from '../../../scripts/lib/bootstrap-lib.mjs'
 import { devPorts } from '../../../scripts/lib/dev-ports.mjs'
 
 const WEB_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -38,7 +37,7 @@ const PORTS = [DEV_PORTS.ui, DEV_PORTS.api]
  * a `--stop` / `--status` run must never be a target of another instance's sweep.
  */
 const DEV_COMMAND =
-  /(dev-server\.mjs --start|concurrently|vite\/bin\/vite|wrangler\/bin\/wrangler|wrangler dev|workerd)/
+  /(dev-server\.mjs --start|concurrently|vite\/bin\/vite|tsx.*src\/node\/server\.ts|dev-db\.mjs env)/
 const GRACE_MS = 3000
 /** Passes over the tree: a restarting supervisor can respawn children between passes. */
 const MAX_STOP_PASSES = 6
@@ -97,8 +96,8 @@ function selfAncestry(table) {
 
 /**
  * This repo's dev processes: the stack commands whose command line or cwd is in the repo, plus
- * every descendant of those (the `sh -c … wrangler dev` wrapper, esbuild and workerd children
- * carry no repo path of their own).
+ * every descendant of those (the `dotenv` and `tsx` wrappers and esbuild children carry no repo
+ * path of their own).
  */
 function ownDevProcesses(table, holders) {
   const safe = selfAncestry(table)
@@ -163,7 +162,7 @@ async function stop({ quiet = false } = {}) {
   for (let pass = 0; pass < MAX_STOP_PASSES; pass += 1) {
     const procs = killOrder(ownDevProcesses(processTable(), portHolders()))
     if (procs.length === 0) break
-    // Polite once; anything still there on a later pass (workerd, respawned children) is killed.
+    // Polite once; anything still there on a later pass (a stuck or respawned child) is killed.
     const signal = pass === 0 ? 'SIGTERM' : 'SIGKILL'
     for (const p of procs) {
       if (!quiet) console.log(`dev: ${signal} ${p.pid}  ${short(p.command)}`)
@@ -235,35 +234,14 @@ const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g')
 const stripAnsi = line => line.replace(ANSI, '')
 
 /**
- * Startup chatter neither server needs to show twice: wrangler prints the whole bindings table on
- * boot AND again when the remote `AI` connection settles, repeats every request the app's own pino
- * logger already logged, and advertises the Local Explorer. A suppressed line also swallows the
- * blank and indented lines under it, so a multi-line block goes as one. Warnings and errors that
- * are not on this list are never filtered — and `DEV_VERBOSE=1` shows everything.
+ * Startup chatter nobody needs to see twice: Vite's banner and daisyUI's. A suppressed line also
+ * swallows the blank and indented lines under it, so a multi-line block goes as one. Warnings and
+ * errors that are not on this list are never filtered — and `DEV_VERBOSE=1` shows everything.
  */
-const NOISE = [
-  /^env\.\w+/,
-  /^Binding\s+Resource\s+Mode/,
-  /^Your Worker has access to the following bindings:/,
-  /^Using secrets defined in \.dev\.vars/,
-  /^⛅️? ?wrangler /,
-  /^─+$/,
-  /^⎔ /,
-  /Your types might be out of date/,
-  /^\[wrangler:info] (GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS) /,
-  /^\[wrangler:info] Ready on /,
-  /^\s*(VITE v|➜ {2}|Local: {3}|Network: )/,
-  /^\/\*! .* daisyUI/,
-  /Scheduled Workers are not automatically triggered/,
-  /^Wrangler detected this dev session/,
-  /^The Local Explorer API is available/,
-  /^Useful routes:/,
-  /^If the routes above don't cover/,
-  /^(GET|POST|curl) .*\/cdn-cgi\/local\/explorer/,
-]
+const NOISE = [/^\s*(VITE v|➜ {2}|Local: {3}|Network: )/, /^\/\*! .* daisyUI/]
 
 const READY_UI = /Local:\s+(http:\/\/\S*?)\/?\s*$/
-const READY_API = /Ready on (http:\/\/\S+)/
+const READY_API = /web: listening on :\d+/
 
 function createSpinner(enabled) {
   let frame = 0
@@ -288,19 +266,6 @@ function createSpinner(enabled) {
       if (enabled) process.stdout.write('\r\u001b[K')
     },
   }
-}
-
-/**
- * The Worker's local Hyperdrive binding, pointed at whichever port `pnpm dev:db:up` chose for
- * THIS checkout (scripts/dev-db.mjs writes it to .dev.vars). The toml's `localConnectionString`
- * is only the single-checkout default; without this a second checkout's Worker would talk to
- * the first checkout's database.
- */
-function databaseEnv() {
-  const file = path.join(WEB_DIR, '.dev.vars')
-  if (!existsSync(file)) return {}
-  const url = readDevVars(readFileSync(file, 'utf8')).DATABASE_URL
-  return url ? { CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE: url } : {}
 }
 
 async function start({ verbose }) {
@@ -353,11 +318,19 @@ async function start({ verbose }) {
 
   /** Spawn one server, forwarding filtered output; restart it if it dies while we are running. */
   const launch = (name, bin, args) => {
-    const child = spawn(path.join(WEB_DIR, 'node_modules/.bin', bin), args, {
-      cwd: WEB_DIR,
-      env: { ...process.env, FORCE_COLOR: '1', ...databaseEnv() },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    })
+    const child = spawn(
+      bin === 'node' ? process.execPath : path.join(WEB_DIR, 'node_modules/.bin', bin),
+      args,
+      {
+        cwd: WEB_DIR,
+        env: {
+          ...process.env,
+          FORCE_COLOR: '1',
+          ...(name === 'api' && { PORT: String(DEV_PORTS.api) }),
+        },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }
+    )
     children.set(name, child)
     // Everything a server said before it was ready, kept so a crash can explain itself.
     const buffered = []
@@ -408,8 +381,8 @@ async function start({ verbose }) {
 
   /**
    * Ctrl-C (SIGINT), `pnpm dev:stop` (SIGTERM) and a child that died during boot all land here:
-   * signal the children, then sweep the repo so nothing `wrangler` spawned (workerd, esbuild) is
-   * left holding a port. The sweep cannot touch another terminal's `--stop`, and re-entry is
+   * signal the children, then sweep the repo so nothing they spawned (tsx, esbuild) is left
+   * holding a port. The sweep cannot touch another terminal's `--stop`, and re-entry is
    * ignored so a second Ctrl-C does not race the first.
    */
   const shutdown = async code => {
@@ -426,7 +399,21 @@ async function start({ verbose }) {
   process.on('SIGTERM', () => void shutdown(0))
 
   phase()
-  launch('api', 'wrangler', ['dev', '--port', String(DEV_PORTS.api)])
+  // The Node server under `tsx watch` with `.env` loaded and DATABASE_URL pointed at THIS
+  // checkout's database — the same command as `pnpm dev:api`, unfiltered there.
+  launch('api', 'node', [
+    'scripts/dev-db.mjs',
+    'env',
+    '--',
+    path.join(WEB_DIR, 'node_modules/.bin/dotenv'),
+    '-e',
+    '.env',
+    '--',
+    path.join(WEB_DIR, 'node_modules/.bin/tsx'),
+    'watch',
+    'src/node/server.ts',
+    'all',
+  ])
   launch('ui', 'vite', [])
 }
 

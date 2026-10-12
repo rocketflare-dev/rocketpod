@@ -120,9 +120,9 @@ does not exist.
 - **The status `pgEnum` is append-only**, and so is every plugin release: **expand and contract,
   never rename.** drizzle-kit's rename prompt has no non-interactive answer, so a release that
   renames a column is a release nobody can apply unattended.
-- **The plugin ships no migration and edits no toml.** The host runs `pnpm db:generate --name
-  plugin-orders-<version>`; a declared binding, cron or `[vars]` key is written into both tomls by
-  `pnpm provision cloudflare <env>`.
+- **The plugin ships no migration.** The host runs `pnpm db:generate --name
+  plugin-orders-<version>`; a cron is registered in its `scheduledTasks` and a var is an
+  environment variable (`.env.example`).
 
 ## Sizing (step 4)
 

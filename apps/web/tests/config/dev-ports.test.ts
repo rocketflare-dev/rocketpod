@@ -1,7 +1,7 @@
 /**
  * `scripts/lib/dev-ports.mjs` — the one reader of the local dev ports that Vite, the dev
  * supervisor, the bootstrap and the seed share. Unset means the kit's :3000 (UI) / :3001 (API), so
- * an existing checkout behaves exactly as before; the shell beats `apps/web/.dev.vars`; a value
+ * an existing checkout behaves exactly as before; the shell beats `apps/web/.env`; a value
  * that is not a port throws rather than silently landing on a default.
  */
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
@@ -21,14 +21,14 @@ describe('resolveDevPorts', () => {
     expect(resolveDevPorts()).toEqual({ ui: 3000, api: 3001 })
   })
 
-  it('reads .dev.vars values when the shell has none', () => {
+  it('reads .env values when the shell has none', () => {
     expect(resolveDevPorts({}, { DEV_UI_PORT: '5199', DEV_API_PORT: '8799' })).toEqual({
       ui: 5199,
       api: 8799,
     })
   })
 
-  it('lets the shell win over .dev.vars, key by key', () => {
+  it('lets the shell win over .env, key by key', () => {
     expect(
       resolveDevPorts({ DEV_UI_PORT: '4000' }, { DEV_UI_PORT: '5199', DEV_API_PORT: '8799' })
     ).toEqual({ ui: 4000, api: 8799 })
@@ -68,7 +68,7 @@ describe('resolveDevAllowedHosts', () => {
   })
 })
 
-describe('devPorts / devAllowedHosts over a .dev.vars file', () => {
+describe('devPorts / devAllowedHosts over a .env file', () => {
   let dir = ''
   afterEach(() => {
     if (dir) rmSync(dir, { recursive: true, force: true })
@@ -76,7 +76,7 @@ describe('devPorts / devAllowedHosts over a .dev.vars file', () => {
   })
   const devVarsFile = (text: string) => {
     dir = mkdtempSync(path.join(tmpdir(), 'dev-ports-'))
-    const file = path.join(dir, '.dev.vars')
+    const file = path.join(dir, '.env')
     writeFileSync(file, text)
     return file
   }
@@ -93,8 +93,8 @@ describe('devPorts / devAllowedHosts over a .dev.vars file', () => {
     })
   })
 
-  it('falls back to the defaults when there is no .dev.vars yet', () => {
-    const missing = path.join(tmpdir(), 'no-such-dir-dev-ports', '.dev.vars')
+  it('falls back to the defaults when there is no .env yet', () => {
+    const missing = path.join(tmpdir(), 'no-such-dir-dev-ports', '.env')
     expect(devPorts({ env: {}, devVarsFile: missing })).toEqual({ ui: 3000, api: 3001 })
     expect(devAllowedHosts({ env: {}, devVarsFile: missing })).toEqual([])
   })

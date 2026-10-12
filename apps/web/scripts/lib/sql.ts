@@ -1,7 +1,7 @@
 /**
  * Raw SQL for the Node scripts (migrate, db-roles, db:check, provision): postgres.js over TCP.
  * `DATABASE_DRIVER` is still read (and must be `postgres` or unset — `databaseDriver()` refuses
- * the removed `neon` with the fix), so a stale `.dev.vars` fails loudly rather than silently.
+ * the removed `neon` with the fix), so a stale `.env` fails loudly rather than silently.
  *
  * Queries are text + `$n` parameters.
  */

@@ -17,7 +17,7 @@ export const tracerMiddleware = createMiddleware<AppEnv>(async (c, next) => {
   const cfg = c.get('config')
   const tracer = tracerFor(cfg, {
     logger: c.get('logger'),
-    store: ownConnectionSpanStore(cfg, c.env),
+    store: ownConnectionSpanStore(cfg),
   })
   c.set('tracer', tracer)
   try {

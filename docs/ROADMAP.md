@@ -191,12 +191,21 @@ to MinIO, AWS S3, R2 and GCS. Excel and OpenDocument uploads are not converted o
   - Add `EMBEDDINGS_BASE_URL/MODEL`, still 1024 dims.
   - No key still gives 503. Tests use the recorded fakes.
 
-### M6b. Delete the Cloudflare path (1–2 d)
-- Delete `src/worker.ts`, `src/platform/cloudflare/`, the `NotificationsHub` DO, the
-  `AgentRunWorkflow` shim, both wrangler tomls, `worker-configuration.d.ts`, `.dev.vars*`, the
-  `cloudflare:workers` mock, `HYPERDRIVE` in `db/client.ts`, `build:api`, and the Cloudflare-config
-  tests (`wrangler-parity`, `patch-toml`, `plugin-resources`, `provision-*`, `deployer`).
-- Test fakes become native in-memory `Platform` implementations (no Worker-shaped env).
+### M6b. Delete the Cloudflare path (1–2 d) — done
+- Deleted `src/worker.ts`, `src/platform/cloudflare/`, the `NotificationsHub` DO, the
+  `AgentRunWorkflow` shim, both wrangler tomls, `worker-configuration.d.ts`, the
+  `cloudflare:workers` mock, `HYPERDRIVE`, `build:api`, `pnpm types|deploy|provision`, `cfld` /
+  `dev:tunnel`, `deploy.yml`, the deployer and build-once bundle, the `rf-provision` skill, the
+  plugin `bindings[]` / `workerExports` model (refused at install) and the `worker-exports` barrel,
+  and the Cloudflare-config tests. `.dev.vars*` → `.env` / `.env.example`; `pnpm dev` runs Node.
+- Test fakes are native in-memory `Platform` implementations (`tests/mocks/bindings.ts`,
+  `tests/mocks/step.ts`); `platform-seam.test.ts` is a "no Cloudflare anywhere" guard.
+- Bootstrap step 8 is `ai` (which provider keys `.env` holds); `--offline/--online` are accepted
+  and ignored. `launch.kit.json` stays schema-valid with a `$runtime` note: Launch's contract is
+  Cloudflare-shaped, so `kit.yml` no longer runs `kit-check.mjs`.
+- Deferred to M8: the `workers-ai` provider kind (DB enum, shared contracts, UI, pricing) still
+  exists but can never run (`Platform.ai` is always null); SETUP Part 2, CONCEPTS §§ beyond 10,
+  DEPLOY, ADAPTING, RLS and CONTRIBUTING carry an M6b banner instead of a rewrite.
 
 ### M7. Packaging: Docker, Compose, Helm (3–4 d)
 - Multi-stage `Dockerfile`: `vite build` + a `tsup` server bundle, then a non-root slim Node 24 image.

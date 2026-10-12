@@ -75,7 +75,7 @@ export default function ExampleFeaturePage() {
                 ping.mutate(undefined, {
                   onSuccess: job =>
                     showToast(
-                      `Queued ${job.type} (${job.jobId.slice(0, 8)}) — watch wrangler dev`,
+                      `Queued ${job.type} (${job.jobId.slice(0, 8)}) — watch the server log`,
                       'success'
                     ),
                 })

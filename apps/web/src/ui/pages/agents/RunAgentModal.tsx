@@ -70,7 +70,7 @@ function RunAgentForm({
         icon={CpuChipIcon}
         size="sm"
         message="Agent runs are not configured"
-        description="This deployment has no AGENT_RUN_WORKFLOW binding, so runs cannot be started. An operator enables it in wrangler.toml (see the deploy runbook)."
+        description="This deployment has no run engine, so runs cannot be started. An operator enables it by running the server's worker process against the database (see the deploy runbook)."
       />
     )
   }

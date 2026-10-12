@@ -167,7 +167,7 @@ describe('Agents page', () => {
     fireEvent.submit(document.getElementById('run-agent-form') as HTMLFormElement)
 
     expect(await screen.findByText('Agent runs are not configured')).toBeInTheDocument()
-    expect(screen.getByText(/AGENT_RUN_WORKFLOW/)).toBeInTheDocument()
+    expect(screen.getByText(/no run engine/)).toBeInTheDocument()
     expect(useToastStore.getState().toasts).toHaveLength(0)
   })
 

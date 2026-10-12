@@ -164,7 +164,7 @@ describe('POST /api/ai/documents/ingest + /search', () => {
     expect((await search(a.cookie, env, { query: '' })).status).toBe(400)
     expect((await search(a.cookie, env, { query: 'x', limit: 99 })).status).toBe(400)
     expect((await request('/api/ai/documents', {}, { env })).status).toBe(401)
-    const bare = createTestEnv({ AI: undefined, EMBEDDINGS_API_KEY: '' })
+    const bare = createTestEnv({ ai: null, EMBEDDINGS_API_KEY: '' })
     const res = await ingest(a.cookie, bare, 'No provider', 'text')
     expect(res.status).toBe(503)
     expect(await json(res)).toMatchObject({ statusCode: 503, code: 'ai_not_configured' })

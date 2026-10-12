@@ -4,13 +4,17 @@
 
 <h1 align="center">Rocketpod</h1>
 
-<p align="center"><strong>A multi-tenant SaaS starter kit for Cloudflare Workers — copy it, rename it, ship an internal tool or a B2B product.</strong></p>
+<p align="center"><strong>A multi-tenant SaaS starter kit that runs in a container — Node, Postgres and any S3-compatible store. Copy it, rename it, ship an internal tool or a B2B product.</strong></p>
 
 Rocketpod is one repository that already solves the platform work every internal or B2B product
 needs before its first real feature: tenancy, sign-in, roles and permissions, background jobs,
 realtime, file storage, analytics dashboards, an AI layer (chat, agents, retrieval) and a CLI —
-running as a single Cloudflare Worker over Postgres, with a React UI and a shared contract package
-that keeps the API, the UI and the CLI in agreement. The first local run needs **zero external
+running as one Node server over Postgres (jobs, cron, durable agent runs and realtime fan-out all
+live there) plus an S3-compatible object store, with a React UI and a shared contract package that
+keeps the API, the UI and the CLI in agreement. It is a hard fork of
+[Rocketflare](https://github.com/rocketflare-dev/rocketflare) with no Cloudflare dependency
+([`docs/FORK.md`](docs/FORK.md)); the container image, Compose and Helm are
+[`docs/ROADMAP.md`](docs/ROADMAP.md) M7. The first local run needs **zero external
 credentials**, and the codebase is written to be driven by a coding agent: `CLAUDE.md`,
 `.claude/rules/`, per-directory guides and a "how it works" reference mean the next feature is a
 contract → schema → route → page (→ command) loop, not a platform project.
@@ -24,9 +28,8 @@ here. Cut loose is not cut off: your copy keeps a `.rocketflare.json` saying whe
 
 **Ask your coding agent.** Open the copy in Claude Code and type **`/rf-setup`** — it checks the
 toolchain, starts Postgres, migrates, seeds the demo workspace and leaves you signed in, showing one
-verification line per step. Then **`/rf-adapt <slug> "Your App"`** renames the kit to your app, and
-**`/rf-provision`** deploys it (you type that one yourself: it creates paid resources and prompts for
-vendor tokens). **`/rf-plugin`** installs a capability as a plugin — a git repository copied into your
+verification line per step. Then **`/rf-adapt <slug> "Your App"`** renames the kit to your app.
+**`/rf-plugin`** installs a capability as a plugin — a git repository copied into your
 app, with the plan shown before anything is written. Later, when the kit has moved on,
 **`/rf-upgrade`**.
 
@@ -46,17 +49,15 @@ git remote add origin git@github.com:<you>/myapp.git                            
 bash scripts/bootstrap.sh          # checks Node 24 / pnpm 10 / Docker, generates the local secret, starts
                                    # Postgres, migrates, seeds demo data, starts the app and opens the
                                    # browser signed in as the demo owner. Re-runnable.
-                                   #   --offline  skip the Cloudflare login by disabling Workers AI ([ai] off in both tomls)
                                    #   --no-demo  seed the bare tenant and users only (plain `pnpm seed`)
                                    #   --db-url <url>  no Docker: use an existing Postgres (a Neon branch)
-                                   #   --driver neon|postgres  the LOCAL database driver (default postgres)
 ```
 
 `SETUP.md` Part 1 is the same thing written out, one verification line per step.
 
-Nothing external is required: no `RESEND_API_KEY` → magic-link URLs are logged by `wrangler dev`; no AI
-key → chat, agents and embeddings run on Workers AI through the `[ai]` binding (billed to your
-Cloudflare account, 10k free neurons/day); no Cloudflare login, or zero-spend wanted → `--offline`.
+Nothing external is required: no `RESEND_API_KEY` → magic-link URLs are logged by the server; no AI
+key → chat, agents and uploads answer 503 until you set `ANTHROPIC_API_KEY` or `AI_API_KEY` (any
+OpenAI-compatible endpoint) and `EMBEDDINGS_API_KEY` in `apps/web/.env`.
 Then `pnpm gate` — lint, typecheck, test and build, the same command CI runs; `pnpm test` starts a
 throwaway Postgres on :5433 and the Neon proxy itself, runs the suite, then proves the driver seam
 under the Neon driver. Before
@@ -69,12 +70,12 @@ you removed. [`CHANGELOG.md`](CHANGELOG.md) is what you would be catching up on.
 
 | Layer | Choice |
 |---|---|
-| Runtime | Cloudflare Workers (`nodejs_compat`): one Worker exports `fetch` + `queue` + `scheduled`, a Durable Object and a Workflow |
+| Runtime | Node 24: one server (`web` / `worker` / `all` modes) — Hono on `@hono/node-server`, pg-boss jobs + cron, OpenWorkflow agent runs |
 | API | Hono 4, zod contracts, CASL abilities, JSON error envelope everywhere |
-| Database | Postgres 17 + pgvector — Docker locally; deployed, Neon over its serverless driver (a fresh copy's default) or any Postgres through Hyperdrive and `postgres.js` (`DATABASE_DRIVER`, D35); Drizzle, one client per request |
-| UI | React 18 + Vite, DaisyUI 5 on Tailwind v4, React Router 6, TanStack Query 5; served as Workers Static Assets |
+| Database | Postgres 17 + pgvector — Docker locally, any Postgres deployed, over `postgres.js` with one pool per process; Drizzle |
+| UI | React 18 + Vite, DaisyUI 5 on Tailwind v4, React Router 6, TanStack Query 5; served by the Node server |
 | CLI | commander + chalk; browser login → tenant API key; `--json` on every list command |
-| Async / realtime | Queues, Workflows, a per-tenant Durable Object over WebSockets, cron triggers, R2 |
+| Async / realtime | pg-boss jobs and cron, OpenWorkflow durable runs, WebSockets with LISTEN/NOTIFY fan-out, S3-compatible storage |
 | AI | Anthropic / OpenAI-compatible / Workers AI chat over SSE, agents on Workflows, Workers AI embeddings → pgvector, OTLP tracing (Langfuse, Phoenix, any backend), evals (vitest-evals) with thumbs feedback |
 | Analytics | drizzle-cube semantic layer (`/cubejs-api`, `/mcp`), fact tables on a cron, TypeScript dashboard templates |
 | Quality | Biome 2, strict TypeScript, vitest against real Postgres, gitleaks, one CI gate |
@@ -130,11 +131,10 @@ you removed. [`CHANGELOG.md`](CHANGELOG.md) is what you would be catching up on.
 
 ### Developer experience
 - **Contracts first** — `packages/shared` holds the zod schemas the API validates with and the UI and CLI parse with; consumed as TypeScript source, no build step.
-- **Two environments, one shape** — `wrangler.toml` and `wrangler.staging.toml` kept identical in everything code can observe by a parity test; account-scoped names suffixed `-staging`.
-- **Release dance** — tag = root version → staging deploys; publish the GitHub Release → production ships the same tag. Migrations run in CI against the environment's Neon branch before deploy. Or set `DEPLOYER_URL` and an external deployer ships it instead, so CI holds no Cloudflare token and no production database credential ([`docs/DEPLOYER.md`](docs/DEPLOYER.md)).
-- **Tests that mean something** — API tests drive the real Hono app against a real Postgres; queue consumers, Workflow steps, the Durable Object and cron tasks are plain functions tested directly; UI tests in jsdom; a config project checks tomls, permissions and dashboard templates with no database.
+- **Release = root version** — tag = root `package.json` version. The container image, Compose and Helm release path is [`docs/ROADMAP.md`](docs/ROADMAP.md) M7.
+- **Tests that mean something** — API tests drive the real Hono app against a real Postgres; queue consumers, the agent-run body and cron tasks are plain functions tested directly, and the Node adapters run against real Postgres and an S3 gateway; UI tests in jsdom; a config project checks the no-Cloudflare guard, permissions and dashboard templates with no database.
 - **Agent-readable** — `CLAUDE.md` (also `AGENTS.md`), path-scoped rules in `.claude/rules/`, a `CLAUDE.md` in every significant directory, and `docs/CONCEPTS.md` describing each subsystem, its invariant and its known gaps.
-- **Plugins** — a feature can be a separate git repository copied in (never npm-installed, exactly like the kit): six barrels take one line each, and a plugin contributes contracts, tables with RLS policies, routes, jobs, agent tools, lifecycle hooks, Durable Object and Workflow classes, lazy pages, nav items and CLI commands without a core file naming it. In the other direction it imports the kit only through declared entries — a family of injected execution contexts, versioned as `PLUGIN_API` and documented in a generated, diff-checked `docs/plugin-api.md` — so the plugin surface can stand still while kit internals move. `pnpm plugin check` is an exhaustive audit whose every finding carries the file, the line and the exact edit, and CI runs the same command; `example-feature` is the vendored reference plugin, and it is meant to be deleted.
+- **Plugins** — a feature can be a separate git repository copied in (never npm-installed, exactly like the kit): five barrels take one line each, and a plugin contributes contracts, tables with RLS policies, routes, jobs, agent tools, lifecycle hooks, lazy pages, nav items and CLI commands without a core file naming it. In the other direction it imports the kit only through declared entries — a family of injected execution contexts, versioned as `PLUGIN_API` and documented in a generated, diff-checked `docs/plugin-api.md` — so the plugin surface can stand still while kit internals move. `pnpm plugin check` is an exhaustive audit whose every finding carries the file, the line and the exact edit, and CI runs the same command; `example-feature` is the vendored reference plugin, and it is meant to be deleted.
 - **Design tokens** — two DaisyUI themes whose brand values live in one header block; a contrast test gates the emitted tokens.
 
 ## Layout
@@ -142,7 +142,7 @@ you removed. [`CHANGELOG.md`](CHANGELOG.md) is what you would be catching up on.
 ```
 rocketpod/          workspace root: package.json (scripts delegate via pnpm -r / --filter),
 │                     pnpm-workspace.yaml, biome.json, tsconfig.base.json, CLAUDE.md, docs/, .github/
-├── apps/web/         @rocketpod/web — Worker (Hono API) + React UI; wrangler*.toml, migrations/, scripts/, tests/
+├── apps/web/         @rocketpod/web — Node server (Hono API) + React UI; src/node/, migrations/, scripts/, tests/
 ├── apps/cli/         @rocketpod/cli — `rocketpod` CLI: login, logout, whoami, status, members/keys/activity list, traces list|show, feedback list, evals promote, config
 ├── apps/evals/       @rocketpod/evals — developer-run eval suites (vitest-evals): `pnpm eval`, never part of the gate
 └── packages/shared/  @rocketpod/shared — PRIVATE zod contracts, error envelope, pagination, permission types;
@@ -150,14 +150,10 @@ rocketpod/          workspace root: package.json (scripts delegate via pnpm -r /
 ```
 
 Everything runs from the root: `pnpm bootstrap` (= `bash scripts/bootstrap.sh` once Node and pnpm
-exist; `--offline` / `--online` toggle the `[ai]` block), `pnpm preflight` (the read-only check),
+exist), `pnpm preflight` (the read-only check),
 `pnpm dev`, `pnpm seed` / `pnpm seed --demo`, `pnpm test`, `pnpm cli …`, `pnpm web <script>` (any
-`apps/web` script), `pnpm db:*`, `pnpm deploy[:staging]`, `pnpm provision tokens` (hidden prompts → `apps/web/.provision.env`)
-then `pnpm provision all` (the deploy orchestrator: Neon, Cloudflare, GitHub, secrets, Resend —
-`pnpm provision --help` lists the phases;
-`pnpm web provision:cloudflare <env> --apply` is its Cloudflare-resources half). `wrangler` is a
-devDependency of `apps/web`, so it is `pnpm --filter @rocketpod/web exec wrangler …`, never `pnpm exec
-wrangler` at the root. Root `scripts/` holds the first-run tooling: `bootstrap.sh` / `bootstrap.mjs`,
+`apps/web` script), `pnpm db:*`, `pnpm build` then `node apps/web/dist/server.js all` (the
+production server). Root `scripts/` holds the first-run tooling: `bootstrap.sh` / `bootstrap.mjs`,
 `install.sh`, `rename.mjs` (`docs/ADAPTING.md` §1 as one command) and their `lib/`.
 
 ## Not included (by design)
@@ -175,10 +171,9 @@ there list every known gap.
 | [`SETUP.md`](SETUP.md) | getting a clone running, the CLI's first login, configuring OAuth/email/AI providers (or a local OpenAI-compatible mock)/tracing, deploying to Cloudflare |
 | [`docs/CONCEPTS.md`](docs/CONCEPTS.md) | before assuming a capability exists or building a new one — one section per subsystem with its invariant and known gaps |
 | [`docs/ADAPTING.md`](docs/ADAPTING.md) | you just copied the kit to start an app (package names, CLI bin, config dir, env prefix, what to delete, where the first features go) |
-| [`docs/DEPLOY.md`](docs/DEPLOY.md) | Cloudflare topology, the two tomls, resources, release dance, rollback, bundle size |
-| [`docs/DEPLOYER.md`](docs/DEPLOYER.md) | you are building a service that deploys kit apps from CI (the versioned v1 protocol behind `DEPLOYER_URL`) |
+| [`docs/DEPLOY.md`](docs/DEPLOY.md) | Rocketflare's Cloudflare deploy runbook, kept for reference until the container runbook lands (ROADMAP M7/M8) |
 | [`docs/RLS.md`](docs/RLS.md) | tenant isolation posture and how to turn row-level security on |
-| `.claude/rules/*.md` | layer conventions (api, database, ui, cli, testing, code-quality, cloudflare) — auto-loaded by path |
+| `.claude/rules/*.md` | layer conventions (api, database, ui, cli, testing, code-quality, runtime) — auto-loaded by path |
 | `.claude/skills/` | the slash commands a coding agent drives: `/rf-setup` (first run), `/rf-preflight` (read-only diagnosis), `/rf-adapt` (rename + checklist), `/rf-how-do-i` (coaching for a new feature — asks, plans, writes `docs/features/<slug>.md`, never the code), `/rf-upgrade` (port later kit releases into your copy), `/rf-plugin` (install, upgrade, remove or audit a plugin), `/rf-traces` (debug a run or chat turn from its span tree; pick or switch a tracing backend), `/rf-evals` (write, run and interpret evals; compare models or prompts; turn thumbs-down into cases) — an agent may run those when you ask in plain words — and `/rf-provision` (deploy to Cloudflare + Neon + Resend), which only you can start: it creates paid resources and prompts for tokens |
 
 ## Provenance

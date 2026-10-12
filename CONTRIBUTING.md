@@ -1,5 +1,9 @@
 # Contributing
 
+> **Rocketpod (M6b).** Cloudflare is gone: no Worker, tomls, bindings, wrangler or provisioning.
+> Passages below that still name them describe Rocketflare and are rewritten in ROADMAP M8; the
+> runtime as it is now is `.claude/rules/runtime.md` and `docs/DESIGN-SELFHOSTED.md`.
+
 Welcome — thanks for your interest in Rocketflare.
 
 Rocketflare is maintained by [Clifton Cunningham](https://github.com/cliftonc) and community
@@ -48,7 +52,7 @@ Node 24 (`.nvmrc`), pnpm 10 (`corepack enable` reads `packageManager`), Docker; 
 
 ```bash
 git clone https://github.com/rocketflare-dev/rocketpod.git && cd rocketpod
-bash scripts/bootstrap.sh        # toolchain → install → .dev.vars → Postgres → migrate → seed --demo → pnpm dev, signed in
+bash scripts/bootstrap.sh        # toolchain → install → .env → Postgres → migrate → seed --demo → pnpm dev, signed in
 pnpm test:db:up && pnpm test     # the full suite against a throwaway Postgres on :5433
 ```
 

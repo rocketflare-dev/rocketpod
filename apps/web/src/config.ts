@@ -1,16 +1,15 @@
 /**
- * Application configuration (D3, D4, D9, D25): one zod schema over the Worker `env` object,
- * validated lazily and memoised per isolate by env identity. Called from `fetch` (via
- * `configMiddleware`), `queue` and `scheduled` so all three entry points fail identically.
+ * Application configuration (D3, D4, D9, D25): one zod schema over the env object, validated
+ * lazily and memoised by env identity. Called from `fetch` (via `configMiddleware`), `queue` and
+ * `scheduled` so all three entry points fail identically.
  *
- * Only vars/secrets live here; bindings (HYPERDRIVE, RATE_LIMIT_KV, ASSETS, ...) stay on
- * `c.env`. Nothing in `src/` reads `process.env` — the validation style is the Node reference app's
- * `src/config.ts`, the source is the env object Cloudflare hands us.
+ * Only vars/secrets live here; runtime capabilities are the `Platform` (`src/platform/types.ts`).
+ * The Node entry hands in `process.env` (`src/node/server.ts`); nothing else in `src/` reads it.
  */
 import { sharedPlugins } from '@rocketpod/shared/plugins'
 import { z } from 'zod'
 
-/** `wrangler dev` passes `KEY=` lines from .dev.vars as empty strings; treat those as unset. */
+/** dotenv passes `KEY=` lines from .env as empty strings; treat those as unset. */
 const optionalString = z.preprocess(
   value => (typeof value === 'string' && value.trim() === '' ? undefined : value),
   z.string().min(1).optional()
@@ -74,12 +73,12 @@ const csvList = z.preprocess(
 export const LOG_LEVELS = ['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent'] as const
 
 const coreConfigSchema = z.object({
-  // ---- [vars] (non-secret, wrangler.toml) -------------------------------------------------
+  // ---- Plain vars (non-secret) -----------------------------------------------------------
   APP_ENV: z.enum(['development', 'staging', 'production']).default('development'),
   /** Public origin; derives OAuth redirect URIs, magic-link URLs, CSRF/CORS allow-lists. */
   APP_URL: z.string().url(),
   APP_NAME: z.string().min(1).default('Rocketpod'),
-  /** Overridden at deploy time by CI (`wrangler deploy --var RELEASE_VERSION:<tag>`). */
+  /** Set at deploy time to the release tag. */
   RELEASE_VERSION: z.string().min(1).default('dev'),
   LOG_LEVEL: z.enum(LOG_LEVELS).default('info'),
   EMAIL_FROM: z.string().min(1).default('Rocketpod <noreply@example.com>'),
@@ -90,8 +89,8 @@ const coreConfigSchema = z.object({
   /** D1: `enforce` wraps tenant-scoped work in a transaction with `set_config(..., true)`. */
   TENANT_SCOPE_MODE: z.enum(['off', 'enforce']).default('off'),
   /**
-   * D35, narrowed in Rocketpod: `postgres` (postgres.js — any Postgres, Neon included, over TCP;
-   * the Worker through the `HYPERDRIVE` binding). Missing means `postgres`. `neon` (Rocketflare's
+   * D35, narrowed in Rocketpod: `postgres` (postgres.js — any Postgres, Neon included, over TCP).
+   * Missing means `postgres`. `neon` (Rocketflare's
    * serverless driver) was removed and fails here, naming the fix, rather than on the first query.
    */
   DATABASE_DRIVER: z.preprocess(
@@ -107,7 +106,7 @@ const coreConfigSchema = z.object({
   ),
   /**
    * Node entry (M2): connections in the ONE postgres.js pool each process holds
-   * (`installProcessPool`). Ignored by the Worker, where Hyperdrive is the pool.
+   * (`installProcessPool`).
    */
   DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(200).default(10),
   /**
@@ -117,20 +116,19 @@ const coreConfigSchema = z.object({
   TRUSTED_PROXY_HOPS: z.coerce.number().int().min(0).max(10).default(0),
   /**
    * Node worker (M3): consumers of the jobs queue per `worker` process, each fetching batches of
-   * up to 10 (the Cloudflare consumer's `max_batch_size`). Ignored by the Worker.
+   * up to 10.
    */
   JOBS_CONCURRENCY: z.coerce.number().int().min(1).max(50).default(2),
   /** Node worker (M3): how often an idle consumer polls the jobs queue, in seconds (≥ 0.5). */
   JOBS_POLL_INTERVAL_SECONDS: z.coerce.number().min(0.5).max(60).default(2),
   /**
    * Node worker (M4): agent runs one `worker` process executes at once (OpenWorkflow's worker
-   * concurrency). A parked run holds no slot. Ignored by the Worker.
+   * concurrency). A parked run holds no slot.
    */
   RUNS_CONCURRENCY: z.coerce.number().int().min(1).max(50).default(4),
   /**
    * Node storage (M6): `s3` stores uploads in an S3-compatible bucket (AWS S3, MinIO, R2's S3
-   * endpoint, GCS interop). Unset = no object storage on Node (uploads answer 503). The Worker
-   * uses its `FILES` R2 binding and ignores every `STORAGE_*` key.
+   * endpoint, GCS interop). Unset = no object storage (uploads answer 503).
    */
   STORAGE_DRIVER: optionalEnum(['s3'] as const),
   /** The S3 endpoint (`http://localhost:9000` for MinIO). Unset = AWS's default for the region. */
@@ -196,8 +194,8 @@ const coreConfigSchema = z.object({
   CHAT_KNOWLEDGE_TOOLS: optionalBoolean(true),
   /**
    * Issue #17: how long a run parked on a human question waits before it expires. Consumed
-   * VERBATIM as the `timeout` of `step.waitForEvent`, so it must be a duration string Cloudflare
-   * Workflows accepts ("168 hours", "30 minutes", "7 days") — not a number of seconds.
+   * VERBATIM as the `timeout` of `step.waitForEvent`, so it must be a duration string the run
+   * engine accepts ("168 hours", "30 minutes", "7 days") — not a number of seconds.
    *
    * Workflows allows 1 second to 365 days here and a `waiting` instance does not count toward
    * concurrency, so parking really is free. The real bound is **instance retention**: 30 days on
@@ -217,13 +215,11 @@ const coreConfigSchema = z.object({
   /**
    * D30, layer 1: the feature keys this deployment ships AT ALL. Only consulted for a flag whose
    * registry entry sets `environmentGated` — everything else is decided by the rollout state in the
-   * database, so an ordinary flag needs no toml edit.
+   * database, so an ordinary flag needs no deploy.
    *
    * Blank means none, which is the FAIL-CLOSED direction and the point: this gate's failure mode is
    * an unreleased surface appearing in production, so an environment that forgets the var stays
-   * dark. Note `wrangler dev` reads `[vars]` from `wrangler.toml`, so a key listed only in staging
-   * is absent on every developer's laptop unless `.dev.vars` overrides it — which is why
-   * `.dev.vars.example` lists the kit's gated keys.
+   * dark — on every developer's laptop too, unless `.env` lists the key.
    */
   FEATURES_ENABLED: csvKeys,
   /**
@@ -260,19 +256,19 @@ const coreConfigSchema = z.object({
    */
   OIDC_TRUST_EMAIL: optionalBoolean(false),
 
-  // ---- Secrets (.dev.vars locally, `wrangler secret put` deployed) — all optional here;
+  // ---- Secrets (.env locally, the deployment's secret store deployed) — all optional here;
   //      features gate on presence (zero-creds first run) or demand them at use time. -------
   /**
    * The owner connection string: THE connection for the Node server (its process pool), the
-   * scripts and the tests; on the Worker, the fallback when there is no HYPERDRIVE binding.
+   * scripts and the tests.
    */
   DATABASE_URL: optionalString,
-  /** Per-PR database branch; when set it wins over HYPERDRIVE and DATABASE_URL (see db/client.ts). */
+  /** Per-PR database branch; when set it wins over DATABASE_URL (see db/client.ts). */
   PREVIEW_DATABASE_URL: optionalString,
   /**
    * Node realtime (M5): the connection the `/ws` hub LISTENs on. Unset = the database URL. LISTEN
    * needs a session: behind PgBouncer in transaction mode, point this straight at Postgres (or at a
-   * session-mode pool). Ignored by the Worker.
+   * session-mode pool).
    */
   DATABASE_LISTEN_URL: optionalString,
   /** M6: credentials for the `STORAGE_DRIVER=s3` bucket. */
@@ -340,7 +336,7 @@ export class ConfigError extends Error {
 
 /**
  * Memo keyed on the env OBJECT, not its contents: in production `env` is one object for the
- * life of the isolate, so this parses once; in `wrangler dev` a .dev.vars edit yields a new
+ * life of the process, so this parses once; under `tsx watch` a .env edit restarts it with a new
  * object and re-validates. Failures are not cached so every caller sees the same error.
  */
 const cache = new WeakMap<object, AppConfig>()

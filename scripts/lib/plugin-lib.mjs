@@ -37,14 +37,7 @@ export const PLUGIN_ID_RE = /^[a-z][a-z0-9-]*$/
  * and worse, `apps/web/src/plugins/<name>.ts` would then read as the entry of a plugin called
  * `<name>` to every rule that derives a plugin id from a path. Add a barrel, add its stem here.
  */
-export const RESERVED_PLUGIN_IDS = Object.freeze([
-  'index',
-  'server',
-  'ui',
-  'schema',
-  'types',
-  'worker-exports',
-])
+export const RESERVED_PLUGIN_IDS = Object.freeze(['index', 'server', 'ui', 'schema', 'types'])
 
 /** `null` when `id` is a legal plugin id, else the sentence saying why it is not. */
 export function pluginIdProblem(id) {
@@ -62,16 +55,16 @@ export function camelId(id) {
   return id.replace(/-([a-z0-9])/g, (_, c) => c.toUpperCase())
 }
 
-// ---------------------------------------------------------------- the six barrels
+// ---------------------------------------------------------------- the five barrels
 
 /**
- * The six barrel lines, as data. `half` is the file under the plugin's tree whose PRESENCE means
+ * The five barrel lines, as data. `half` is the file under the plugin's tree whose PRESENCE means
  * the plugin ships that half — an install writes a line only for the halves that arrived, so a
  * plugin with no CLI command does not get a CLI import of a file that is not there.
  *
- * Two of the six are `export *` rather than a tuple entry, and both carry `empty`: a TypeScript
- * file with no top-level import or export is a SCRIPT, not a module, so removing the last plugin
- * from one would make its single importer TS2306 and stop the whole app typechecking.
+ * One of the five is `export *` rather than a tuple entry, and carries `empty`: a TypeScript file
+ * with no top-level import or export is a SCRIPT, not a module, so removing the last plugin from it
+ * would make its single importer TS2306 and stop the whole app typechecking.
  */
 export const BARRELS = Object.freeze({
   shared: {
@@ -103,26 +96,11 @@ export const BARRELS = Object.freeze({
     // With no plugin installed this file is a comment and nothing else, and a TypeScript file with
     // no top-level import or export is a SCRIPT, not a module — so `db/schema/index.ts`'s
     // `export * from '../plugins/schema'` is TS2306 "is not a module" and the whole app stops
-    // typechecking. The four LIST barrels always declare a const; the two `export *` ones
-    // (this and `worker`) are the ones that need the marker.
+    // typechecking. The four LIST barrels always declare a const; this `export *` one is the one
+    // that needs the marker.
     empty: 'export {}',
     specifier: id => `./${id}/db/schema`,
     half: id => `apps/web/src/plugins/${id}/db/schema/index.ts`,
-  },
-  /**
-   * Durable Object and Workflow CLASSES (D31). Cloudflare resolves a binding's `class_name`
-   * against the named exports of the Worker's ENTRY module, so a plugin shipping one needs a line
-   * in `src/worker.ts` — and this barrel is that line, written once and for ever, so no install
-   * ever edits the entry itself. Before it, the class was a printed instruction in the plan, which
-   * an unattended install simply did not perform.
-   */
-  worker: {
-    file: 'apps/web/src/plugins/worker-exports.ts',
-    constName: null, // `export *`, not a tuple
-    suffix: null,
-    empty: 'export {}',
-    specifier: id => `./${id}/worker-exports`,
-    half: id => `apps/web/src/plugins/${id}/worker-exports.ts`,
   },
   cli: {
     file: 'apps/cli/src/plugins/index.ts',
@@ -295,9 +273,8 @@ export function removeBarrelLine(text, kind, id) {
  *
  * Printing the line as a "by hand" step left `pnpm build` failing for anyone who did not read the
  * plan — including `plugin-ci.yml`, which runs the gate unattended and applies nothing. So a
- * plugin DECLARES the edit and the host writes it, exactly as `bindings[]` declares a resource
- * that `provision cloudflare` writes: the plugin still edits nothing, and the host still owns
- * every byte of its own files.
+ * plugin DECLARES the edit and the host writes it: the plugin still edits nothing, and the host
+ * still owns every byte of its own files.
  *
  * An edit is `{ file, after, lines }` — insert `lines` on the line following the first occurrence
  * of `after`, at that anchor's indentation. Anchored rather than positional because a core file
@@ -567,105 +544,35 @@ export function classifyPluginFile(relPath, id, { skills = [] } = {}) {
 // ---------------------------------------------------------------- platform declarations
 
 /**
- * The binding types provisioning knows how to write (D31, decision 12).
- *
- * **This list exists twice and the duplication is pinned, not silent.**
- * `apps/web/scripts/provision/plugin-resources.ts` owns the TypeScript half and is what
- * `pnpm provision cloudflare <env>` reads; this is the `.mjs` half, because `scripts/plugin.mjs`
- * runs under plain Node and cannot import a `.ts` module. `plugin-lib.test.ts` asserts the two are
- * identical, so narrowing or widening one without the other fails the suite. Checking it HERE is
- * what makes an unsupported type stop an INSTALL, rather than surface as a 503 on the first
- * request after a deploy that silently skipped the binding.
- */
-export const SUPPORTED_PLUGIN_BINDING_TYPES = Object.freeze([
-  'kv',
-  'queue',
-  'r2',
-  'workflow',
-  'durable_object',
-])
-
-/**
- * The subset an account has to CREATE before a deploy. `workflow` and `durable_object` are not
- * here because `wrangler deploy` registers both from the toml — there is nothing to find-or-create
- * — so `PLUGIN_RESOURCES` never carries one and `cf-provision.sh` never sees one.
- */
-export const CREATED_PLUGIN_BINDING_TYPES = Object.freeze(['kv', 'queue', 'r2'])
-
-/** Types whose block names a CLASS exported from the Worker's entry module (the sixth barrel). */
-export const CLASS_PLUGIN_BINDING_TYPES = Object.freeze(['workflow', 'durable_object'])
-
-/** Types carrying an account-scoped resource NAME, which must differ between the environments. */
-export const NAMED_PLUGIN_BINDING_TYPES = Object.freeze(['kv', 'queue', 'r2', 'workflow'])
-
-/** How a Durable Object's storage is created. Irreversible, so it is declared rather than guessed. */
-export const DO_STORAGE_KINDS = Object.freeze(['sqlite', 'none'])
-
-/**
  * Everything wrong with a plugin's platform declarations, as sentences. Empty means installable.
  *
- * Only what `add` can usefully refuse. The full shape validation — binding-name casing, resource
- * names, duplicate keys across plugins — belongs to `plugin-resources.ts`, which runs at provision
- * time with the whole installed set in view.
+ * Rocketpod has no Cloudflare runtime (M6b): a plugin reaches jobs, storage, realtime, durable
+ * runs, rate limits and locks through its context (`ctx.platform`, `docs/plugin-api.md`), never
+ * through a binding of its own. So a manifest that still declares `bindings` (a KV namespace, a
+ * queue, a bucket, a Durable Object, a Workflow) or `workerExports` (classes for a Worker's entry
+ * module) is a Cloudflare-only plugin, and refusing it HERE keeps the failure an install error
+ * rather than a 503 on the first request that reaches the missing binding. `crons`, `apiPrefixes`
+ * and `vars` need nothing more: the scheduled registry is the schedule, the prefixes are read at
+ * runtime, and a var is an environment variable.
  */
 export function pluginPlatformProblems(manifest) {
   const problems = []
-  for (const b of manifest.bindings ?? []) {
-    const who = b.binding ?? b.name ?? '?'
-    if (!SUPPORTED_PLUGIN_BINDING_TYPES.includes(b.type)) {
-      problems.push(
-        `binding ${who} declares type '${b.type}', which provisioning cannot ` +
-          `write (supported: ${SUPPORTED_PLUGIN_BINDING_TYPES.join(', ')})`
-      )
-      continue
-    }
-    // A class binding is only writable because the sixth barrel makes the class reachable from
-    // `src/worker.ts`; the manifest has to say WHICH class, or the block points at nothing and
-    // `wrangler deploy` refuses the whole script.
-    if (CLASS_PLUGIN_BINDING_TYPES.includes(b.type) && !b.className) {
-      problems.push(`binding ${who} is a ${b.type} and declares no className`)
-    }
-    if (!CLASS_PLUGIN_BINDING_TYPES.includes(b.type) && b.className) {
-      problems.push(
-        `binding ${who} declares className, which is only meaningful on a class binding`
-      )
-    }
-    // A Durable Object's storage kind cannot be changed after the namespace exists, so it is
-    // declared rather than defaulted: guessing it wrong is not a thing anyone can undo.
-    if (b.type === 'durable_object' && !DO_STORAGE_KINDS.includes(b.storage)) {
-      problems.push(
-        `binding ${who} must declare storage as one of ${DO_STORAGE_KINDS.join(' | ')} — ` +
-          'it picks new_sqlite_classes vs new_classes and cannot be changed later'
-      )
-    }
-    if (b.type !== 'durable_object' && b.storage) {
-      problems.push(`binding ${who} declares storage, which only a durable_object has`)
-    }
-    if (NAMED_PLUGIN_BINDING_TYPES.includes(b.type) && !b.name) {
-      problems.push(`binding ${who} declares no name (the account-scoped half of the resource)`)
-    }
+  const bindings = manifest.bindings ?? []
+  if (bindings.length > 0) {
+    const which = bindings.map(b => `${b.type} ${b.binding ?? b.name ?? '?'}`).join(', ')
+    problems.push(
+      `declares Cloudflare bindings (${which}) — this kit has no Cloudflare runtime; a plugin ` +
+        'reaches jobs, storage, realtime and runs through its context (ctx.platform)'
+    )
+  }
+  const classes = manifest.workerExports ?? []
+  if (classes.length > 0) {
+    problems.push(
+      `declares workerExports (${classes.join(', ')}) — Durable Object and Workflow classes need ` +
+        'a Cloudflare Worker, which this kit does not have'
+    )
   }
   return problems
-}
-
-/**
- * The `[[migrations]]` tag an install writes for a plugin's Durable Object classes.
- *
- * **DO migrations are to `worker.ts` what SQL migrations are to `db/schema`**: an append-only
- * record of what this Worker has already told Cloudflare, numbered in the HOST's file. A tag is
- * never renumbered and never rewritten — replaying one under a different meaning loses a namespace
- * and everything stored in it. Install is always `v1`; a later change (a removal's
- * `deleted_classes`) takes the next free number.
- */
-export function pluginMigrationTag(pluginId, n = 1) {
-  return `plugin-${pluginId}-v${n}`
-}
-
-/** The next free `plugin-<id>-v<n>`, given every tag already in the toml. */
-export function nextPluginMigrationTag(existingTags, pluginId) {
-  const re = new RegExp(`^plugin-${pluginId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-v(\\d+)$`)
-  const used = existingTags.map(t => Number(re.exec(t)?.[1])).filter(n => Number.isInteger(n))
-  return pluginMigrationTag(pluginId, used.length === 0 ? 1 : Math.max(...used) + 1)
 }
 
 // ---------------------------------------------------------------- requirements
@@ -986,12 +893,12 @@ export function renderAddPlan(plan) {
  * failed somewhere else entirely. So every remaining step declares which of three it is:
  *
  *   - `declarative` — nobody does it; the tooling does. These do not appear at all. Everything
- *     Parts 1 and 2 moved (the barrel lines, bindings, crons, prefixes, vars, the DO migration
- *     tag) left this list by BECOMING declarative, which is the only honest way to shorten it.
+ *     Parts 1 and 2 moved (the barrel lines, crons, prefixes) left this list by BECOMING
+ *     declarative, which is the only honest way to shorten it.
  *   - `agent`       — an instruction PLUS a check that proves it was done. Without the check it is
  *     a sentence, and a sentence is the thing being replaced.
- *   - `human`       — a DECISION: a secret's value, a migration that drops something, retiring a
- *     Durable Object namespace, deleting a live resource. Not automatable in PRINCIPLE rather than
+ *   - `human`       — a DECISION: a secret's value, a migration that drops something. Not
+ *     automatable in PRINCIPLE rather than
  *     merely unimplemented — that distinction is what stops this list collecting excuses.
  *
  * Every step carries the exact `command`, the observable `expect` and the `assert` that proves it,
@@ -1009,16 +916,6 @@ const mkStep = (kind, id, title, command, expected, assertion) => ({
 })
 
 const GATE = 'pnpm gate'
-
-/** The platform declarations one `pnpm provision cloudflare <env>` run will write, as phrases. */
-function platformSummary(m) {
-  return [
-    ...(m.bindings ?? []).map(b => `${b.type} binding ${b.binding ?? b.name}`),
-    ...(m.crons ?? []).map(c => `cron "${c.cron ?? c}"`),
-    ...(m.apiPrefixes ?? []).map(p => `route prefix ${p}`),
-    ...(m.vars ?? []).filter(v => !v.secret).map(v => `[vars] ${v.key ?? v.name ?? v}`),
-  ]
-}
 
 const varKey = v => v.key ?? v.name ?? v
 
@@ -1072,44 +969,32 @@ export function planSteps(m, { fragments = [], clashes = [] } = {}) {
       )
     )
   }
-  const platform = platformSummary(m)
-  if (platform.length > 0) {
-    // ONE command per environment rather than a hand edit of two tomls (decision 12). An AGENT
-    // step and not a declarative one because somebody still has to RUN it, against an account,
-    // with credentials — what disappeared is every byte of the toml, not the invocation.
-    steps.push(
-      mkStep(
-        'agent',
-        'provision',
-        "Create and declare this plugin's platform resources, per environment",
-        'pnpm provision cloudflare staging && pnpm provision cloudflare production',
-        `${platform.join(', ')} written into BOTH tomls; ids patched per environment`,
-        'REQUIRE_PROVISIONED=1 pnpm --filter @rocketpod/web test:config'
-      )
-    )
-  }
-  for (const v of (m.vars ?? []).filter(v => v.secret)) {
+  for (const v of m.vars ?? []) {
     const key = varKey(v)
-    // The KEY and the VALUE are two different kinds, and splitting them is the point: declaring
-    // the key is mechanical and checkable, while the value is a credential only a person has.
+    // A var is an environment variable: the KEY is declared where every environment reads its
+    // shape from, and a secret's VALUE is a credential only a person has.
     steps.push(
       mkStep(
         'agent',
-        `secret-key:${key}`,
-        `Declare the secret ${key} — the key only, never a [vars] entry`,
-        `add \`${key}=\` to apps/web/.dev.vars.example`,
-        `${key} listed in .dev.vars.example and in NEITHER wrangler toml`,
-        `grep -q '^${key}=' apps/web/.dev.vars.example`
-      ),
-      mkStep(
-        'human',
-        `secret-value:${key}`,
-        `Set a value for ${key}`,
-        'pnpm provision secrets <env>   # read from your shell or apps/web/.provision.env',
-        `${key} in \`wrangler secret list\` for that environment`,
-        'a person supplies the credential; nothing can derive it'
+        `env-key:${key}`,
+        `Declare ${v.secret ? 'the secret' : 'the var'} ${key} in the environment template`,
+        `add \`${key}=\` to apps/web/.env.example`,
+        `${key} listed in apps/web/.env.example`,
+        `grep -q '^${key}=' apps/web/.env.example`
       )
     )
+    if (v.secret) {
+      steps.push(
+        mkStep(
+          'human',
+          `secret-value:${key}`,
+          `Set a value for ${key}`,
+          "add it to apps/web/.env locally, and to each deployment's secret store",
+          `${key} set wherever the server runs`,
+          'a person supplies the credential; nothing can derive it'
+        )
+      )
+    }
   }
   steps.push(
     mkStep('agent', 'gate', 'Run the gate', GATE, 'every step passes', 'the exit code is 0')
@@ -1119,11 +1004,9 @@ export function planSteps(m, { fragments = [], clashes = [] } = {}) {
 
 /**
  * The steps a REMOVE still needs. Most are human, and each destroys something: a migration full of
- * `DROP TABLE`, the `--archive` copy taken (or knowingly not taken) before it, a `deleted_classes`
- * migration that takes a Durable Object namespace and everything stored in it, and live Cloudflare
- * resources that may still hold somebody's data.
+ * `DROP TABLE`, and the `--archive` copy taken (or knowingly not taken) before it.
  */
-export function removeSteps(m, { archive = false, migrationTag = null } = {}) {
+export function removeSteps(m, { archive = false } = {}) {
   const steps = []
   const tables = m.schema?.tables ?? []
   if (tables.length > 0 && archive) {
@@ -1147,37 +1030,6 @@ export function removeSteps(m, { archive = false, migrationTag = null } = {}) {
         `pnpm db:generate --name plugin-${m.id}-remove   # read the SQL, then: pnpm db:migrate`,
         `DROP TABLE for ${tables.join(', ')} and nothing else`,
         'a person reads a migration containing DROP before it runs'
-      )
-    )
-  }
-  const doBindings = (m.bindings ?? []).filter(b => b.type === 'durable_object')
-  if (doBindings.length > 0) {
-    // Both halves are why this is a decision. A DO class that leaves the code with no
-    // `deleted_classes` migration makes `wrangler deploy` REFUSE the whole script — and the
-    // migration itself deletes the namespace and its storage.
-    steps.push(
-      mkStep(
-        'human',
-        'do-migration',
-        `Retire the Durable Object class(es) ${doBindings.map(b => b.className).join(', ')}`,
-        `add to BOTH tomls:  [[migrations]] tag = "${migrationTag ?? `plugin-${m.id}-v2`}"  ` +
-          `deleted_classes = [${doBindings.map(b => `"${b.className}"`).join(', ')}]`,
-        'the tag appended AFTER every existing one — never renumbered, never rewritten',
-        'a person accepts that this deletes the namespace and everything stored in it'
-      )
-    )
-  }
-  const platform = platformSummary(m)
-  // `platformSummary` already names every binding, a Durable Object's included.
-  if (platform.length > 0) {
-    steps.push(
-      mkStep(
-        'human',
-        'deprovision',
-        "Remove this plugin's blocks from both tomls and its resources from Cloudflare",
-        `remove ${platform.join(', ')} from BOTH tomls, then delete the resources`,
-        "both tomls free of the plugin's blocks; the parity test still green",
-        'a live queue or bucket may hold data — nothing deletes one because a directory went'
       )
     )
   }
@@ -1550,7 +1402,11 @@ export function pluginManifestProblems(manifest) {
       }
     }
     for (const problem of pluginPlatformProblems(m)) {
-      bad('bindings', problem, `supported types are ${SUPPORTED_PLUGIN_BINDING_TYPES.join(', ')}`)
+      bad(
+        problem.startsWith('declares workerExports') ? 'workerExports' : 'bindings',
+        problem,
+        'use the plugin context (ctx.platform) — this kit installs no Cloudflare-only plugin'
+      )
     }
   }
 
@@ -1563,7 +1419,7 @@ export function pluginManifestProblems(manifest) {
         bad(
           'crons',
           `carries the expression ${JSON.stringify(expression ?? c)}`,
-          'a cron is five whitespace-separated fields ("15 * * * *") — the string the toml gets'
+          'a cron is five whitespace-separated fields ("15 * * * *") — the schedule key pg-boss gets'
         )
       }
     }
@@ -1644,32 +1500,6 @@ export function pluginManifestProblems(manifest) {
   }
 
   return out
-}
-
-/**
- * The value names a `worker-exports.ts` exports, and whether they can be known at all.
- *
- * `opaque` is an `export * from './x'`, whose names need the module resolved to enumerate. Both
- * directions of the worker-barrel check are skipped for one rather than guessed: reporting
- * "declares OrdersHub and does not export it" against a star re-export that plainly does would
- * teach an author to distrust the whole audit.
- */
-export function workerExportNames(source) {
-  const text = String(source)
-  const names = new Set()
-  for (const m of text.matchAll(/export\s*\{([^}]*)\}/g)) {
-    for (const part of m[1].split(',')) {
-      const spec = part.trim()
-      if (spec === '' || spec.startsWith('type ')) continue
-      const halves = spec.split(/\s+as\s+/)
-      names.add((halves[1] ?? halves[0]).trim())
-    }
-  }
-  const declaration =
-    /export\s+(?:default\s+)?(?:abstract\s+)?(?:class|const|let|var|function\*?)\s+([A-Za-z_$][\w$]*)/g
-  for (const m of text.matchAll(declaration)) names.add(m[1])
-  names.delete('')
-  return { names: [...names], opaque: /export\s+\*/.test(text) }
 }
 
 /**

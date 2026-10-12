@@ -13,8 +13,6 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.join(web, 'src'),
-      // Worker-only module (DurableObject / WorkflowEntrypoint): the same Node stand-in the web tests use.
-      'cloudflare:workers': path.join(web, 'tests/mocks/cloudflare-workers.ts'),
     },
   },
   test: {

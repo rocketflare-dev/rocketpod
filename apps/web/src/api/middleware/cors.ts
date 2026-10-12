@@ -1,7 +1,7 @@
 /**
  * CORS (04 §4): function origin because config is per-isolate, not import-time. In production
  * the SPA is same-origin (ASSETS) so only `APP_URL` is allowed; outside production the default
- * dev origins (:3000 Vite, :3001 `wrangler dev`) are added, plus the loopback twin of `APP_URL`
+ * dev origins (:3000 Vite, :3001 the dev server) are added, plus the loopback twin of `APP_URL`
  * and of the request's own loopback origin — so custom dev ports (`DEV_UI_PORT` / `DEV_API_PORT`,
  * `scripts/lib/dev-ports.mjs`) work with only `APP_URL` following the UI port: the Worker cannot
  * read the shell's environment. A tunnel's origin arrives as `APP_URL` (`--var`). Runs BEFORE
@@ -41,7 +41,7 @@ function loopbackOrigins(value: string): string[] {
 /**
  * Allowed browser origins: APP_URL's origin; outside production also the default dev origins,
  * APP_URL's loopback twin and — given `requestUrl` — the request's own loopback origin (a browser
- * on `wrangler dev`'s port, whatever it is).
+ * on the dev server's port, whatever it is).
  */
 export function allowedOrigins(cfg: AppConfig, requestUrl?: string): Set<string> {
   const allowed = new Set<string>()

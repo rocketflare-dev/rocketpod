@@ -1,6 +1,6 @@
 /**
  * What an eval run is configured with (D33). `scripts/eval.mjs` loads `apps/web/.env.test` (the
- * test database on :5433) and the AI keys from `apps/web/.dev.vars` into `process.env`, plus the
+ * test database on :5433) and the AI keys from `apps/web/.env` into `process.env`, plus the
  * flags as `EVAL_*`; this module reads them once.
  *
  * Models resolve through the kit's own resolver, so a suite exercises the same chain production
@@ -25,7 +25,7 @@ export const EVAL_JUDGE_PROVIDER = evalProvider(process.env.EVAL_JUDGE_PROVIDER)
 export function evalSkipReason(): string | null {
   for (const provider of new Set([EVAL_PROVIDER, EVAL_JUDGE_PROVIDER])) {
     if (!process.env[provider.keyEnv]) {
-      return `no ${provider.keyEnv} in apps/web/.dev.vars — the ${provider.name} provider needs it (see docs/EVALS.md)`
+      return `no ${provider.keyEnv} in apps/web/.env — the ${provider.name} provider needs it (see docs/EVALS.md)`
     }
   }
   return null
@@ -44,13 +44,13 @@ export function skipEvals(): boolean {
 }
 
 /**
- * The Worker env a target runs against: the test bindings, with the real keys `createTestEnv`
- * copies from `process.env`. With `EMBEDDINGS_API_KEY` the `AI` stub is dropped so retrieval embeds
- * for real; without it the stub's deterministic vectors apply and retrieval leans on the lexical
+ * The env a target runs against: the test platform, with the real keys `createTestEnv` copies from
+ * `process.env`. With `EMBEDDINGS_API_KEY` the recording model runner is dropped so retrieval
+ * embeds for real; without it its deterministic vectors apply and retrieval leans on the lexical
  * half of hybrid search — fine for the kit's starter cases, noted in docs/EVALS.md.
  */
 export function evalWorkerEnv(): TestEnv {
-  return createTestEnv(process.env.EMBEDDINGS_API_KEY ? { AI: undefined } : {})
+  return createTestEnv(process.env.EMBEDDINGS_API_KEY ? { ai: null } : {})
 }
 
 export function evalConfig(env: TestEnv = evalWorkerEnv()) {

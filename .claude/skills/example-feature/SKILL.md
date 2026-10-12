@@ -44,7 +44,7 @@ create; editing and deleting other people's notes is admin-level (`ExampleNote` 
 `pnpm cli example-feature ping` calls `POST /api/example-feature/ping`, which ENQUEUES
 `example-feature.ping` and answers 202 with the job id. The proof is in the `pnpm dev` output: a log
 line `example-feature.ping: pong` with the tenant id. No line → the queue consumer is not running;
-check `pnpm dev` started wrangler cleanly.
+check `pnpm dev` logged `worker: consuming …` (the Node server runs the consumer in mode `all`).
 
 ## 4. The public mount — a signed link with no session (D34)
 

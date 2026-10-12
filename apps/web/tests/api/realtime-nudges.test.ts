@@ -200,7 +200,7 @@ describe('realtime nudges', () => {
 
   it('nudges are a no-op without the binding and never throw', () => {
     const defer = vi.fn()
-    const env = createTestEnv({ NOTIFICATIONS_HUB: undefined })
+    const env = createTestEnv({ realtime: null })
     expect(() =>
       nudge({ defer, hub: env.realtime }, realtimeEvent('tenant.changed', 't1'))
     ).not.toThrow()

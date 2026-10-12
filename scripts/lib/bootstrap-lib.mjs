@@ -1,8 +1,8 @@
 /**
  * Pure helpers for `scripts/bootstrap.mjs` — no I/O, no process access, so
  * `apps/web/tests/config/bootstrap-lib.test.ts` can pin every text transformation the bootstrap
- * performs on files it does not own (`.dev.vars`, the two wrangler tomls) and every parser it
- * applies to another tool's stdout (`pnpm seed`, `wrangler whoami`). Types: `bootstrap-lib.d.mts`.
+ * performs on files it does not own (`.env`) and every parser it applies to another tool's stdout
+ * (`pnpm seed`). Types: `bootstrap-lib.d.mts`.
  *
  * The one import is `upgrade-lib.mjs`, which is pure in the same sense — it owns the reader and the
  * validator for `.rocketflare.json`'s `defaultPlugins`, and a second parser here is what let the
@@ -31,7 +31,7 @@ function isEmptyValue(value) {
 }
 
 /**
- * Bring a `.dev.vars` up to the example's shape without touching anything a person wrote.
+ * Bring a `.env` up to the example's shape without touching anything a person wrote.
  *
  * - `existingText === null` → start from the example.
  * - Every required key that is empty is filled with `generate()`; a non-empty value is never
@@ -97,7 +97,7 @@ export function readDevVars(text) {
 }
 
 /**
- * Where AI traces go (D32), as preflight reports it — read from `.dev.vars` values, never printing
+ * Where AI traces go (D32), as preflight reports it — read from `.env` values, never printing
  * one that is a secret (keys, `OTEL_EXPORTER_OTLP_HEADERS`). Mirrors `exporterSettings` in
  * `apps/web/src/api/observability/tracing.ts`: an explicit preset wins, else Langfuse when both
  * keys are set, else generic when an endpoint is. The local `ai_spans` store is always on.
@@ -119,45 +119,40 @@ export function describeTracing(values) {
   return `${local}; exporting to ${preset} at ${endpoint} (${protocol}${headers})`
 }
 
-const AI_ON = /^\[ai\]\s*$/
-const AI_OFF = /^# \[ai\]\s*$/
-const SECTION = /^\s*\[/
-
-/** `'on'` when `[ai]` is live, `'off'` when the bootstrap commented it out, else `'absent'`. */
-export function aiBlockState(tomlText) {
-  for (const line of tomlText.split('\n')) {
-    if (AI_ON.test(line)) return 'on'
-    if (AI_OFF.test(line)) return 'off'
+/** The host of a provider URL, for a status line — never the URL's path or query. */
+function hostOf(url) {
+  try {
+    return new URL(url).host
+  } catch {
+    return 'an invalid URL'
   }
-  return 'absent'
 }
 
 /**
- * Comment out (`'off'`) or restore (`'on'`) the `[ai]` block, text-level, so every other byte of
- * the toml — including the block's own explanatory comments — survives a round trip.
- *
- * `off` prefixes EVERY line of the block (header, keys and comment lines alike) with `# `, from
- * the `[ai]` header to the next blank line or the next `[section]` header. `on` strips exactly
- * one leading `# ` from every line of that commented block. Because the rule is uniform, an
- * original comment becomes `# # …` and comes back byte-identical; nothing has to be marked.
- * Idempotent: the current state is checked first and a no-op returns the text unchanged.
- * `on` therefore relies on the blank line that ends the block in both tomls (the test pins it):
- * delete that blank line and the following section's comment would be uncommented too.
+ * Which AI providers `.env` configures (step 8 / `pnpm preflight`), as ONE line. Rocketpod has no
+ * zero-key model runner: chat and agents need `ANTHROPIC_API_KEY` or `AI_API_KEY` (OpenAI, or any
+ * OpenAI-compatible endpoint with `AI_BASE_URL` + `AI_MODEL`), and uploads and knowledge search
+ * need `EMBEDDINGS_API_KEY` (`EMBEDDINGS_BASE_URL` + `EMBEDDINGS_MODEL` for a compatible one, 1024
+ * dimensions). A tenant can still bring its own provider in Settings → AI. Values are never printed.
  */
-export function toggleAiBlock(tomlText, mode) {
-  const state = aiBlockState(tomlText)
-  if (state === 'absent' || state === mode) return tomlText
-  const lines = tomlText.split('\n')
-  const header = mode === 'off' ? AI_ON : AI_OFF
-  const start = lines.findIndex(line => header.test(line))
-  let end = start + 1
-  if (mode === 'off') {
-    while (end < lines.length && lines[end].trim() !== '' && !SECTION.test(lines[end])) end += 1
-  } else {
-    while (end < lines.length && lines[end].startsWith('# ')) end += 1
-  }
-  const block = lines.slice(start, end).map(line => (mode === 'off' ? `# ${line}` : line.slice(2)))
-  return [...lines.slice(0, start), ...block, ...lines.slice(end)].join('\n')
+export function describeAi(values) {
+  const chat = values.ANTHROPIC_API_KEY
+    ? 'anthropic'
+    : values.AI_API_KEY
+      ? values.AI_BASE_URL
+        ? `openai-compatible at ${hostOf(values.AI_BASE_URL)}`
+        : 'openai'
+      : 'none'
+  const embeddings = values.EMBEDDINGS_API_KEY
+    ? values.EMBEDDINGS_BASE_URL
+      ? `openai-compatible at ${hostOf(values.EMBEDDINGS_BASE_URL)}`
+      : 'openai'
+    : 'none'
+  const missing = []
+  if (chat === 'none') missing.push('chat/agents need ANTHROPIC_API_KEY or AI_API_KEY')
+  if (embeddings === 'none') missing.push('uploads/knowledge need EMBEDDINGS_API_KEY')
+  const line = `chat ${chat} · embeddings ${embeddings}`
+  return missing.length > 0 ? `${line} (${missing.join('; ')} in apps/web/.env)` : line
 }
 
 /**
@@ -173,37 +168,8 @@ export function extractSeedKey(stdout) {
   return next?.trim() || undefined
 }
 
-// Built, not a literal: a regex literal with the escape byte in it trips biome's control-char rule.
-const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g')
-
-/**
- * `wrangler whoami` → `{ loggedIn, email?, account? }`. Logged in: "You are logged in with an
- * OAuth Token, associated with the email you@example.com." then a box table whose first data row
- * is `│ Account Name │ Account ID │`. Logged out: "You are not authenticated. Please run
- * `wrangler login`." Hand it stdout and stderr together; ANSI is stripped first.
- */
-export function parseWhoami(stdout) {
-  const text = (stdout ?? '').replace(ANSI, '')
-  if (!/You are logged in with/i.test(text)) return { loggedIn: false }
-  const result = { loggedIn: true }
-  const email = /associated with the email\s+(\S+?)\.?\s*$/im.exec(text)
-  if (email) result.email = email[1]
-  const rows = text
-    .split('\n')
-    .filter(line => line.trim().startsWith('│'))
-    .map(line =>
-      line
-        .split('│')
-        .map(cell => cell.trim())
-        .filter(cell => cell !== '')
-    )
-  const data = rows.find(cells => cells.length >= 2 && cells[0] !== 'Account Name')
-  if (data) result.account = data[0]
-  return result
-}
-
 /* --------------------------------------------------------------- dev database --
- * The local Postgres is addressed by ONE value, `DATABASE_URL` in `apps/web/.dev.vars`:
+ * The local Postgres is addressed by ONE value, `DATABASE_URL` in `apps/web/.env`:
  * every script reads it through dotenv, and `scripts/dev-db.mjs` derives the compose
  * port and container name from it. A second checkout on the same machine therefore
  * gets its own port and its own container instead of colliding on 5432. */
@@ -386,7 +352,7 @@ export const BOOTSTRAP_SKIPPABLE_STEPS = [
   'migrate',
   'plugins',
   'seed',
-  'cloudflare',
+  'ai',
 ]
 
 /**
@@ -420,8 +386,6 @@ export function parseBootstrapArgs(argv, env = {}) {
   const opts = {
     yes: false,
     shareDbIgnored: false,
-    offline: false,
-    online: false,
     dev: true,
     demo: true,
     plugins: true,
@@ -446,11 +410,10 @@ export function parseBootstrapArgs(argv, env = {}) {
       case '--yes':
         opts.yes = true
         break
+      // Rocketflare's Workers AI toggle; Rocketpod has no `[ai]` block to toggle. Accepted so a
+      // caller written for the parent kit (Launch) still runs.
       case '--offline':
-        opts.offline = true
-        break
       case '--online':
-        opts.online = true
         break
       case '--no-dev':
         opts.dev = false
@@ -511,9 +474,6 @@ export function parseBootstrapArgs(argv, env = {}) {
         throw new BootstrapUsageError(`unknown option ${arg}`)
     }
   }
-  if (opts.offline && opts.online) {
-    throw new BootstrapUsageError('--offline and --online exclude each other')
-  }
   if (opts.driver === 'neon') {
     throw new BootstrapUsageError(
       '--driver neon was removed in Rocketpod: postgres.js reaches any Postgres, Neon included — use --driver postgres or leave it out'
@@ -532,7 +492,7 @@ export function parseBootstrapArgs(argv, env = {}) {
     }
     if (opts.check) {
       throw new BootstrapUsageError(
-        '--db-url and --check exclude each other (preflight reads DATABASE_URL from .dev.vars)'
+        '--db-url and --check exclude each other (preflight reads DATABASE_URL from .env)'
       )
     }
   }
@@ -553,9 +513,9 @@ export function isNeonDatabaseUrl(url) {
 }
 
 /**
- * The LOCAL driver the bootstrap writes to `.dev.vars` (D35). Rocketpod has one — postgres.js
+ * The LOCAL driver the bootstrap writes to `.env` (D35). Rocketpod has one — postgres.js
  * over TCP, whatever the database (the compose one, a `--db-url`, a Neon branch) — so this is
- * always `postgres`; a stale `neon` from a Rocketflare-era `.dev.vars` is rewritten.
+ * always `postgres`; a stale `neon` from a Rocketflare-era `.env` is rewritten.
  */
 export function localDriverFor(_input = {}) {
   return 'postgres'
@@ -564,7 +524,7 @@ export function localDriverFor(_input = {}) {
 /**
  * How the Docker-dependent steps behave. Two inputs decide it: `--db-url` (bootstrap against a
  * database this checkout does not run — a Neon branch in a sandbox without Docker) and, for
- * `--check`, whether `.dev.vars`' DATABASE_URL is off-box.
+ * `--check`, whether `.env`' DATABASE_URL is off-box.
  *
  * - `docker`: step 1 checks `docker info` / `docker compose`
  * - `database`: `'compose'` → step 4 runs `dev-db.mjs up`; `'external'` → it only polls `db:check`

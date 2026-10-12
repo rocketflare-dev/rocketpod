@@ -1,4 +1,5 @@
 {
+  "$runtime": "This kit runs in a container, not on Cloudflare, and Launch's contract (schema 1) is Cloudflare-shaped: `worker` names a Worker toml pair and `release` a deployer workflow, and this kit has neither (removed in M6b; the container image workflow is ROADMAP M7). Those two blocks are kept ONLY so the file stays schema-valid; nothing in this repository reads them, and `node scripts/kit-check.mjs` reports this checkout non-conformant until Launch has a container target. Every other block is truthful.",
   "$comment": "The Launch kit contract (schema 1, D36): what this kit calls things and how Launch creates, develops in, ships and upgrades an app made from it. A copy keeps this file — Launch reads the app's own copy for its sessions, gate and releases — and the rename rewrites it except for the `kit` block, which names the kit, not the app (docs/CONCEPTS.md §13). Check it with: node scripts/kit-check.mjs",
   "schema": 1,
   "kit": {
@@ -47,6 +48,7 @@
   },
   "declaredConfig": {
     "optional": [
+      "AI_API_KEY",
       "ANTHROPIC_API_KEY",
       "EMBEDDINGS_API_KEY",
       "FIREWORKS_API_KEY",
@@ -55,6 +57,8 @@
       "LANGFUSE_SECRET_KEY",
       "OTEL_EXPORTER_OTLP_ENDPOINT",
       "OTEL_EXPORTER_OTLP_HEADERS",
+      "STORAGE_ACCESS_KEY_ID",
+      "STORAGE_SECRET_ACCESS_KEY",
       "TYPESAFE_API_KEY"
     ],
     "plain": ["LANGFUSE_PUBLIC_KEY", "OTEL_EXPORTER_OTLP_ENDPOINT"],
@@ -81,7 +85,7 @@
     "devStart": "node apps/web/scripts/dev-server.mjs --start",
     "devStop": "pnpm dev:stop",
     "ports": { "ui": "DEV_UI_PORT", "api": "DEV_API_PORT", "allowedHosts": "DEV_ALLOWED_HOSTS" },
-    "writes": ["apps/web/.dev.vars", "apps/web/wrangler.session.toml"],
+    "writes": ["apps/web/.env"],
     "env": { "skip": "ROCKETPOD_BOOTSTRAP_SKIP", "allowRoot": "ROCKETPOD_ALLOW_ROOT" }
   },
   "upgrade": {

@@ -1,18 +1,17 @@
 # Rocketpod
 
 Multi-tenant SaaS starter for internal tools and B2B products, a **pnpm workspace**: Hono API + React UI in one
-Cloudflare Worker (`apps/web`), a CLI (`apps/cli`), private zod contracts
-(`packages/shared`). `AGENTS.md` symlinks here.
+Node server built to run in a container (`apps/web`), a CLI (`apps/cli`), private zod contracts
+(`packages/shared`). No Cloudflare dependency (M6b, `docs/FORK.md`). `AGENTS.md` symlinks here.
 
 > **How it works**: `docs/CONCEPTS.md` — one section per subsystem with its known gaps. **Check it
 > before assuming a capability exists; update it when you change one.**
 > **Setup**: asked for setup help → run `/rf-setup` (it drives `scripts/bootstrap.sh --no-dev`, then
 > starts the server): show each `✔ n/10` line, stop on failure. By hand: `SETUP.md` Part 1.
 > **Fresh copy?** `/rf-adapt <slug>`, then `docs/ADAPTING.md`. `/rf-setup`, `/rf-adapt`, `/rf-preflight`,
-> `/rf-traces`, `/rf-evals` and `/rf-plugin` you
-> may run yourself; **`/rf-provision` is user-invoked only** (it creates paid resources and prompts for
-> tokens on a TTY) — asked to deploy, tell the user to run `/rf-provision`.
-> **Plugins** (D31, `docs/CONCEPTS.md` §16): a plugin is a git repository copied in, wired through six
+> `/rf-traces`, `/rf-evals` and `/rf-plugin` you may run yourself. Deploying (container image,
+> Compose, Helm) is `docs/ROADMAP.md` M7 — there is no deploy command yet.
+> **Plugins** (D31, `docs/CONCEPTS.md` §16): a plugin is a git repository copied in, wired through five
 > barrels — `pnpm plugin add|upgrade|remove|list|check`, driven by `/rf-plugin`, which always shows the
 > plan before `--apply`. It imports the host only through the DECLARED entries (`docs/plugin-api.md`,
 > generated and diff-checked) and receives everything else as injected context. `.rocketflare.json`'s `defaultPlugins` is what a fresh clone installs
@@ -27,26 +26,27 @@ Cloudflare Worker (`apps/web`), a CLI (`apps/cli`), private zod contracts
 
 - **Runtime**: Node 24 — `src/node/server.ts` serves the Hono app on `@hono/node-server`
   (`SERVER_MODE` `web|worker|all`; `/healthz`, `/readyz`; one Postgres pool per process; SIGTERM
-  drains), bundled to `dist/server.js`. The Cloudflare Worker (`src/worker.ts`: `fetch`+`queue`+
-  `scheduled` + DO/Workflow classes) still builds until M6b deletes it (`docs/ROADMAP.md`). pnpm 10
+  drains), bundled to `dist/server.js`. Every runtime capability is a `Platform` member
+  (`src/platform/types.ts`, `.claude/rules/runtime.md`). pnpm 10
 - **API**: Hono 4, zod contracts from `@rocketpod/shared`, CASL. **DB**: Postgres 17 + pgvector —
   Docker locally; Drizzle over postgres.js, the ONE driver (D35, narrowed — Neon's serverless
-  driver is gone); `openDatabase(env)` = a view of the Node process pool (Hyperdrive client on the
-  Worker); raw results only through `rows()`/`affected()`
-- **Auth**: arctic (Google, Microsoft, any OIDC issuer — jose-verified `id_token`, off by default) + magic link + dev-login; `__Host-session`; API keys; KV rate limit
-- **Async / realtime**: Queues (`JOBS_QUEUE`), `NotificationsHub` DO `/ws`, R2 (`FILES`), cron, Workflows
-- **AI**: `services/ai/resolve` (`agent_models` → tenant `ai_configs` → platform key → Workers AI via
-  `[ai]`, zero key → 503); Anthropic / OpenAI-compatible / Workers AI chat streamed as **AG-UI**
+  driver is gone); `openDatabase(env)` = a view of the Node process pool; raw results only through
+  `rows()`/`affected()`
+- **Auth**: arctic (Google, Microsoft, any OIDC issuer — jose-verified `id_token`, off by default) + magic link + dev-login; `__Host-session`; API keys; Postgres rate limit
+- **Async / realtime**: pg-boss jobs + cron, `ws` on `/ws` with LISTEN/NOTIFY fan-out, S3-compatible
+  storage (`STORAGE_*`), OpenWorkflow durable agent runs — all on Postgres but the object store
+- **AI**: `services/ai/resolve` (`agent_models` → tenant `ai_configs` → platform key — `ANTHROPIC_API_KEY`
+  or `AI_*` (OpenAI-compatible); zero key → 503); Anthropic / OpenAI-compatible chat streamed as **AG-UI**
   (`@ag-ui/core` pinned; SSE or protobuf; `POST /api/agui/run` is the protocol endpoint), chat calls
-  the knowledge tools, agents on `AGENT_RUN_WORKFLOW` (projected to AG-UI on read) with typed
+  the knowledge tools, agents on the run engine (projected to AG-UI on read) with typed
   decisions (`ctx.decide`, D37: TypeSafe's Jev as the `decisions` scope, else the chat model),
-  Workers AI → pgvector (uploads: R2 → `AI.toMarkdown` → pgvector), OTLP tracing (D32: GenAI
+  `EMBEDDINGS_*` → pgvector (uploads: object store → unpdf/mammoth → pgvector), OTLP tracing (D32: GenAI
   spans → Langfuse/Phoenix/any backend, always also `ai_spans` → `rocketpod traces`); evals (D33:
   `apps/evals`, vitest-evals on vitest 4, `pnpm eval`, never in the gate) + thumbs feedback →
   `rocketpod evals promote`
-- **Analytics**: not core — the `analytics` PLUGIN (D31, the one `defaultPlugins` entry, installed
-  by the bootstrap): drizzle-cube at `/cubejs-api`+`/mcp`, fact tables on the `:15` cron, dashboards
-- **UI**: React 18 + Vite, DaisyUI 5 / Tailwind v4, React Router 6, TanStack Query 5; served as `ASSETS`
+- **Analytics**: not core — the `analytics` PLUGIN (D31), not installed by default until a
+  Rocketpod-compatible release exists (`defaultPlugins` is empty, ROADMAP M8)
+- **UI**: React 18 + Vite, DaisyUI 5 / Tailwind v4, React Router 6, TanStack Query 5; served by the Node server from `dist/ui`
 - **CLI**: commander + chalk + open; `tsx` in dev, `tsc` → `dist/cli.js` (bin `rocketpod`)
 - **Tests**: vitest projects `api` · `api-isolated` · `driver` · `ui` · `config` · `kit-only` (the kit's own
   tests, `apps/web/tests/kit-only/`, deleted by the rename — never in a copy) (Postgres :5433;
@@ -57,10 +57,10 @@ Cloudflare Worker (`apps/web`), a CLI (`apps/cli`), private zod contracts
 ## Commands (from the workspace root)
 
 ```bash
-pnpm bootstrap · pnpm preflight  # first run in one go (--offline/--online toggle [ai]) / read-only check
+pnpm bootstrap · pnpm preflight  # first run in one go / read-only check
 pnpm dev:db:up && pnpm db:migrate  # Postgres on the first free port from :5432 → DATABASE_URL; role → migrations → grants
-pnpm seed [--demo] && pnpm dev  # tenant/users/key (+ populated workspace); wrangler :3001 + vite :3000 (strict ports)
-pnpm web dev:node  # the Node entry under tsx watch (mode all, PORT 3001) — M7 makes it `pnpm dev`
+pnpm seed [--demo] && pnpm dev  # tenant/users/key (+ populated workspace); Node :3001 (tsx watch) + vite :3000 (strict ports)
+pnpm build && node apps/web/dist/server.js [web|worker|all]  # the production server
 pnpm dev:stop · pnpm dev:status · pnpm dev:db:status  # kill this repo's dev tree / port holders / every dev database
 pnpm cli login --server http://localhost:3001  # browser → ~/.rocketpod/config.json, then whoami
 pnpm gate [step…] · pnpm gate --list [--json]  # THE gate: lint → typecheck → test → build (CI's one job, Launch's ship gate)
@@ -69,30 +69,30 @@ TEST_DATABASE_BRANCH=gate-… pnpm test  # a sandbox gate: no Docker, the whole 
 pnpm eval [suite] [--model x] [--compare] · pnpm eval:baseline · pnpm eval:view  # real-model evals (D33, docs/EVALS.md)
 pnpm lint · pnpm typecheck · pnpm build  # workspace-wide
 pnpm web <script>  # any apps/web script (test:api, db:check…)
-pnpm db:generate · pnpm db:studio · pnpm deploy[:staging] · pnpm provision all  # (or one phase: --help)
+pnpm db:generate · pnpm db:studio
 pnpm kit:upgrade [--to X.Y.Z] [--apply] · pnpm kit:release X.Y.Z  # port a kit release into a copy / cut one
 ```
 
-`wrangler` lives in `apps/web`: `pnpm --filter @rocketpod/web exec wrangler …`, never at the root. No
+Local env lives in `apps/web/.env` (`.env.example` is the template). No
 `RESEND_API_KEY` → magic-link URLs are logged; no AI key → chat/agents 503; zero creds locally.
 
 ## Architecture
 
 ```
-apps/web/          @rocketpod/web — wrangler*.toml, worker-configuration.d.ts, .dev.vars(.example), .env.test,
+apps/web/          @rocketpod/web — .env(.example), .env.test, docker-compose.{dev,test}.yml,
 │                  drizzle.config.ts, migrations/, scripts/, tests/
 │  src/node/       the Node entry (M2): server.ts (modes, probes, shutdown) · platform.ts · assets.ts
-│                  (static + SPA fallback) · defer.ts (waitUntil) · jobs{,-schema}.ts (pg-boss) · runs{,-schema}.ts (OpenWorkflow agent runs) — `dist/server.js`
-│  src/worker.ts   export default { fetch, queue, scheduled }; export { NotificationsHub, AgentRunWorkflow }
-│                  (the Cloudflare entry, until M6b)
-│  src/config.ts   loadConfig(env): zod over Cloudflare.Env; routes read c.get('config')
+│                  (static + SPA fallback) · defer.ts (waitUntil) · jobs{,-schema}.ts (pg-boss) · runs{,-schema}.ts (OpenWorkflow agent runs)
+│                  · realtime.ts (ws + NOTIFY) · storage.ts (S3) · limits.ts · converter.ts — `dist/server.js`
+│  src/platform/   types.ts — the Platform interfaces every capability is read through
+│  src/config.ts   loadConfig(env): zod over the env; routes read c.get('config')
 │  src/permissions/  CASL owner/admin/member/support + isGlobalAdmin   src/db/  client, tenant-scope, schema/
 │  src/api/        index.ts (Hono app, middleware order, ASSETS catch-all) · queue.ts · scheduled.ts ·
 │                  middleware/ · auth/ · routes/ (thin) · services/ (ai/, agents/, prompts.ts) ·
-│                  workflows/ · observability/ · utils/ · queues/ · durable-objects/
+│                  workflows/ (agent-run-body.ts) · observability/ · utils/ · queues/
 │  src/ui/         React app
 │  src/plugins/    D31 seam: types.ts, api/ (the context family a plugin imports) + the
-│                  server/ui/schema/worker-exports barrels (one line per installed plugin)
+│                  server/ui/schema barrels (one line per installed plugin)
 │                  + each plugin's tree — `example-feature/` vendored as the reference one, and
 │                  `analytics/` (cubes, dashboards, fact tables) once the default set is installed
 │                  (per-dir CLAUDE.md: permissions, db/schema, api/*, ui, plugins, plugins/<id>)
@@ -106,12 +106,13 @@ scripts/           bootstrap.sh → bootstrap.mjs (9 steps), install.sh (curl on
                    upgrade.mjs (port a kit release into a copy), release{,-check}.mjs, changelog-nudge.mjs
                    (PreToolUse on a commit: missing porting note),
                    kit-update-check.mjs (SessionStart: tells a copy about a newer kit release),
-                   kit-check.mjs (the Launch kit conformance check, shared with the meta-kit), lib/
+                   kit-check.mjs (the Launch kit conformance check, shared with the meta-kit — this
+                   kit is not conformant: launch.kit.json `$runtime`), lib/
 .rocketflare.json  kit version + commit, the app's names, the replaceable-surface manifest
-launch.kit.json    the Launch kit contract (D36): how Launch scaffolds, gates, ships and upgrades a
-                   copy — kept by every copy; `node scripts/kit-check.mjs` checks it (CONCEPTS §13)
+launch.kit.json    the Launch kit contract (D36), Cloudflare-shaped; kept schema-valid, its `worker` and
+                   `release` blocks describe nothing here (`$runtime`)
 docs/upgrades/     one porting note per kit release (+ unreleased.md) — CHANGELOG.md is the index
-.claude/skills/    rf-setup · rf-preflight · rf-adapt (+ checklist.md) · rf-provision (+ reference.md) ·
+.claude/skills/    rf-setup · rf-preflight · rf-adapt (+ checklist.md) ·
                    rf-how-do-i (+ example-orders.md) · rf-upgrade (+ porting.md — port later kit releases) ·
                    rf-plugin (+ reference.md — install/upgrade/remove a plugin, D31) ·
                    rf-traces (debug a run from its span tree; pick a tracing backend, D32) ·
@@ -131,7 +132,7 @@ mints a tenant API key `cli:<host>` → `?key=&tenant_id=&tenant_name=`; stored 
 
 ## Config model
 
-`[vars]` in both tomls, read via `loadConfig(env)`: `APP_ENV` (`development|staging|production`) ·
+Environment variables (`apps/web/.env` locally), read via `loadConfig(env)`: `APP_ENV` (`development|staging|production`) ·
 `TENANCY_MODE` (`multi|single` — same schema; single auto-joins the one tenant) ·
 `SIGNUP_MODE` (`open|invite_only|approval`; `BOOTSTRAP_ADMIN_EMAILS` seeds the first admin) ·
 `TENANT_SCOPE_MODE` (`off|enforce`, `docs/RLS.md`) · `DATABASE_DRIVER` (`postgres` only, D35; missing =
@@ -146,7 +147,7 @@ consulted only for a flag marked `environmentGated`; the rollout state itself li
 `OIDC_CLIENT_SECRET`).
 
 Rules (auto-loaded by path): `.claude/rules/api.md` · database.md · ui.md · cli.md · testing.md ·
-code-quality.md · cloudflare.md. Runbooks: `docs/DEPLOY.md` · `docs/RLS.md`
+code-quality.md · runtime.md. Runbooks: `docs/DEPLOY.md` · `docs/RLS.md`
 
 ## Non-Negotiables
 
@@ -162,15 +163,15 @@ code-quality.md · cloudflare.md. Runbooks: `docs/DEPLOY.md` · `docs/RLS.md`
 - **Contracts first**: zod schema in `packages/shared/src/` → route `validate()` → UI/CLI parse the same
   schema; errors are `{ error, statusCode, code?, details? }`
 - **shared is private** — never publish it; never import `apps/web` from `packages/shared` or `apps/cli`
-- **Routes enqueue, never run**: long work → `JOBS_QUEUE` or `AGENT_RUN_WORKFLOW`; side effects in
+- **Routes enqueue, never run**: long work → `platform.jobs` or `platform.runs`; side effects in
   `waitUntil`; concurrency is a DB claim row, never a `Map`; SSE routes use `streamDatabase(c)`
-- **Two tomls, one shape**: bindings, class names, `compatibility_*`, `[limits]`, crons identical in
-  `apps/web/wrangler{,.staging}.toml`; account-scoped names differ (parity test)
-- **Secrets** never in a toml, git or a response (`hasCredential`); `.dev.vars` comments hold no other
+- **No Cloudflare**: no wrangler/miniflare/workerd/`@cloudflare/*` package, no `cloudflare:*`
+  import, no Workers type, no binding read off an env — `platform-seam.test.ts` fails any
+- **Secrets** never in git or a response (`hasCredential`); `.env` comments hold no other
   credentials; the CLI never prints a full key; `gitleaks` in CI
 - **`process` and Node server APIs only in `apps/web/src/node/`** (`node:fs`, `node:http`,
-  `@hono/node-server`…), and nothing else imports `src/node/` — `platform-seam.test.ts` fails it, so
-  the Worker bundle (`build:api`) never pulls the Node entry in. Never add `pg`
+  `@hono/node-server`…), and nothing else imports `src/node/` — `platform-seam.test.ts` fails it;
+  `process.env` is read only there and in `src/config.ts`. Never add `pg` to app code
 - **Release = root version**: git tag == root `package.json` `version` (ships web + cli)
 - **Docs in sync**: a behaviour change updates CONCEPTS / SETUP / DEPLOY / rules in the same PR,
   **and adds an entry to `docs/upgrades/unreleased.md`** — copies of the kit absorb changes by
@@ -178,8 +179,9 @@ code-quality.md · cloudflare.md. Runbooks: `docs/DEPLOY.md` · `docs/RLS.md`
 - **A plugin composes, it never redefines** (D31): it namespaces everything with its id (tables
   prefixed from it — `example-feature` → `example_*`, and `plugin check` fails a collision — job
   types `<id>.x`, query-key roots `<id>:…`, `/api/<id>`, CUSTOM events `<id>.` — **never `kit.`**),
-  reaches core only through the six barrels, its own four published entries and the DECLARED import
+  reaches core only through the five barrels, its own four published entries and the DECLARED import
   entries (`@/plugins/api`, `@/db/schema/kit`, `@testkit/*` — `docs/plugin-api.md`), and ships
-  no migration and no toml edit — the host generates the DDL; its bindings go in BOTH tomls
+  no migration — the host generates the DDL — and declares no Cloudflare `bindings` or
+  `workerExports` (`pnpm plugin` refuses them; capabilities come through `ctx.platform`)
 - **Released history is never rewritten**: an adopted copy pins a kit commit in `.rocketflare.json`;
   a force-push to a released tag orphans every copy that came from it

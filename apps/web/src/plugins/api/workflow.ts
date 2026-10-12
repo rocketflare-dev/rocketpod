@@ -2,7 +2,7 @@
  * `WorkflowCtx` (D7, D31) — a plugin's half of a durable multi-step run.
  *
  * **Unexercised.** Neither plugin that existed when this was written registers a workflow step, so
- * everything here is derived from the kit's OWN `AgentRunWorkflow` (`api/workflows/agent-run.ts`)
+ * everything here is derived from the kit's OWN agent run (`api/workflows/agent-run-body.ts`)
  * rather than from a plugin that needed it. It is deliberately minimal: what the kit's own workflow
  * demonstrably needs, and nothing speculative beyond it. Widen it when a second workflow exists to
  * widen it FOR, not before.
@@ -28,7 +28,7 @@
  * (`{ id, status }`) — a row with a `Date` on it comes back as a string.
  *
  * `withStepDatabase` is deliberately re-implemented here rather than imported: the kit's copy lives
- * in `api/workflows/agent-run.ts`, which is inside the deletable `feature-agents` surface, and this
+ * in `api/workflows/agent-run-body.ts`, which is inside the deletable `feature-agents` surface, and this
  * surface must not disappear with the example agents.
  */
 
@@ -81,11 +81,10 @@ export interface WorkflowCtx {
 
 /** One database client for one step, closed whatever happens. */
 async function withStepDatabase<T>(
-  env: PluginBindings,
   config: AppConfig,
   fn: (db: Database) => Promise<T>
 ): Promise<T> {
-  const handle = openDatabase({ ...config, HYPERDRIVE: env.HYPERDRIVE })
+  const handle = openDatabase(config)
   try {
     return await fn(handle.db)
   } finally {
@@ -129,7 +128,7 @@ export function workflowCtx(
     if (seen.has(name)) throw new DuplicateStepNameError(name)
     seen.add(name)
     const body = () =>
-      withStepDatabase(env, config, async db => {
+      withStepDatabase(config, async db => {
         const realtime = createStepRealtimeFor(platform.realtime)
         try {
           return await fn({

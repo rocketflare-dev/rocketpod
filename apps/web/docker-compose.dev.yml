@@ -3,7 +3,7 @@
 #
 # The port and the container name are variables so that a SECOND checkout on this machine gets
 # its own database instead of colliding on 5432: `pnpm dev:db:up` runs scripts/dev-db.mjs, which
-# derives both from `DATABASE_URL` in .dev.vars and sets COMPOSE_PROJECT_NAME per checkout. The
+# derives both from `DATABASE_URL` in .env and sets COMPOSE_PROJECT_NAME per checkout. The
 # defaults below are what a bare `docker compose -f docker-compose.dev.yml up` gets — correct for
 # a single checkout, and the literals `pnpm adapt` rewrites.
 services:
@@ -26,7 +26,7 @@ services:
 
   # Object storage for uploads (M6): the Versity S3 Gateway (Apache-2.0) over a directory, metadata
   # in a sidecar directory. `pnpm dev:db:up` starts it beside Postgres, picks its port (sticky, like
-  # the database's) and writes the STORAGE_* lines into .dev.vars. A bucket is a directory: the
+  # the database's) and writes the STORAGE_* lines into .env. A bucket is a directory: the
   # entrypoint creates `rocketpod-dev` before the gateway starts.
   s3-dev:
     image: versity/versitygw:v1.8.0

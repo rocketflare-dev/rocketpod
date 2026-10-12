@@ -8,11 +8,11 @@ paths:
 # UI Patterns
 
 React 18 + Vite, DaisyUI 5 on Tailwind v4, React Router v6, TanStack Query 5, zustand only for the
-websocket store. Served as Workers Static Assets from the same Worker as the API (SPA fallback).
+websocket store. Served from `dist/ui` by the same Node server as the API (SPA fallback).
 Dev: Vite on :3000 proxies `/api`, `/auth`, `/ws` — plus every prefix an installed plugin declares
-(the analytics plugin's `/cubejs-api` and `/mcp`, added by hand on install) — to `wrangler dev` on :3001.
+(the analytics plugin's `/cubejs-api` and `/mcp`, added by hand on install) — to the Node server on :3001.
 Either port moves with `DEV_UI_PORT` / `DEV_API_PORT` (`scripts/lib/dev-ports.mjs`, shell or
-`.dev.vars`); `DEV_ALLOWED_HOSTS` adds hostnames Vite answers for.
+`.env`); `DEV_ALLOWED_HOSTS` adds hostnames Vite answers for.
 
 ## Design tokens, not raw colours
 
@@ -88,7 +88,7 @@ theme and density are DOM attributes. Do not add a store for server data.
 `lib/websocketClient.ts` singleton (outside React) connects to `/ws?tenantId=` (same origin — the
 Vite proxy forwards it in dev); reconnects with exponential backoff (base `min(1 s · 2^attempt,
 30 s)`, jittered in `[base/2, base]`), and a close with code 1001/1012 or reason "upgraded"/"new
-version" (Worker redeployed) reconnects in 100 ms without counting as a failure; sends
+version" (server redeployed) reconnects in 100 ms without counting as a failure; sends
 `{"type":"ping"}` every 30 s. Events are parsed with `realtimeEventSchema`; the event type → query-key
 root map is **`REALTIME_INVALIDATIONS` / `invalidationsFor()` in `@rocketpod/shared/realtime`**, not in
 the UI — a new server event type adds its roots there, and `tests/ui` asserts every root is a real

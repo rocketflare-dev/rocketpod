@@ -46,7 +46,6 @@ export const BARRELS = [
   'apps/web/src/plugins/server.ts',
   'apps/web/src/plugins/ui.ts',
   'apps/web/src/plugins/schema.ts',
-  'apps/web/src/plugins/worker-exports.ts',
   'packages/shared/src/plugins/index.ts',
   'apps/cli/src/plugins/index.ts',
 ]

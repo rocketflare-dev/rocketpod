@@ -317,9 +317,9 @@ jobs:
           PLUGIN_DEPS: ${{ matrix.deps }}
         run: |
           set -euo pipefail
-          # db:generate runs `dotenv -e .dev.vars`, so the file has to exist here as it does on a
+          # db:generate runs `dotenv -e .env`, so the file has to exist here as it does on a
           # laptop. Git-ignored, and it holds nothing secret: a throwaway local database URL.
-          printf 'DATABASE_URL=postgresql://test:test@localhost:5433/rocketpod_test\n' > apps/web/.dev.vars
+          printf 'DATABASE_URL=postgresql://test:test@localhost:5433/rocketpod_test\n' > apps/web/.env
           manifest="$GITHUB_WORKSPACE/plugin/$PLUGIN_SUBDIR"
           id=$(node -p "require('${manifest%/}/rocketflare-plugin.json').id")
           # Nothing edits the cloned kit before the FIRST install, so `pnpm plugin add`'s refusal of

@@ -1,6 +1,6 @@
 /**
  * Apply drizzle migrations (03 §4, D17). Node-only script — run via `pnpm db:migrate` (loads
- * .dev.vars) or `pnpm db:migrate:ci` (DATABASE_URL from the environment); tests import
+ * .env) or `pnpm db:migrate:ci` (DATABASE_URL from the environment); tests import
  * `runMigrations` directly so they exercise the same path.
  *
  * Ported from the Workers reference app's `scripts/migrate.ts`: Neon `-pooler` host rewritten to

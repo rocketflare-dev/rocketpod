@@ -330,16 +330,11 @@ function checkPluginTag(root, tag, manifests, problems) {
   }
 }
 
-/** The I/O half of `isDeployable`: read the manifest and both tomls, then ask the pure function. */
+/** The I/O half of `isDeployable`: read the manifest, then ask the pure function. */
 export function deployable(root = SCRIPT_ROOT) {
   const manifestPath = path.join(root, MANIFEST_FILE)
   const manifest = existsSync(manifestPath) ? JSON.parse(readFileSync(manifestPath, 'utf8')) : null
-  const tomls = Object.fromEntries(
-    ['apps/web/wrangler.toml', 'apps/web/wrangler.staging.toml']
-      .filter(f => existsSync(path.join(root, f)))
-      .map(f => [f, read(root, f)])
-  )
-  return isDeployable(manifest, tomls)
+  return isDeployable(manifest)
 }
 
 /**

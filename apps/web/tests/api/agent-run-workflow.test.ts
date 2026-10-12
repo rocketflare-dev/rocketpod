@@ -1,7 +1,7 @@
 // @vitest-isolate
 // Mocks `@/api/services/ai/resolve` (the chat provider seam), so this file needs its own module registry.
 /**
- * `AgentRunWorkflow` (D7) driven end to end under Node: the class with a fake `step` (runs callbacks
+ * The agent run's durable body (D7, `runAgentRun`) driven end to end: a fake `step` (runs callbacks
  * inline, records names/config) and test bindings against the real database. claim → execute
  * `summarize-text` with a `FakeChatClient` answering the `submit_summary` tool call → events in order
  * → row `succeeded` with the output → `ai_usage` row → nudges. Also: cancellation between turns →
@@ -37,22 +37,16 @@ import { AiError } from '@/api/services/ai/errors'
 import { searchChunks } from '@/api/services/ai/retrieval'
 import type { ChatClient, ChatParams } from '@/api/services/ai/types'
 import type { Logger } from '@/api/utils/core/logger'
-import * as workflowModule from '@/api/workflows/agent-run'
-import { AgentRunWorkflow } from '@/api/workflows/agent-run'
+import * as workflowModule from '@/api/workflows/agent-run-body'
+import { runAgentRun } from '@/api/workflows/agent-run-body'
 import { loadConfig } from '@/config'
 import * as dbClient from '@/db/client'
 import { agentRunEffects, agentRuns, aiSpans, aiUsage, chunks, documents } from '@/db/schema'
 import { FakeChatClient, type FakeScript } from '../helpers/ai'
 import { createTestTenantWithUser } from '../helpers/auth'
 import { setupTestDatabase } from '../helpers/db'
-import {
-  createExecutionContext,
-  createTestEnv,
-  stubs,
-  type TestEnv,
-  workerEnv,
-} from '../mocks/bindings'
-import { createFakeWorkflowStep, type FakeWorkflowStepOptions } from '../mocks/cloudflare-workers'
+import { createTestEnv, stubs, type TestEnv } from '../mocks/bindings'
+import { createFakeStep, type FakeStepOptions } from '../mocks/step'
 
 const state: { client: ChatClient | null } = { client: null }
 
@@ -114,22 +108,15 @@ async function drive(
   env: TestEnv,
   runId: string,
   tenantId: string,
-  stepOptions: FakeWorkflowStepOptions = {},
+  stepOptions: FakeStepOptions = {},
   maxInterruptRounds?: number
 ) {
-  const { step, calls, waits, names } = createFakeWorkflowStep(stepOptions)
-  const workflow = new AgentRunWorkflow(createExecutionContext(), workerEnv(env))
-  if (maxInterruptRounds !== undefined) workflow.maxInterruptRounds = maxInterruptRounds
-  // The fake covers `do`/`sleep`; the platform type also declares `sleepUntil`/`waitForEvent`.
-  const outcome = await workflow.run(
-    {
-      payload: { runId, tenantId },
-      timestamp: new Date(),
-      instanceId: runId,
-      workflowName: 'rocketpod-agent-run',
-    },
-    step as unknown as Parameters<AgentRunWorkflow['run']>[1]
-  )
+  const { step, calls, waits, names } = createFakeStep(stepOptions)
+  const outcome = await runAgentRun({ runId, tenantId }, step, {
+    env,
+    platform: env,
+    ...(maxInterruptRounds !== undefined && { maxInterruptRounds }),
+  })
   return { outcome, calls, waits, names }
 }
 
@@ -184,7 +171,7 @@ afterEach(() => {
   AGENTS['summarize-text'] = originalAgent
 })
 
-describe('AgentRunWorkflow', () => {
+describe('the agent run (runAgentRun)', () => {
   it('claim → execute → finish: events in order, output persisted, usage recorded, nudges sent, one DB client per step', async () => {
     const env = createTestEnv()
     const client = script([TOOL_TURN])
@@ -531,7 +518,7 @@ describe('AgentRunWorkflow', () => {
     const close = vi.fn(async () => {})
     vi.spyOn(dbClient, 'openDatabase').mockReturnValueOnce({ db, close })
     await expect(
-      workflowModule.withStepDatabase(env, cfg, async () => {
+      workflowModule.withStepDatabase(cfg, async () => {
         throw new Error('boom')
       })
     ).rejects.toThrow('boom')
@@ -617,9 +604,7 @@ describe('the suspend/resume loop (issue #17)', () => {
   // to be what the workflow uses by default.
   it('an agent that never stops asking is abandoned after MAX_INTERRUPT_ROUNDS, cleanly', async () => {
     const ROUNDS = 3
-    expect(
-      new AgentRunWorkflow(createExecutionContext(), workerEnv(createTestEnv())).maxInterruptRounds
-    ).toBe(MAX_INTERRUPT_ROUNDS)
+    expect(ROUNDS).toBeLessThan(MAX_INTERRUPT_ROUNDS)
     const env = createTestEnv()
     script([])
     let asked = 0

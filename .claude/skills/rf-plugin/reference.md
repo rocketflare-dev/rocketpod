@@ -103,28 +103,11 @@ Field notes, in the order they bite:
   one of them as `touches-plugin-registry` — the kit CAN move ground under a plugin.
 - **`dependencies`** are installed into the HOST's packages (`pnpm --dir apps/web add …`). A plugin
   ships no `package.json` of its own into a host.
-- **`bindings[]`** is `{ type, binding, name?, consumer?, className?, storage? }`, and `type` is one
-  of **five**: `kv`, `queue`, `r2`, `workflow`, `durable_object`. Anything else (`d1`, `vectorize`,
-  `hyperdrive`…) is refused at INSTALL, naming the type, rather than surfacing as a 503 after a
-  deploy that silently skipped it. `binding` is what the code reads off `Cloudflare.Env` and is
-  identical in both environments; `name` is the account-scoped half. Resource names come out as
-  `<app>-<id>-<name>[-staging]`, and `<APP>_<ID>_<NAME>[_STAGING]` for KV, mirroring the kit's own
-  `<APP>_RATE_LIMIT[_STAGING]`.
-  - The first three are **created** by `cf-provision.sh`; `workflow` and `durable_object` are
-    **declared only** — `wrangler deploy` registers both from the block.
-  - A `workflow` or `durable_object` must declare `className`, the class its `worker-exports.ts`
-    re-exports. A `durable_object` must ALSO declare `storage` (`"sqlite"` or `"none"`), which
-    picks `new_sqlite_classes` over `new_classes` and **cannot be changed afterwards** — which is
-    why it is required rather than defaulted — and it declares no `name` at all, because it has no
-    account-scoped resource.
-- **`vars[]`** is `{ key, example?, secret? }`. `secret: true` is a Worker secret
-  (`.dev.vars.example` + `pnpm provision secrets <env>`); anything else is a `[vars]` key written
-  into BOTH tomls, because the parity test compares the keys.
-- **`workerExports`** are the Durable Object / Workflow class names the plugin's
-  `apps/web/src/plugins/<id>/worker-exports.ts` re-exports. **Nobody adds a line by hand**: that
-  file is the sixth barrel's half, `plugin add` writes the barrel line, and `plugin check` fails if
-  the file does not export every name declared here. Cloudflare resolves `class_name` against the
-  named exports of `src/worker.ts` and nowhere else, which is the whole reason the barrel exists.
+- **`bindings[]` and `workerExports`** are Rocketflare's Cloudflare declarations, and this kit
+  refuses any entry in either at INSTALL (`pluginPlatformProblems`): there is no Worker to bind
+  on. A plugin reaches jobs, storage, realtime and runs through `ctx.platform`.
+- **`vars[]`** is `{ key, example?, secret? }`: an environment variable of the server, declared in
+  `.env.example`; `secret: true` adds a human step to set its value wherever the server runs.
 - **`skills`** are the agent skills the plugin ships, one directory name each. The plugin keeps
   them at `skills/<dir>/SKILL.md` (plus any companion files — `reference.md`, one file per
   provider…) in its OWN tree, and `add` copies each to **`.claude/skills/<dir>/`**, where Claude
@@ -189,19 +172,12 @@ where the complaint is AT a place in a file, never fabricated. Per installed plu
 - **every declared dependency is really in the host `package.json`** — `plugin add --apply` runs
   `pnpm --dir <pkg> add`, and until now nothing ever looked again, so an install that failed
   part-way left a plugin whose imports cannot resolve while every other check read as clean;
-- **`workerExports` both ways**: its `worker-exports.ts` exists and exports every declared name (a
-  name in the manifest but not the file is a binding pointed at nothing, and `wrangler deploy`
-  refuses the whole script for it), and it declares every name the file exports (a class the
-  manifest does not name is invisible to provisioning, which reads that list to write the binding
-  block). A file carrying an `export *` is skipped in both directions — its names cannot be known
-  without resolving the module, and guessing teaches an author to distrust the audit;
+- **no Cloudflare declaration** — a manifest with `bindings` or `workerExports` fails as
+  `<id>:cloudflare-only`;
 - when it declares tenant-scoped tables, **a tenant-isolation test exists** under
   `src/plugins/<id>/tests/api/`. This is the kit's one non-negotiable that the kit itself cannot
   write, and it is structural: it proves such a test EXISTS, not that it is right, and the message
   says so. It wants a file that creates a SECOND organisation and names it or the property;
-- when it declares a `durable_object` binding, **`hooks.onTenantDeleted` is declared somewhere in
-  its tree** — a Durable Object is state the FK cascade cannot reach, so a deleted tenant's DO
-  state outlives it, and no other check can see that because its tables are gone;
 - **no two installed plugins declare the same table name.** The prefix convention is what keeps
   them apart and nothing derives a table name from an id, so the collision is the checkable half —
   and nothing else in the kit sees it. TS2308 catches a duplicated EXPORT symbol, not a duplicated

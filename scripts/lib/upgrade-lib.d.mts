@@ -109,12 +109,8 @@ export interface Deployability {
   deployable: boolean
   reason: string
 }
-/** `tomls` is `{ path: text }`. See the implementation for why the default is "deploy". */
-export function isDeployable(
-  manifest: Manifest | null,
-  tomls: Record<string, string>
-): Deployability
-export const PLACEHOLDER_RE: RegExp
+/** See the implementation for why the default is "deploy". */
+export function isDeployable(manifest: Manifest | null): Deployability
 
 export type FileClass =
   | 'added'
@@ -126,7 +122,6 @@ export type FileClass =
   | 'skipped-locally-deleted'
   | 'skipped-kit-only'
   | 'migration-derived'
-  | 'manual-toml'
   | 'manual-env'
   | 'manual'
   | 'binary'

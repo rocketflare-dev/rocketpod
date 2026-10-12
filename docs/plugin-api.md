@@ -898,7 +898,7 @@ The harness: a real database, the real Hono app, real bindings-shaped stubs, the
 - `async function createTestApiKey( db: Database, tenantId: string, userId: string, overrides: Partial<Omit<NewApiKey, 'keyHash' \| 'keyPrefix'>> = {} )`
   A tenant API key created by `userId` (who must be a member). Returns the plaintext `key` for an `Authorization: Bearer` header plus the stored row.
 - `function createTestEnv(overrides: Partial<TestEnv> = {}): TestEnv`
-  A fresh env per call (KV and queue state are not shared between calls). Vars come from process.env with .env.test-compatible defaults; pass `overrides` to change any of them.
+  A fresh env per call (no state is shared between calls). Vars come from process.env with .env.test-compatible defaults; pass `overrides` to change any of them, or to replace or…
 - `function createTestGlobalAdmin(db: Database, overrides: Partial<NewUser> = {})`
   A platform staff account (`users.isGlobalAdmin`), the gate for `/api/admin/*`.
 - `function createTestQueryClient()`
@@ -948,14 +948,14 @@ The harness: a real database, the real Hono app, real bindings-shaped stubs, the
   Stub `fetch` from a route table. Keys are `"METHOD /path"` (path compared without the query string); unmatched requests 404 with the shared envelope. Returns the mock for call…
 - `function stubHealthFetch(info: Record<string, unknown> = {})`
   Stub `fetch` so `/api/health` answers with the given app info; everything else 404s.
-- `function stubs(env: TestEnv)`
-  Typed access to the in-memory stubs behind a `createTestEnv()` env.
+- `function stubs(env: TestEnv): TestStubs`
+  Typed access to the in-memory fakes behind a `createTestEnv()` env.
 - `function stubSessionFetch(session: SessionResponse \| null)`
   Layer a `/auth/session` answer over whatever `fetch` the test already installed.
 - `interface TaskReport`
 - `function testDatabaseUrl(): string`
-- `type TestEnv = AppBindings & TestBindings & Platform & { DATABASE_URL: string [secret: string]: unknown }`
-  A test env is BOTH things at once (M1): the runtime env the app receives — pass it straight to `app.request`, `queue()` and `scheduled()`, which adapt its bindings into a…
+- `type TestEnv = AppBindings & Platform & { DATABASE_URL: string [secret: string]: unknown }`
+  A test env is BOTH things at once: the runtime env the app receives — pass it straight to `app.request`, `queue()` and `dispatchScheduled()`, which read the prebuilt `PLATFORM`…
 - `interface TestSeed`
   Plain, JSON-serialisable — vitest's `provide()` requires it.
 - `const unauthorizedResponse: () => Response`
@@ -973,7 +973,7 @@ Builders for the context family, for tests that never touch data.
 - `interface CronCtxOptions extends BaseOptions`
 - `type FakeRequestCtx = RequestCtx & { readonly deferred: ReadonlyArray<() => Promise<unknown>> settle(): Promise<void> }`
   What a fake request context carries beyond the real one: the deferred work it collected.
-- `type FakeWorkflowCtx = WorkflowCtx & { readonly recorded: ReturnType<typeof createFakeWorkflowStep> }`
+- `type FakeWorkflowCtx = WorkflowCtx & { readonly recorded: ReturnType<typeof createFakeStep> }`
   The fake step recorder, so a test can assert the NAMES a run asked for and their order.
 - `function makeCronCtx(options: CronCtxOptions): CronCtx`
 - `function makeJobCtx(options: BaseOptions): JobCtx`
@@ -1510,18 +1510,18 @@ nothing in the comparison that can throw.
 @testkit/integration :: function :: setupTestDatabase :: function setupTestDatabase(): Database
 @testkit/integration :: function :: stubFetch :: function stubFetch(routes: RouteTable = {})
 @testkit/integration :: function :: stubHealthFetch :: function stubHealthFetch(info: Record<string, unknown> = {})
-@testkit/integration :: function :: stubs :: function stubs(env: TestEnv)
+@testkit/integration :: function :: stubs :: function stubs(env: TestEnv): TestStubs
 @testkit/integration :: function :: stubSessionFetch :: function stubSessionFetch(session: SessionResponse | null)
 @testkit/integration :: interface :: TaskReport :: interface TaskReport
 @testkit/integration :: function :: testDatabaseUrl :: function testDatabaseUrl(): string
-@testkit/integration :: type :: TestEnv :: type TestEnv = AppBindings & TestBindings & Platform & { DATABASE_URL: string [secret: string]: unknown }
+@testkit/integration :: type :: TestEnv :: type TestEnv = AppBindings & Platform & { DATABASE_URL: string [secret: string]: unknown }
 @testkit/integration :: interface :: TestSeed :: interface TestSeed
 @testkit/integration :: const :: unauthorizedResponse :: const unauthorizedResponse: () => Response
 @testkit/integration :: function :: uniqueId :: function uniqueId(): string
 @testkit/integration :: function :: waitOnExecutionContext :: async function waitOnExecutionContext(ctx: TestExecutionContext): Promise<void>
 @testkit/unit :: interface :: CronCtxOptions :: interface CronCtxOptions extends BaseOptions
 @testkit/unit :: type :: FakeRequestCtx :: type FakeRequestCtx = RequestCtx & { readonly deferred: ReadonlyArray<() => Promise<unknown>> settle(): Promise<void> }
-@testkit/unit :: type :: FakeWorkflowCtx :: type FakeWorkflowCtx = WorkflowCtx & { readonly recorded: ReturnType<typeof createFakeWorkflowStep> }
+@testkit/unit :: type :: FakeWorkflowCtx :: type FakeWorkflowCtx = WorkflowCtx & { readonly recorded: ReturnType<typeof createFakeStep> }
 @testkit/unit :: function :: makeCronCtx :: function makeCronCtx(options: CronCtxOptions): CronCtx
 @testkit/unit :: function :: makeJobCtx :: function makeJobCtx(options: BaseOptions): JobCtx
 @testkit/unit :: function :: makeRequestCtx :: function makeRequestCtx(options: RequestCtxOptions): FakeRequestCtx

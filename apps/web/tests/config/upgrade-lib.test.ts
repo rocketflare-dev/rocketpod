@@ -151,10 +151,8 @@ describe('classifyPath', () => {
     expect(c.reason).toMatch(/db:generate/)
   })
 
-  it('sends the wrangler tomls and the env examples to a human', () => {
-    expect(classifyPath('apps/web/wrangler.toml', base).class).toBe('manual-toml')
-    expect(classifyPath('apps/web/wrangler.staging.toml', base).class).toBe('manual-toml')
-    expect(classifyPath('apps/web/.dev.vars.example', base).class).toBe('manual-env')
+  it('sends the env examples to a human', () => {
+    expect(classifyPath('apps/web/.env.example', base).class).toBe('manual-env')
   })
 
   it('keeps kit-only files out of an app', () => {
@@ -519,38 +517,23 @@ describe('hasChangelogSection', () => {
 })
 
 describe('isDeployable', () => {
-  // This gates the deploy workflow, so the expensive mistake is a false "skip": somebody's
+  // This gates a release workflow, so the expensive mistake is a false "skip": somebody's
   // production release quietly not happening. Every ambiguous case must deploy.
   const KIT = { app: null } as unknown as Manifest
   const APP = { app: { slug: 'acme', display: 'Acme', domain: 'acme.io' } } as unknown as Manifest
-  const placeholder = { 'apps/web/wrangler.toml': 'id = "<KV_NAMESPACE_ID>"' }
-  const provisioned = { 'apps/web/wrangler.toml': 'id = "0f1e2d3c4b5a69788796a5b4c3d2e1f0"' }
 
-  it('skips only the kit that has never been provisioned', () => {
-    const d = isDeployable(KIT, placeholder)
+  it('skips only the kit itself', () => {
+    const d = isDeployable(KIT)
     expect(d.deployable).toBe(false)
-    expect(d.reason).toContain('apps/web/wrangler.toml')
+    expect(d.reason).toContain('the kit itself')
   })
 
-  it('deploys an app even when its tomls still hold placeholders', () => {
-    // Their parity check fails loudly a step later; that is the gate, and it is meant to be seen.
-    expect(isDeployable(APP, placeholder).deployable).toBe(true)
-  })
-
-  it('deploys a kit-shaped repo that someone pointed at real resources', () => {
-    expect(isDeployable(KIT, provisioned).deployable).toBe(true)
+  it('deploys an app', () => {
+    expect(isDeployable(APP).deployable).toBe(true)
   })
 
   it('deploys when there is no manifest at all', () => {
-    expect(isDeployable(null, placeholder).deployable).toBe(true)
-  })
-
-  it('names both tomls when both are unprovisioned', () => {
-    const d = isDeployable(KIT, {
-      'apps/web/wrangler.toml': '<A_ID>',
-      'apps/web/wrangler.staging.toml': '<B_ID>',
-    })
-    expect(d.reason).toContain('apps/web/wrangler.toml and apps/web/wrangler.staging.toml')
+    expect(isDeployable(null).deployable).toBe(true)
   })
 })
 

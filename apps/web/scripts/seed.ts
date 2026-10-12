@@ -1,5 +1,5 @@
 /**
- * Development seed (D9, D25) — idempotent, run as `pnpm seed` (loads .dev.vars). Multi-tenant:
+ * Development seed (D9, D25) — idempotent, run as `pnpm seed` (loads .env). Multi-tenant:
  * tenant `Acme` (`acme`) with owner/admin/member `*@example.test` (verified), a pending invitation
  * for `invited@example.test`, one API key printed ONCE (only its hash is stored) and a global
  * admin `admin@rocketpod.example.com`. `TENANCY_MODE=single`: the single tenant is named after `APP_NAME`
@@ -70,7 +70,7 @@ const TENANCY_MODE = process.env.TENANCY_MODE === 'single' ? 'single' : 'multi'
 const APP_NAME = process.env.APP_NAME || 'Rocketpod'
 const DEV_PORTS = devPorts()
 const APP_URL = process.env.APP_URL || `http://localhost:${DEV_PORTS.ui}`
-/** `wrangler dev`'s origin: APP_URL with the UI port swapped for the API's (a tunnel URL stays). */
+/** the dev server's origin: APP_URL with the UI port swapped for the API's (a tunnel URL stays). */
 function apiUrl(appUrl: string): string {
   const url = new URL(appUrl)
   if (url.port === String(DEV_PORTS.ui)) url.port = String(DEV_PORTS.api)
@@ -123,7 +123,7 @@ async function ensureMembership(
 }
 
 async function main() {
-  if (!DATABASE_URL) throw new Error('DATABASE_URL is required (pnpm seed loads .dev.vars)')
+  if (!DATABASE_URL) throw new Error('DATABASE_URL is required (pnpm seed loads .env)')
   // Always say where the rows are going — `pnpm bootstrap --db-url` points this at a remote
   // branch. Host and database only: the user and password never reach the terminal.
   console.log(`seeding ${databaseUrlTarget(DATABASE_URL)}`)
@@ -225,7 +225,7 @@ async function main() {
   log(
     `  or open ${APP_URL}/login and use the dev-login form with any *@example.test address above.`
   )
-  log(`  Magic links are logged by wrangler dev when RESEND_API_KEY is unset.`)
+  log(`  Magic links are logged by the dev server when RESEND_API_KEY is unset.`)
 
   if (DEMO) await seedDemo(db, tenant, owner, log)
 }

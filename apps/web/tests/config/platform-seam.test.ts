@@ -1,18 +1,16 @@
 /**
- * The platform seam (M1, `src/platform/types.ts`): no Cloudflare type, binding or module escapes
- * the adapters. Routes, services, queue handlers, cron tasks and the agent-run body depend on the
- * neutral interfaces and read `c.get('platform')`; only the places that ARE the Worker may name the
- * platform — the adapters in `src/platform/cloudflare/`, the entry (`src/worker.ts`) and the two
- * classes it exports (the Durable Object and the Workflow shim).
+ * No Cloudflare anywhere (M6b): the kit runs on Node in a container, and nothing in it may depend on
+ * the Workers runtime again — no `wrangler`/`miniflare`/`workerd`/`@cloudflare/*` package in any
+ * workspace manifest, no script that runs `wrangler`, no `cloudflare:*` import, no Workers global
+ * type and no Worker binding read off an env, in `src/`, `tests/` or `scripts/`. Routes, services,
+ * queue handlers, cron tasks and the agent-run body depend on the neutral interfaces of
+ * `src/platform/types.ts` and read `c.get('platform')`. A source scan on the model of
+ * `driver-results.test.ts`: tokens, not text, so a comment or a string that mentions `R2Bucket` is
+ * fine and a type annotation is not.
  *
- * That is what lets a second runtime replace the adapters and the entry and leave everything else
- * alone. A source scan on the model of `driver-results.test.ts`: tokens, not text, so a comment or
- * a string that mentions `R2Bucket` is fine and a type annotation is not.
- *
- * The second runtime (M2) is `src/node/`, and the same scan holds it to the mirror-image rule:
- * `process`, Node's server-side modules and `@hono/node-server` appear ONLY there, and nothing
- * outside it imports it — so the Worker bundle can never pull the Node entry in, and the app stays
- * runnable on both until the Worker goes (M6b).
+ * The same scan keeps the Node entry fenced: `process`, Node's server-side modules and
+ * `@hono/node-server` appear ONLY in `src/node/`, and nothing else under `src/` imports it — config
+ * comes through `loadConfig(env)` and the runtime through the `Platform`.
  */
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
@@ -21,15 +19,12 @@ import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
 import { WEB_ROOT } from '../helpers/source-files'
 
-/** Where the Worker may be named. Everything else under `src/` is platform-neutral. */
-const ALLOWED = [
-  /^src\/platform\/cloudflare\//,
-  /^src\/worker\.ts$/,
-  /^src\/api\/durable-objects\/notifications-hub\.ts$/,
-  /^src\/api\/workflows\/agent-run\.ts$/,
-]
+const REPO_ROOT = path.resolve(WEB_ROOT, '../..')
 
-/** Cloudflare's global types (from `worker-configuration.d.ts`) and the `Cloudflare` namespace. */
+/**
+ * The Workers runtime's global types and the `Cloudflare` namespace. `ExecutionContext` is not
+ * here: Hono declares its own, which the app and the Node entry use.
+ */
 const CLOUDFLARE_TYPES = new Set([
   'Ai',
   'Cloudflare',
@@ -37,7 +32,6 @@ const CLOUDFLARE_TYPES = new Set([
   'DurableObjectNamespace',
   'DurableObjectState',
   'DurableObjectStub',
-  'ExecutionContext',
   'ExportedHandler',
   'Fetcher',
   'Hyperdrive',
@@ -70,19 +64,32 @@ const BINDINGS = new Set([
   'RATE_LIMIT_KV',
 ])
 
-/** Tracked AND untracked sources, so a file is scanned the moment it is written. */
-function sources(): string[] {
+/** Tracked AND untracked sources under `dirs`, so a file is scanned the moment it is written. */
+function sources(dirs: string[] = ['src'], pattern = /\.tsx?$/): string[] {
   const out = execFileSync(
     'git',
-    ['ls-files', '--cached', '--others', '--exclude-standard', '--', 'src'],
+    ['ls-files', '--cached', '--others', '--exclude-standard', '--', ...dirs],
     { cwd: WEB_ROOT, encoding: 'utf8' }
   )
   return out
     .split('\n')
-    .filter(f => /\.tsx?$/.test(f))
+    .filter(f => pattern.test(f))
     .filter(f => existsSync(path.join(WEB_ROOT, f)))
     .sort()
 }
+
+/** Every workspace `package.json`, repo-relative. */
+function manifests(): string[] {
+  return execFileSync('git', ['ls-files', '--', 'package.json', '*/package.json'], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+  })
+    .split('\n')
+    .filter(f => f.endsWith('package.json') && !f.includes('node_modules'))
+}
+
+/** A Cloudflare toolchain or runtime package. */
+const CLOUDFLARE_PACKAGE = /^(wrangler|miniflare|workerd|cloudflared|@cloudflare\/|@cliftonc\/cfld)/
 
 interface Finding {
   file: string
@@ -141,10 +148,10 @@ function leftmostExpression(expr: ts.PropertyAccessExpression): ts.Expression {
 const NODE_ONLY = /^src\/node\//
 
 /**
- * `node:*` modules the Worker also provides (`nodejs_compat`) — fine anywhere. Everything else
- * (`node:fs`, `node:http`, `node:net`…) is the Node entry's business.
+ * `node:*` modules the app's own code may use anywhere — the ones that are runtime plumbing rather
+ * than a server. Everything else (`node:fs`, `node:http`, `node:net`…) is the Node entry's business.
  */
-const WORKER_SAFE_NODE_MODULES = new Set([
+const PORTABLE_NODE_MODULES = new Set([
   'node:async_hooks',
   'node:buffer',
   'node:crypto',
@@ -170,8 +177,7 @@ function nodeReferences(file: string, text: string): Finding[] {
       ts.isStringLiteral(node.moduleSpecifier)
     ) {
       const spec = node.moduleSpecifier.text
-      if (spec.startsWith('node:') && !WORKER_SAFE_NODE_MODULES.has(spec))
-        at(node, `import '${spec}'`)
+      if (spec.startsWith('node:') && !PORTABLE_NODE_MODULES.has(spec)) at(node, `import '${spec}'`)
       if (spec.startsWith('@hono/node-server')) at(node, `import '${spec}'`)
       const target = spec.startsWith('.')
         ? path.posix.normalize(path.posix.join(dir, spec))
@@ -221,13 +227,46 @@ describe('the Node entry stays in src/node/', () => {
   })
 })
 
-describe('the platform seam', () => {
-  it('keeps every Cloudflare type, binding and module inside the adapters and the Worker entry', () => {
-    const offenders = sources()
-      .filter(file => !ALLOWED.some(re => re.test(file)))
+describe('no Cloudflare anywhere', () => {
+  it('no workspace package depends on the Workers toolchain or runtime', () => {
+    const offenders = manifests().flatMap(file => {
+      const pkg = JSON.parse(readFileSync(path.join(REPO_ROOT, file), 'utf8'))
+      return ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies']
+        .flatMap(field => Object.keys(pkg[field] ?? {}))
+        .filter(name => CLOUDFLARE_PACKAGE.test(name))
+        .map(name => `${file}: ${name}`)
+    })
+    expect(offenders).toEqual([])
+  })
+
+  it('no package script runs wrangler', () => {
+    const offenders = manifests().flatMap(file => {
+      const scripts = JSON.parse(readFileSync(path.join(REPO_ROOT, file), 'utf8')).scripts ?? {}
+      return Object.entries(scripts as Record<string, string>)
+        .filter(([, command]) => /\bwrangler\b/.test(command))
+        .map(([name]) => `${file}: ${name}`)
+    })
+    expect(offenders).toEqual([])
+  })
+
+  it('no Cloudflare type, binding or module in src/, tests/ or scripts/', () => {
+    const files = sources(['src', 'tests', 'scripts'], /\.(tsx?|mjs)$/)
+    expect(files.length).toBeGreaterThan(100)
+    const offenders = files
       .flatMap(file => cloudflareReferences(file, readFileSync(path.join(WEB_ROOT, file), 'utf8')))
       .map(f => `${f.file}:${f.line} ${f.what}`)
     expect(offenders, 'read the capability through `Platform` (src/platform/types.ts)').toEqual([])
+  })
+
+  it('no wrangler toml, Worker entry or generated Workers types are left', () => {
+    for (const file of [
+      'wrangler.toml',
+      'wrangler.staging.toml',
+      'worker-configuration.d.ts',
+      'src/worker.ts',
+    ]) {
+      expect(existsSync(path.join(WEB_ROOT, file)), file).toBe(false)
+    }
   })
 
   it('sees what it is looking for (the scanner is not vacuous)', () => {
@@ -247,12 +286,5 @@ describe('the platform seam', () => {
       '.FILES',
       '.JOBS_QUEUE',
     ])
-  })
-
-  it('allows the adapters to name the platform', () => {
-    expect(
-      ALLOWED.some(re => re.test('src/platform/cloudflare/storage.ts')) &&
-        ALLOWED.some(re => re.test('src/worker.ts'))
-    ).toBe(true)
   })
 })

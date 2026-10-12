@@ -1,6 +1,6 @@
 /**
  * `document.convert` job (D7, D18) through the real consumer: a `pending` upload → the original is
- * read from R2, handed to `AI.toMarkdown` with its name and type, the text stored on the row,
+ * read from object storage, handed to the converter with its name and type, the text stored on the row,
  * chunks + embeddings written, `indexed`, `ack()`; a `format: 'error'` answer → `failed` with the
  * reason and `ack()` (permanent — no retry); a thrown binding error → `failed` and
  * `retry({ delaySeconds })`; converted text over the cap → `failed` + ack; a vanished row → warn +
@@ -15,7 +15,7 @@ import { storeUploadedFile } from '@/api/services/storage'
 import type { Logger } from '@/api/utils/core/logger'
 import { loadConfig } from '@/config'
 import { chunks, documents } from '@/db/schema'
-import { createR2Storage } from '@/platform/cloudflare'
+import type { JobBatch } from '@/platform/types'
 import { createTestTenantWithUser } from '../helpers/auth'
 import { setupTestDatabase } from '../helpers/db'
 import { createTestEnv, stubs, type TestEnv } from '../mocks/bindings'
@@ -44,7 +44,7 @@ function batch(messages: ReturnType<typeof message>[]) {
     messages,
     ackAll: vi.fn(),
     retryAll: vi.fn(),
-  } as unknown as MessageBatch<unknown>
+  } as unknown as JobBatch
 }
 
 /** An uploaded, not-yet-converted PDF: object + files row + pending document with `fileId`. */
@@ -54,7 +54,7 @@ async function pendingUpload(
   userId: string,
   text = 'The volcano erupted. Bananas are yellow.'
 ) {
-  const storage = createR2Storage(env.FILES as R2Bucket)
+  const storage = stubs(env).files
   const file = await storeUploadedFile(db, storage, {
     tenantId,
     ownerUserId: userId,

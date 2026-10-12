@@ -57,8 +57,6 @@ export interface AppBindings {
   readonly [name: string]: unknown
   /** A prebuilt platform (a non-Worker entry, a test); the Worker's is adapted from its bindings. */
   PLATFORM?: Platform
-  /** Postgres through a pooler binding (D35 `postgres` driver); else `DATABASE_URL`. */
-  HYPERDRIVE?: { connectionString: string }
   /** The SPA's static assets, when the runtime serves them. */
   ASSETS?: { fetch(request: Request): Promise<Response> }
 }

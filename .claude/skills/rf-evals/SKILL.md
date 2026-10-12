@@ -28,7 +28,7 @@ Pick the mode from `$ARGUMENTS`, or from what the person says. If you can't tell
 ## Preconditions (check once)
 
 1. `pnpm test:db:up` — the evals use the test database and migrate it themselves.
-2. A model key: `ANTHROPIC_API_KEY` in `apps/web/.dev.vars` (or in the environment), or
+2. A model key: `ANTHROPIC_API_KEY` in `apps/web/.env` (or in the environment), or
    `FIREWORKS_API_KEY` / `GEMINI_API_KEY` for `--provider fireworks|gemini`. Without one,
    every suite skips and prints why. That is not a failure, but it's not a result either. Say so.
    `EMBEDDINGS_API_KEY` is optional: without it retrieval uses the test stub's deterministic vectors
@@ -87,7 +87,7 @@ previous run first. Eval traces are in `ai_spans` tagged `rocketpod.eval=true`
   (it prints the diff and serves both). Use the same judge for both, or the comparison is
   confounded.
 - Vendors: `--provider gemini` or `--provider fireworks [--model accounts/fireworks/models/…]`
-  (keys in `.dev.vars`). Their cost shows as "—" (not in the price table), so compare on tokens and
+  (keys in `.env`). Their cost shows as "—" (not in the price table), so compare on tokens and
   latency, and say so.
 - Prompts: prompts are code (`apps/web/src/api/services/prompts.ts`). Run, change the prompt, run
   again. The run header's `promptHashes` proves which text each run used.

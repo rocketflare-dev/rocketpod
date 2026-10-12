@@ -51,7 +51,7 @@ Expect: no container or volume with the OLD kit name (only `<slug>-dev-postgres`
 **What to change.** If the old container/volume exists, remove them — the renamed compose file
 cannot: `docker rm -f <old>-dev-postgres && docker volume rm <old>-dev-data` (same for
 `-test-postgres`). Then `pnpm dev:db:up && pnpm db:migrate` builds a fresh database under the new
-names. Also `apps/web/.dev.vars` — the script renames its `DATABASE_URL` when the file exists;
+names. Also `apps/web/.env` — the script renames its `DATABASE_URL` when the file exists;
 confirm it reads `postgresql://<snake>:<snake>_pass@localhost:5432/<snake>_dev`. Decide the
 embedding dimension now if you will not use the default `@cf/baai/bge-m3`.
 
@@ -71,26 +71,21 @@ file's Compose project), `POSTGRES_USER: <snake>`,
 `POSTGRES_DB: <snake>_dev` / `<snake>_test`, and `pg_isready -U <snake> -d <snake>_dev`.
 
 **What to change.** Nothing, normally. If you want a different owner or password, change the
-compose file, `apps/web/.dev.vars.example`, `.dev.vars` and `.env.test` together.
+compose file, `apps/web/.env.example`, `.env` and `.env.test` together.
 
-## (d) Staging keeps its `-staging` suffix — the parity test proves it
+## (d) Environments — nothing account-scoped is named after the app
 
-**What to check.** Workflow, queue and R2 names are unique per Cloudflare account. Staging must
-be `<slug>-staging`, `<slug>-jobs-staging`, `<slug>-agent-run-staging`, `<slug>-files-staging` in
-`apps/web/wrangler.staging.toml`; production the same names without the suffix in
-`apps/web/wrangler.toml`. `JOBS_QUEUE_NAME_PREFIX` in `apps/web/src/api/services/jobs.ts` must be
-`<slug>-jobs` — the consumer matches the queue by that prefix.
+**What to check.** Staging and production are two deployments of one image, each with its own
+environment (`DATABASE_URL`, `STORAGE_BUCKET`…). `JOBS_QUEUE_NAME_PREFIX` in
+`apps/web/src/api/services/jobs.ts` must be `<slug>-jobs` — the consumer matches the queue by
+that prefix, and each environment's queue lives in that environment's own database.
 
 **How to check.**
 ```
-grep -n "^name = \|queue = \|bucket_name = \|^name = \"" apps/web/wrangler.toml apps/web/wrangler.staging.toml
 grep -n "JOBS_QUEUE_NAME_PREFIX =" apps/web/src/api/services/jobs.ts
-pnpm web test:config
 ```
-Expect the names above and a green `tests/config/wrangler-parity.test.ts`.
 
-**What to change.** Nothing unless the test fails; it names the key that drifted. Cloudflare
-resources are created later (`SETUP.md` Part 3), with these names.
+**What to change.** Nothing, normally; the rename wrote it.
 
 ## (e) Brand colour — the user's choice
 

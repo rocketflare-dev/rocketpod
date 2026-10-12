@@ -9,8 +9,7 @@
  *   is ignored — a client could write anything there. Behind N trusted proxies, each appends the
  *   address it saw, so the client is the Nth entry from the RIGHT; a header shorter than that
  *   falls back to the leftmost entry, then to the socket.
- * - **Worker** (no `clientAddress`): Cloudflare's `cf-connecting-ip`, else the first
- *   `X-Forwarded-For` entry — unchanged from Rocketflare.
+ * - **No socket address** (a bare `app.request` in a test): the first `X-Forwarded-For` entry.
  */
 import type { AppContext } from '../../types'
 
@@ -32,7 +31,7 @@ export function resolveClientIp(input: ClientIpInput): string | null {
     if (input.trustedProxyHops <= 0 || forwarded.length === 0) return socket
     return forwarded[forwarded.length - input.trustedProxyHops] ?? forwarded[0] ?? socket
   }
-  return input.header('cf-connecting-ip') || forwarded[0] || null
+  return forwarded[0] ?? null
 }
 
 /** The socket peer the runtime recorded for this request, if any (the Node entry does). */

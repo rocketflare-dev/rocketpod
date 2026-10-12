@@ -1,9 +1,9 @@
 /**
  * The agent run's durable body (D5, D7, M1) — written against the neutral `Step`
- * (`src/platform/types.ts`), so any run engine can drive it; on the Worker, `AgentRunWorkflow`
- * (`./agent-run.ts`, bound as `AGENT_RUN_WORKFLOW`) adapts Cloudflare's step and calls it. The instance id starts as the run id (`enqueueRun` creates it
+ * (`src/platform/types.ts`), so any run engine can drive it; on Node, OpenWorkflow
+ * (`src/node/runs.ts`) adapts its step and calls it. The instance id starts as the run id (`enqueueRun` creates it
  * after the `agent_runs` row exists) and becomes `<runId>-r1`, `-r2`… if a park has to be restarted
- * on a lost instance (`nudgeOrRestartInstance`, T5). The steps — Workflows checkpoint between them:
+ * on a lost instance (`nudgeOrRestartInstance`, T5). The steps — the engine checkpoints between them:
  *   claim       → `claimRun` (row is the gate; a cancelled-while-queued run exits here)
  *   execute#N   → the whole tool loop INSIDE one step (`retries: 2`, `timeout: 10 minutes`); the
  *                 runtime rethrows only faults a retry can fix, and the retry re-claims through the
@@ -16,17 +16,16 @@
  * **Every step name carries its round.** A step name is its identity to the platform: a fixed
  * `'execute'` called twice replays the first call's result, and the bug reads as "the agent ignored
  * my approval". `MAX_INTERRUPT_ROUNDS` bounds the loop — a correctness guard, not a capacity one
- * (the step budget is 10,000; 32 rounds is two steps each).
+ * (OpenWorkflow allows 1,000 step attempts a run; 32 rounds is two steps each).
  * The loop body is un-step-shaped on purpose, and that is now a settled decision rather than a gap:
  * one `step.do` per model turn was investigated and rejected (`docs/CONCEPTS.md` §9 Known gaps has
  * the evidence). Short version — steps do not nest, so per-turn steps need `run()` to move outside
- * `step.do`, and Workflows replays everything outside a step, which would double the
+ * `step.do`, and the engine replays everything outside a step, which would double the
  * `agent_run_events` timeline unless every emit and tool call got its own step. Meanwhile wall clock
- * per step is UNLIMITED (the 10 minutes below is our policy, raise it if a run needs longer), CPU
- * per step excludes I/O and goes to 300 s via `[limits] cpu_ms`, and resuming a retry at turn N is
- * what `agent_runs.checkpoint` already does.
- * Each step opens its OWN DB client (`openDatabase`, either driver — D35) and closes it in
- * `finally`; the pool (Node's process pool, Hyperdrive) holds the connections.
+ * per step is ours to set (the 10 minutes below is policy, raise it if a run needs longer), and
+ * resuming a retry at turn N is what `agent_runs.checkpoint` already does.
+ * Each step opens its OWN DB handle (`openDatabase`) and closes it in `finally`; the process pool
+ * holds the connections.
  */
 
 import { AGENT_RESUME_EVENT, MAX_INTERRUPT_ROUNDS } from '@rocketpod/shared/ai/agents'
@@ -44,13 +43,12 @@ import {
 import type { AppBindings } from '../types'
 import { loggerFor } from '../utils/core/logger'
 
-/** One DB client per step, closed whatever happens (rule: `.claude/rules/cloudflare.md`). */
+/** One DB handle per step, closed whatever happens (rule: `.claude/rules/runtime.md`). */
 export async function withStepDatabase<T>(
-  env: AppBindings,
   cfg: AppConfig,
   fn: (db: Database) => Promise<T>
 ): Promise<T> {
-  const handle = openDatabase({ ...cfg, HYPERDRIVE: env.HYPERDRIVE })
+  const handle = openDatabase(cfg)
   try {
     return await fn(handle.db)
   } finally {
@@ -79,7 +77,7 @@ export async function runAgentRun(
   const logger = loggerFor(cfg, { handler: 'workflow', workflow: 'agent-run', ...params })
 
   const claimed = await step.do('claim', () =>
-    withStepDatabase(env, cfg, db => claimStep(db, platform, logger, params))
+    withStepDatabase(cfg, db => claimStep(db, platform, logger, params))
   )
   if (!claimed) return { runId: params.runId, status: 'skipped' }
 
@@ -96,8 +94,7 @@ export async function runAgentRun(
           retries: { limit: EXECUTE_RETRIES, delay: '10 seconds', backoff: 'exponential' },
           timeout: '10 minutes',
         },
-        () =>
-          withStepDatabase(env, cfg, db => executeRun(db, cfg, platform, logger, params, { round }))
+        () => withStepDatabase(cfg, db => executeRun(db, cfg, platform, logger, params, { round }))
       )
     } catch (err) {
       if (step.isControlFlow?.(err)) throw err
@@ -133,13 +130,13 @@ export async function runAgentRun(
         type: AGENT_RESUME_EVENT,
         // `[vars]`, so a string: the engine parses it, and `Duration` is a template-literal type
         // no runtime value can satisfy structurally. A bad duration is a failure on the first
-        // park, which is what `.dev.vars.example` documents.
+        // park, which is what `.env.example` documents.
         timeout: cfg.AGENT_INTERRUPT_TIMEOUT as Duration,
         // An engine that drops an event nobody waits on (OpenWorkflow) asks this first: the
         // resolve route flips the row `awaiting_input → running` BEFORE it sends, so a row that
         // has already left `awaiting_input` means the answer landed while we were getting here.
         arrived: () =>
-          withStepDatabase(env, cfg, async db => {
+          withStepDatabase(cfg, async db => {
             const row = await getRun(db, params.tenantId, params.runId)
             return row?.status !== 'awaiting_input'
           }),
@@ -151,13 +148,13 @@ export async function runAgentRun(
       // parked row `cancelled` with `error` NULL — a cancel is a status, not a message.
       logger.info({ err, round }, 'agent-run: nobody answered, expiring the park')
       outcome = await step.do(`expire#${round}`, () =>
-        withStepDatabase(env, cfg, db => finishStep(db, platform, logger, params, outcome))
+        withStepDatabase(cfg, db => finishStep(db, platform, logger, params, outcome))
       )
       break
     }
   }
 
   return step.do('finish', () =>
-    withStepDatabase(env, cfg, db => finishStep(db, platform, logger, params, outcome, { cfg }))
+    withStepDatabase(cfg, db => finishStep(db, platform, logger, params, outcome, { cfg }))
   )
 }

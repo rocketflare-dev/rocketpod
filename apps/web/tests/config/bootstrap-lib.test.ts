@@ -1,8 +1,7 @@
 /**
  * Pure helpers behind `scripts/bootstrap.mjs` (the one-shot first run), no database: the `.nvmrc`
- * / version parsers, `fillDevVars` (never overwrites a value a person typed), `toggleAiBlock` (the
- * `[ai]` block of BOTH real tomls round-trips byte-identically and, once off, parses with no `ai`
- * table so the parity test stays green), and the two stdout parsers (`pnpm seed`, `wrangler whoami`).
+ * / version parsers, `fillDevVars` (never overwrites a value a person typed), `describeAi` (step 8's
+ * provider line, never a value), and the `pnpm seed` stdout parser.
  * Plus the sandbox opt-outs (`--no-install`, `ROCKETPOD_BOOTSTRAP_SKIP`, `ROCKETPOD_ALLOW_ROOT`),
  * parsed here and run once through `bootstrap.mjs` itself with every step skipped (no side effects).
  */
@@ -10,10 +9,8 @@ import { spawnSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
-import TOML from '@iarna/toml'
 import { describe, expect, it } from 'vitest'
 import {
-  aiBlockState,
   BOOTSTRAP_SKIPPABLE_STEPS,
   BootstrapUsageError,
   bootstrapStepPlan,
@@ -21,6 +18,7 @@ import {
   chooseDevDbPort,
   databaseUrlPort,
   databaseUrlTarget,
+  describeAi,
   describeTracing,
   extractSeedKey,
   fillDevVars,
@@ -31,10 +29,8 @@ import {
   parseBootstrapArgs,
   parseBootstrapSkip,
   parseNvmrc,
-  parseWhoami,
   planDefaultPlugins,
   readDevVars,
-  toggleAiBlock,
   upsertDevVar,
   versionAtLeast,
   withDatabaseUrlPort,
@@ -88,7 +84,7 @@ describe('describeTracing (preflight, D32)', () => {
 
 describe('fillDevVars', () => {
   const EXAMPLE = [
-    '# Copy to `.dev.vars`',
+    '# Copy to `.env`',
     'APP_ENV=development',
     'DATABASE_URL=postgresql://x:y@localhost:5432/z',
     '# AES-GCM key. Generate: openssl rand -hex 32',
@@ -127,7 +123,7 @@ describe('fillDevVars', () => {
     expect(values.RESEND_API_KEY).toBe('re_live')
     expect(values.AUTH_SIGNING_KEY).toBe('keep-me')
     expect(values.OAUTH_ENCRYPTION_KEY).toBe('a'.repeat(64))
-    expect(text.split('\n')[0]).toBe('# Copy to `.dev.vars`')
+    expect(text.split('\n')[0]).toBe('# Copy to `.env`')
   })
 
   it('a filled required key is left alone on the second run (idempotent)', () => {
@@ -150,7 +146,7 @@ describe('fillDevVars', () => {
   })
 
   it('the real example, filled with a real generator, yields a 64-hex key', () => {
-    const example = readWeb('.dev.vars.example')
+    const example = readWeb('.env.example')
     const { text, filled } = fillDevVars(
       example,
       null,
@@ -162,66 +158,30 @@ describe('fillDevVars', () => {
   })
 })
 
-describe('toggleAiBlock / aiBlockState', () => {
-  const SAMPLE = [
-    '[[r2_buckets]]',
-    'binding = "FILES"',
-    '',
-    '# Workers AI (D17): zero-key embeddings.',
-    '[ai]',
-    'binding = "AI"',
-    '# Comment this block out to run fully offline.',
-    'remote = true',
-    '',
-    '# Agent runs (D7).',
-    '[[workflows]]',
-    'name = "rocketpod-agent-run"',
-    '',
-  ].join('\n')
+describe('describeAi (step 8, preflight)', () => {
+  it('names the configured providers and never a value', () => {
+    const line = describeAi({
+      ANTHROPIC_API_KEY: 'sk-ant-secret-value',
+      EMBEDDINGS_API_KEY: 'sk-emb-secret-value',
+      EMBEDDINGS_BASE_URL: 'https://embed.example.com/v1?token=hidden',
+    })
+    expect(line).toBe('chat anthropic · embeddings openai-compatible at embed.example.com')
+    expect(line).not.toMatch(/secret|hidden/)
+  })
 
-  it('off comments every line of the block and nothing else', () => {
-    const off = toggleAiBlock(SAMPLE, 'off')
-    expect(off).toBe(
-      SAMPLE.replace(
-        '[ai]\nbinding = "AI"\n# Comment this block out to run fully offline.\nremote = true',
-        '# [ai]\n# binding = "AI"\n# # Comment this block out to run fully offline.\n# remote = true'
-      )
+  it('prefers Anthropic, then an OpenAI-compatible endpoint, then OpenAI', () => {
+    expect(describeAi({ AI_API_KEY: 'k', AI_BASE_URL: 'https://openrouter.ai/api/v1' })).toMatch(
+      /^chat openai-compatible at openrouter\.ai/
     )
-    expect(aiBlockState(off)).toBe('off')
-    expect(off).toContain('\n[[workflows]]\nname = "rocketpod-agent-run"\n')
-    expect(off).toContain('\n# Workers AI (D17): zero-key embeddings.\n')
+    expect(describeAi({ AI_API_KEY: 'k' })).toMatch(/^chat openai /)
   })
 
-  it('off → on is byte-identical; both directions are idempotent; absent is untouched', () => {
-    const off = toggleAiBlock(SAMPLE, 'off')
-    expect(toggleAiBlock(off, 'on')).toBe(SAMPLE)
-    expect(toggleAiBlock(off, 'off')).toBe(off)
-    expect(toggleAiBlock(SAMPLE, 'on')).toBe(SAMPLE)
-    const none = '[vars]\nAPP_ENV = "x"\n'
-    expect(aiBlockState(none)).toBe('absent')
-    expect(toggleAiBlock(none, 'off')).toBe(none)
+  it('says what is missing, and where to put it', () => {
+    expect(describeAi({})).toBe(
+      'chat none · embeddings none (chat/agents need ANTHROPIC_API_KEY or AI_API_KEY; ' +
+        'uploads/knowledge need EMBEDDINGS_API_KEY in apps/web/.env)'
+    )
   })
-
-  it.each(['wrangler.toml', 'wrangler.staging.toml'])(
-    '%s: off drops the `ai` table for the parser and round-trips',
-    file => {
-      // The checkout may be in either state (`pnpm bootstrap --offline`); normalise to on first,
-      // and require both tomls to agree so the parity test cannot be surprised.
-      const onDisk = readWeb(file)
-      expect(['on', 'off']).toContain(aiBlockState(onDisk))
-      expect(aiBlockState(onDisk)).toBe(aiBlockState(readWeb('wrangler.toml')))
-      const original = aiBlockState(onDisk) === 'on' ? onDisk : toggleAiBlock(onDisk, 'on')
-      expect((TOML.parse(original) as Record<string, unknown>).ai).toBeDefined()
-
-      const off = toggleAiBlock(original, 'off')
-      const parsed = TOML.parse(off) as Record<string, unknown>
-      expect(parsed.ai).toBeUndefined()
-      // Everything else survives: same tables, same values.
-      const { ai: _ai, ...rest } = TOML.parse(original) as Record<string, unknown>
-      expect(parsed).toEqual(rest)
-      expect(toggleAiBlock(off, 'on')).toBe(original)
-    }
-  )
 })
 
 describe('extractSeedKey', () => {
@@ -251,58 +211,6 @@ describe('extractSeedKey', () => {
   })
 })
 
-describe('parseWhoami', () => {
-  const LOGGED_IN = [
-    '',
-    ' ⛅️ wrangler 4.147.0',
-    '────────────────────',
-    'Getting User settings...',
-    '👋 You are logged in with an OAuth Token, associated with the email dev@example.com.',
-    '🔐 Credentials are stored in: /Users/dev/Library/Preferences/.wrangler/config/default.toml',
-    '┌────────────────────────┬──────────────────────────────────┐',
-    '│ Account Name           │ Account ID                       │',
-    '├────────────────────────┼──────────────────────────────────┤',
-    "│ Dev's Account          │ 0123456789abcdef0123456789abcdef │",
-    '└────────────────────────┴──────────────────────────────────┘',
-    '🔓 Token Permissions:',
-    '- account (read)',
-  ].join('\n')
-  const LOGGED_OUT = [
-    ' ⛅️ wrangler 4.147.0',
-    '────────────────────',
-    'Getting User settings...',
-    'You are not authenticated. Please run `wrangler login`.',
-  ].join('\n')
-
-  it('logged in: email and the first account row', () => {
-    expect(parseWhoami(LOGGED_IN)).toEqual({
-      loggedIn: true,
-      email: 'dev@example.com',
-      account: "Dev's Account",
-    })
-  })
-
-  it('logged out, empty and undefined output → not logged in', () => {
-    expect(parseWhoami(LOGGED_OUT)).toEqual({ loggedIn: false })
-    expect(parseWhoami('')).toEqual({ loggedIn: false })
-    expect(parseWhoami(undefined)).toEqual({ loggedIn: false })
-  })
-
-  it('an API token session (no email line) is still logged in', () => {
-    const token = LOGGED_IN.replace(
-      /👋 You are logged in[^\n]*/,
-      '👋 You are logged in with an API Token, associated with the email ci@example.com.'
-    )
-    expect(parseWhoami(token).loggedIn).toBe(true)
-    expect(parseWhoami(token).email).toBe('ci@example.com')
-  })
-})
-
-/**
- * The dev database's port is chosen, not fixed: a second checkout on one machine used to be
- * unable to start Postgres at all (5432 taken, `container_name` pinned). `scripts/dev-db.mjs`
- * composes these four helpers; the docker side is exercised by running the bootstrap.
- */
 describe('chooseDevDbPort', () => {
   const all = () => true
 
@@ -456,8 +364,6 @@ describe('parseBootstrapArgs', () => {
     expect(parseBootstrapArgs([], {})).toEqual({
       yes: false,
       shareDbIgnored: false,
-      offline: false,
-      online: false,
       dev: true,
       demo: true,
       plugins: true,
@@ -529,12 +435,13 @@ describe('parseBootstrapArgs', () => {
     )
   })
 
-  it('refuses --db-url with --check (preflight reads .dev.vars)', () => {
+  it('refuses --db-url with --check (preflight reads .env)', () => {
     expect(() => parseBootstrapArgs(['--check', '--db-url', NEON])).toThrow(/--check/)
   })
 
   it('keeps the existing flag rules', () => {
-    expect(() => parseBootstrapArgs(['--offline', '--online'])).toThrow(BootstrapUsageError)
+    // Rocketflare's Workers AI toggle: accepted (a parent-kit caller still runs) and ignored.
+    expect(parseBootstrapArgs(['--offline', '--online'])).toEqual(parseBootstrapArgs([]))
     expect(() => parseBootstrapArgs(['--nope'])).toThrow(/unknown option --nope/)
     expect(() => parseBootstrapArgs(['--as'])).toThrow(/--as needs an email/)
     expect(parseBootstrapArgs(['--as=a@b.test', '--no-dev']).as).toBe('a@b.test')
@@ -589,7 +496,7 @@ describe('bootstrapStepPlan', () => {
     })
   })
 
-  it('--check skips Docker only for an off-box .dev.vars, and never allows a remote seed', () => {
+  it('--check skips Docker only for an off-box .env, and never allows a remote seed', () => {
     expect(bootstrapStepPlan({ check: true, devVarsDatabaseUrl: LOCAL })).toEqual(COMPOSE)
     expect(bootstrapStepPlan({ check: true, devVarsDatabaseUrl: undefined })).toEqual(COMPOSE)
     expect(bootstrapStepPlan({ check: true, devVarsDatabaseUrl: NEON })).toEqual({
@@ -598,7 +505,7 @@ describe('bootstrapStepPlan', () => {
       target: 'ep-x.neon.tech/neondb',
       seedEnv: {},
     })
-    // An off-box .dev.vars matters to preflight only; a plain bootstrap still owns its Docker db.
+    // An off-box .env matters to preflight only; a plain bootstrap still owns its Docker db.
     expect(bootstrapStepPlan({ devVarsDatabaseUrl: NEON })).toEqual(COMPOSE)
   })
 })
@@ -628,10 +535,10 @@ describe('parseBootstrapSkip', () => {
       'migrate',
       'plugins',
       'seed',
-      'cloudflare',
+      'ai',
     ])
     expect(parseBootstrapSkip(undefined)).toEqual([])
-    expect(parseBootstrapSkip('cloudflare,toolchain')).toEqual(['toolchain', 'cloudflare'])
+    expect(parseBootstrapSkip('ai,toolchain')).toEqual(['toolchain', 'ai'])
   })
 
   it('is a usage error for an unknown name, so a typo never runs the step it meant to skip', () => {
@@ -663,16 +570,13 @@ describe('bootstrap.mjs with steps skipped', () => {
   const ALL_SKIPPED = ['--no-install', '--no-dev', '--offline', '--yes']
 
   it('every step skipped is a no-op run: each line says skipped, nothing is spawned or written', () => {
-    const tomls = ['wrangler.toml', 'wrangler.staging.toml'].map(readWeb)
     const result = runBootstrap(ALL_SKIPPED, {
       ROCKETPOD_BOOTSTRAP_SKIP: BOOTSTRAP_SKIPPABLE_STEPS.join(','),
     })
     expect(result.status, result.stdout + result.stderr).toBe(0)
     expect(result.stdout).toMatch(/1\/10 toolchain\s+skipped \(ROCKETPOD_BOOTSTRAP_SKIP\)/)
-    expect(result.stdout).toMatch(/2\/10 install\s+skipped \(--no-install\); .*wrangler present/)
-    expect(result.stdout).toMatch(/8\/10 cloudflare\s+skipped \(ROCKETPOD_BOOTSTRAP_SKIP\)/)
-    // A skipped cloudflare step leaves both tomls alone even under --offline.
-    expect(['wrangler.toml', 'wrangler.staging.toml'].map(readWeb)).toEqual(tomls)
+    expect(result.stdout).toMatch(/2\/10 install\s+skipped \(--no-install\); .*tsx present/)
+    expect(result.stdout).toMatch(/8\/10 ai\s+skipped \(ROCKETPOD_BOOTSTRAP_SKIP\)/)
   })
 
   it('an unknown step name is exit 2 before any step runs', () => {
@@ -691,6 +595,6 @@ describe('bootstrap.mjs with steps skipped', () => {
 
     const allowed = runBootstrap(ALL_SKIPPED, skip, AS_ROOT)
     expect(allowed.status, allowed.stdout + allowed.stderr).toBe(0)
-    expect(allowed.stdout).toMatch(/8\/10 cloudflare\s+skipped/)
+    expect(allowed.stdout).toMatch(/8\/10 ai\s+skipped/)
   })
 })

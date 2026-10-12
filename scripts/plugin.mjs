@@ -19,8 +19,9 @@
  *   - **never copy a migration.** A snapshot describes a whole cumulative schema, so importing a
  *     foreign one teaches drizzle a current state that has never heard of the host's own tables.
  *     The host generates its own with `pnpm db:generate` once the schema barrel line exists.
- *   - **never write a resource id or edit a wrangler toml.** A binding a plugin declares is
- *     REPORTED; `pnpm provision cloudflare <env>` is what creates it.
+ *   - **never install a Cloudflare-only plugin.** This kit has no Worker: a plugin declaring
+ *     `bindings` or `workerExports` is refused, and a plugin reaches jobs, storage, realtime and
+ *     runs through its context instead (`ctx.platform`).
  *   - **never apply without being asked.** Every command prints its plan and stops; `--apply` is a
  *     second, deliberate run, which is the whole of decision 1's "installing a plugin is as
  *     trusting as merging a pull request".
@@ -65,7 +66,6 @@ import {
   checkRequirements,
   classifyPluginFile,
   coreEditsByFile,
-  declaresProperty,
   dependenciesToInstall,
   dependencyClashes,
   dependencyDelta,
@@ -78,7 +78,6 @@ import {
   missingDependencies,
   newlyAddedDependencies,
   nextAddedDependencies,
-  nextPluginMigrationTag,
   PLUGIN_MANIFEST_FILE,
   parsePluginRequirement,
   pinDeclaredRanges,
@@ -104,7 +103,6 @@ import {
   tableClashes,
   undeclaredSkillDirs,
   withoutDependencies,
-  workerExportNames,
 } from './lib/plugin-lib.mjs'
 import { applyReplacements, deriveNames, isBinary } from './lib/rename-lib.mjs'
 import { missingFrom, readLedger, usesOf } from './lib/surface.mjs'
@@ -420,7 +418,7 @@ export function splitRef(spec) {
   return { target: spec, ref: null }
 }
 
-const IGNORED_DIRS = new Set(['.git', 'node_modules', 'dist', '.wrangler', '.upgrade'])
+const IGNORED_DIRS = new Set(['.git', 'node_modules', 'dist', '.upgrade'])
 
 function walk(root, prefix = '') {
   const found = []
@@ -527,7 +525,7 @@ function cmdAdd(args, host) {
         `${source.ref ? ` (${source.ref})` : ''}.`,
       'That file is what makes a repository a plugin: it declares the id, the version, the oldest',
       'kit it supports (minKit), the host surface it uses, and everything the host has to place',
-      'for it (bindings, crons, vars).'
+      'for it (crons, vars).'
     )
   }
   const m = JSON.parse(source.read(PLUGIN_MANIFEST_FILE).toString('utf8'))
@@ -584,14 +582,13 @@ function cmdAdd(args, host) {
     )
   }
 
-  // A binding type provisioning cannot create is refused HERE rather than at `provision
-  // cloudflare`, which runs days later and for somebody else: a plugin declaring one would install
-  // cleanly, deploy, and 503 on its first request to whatever reads it off `Cloudflare.Env`.
+  // A Cloudflare-only plugin is refused HERE rather than at runtime: it would install cleanly and
+  // 503 on its first request to whatever reads the binding it expected.
   const platformProblems = pluginPlatformProblems(m)
   if (platformProblems.length > 0) {
     stop(
       1,
-      `error: ${m.id} declares platform resources this kit cannot provision:`,
+      `error: ${m.id} is a Cloudflare-only plugin, which this kit cannot install:`,
       ...platformProblems.map(p => `  ${p}`),
       '',
       'That is a bug in the plugin. Nothing has been written.'
@@ -696,9 +693,9 @@ function cmdAdd(args, host) {
     const file = abs(BARRELS[kind].file)
     writeFileSync(file, addBarrelLine(readFileSync(file, 'utf8'), kind, m.id))
   }
-  // Core files the plugin declared but may not edit itself. The host writes them, exactly as
-  // `provision cloudflare` writes a declared binding — printing them as a "by hand" step left
-  // `pnpm build` broken for anyone who did not read the plan, `plugin-ci.yml` included.
+  // Core files the plugin declared but may not edit itself. The host writes them — printing them
+  // as a "by hand" step left `pnpm build` broken for anyone who did not read the plan,
+  // `plugin-ci.yml` included.
   const coreEdits = coreEditsByFile(m)
   for (const [file, edits] of coreEdits) {
     writeFileSync(abs(file), applyCoreEdits(readFileSync(abs(file), 'utf8'), edits))
@@ -1371,16 +1368,8 @@ function cmdRemove(args, host) {
     `Surface '${id}' dropped from ${path.basename(host.sidecarIds.includes(id) ? host.sidecarPath : host.manifestPath)}`
   )
   // What is LEFT, classified. Most of it is `human`, and that is the honest answer rather than a
-  // gap: a migration full of `DROP TABLE`, an `--archive` copy taken or knowingly skipped, a
-  // `deleted_classes` migration that deletes a Durable Object namespace and everything in it, and
-  // live Cloudflare resources that may still hold somebody's data. Provisioning creates a plugin's
-  // resources (decision 12) and deliberately never deletes one.
-  const steps = removeSteps(anchorManifest, {
-    archive: args.archive,
-    // Read from the toml rather than assumed: the tag is append-only, so the next one is the next
-    // free number after every `plugin-<id>-v<n>` this Worker has already told Cloudflare about.
-    migrationTag: nextPluginMigrationTag(tomlMigrationTags(), id),
-  })
+  // gap: a migration full of `DROP TABLE`, and an `--archive` copy taken or knowingly skipped.
+  const steps = removeSteps(anchorManifest, { archive: args.archive })
   if (args.json) {
     out(
       JSON.stringify(
@@ -1457,17 +1446,6 @@ function writeArchiveMigration(id, tables) {
   out(
     `✔ ${file} carries the archive copy of ${tables.join(', ')} — run pnpm db:migrate BEFORE the drop`
   )
-}
-
-/**
- * Every `[[migrations]]` tag already in the production toml. Read textually rather than parsed: the
- * tomls are patched at the string level everywhere else for the same reason (`patch-toml.ts`), and
- * this script has no TOML dependency.
- */
-function tomlMigrationTags() {
-  const file = abs('apps/web/wrangler.toml')
-  if (!existsSync(file)) return []
-  return [...readFileSync(file, 'utf8').matchAll(/^tag\s*=\s*"([^"]+)"/gm)].map(m => m[1])
 }
 
 // ---------------------------------------------------------------- list / check
@@ -1691,91 +1669,18 @@ function cmdCheck(args, host) {
       })
     }
 
-    // A DO or Workflow class reaches the Worker through the sixth barrel and nowhere else, so
-    // `workerExports` is checkable rather than advisory — and it is checked BOTH ways. A name in
-    // the manifest that the file does not export is a binding pointed at nothing, and
-    // `wrangler deploy` refuses the whole script for it; a class the file exports that the
-    // manifest does not name is invisible to `pnpm provision cloudflare <env>`, which reads that
-    // list to write the `[[durable_objects.bindings]]` / `[[workflows]]` block — so it deploys
-    // with no binding at all.
-    const declaredExports = anchor.workerExports ?? []
-    const workerHalf = BARRELS.worker.half(id)
-    const shipsWorkerHalf = existsSync(abs(workerHalf))
-    if (declaredExports.length > 0 && !shipsWorkerHalf) {
-      add('fail', `${id}:worker-half`, {
-        file: workerHalf,
-        problem: `is missing, and ${s.anchor} declares workerExports (${declaredExports.join(', ')})`,
-        fix:
-          `create it, re-exporting ${declaredExports.join(', ')} — Cloudflare resolves a binding's ` +
-          'class_name against the named exports of src/worker.ts, which this barrel half feeds',
+    // A Cloudflare-only declaration (`bindings`, `workerExports`) on an installed plugin: this kit
+    // has no Worker to bind it on, so whatever reads it answers 503 (`pluginPlatformProblems`).
+    for (const problem of pluginPlatformProblems(anchor)) {
+      add('fail', `${id}:cloudflare-only`, {
+        file: s.anchor,
+        line: jsonKeyLine(
+          anchorSource,
+          problem.startsWith('declares workerExports') ? 'workerExports' : 'bindings'
+        ),
+        problem,
+        fix: 'remove it and reach the capability through the plugin context (ctx.platform)',
       })
-    }
-    if (shipsWorkerHalf) {
-      // `opaque` is an `export *`, whose names need the module resolved to enumerate. Both
-      // directions are skipped for one rather than guessed: reporting "declares OrdersHub and does
-      // not export it" against a star re-export that plainly does teaches an author to distrust
-      // the whole audit.
-      const { names, opaque } = workerExportNames(readFileSync(abs(workerHalf), 'utf8'))
-      if (declaredExports.length === 0) {
-        add('fail', `${id}:worker-undeclared`, {
-          file: s.anchor,
-          line: jsonKeyLine(anchorSource, 'workerExports'),
-          problem: `declares no workerExports, and ${workerHalf} is on disk`,
-          fix:
-            `set "workerExports" to [${names.map(n => `"${n}"`).join(', ')}] — provisioning reads ` +
-            'that list to write the binding block, so a class missing from it gets no binding',
-        })
-      }
-      if (!opaque) {
-        for (const name of declaredExports.filter(n => !names.includes(n))) {
-          add('fail', `${id}:worker-missing:${name}`, {
-            file: workerHalf,
-            problem: `does not export ${name}, which ${s.anchor} declares in workerExports`,
-            fix:
-              `add \`export { ${name} } from './<module>'\` here, or drop "${name}" from ` +
-              'workerExports — wrangler deploy refuses the script for a class_name nothing exports',
-          })
-        }
-        for (const name of names.filter(n => !declaredExports.includes(n))) {
-          add('fail', `${id}:worker-extra:${name}`, {
-            file: s.anchor,
-            line: jsonKeyLine(anchorSource, 'workerExports'),
-            problem: `does not declare ${name}, which ${workerHalf} exports`,
-            fix:
-              `add "${name}" to "workerExports" — a class the manifest does not name is invisible ` +
-              'to `pnpm provision cloudflare <env>`, which writes its binding block',
-          })
-        }
-      }
-    }
-
-    // **A Durable Object is state the FK cascade cannot reach.** Deleting a tenant is one SQL
-    // DELETE plus the `tenant.purge` job (D7), and that job is the ONLY thing that ever visits a
-    // deleted tenant's state outside Postgres — through each plugin's `onTenantDeleted`. A plugin
-    // that keeps a DO and declares no hook leaves one organisation's data live for ever, silently,
-    // and no other check can see it: its TABLES are gone, so everything else reads as clean.
-    const doBindings = (anchor.bindings ?? []).filter(b => b?.type === 'durable_object')
-    if (doBindings.length > 0) {
-      const tree = `apps/web/src/plugins/${id}`
-      const declaresHook =
-        existsSync(abs(tree)) &&
-        walk(abs(tree)).some(
-          f =>
-            /\.tsx?$/.test(f) &&
-            declaresProperty(readFileSync(abs(`${tree}/${f}`), 'utf8'), 'onTenantDeleted')
-        )
-      if (!declaresHook) {
-        const which = doBindings.map(b => b.binding ?? b.className ?? '?').join(', ')
-        add('fail', `${id}:on-tenant-deleted`, {
-          file: `${tree}/index.ts`,
-          problem: `declares the durable_object binding(s) ${which} and no hooks.onTenantDeleted`,
-          fix:
-            'add `hooks: { onTenantDeleted: async (db, tenantId, env) => { … } }` to the ' +
-            "ServerPlugin and delete this plugin's Durable Object state there. Derive every " +
-            'instance name from the tenant id and loop the names you DECLARE — nothing enumerates ' +
-            'the instances of a namespace, so only derived keys are reachable',
-        })
-      }
     }
 
     // Two separate things a plugin with tables owes, and neither is visible from the other side.

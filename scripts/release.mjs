@@ -483,8 +483,7 @@ function main(argv) {
 
   // Patch each version in place rather than re-serialising the JSON: `JSON.stringify` loses the
   // formatting Biome wants (short arrays on one line), so a re-serialised file fails the repo's own
-  // `pnpm lint` and the release cannot produce a commit that passes the gate. Same byte-preserving
-  // discipline as `scripts/provision/patch-toml.ts`.
+  // `pnpm lint` and the release cannot produce a commit that passes the gate.
   //
   // The list is deduplicated across targets because a monorepo's contexts each name EVERY manifest
   // in the repository — releasing two plugins must stamp each file once, not twice.

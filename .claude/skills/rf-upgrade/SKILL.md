@@ -106,7 +106,7 @@ and do not go hunting for a referent. `## Conflicts to expect` is `path → what
 do`, and `## Verify` is what you run at the end.
 
 Then the manual rows the report lists. `porting.md` beside this file has the per-area detail:
-migrations, the wrangler tomls, `.dev.vars.example`, `package.json`, registries. **Read it before
+migrations, `.env.example`, `package.json`, registries. **Read it before
 touching any of them** — each has a way to get it wrong that is silent.
 
 ## 4. Migrations, if the report named any
@@ -171,8 +171,6 @@ after an upgrade are: **run it** (`pnpm dev`), **upgrade the plugins** (step 6, 
 - **Never recreate a file under an absent surface.** Not by hand, not "for completeness", not
   because a test references it.
 - **Never copy a kit migration**, and never touch `apps/web/migrations/meta/`.
-- **Never write a resource id into a wrangler toml.** A new binding goes in with its
-  `<PLACEHOLDER>`; `pnpm provision cloudflare <env>` fills it.
 - **Never apply the kit's deletions** without asking — the adopter may have built on that file.
 - **Never hand-write a file a plugin owns**, and never resolve a `touches-plugin-registry` row by
   deleting the plugin's barrel line. `pnpm plugin` owns those six files.

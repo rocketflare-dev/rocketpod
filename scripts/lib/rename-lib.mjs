@@ -215,13 +215,7 @@ export function applyReplacements(text, names) {
  * Paths (repo-relative, POSIX) the pass never touches. Directories are matched as a leading
  * segment anywhere in the path; files exactly.
  */
-export const EXCLUDED_DIRS = Object.freeze([
-  'node_modules',
-  'dist',
-  '.git',
-  '.wrangler',
-  'coverage',
-])
+export const EXCLUDED_DIRS = Object.freeze(['node_modules', 'dist', '.git', 'coverage'])
 export const EXCLUDED_PATHS = Object.freeze([
   'pnpm-lock.yaml', // rewritten by the `pnpm install` the script runs at the end
   'LICENSE',
@@ -274,7 +268,7 @@ export function isExcluded(relPath) {
 }
 
 /** Ignored-by-git files the pass still wants, when they exist: local config that names the DB. */
-export const OPT_IN_IGNORED_PATHS = Object.freeze(['apps/web/.dev.vars'])
+export const OPT_IN_IGNORED_PATHS = Object.freeze(['apps/web/.env'])
 
 /** A NUL byte in the first 8 KiB is a binary; the pass skips it. */
 export function isBinary(buffer) {

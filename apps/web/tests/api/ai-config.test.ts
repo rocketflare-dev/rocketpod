@@ -333,7 +333,7 @@ describe('GET /api/ai/config + DELETE', () => {
 describe('GET /api/ai/config/readiness', () => {
   it('none → platform → tenant, per scope', async () => {
     const a = await actor()
-    const bare = createTestEnv({ ANTHROPIC_API_KEY: '', EMBEDDINGS_API_KEY: '', AI: undefined })
+    const bare = createTestEnv({ ANTHROPIC_API_KEY: '', EMBEDDINGS_API_KEY: '', ai: null })
     let r = aiReadinessSchema.parse(
       await json(await request('/api/ai/config/readiness', { headers: a.cookie }, { env: bare }))
     )
@@ -346,7 +346,7 @@ describe('GET /api/ai/config/readiness', () => {
     const platform = createTestEnv({
       ANTHROPIC_API_KEY: 'sk-ant-platform-0123456789',
       EMBEDDINGS_API_KEY: '',
-      AI: undefined,
+      ai: null,
     })
     r = aiReadinessSchema.parse(
       await json(
@@ -411,7 +411,7 @@ describe('GET /api/ai/config/readiness', () => {
 
   it('decisions (D37): fallback → platform TypeSafe key → tenant row', async () => {
     const a = await actor()
-    const env = createTestEnv({ ANTHROPIC_API_KEY: 'sk-ant-platform-0123456789', AI: undefined })
+    const env = createTestEnv({ ANTHROPIC_API_KEY: 'sk-ant-platform-0123456789', ai: null })
     const read = async (e = env) =>
       aiReadinessSchema.parse(
         await json(await request('/api/ai/config/readiness', { headers: a.cookie }, { env: e }))
@@ -421,7 +421,7 @@ describe('GET /api/ai/config/readiness', () => {
     const withKey = createTestEnv({
       ANTHROPIC_API_KEY: 'sk-ant-platform-0123456789',
       TYPESAFE_API_KEY: fakeTypesafeKey('platform'),
-      AI: undefined,
+      ai: null,
     })
     expect(await read(withKey)).toEqual({
       ready: true,
@@ -517,7 +517,7 @@ describe('resolveDecisions (D37)', () => {
 
     const chatOnly = createTestEnv({
       ANTHROPIC_API_KEY: 'sk-ant-platform-0123456789',
-      AI: undefined,
+      ai: null,
     })
     expect(await resolve(chatOnly)).toMatchObject({
       source: 'fallback',
@@ -525,10 +525,10 @@ describe('resolveDecisions (D37)', () => {
       provider: 'anthropic',
     })
 
-    const nothing = createTestEnv({ ANTHROPIC_API_KEY: '', AI: undefined })
+    const nothing = createTestEnv({ ANTHROPIC_API_KEY: '', ai: null })
     await expect(resolve(nothing)).rejects.toMatchObject({ code: 'ai_not_configured' })
 
-    const withKey = createTestEnv({ TYPESAFE_API_KEY: fakeTypesafeKey('platform'), AI: undefined })
+    const withKey = createTestEnv({ TYPESAFE_API_KEY: fakeTypesafeKey('platform'), ai: null })
     expect(await resolve(withKey)).toMatchObject({
       source: 'platform',
       method: 'typesafe',

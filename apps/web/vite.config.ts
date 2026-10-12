@@ -5,7 +5,7 @@ import type { HttpProxy } from 'vite'
 import { defineConfig } from 'vite'
 import { devAllowedHosts, devPorts } from '../../scripts/lib/dev-ports.mjs'
 
-/** Prevent proxy errors from crashing Vite when the API (wrangler dev) is restarting */
+/** Prevent proxy errors from crashing Vite when the API (the Node server) is restarting */
 function onProxyError(proxy: HttpProxy.Server) {
   proxy.on('error', (err: Error, _req: http.IncomingMessage, res: unknown) => {
     console.warn(`[proxy] ${err.message}`)
@@ -17,13 +17,13 @@ function onProxyError(proxy: HttpProxy.Server) {
   })
 }
 
-// When served through a Cloudflare tunnel (`pnpm dev:tunnel`), cfld injects the public HTTPS
-// URL as PUBLIC_URL. Allow that host and point HMR at the tunnel's wss endpoint.
+// When served through a tunnel or a sandbox preview that sets PUBLIC_URL (the public HTTPS URL),
+// allow that host and point HMR at its wss endpoint.
 const tunnelHost = process.env.PUBLIC_URL ? new URL(process.env.PUBLIC_URL).host : undefined
 
 // The dev ports (default :3000 UI / :3001 API) and any extra hosts Vite must answer for (a
 // sandbox preview hostname) — DEV_UI_PORT / DEV_API_PORT / DEV_ALLOWED_HOSTS, from the shell or
-// apps/web/.dev.vars (scripts/lib/dev-ports.mjs).
+// apps/web/.env (scripts/lib/dev-ports.mjs).
 const ports = devPorts()
 const allowedHosts = [...new Set([...devAllowedHosts(), ...(tunnelHost ? [tunnelHost] : [])])]
 
@@ -46,7 +46,7 @@ export default defineConfig({
   },
   server: {
     port: ports.ui,
-    // Never silently move to another port: the next one is `wrangler dev`, and a Vite that lands there
+    // Never silently move to another port: the next one is the API's, and a Vite that lands there
     // serves the UI from the API's port while the proxy talks to itself. Fail loudly instead —
     // `pnpm dev` runs scripts/dev-server.mjs --preflight to clear or name the squatter first.
     strictPort: true,
@@ -55,7 +55,7 @@ export default defineConfig({
     ...(tunnelHost ? { hmr: { protocol: 'wss', host: tunnelHost, clientPort: 443 } } : {}),
     watch: {
       // The UI only depends on src/ui and src/shared — allowlist those so API/migration/doc
-      // edits don't churn the Vite watcher. wrangler dev watches the API side.
+      // edits don't churn the Vite watcher. `tsx watch` watches the API side.
       ignored: (filePath: string) => {
         const rel = path.relative(__dirname, filePath)
         if (rel.startsWith('..')) return false
@@ -69,7 +69,7 @@ export default defineConfig({
         )
       },
     },
-    // Everything the Worker serves in production is proxied to `wrangler dev` here.
+    // Everything the Node server answers in production is proxied to it here.
     // An installed plugin's own prefixes are added here by hand on install — this file is core,
     // and a plugin edits no core file (D31). The analytics plugin's are `/cubejs-api` and `/mcp`.
     proxy: {

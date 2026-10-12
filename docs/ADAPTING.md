@@ -1,5 +1,9 @@
 # ADAPTING — you just copied the kit
 
+> **Rocketpod (M6b).** Cloudflare is gone: no Worker, tomls, bindings, wrangler or provisioning.
+> Passages below that still name them describe Rocketflare and are rewritten in ROADMAP M8; the
+> runtime as it is now is `.claude/rules/runtime.md` and `docs/DESIGN-SELFHOSTED.md`.
+
 Read this once, do the checklist, then run `SETUP.md` Part 1. Everything below is a rename or a
 delete; no design decisions are needed to get to a running app.
 
@@ -47,7 +51,7 @@ The script walks every text file git knows about (tracked and untracked, `.gitig
 `pnpm-lock.yaml`, `LICENSE`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, the two svgs,
 the tool itself, its test and the adapt skill are skipped; the `rocketflare-dev` org and every
 `rocketflare-dev/<repo>` — the kit's origin, its plugins, the neon-proxy image, the reusable plugin
-CI — is preserved as upstream) plus `apps/web/.dev.vars` when it exists (git-ignored, but its
+CI — is preserved as upstream) plus `apps/web/.env` when it exists (git-ignored, but its
 `DATABASE_URL` must follow the compose file), applies nine ordered token classes — `@rocketpod/`
 → `@<slug>/`, `ROCKETPOD` → `<UPPER>`, `rocketpod.example.com|.local` → `<domain>` (default
 `<slug>.example.com`), `.rocketpod` → `.<slug>`, the Postgres owner `rocketpod` → `<snake>`,
@@ -56,7 +60,7 @@ CI — is preserved as upstream) plus `apps/web/.dev.vars` when it exists (git-i
 `node scripts/plugin-api-doc.mjs` (the document cuts summaries at a width the name moves) and
 `biome check --write` (`--skip-install` to defer all three). Exit `0` ok · `1` error · `2` usage. Delete
 `apps/web/.provision.json` (the git-ignored provisioning cache) when re-adapting a copy that was
-already provisioned — the rename never rewrites it (`.dev.vars` is the only git-ignored file it
+already provisioned — the rename never rewrites it (`.env` is the only git-ignored file it
 opts in), so its cached app name and ids would be the old ones. The rename also restarts the root
 `package.json` version at `0.1.0` and empties `CHANGELOG.md`: the app numbers its own releases, and
 the kit version it came from stays in `.rocketflare.json`. The table stays the reference — the first block
@@ -76,7 +80,7 @@ or nothing resolves.
 | `rocketpod-agent-run` (Workflow — name is account-scoped) | `name = ` in `[[workflows]]` of both tomls (staging `-staging`); no code references — the binding is always `AGENT_RUN_WORKFLOW`, the class `AgentRunWorkflow`; `docs/DEPLOY.md`, `.claude/rules/cloudflare.md`, `apps/web/src/api/workflows/CLAUDE.md` examples | `myapp-agent-run` — nothing to create; `wrangler deploy` registers it | automatic (`kebab`); the `-staging` suffix reported as (d) |
 | `rocketpod-jobs` (queue — name is account-scoped) | `queue = ` in `[[queues.producers]]` AND `[[queues.consumers]]` of both tomls (staging `-staging`; the commented `dead_letter_queue` too); **`JOBS_QUEUE_NAME_PREFIX` in `apps/web/src/api/services/jobs.ts`** — the consumer matches `batch.queue` by this prefix, so the toml and the constant must agree or every batch is `ackAll()`ed as "unknown queue"; the literals in `apps/web/tests/api/{queue-dispatch,jobs-producer,jobs-consumer}.test.ts` | `myapp-jobs` — then `wrangler queues create myapp-jobs[-staging]` per environment | automatic (`kebab`, incl. `JOBS_QUEUE_NAME_PREFIX`); reported as (d) |
 | `rocketpod-files` (R2 bucket — account-scoped) | `bucket_name` in `[[r2_buckets]]` of both tomls (staging `-staging`); no code references — the binding is always `FILES` | `myapp-files` — then `wrangler r2 bucket create myapp-files[-staging]` | automatic (`kebab`); reported as (d) |
-| `rocketpod_dev`, `rocketpod_test`, `rocketpod` / `rocketpod_pass`, `test` / `test` | `apps/web/docker-compose.dev.yml`, `apps/web/docker-compose.test.yml`, `apps/web/.dev.vars.example`, `apps/web/.env.test`, `apps/web/drizzle.config.ts`, `localConnectionString` in both tomls, `.github/workflows/ci.yml` (Postgres service) | `myapp_dev`, `myapp_test`, `myapp` / a local-only password | automatic (`dbuser` + `snake`: the owner stays the snake form — `db-roles.ts` refuses a hyphenated identifier; `.dev.vars` `DATABASE_URL` rewritten when the file exists); reported as (c) |
+| `rocketpod_dev`, `rocketpod_test`, `rocketpod` / `rocketpod_pass`, `test` / `test` | `apps/web/docker-compose.dev.yml`, `apps/web/docker-compose.test.yml`, `apps/web/.env.example`, `apps/web/.env.test`, `apps/web/drizzle.config.ts`, `localConnectionString` in both tomls, `.github/workflows/ci.yml` (Postgres service) | `myapp_dev`, `myapp_test`, `myapp` / a local-only password | automatic (`dbuser` + `snake`: the owner stays the snake form — `db-roles.ts` refuses a hyphenated identifier; `.env` `DATABASE_URL` rewritten when the file exists); reported as (c) |
 | `rocketpod_app` | `apps/web/src/db/schema/rls.ts` `APP_ROLE`, `apps/web/.env.test` `APP_DATABASE_URL`, `docs/RLS.md` | `myapp_app` (policies name the role; do this before the first migration) | automatic, including `apps/web/migrations/**` (SQL + meta snapshots) — WARNED as (b): a database migrated under the old name keeps the old role; drop it and migrate again |
 | `Rocketpod` / `Rocketpod Test` | `[vars] APP_NAME` in both tomls, `apps/web/.env.test`, `apps/web/src/ui/index.html` `<title>`, `README.md` | display name | automatic (`display`) |
 | `noreply@rocketpod.example.com`, `app.rocketpod.example.com`, `staging.rocketpod.example.com` | `[vars] EMAIL_FROM`, `APP_URL`, commented `routes` in both tomls | your domains | automatic (`domain`, from `--domain`) |
@@ -411,7 +415,7 @@ limits are an app change (`MAX_UPLOAD_BYTES` is one constant today).
 `CLAUDE.md` is auto-loaded by every agent session; `docs/CONCEPTS.md` is what it points to for
 "does this exist"; `SETUP.md` is what it *runs*. When you add a subsystem, add a CONCEPTS section
 with a "Known gaps" list; when you add an env name or a command, update `SETUP.md`,
-`apps/web/.dev.vars.example` and the `CLAUDE.md` commands block (and the root `package.json` scripts
+`apps/web/.env.example` and the `CLAUDE.md` commands block (and the root `package.json` scripts
 if it should be reachable from the root); when you change a convention, edit the
 `.claude/rules/*.md` for that layer (`cli.md` for the CLI). The table in `.claude/rules/code-quality.md` is the checklist.
 Drift is the one failure mode this kit's source apps suffered most; the rule exists because of it.

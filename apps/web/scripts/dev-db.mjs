@@ -1,22 +1,22 @@
 #!/usr/bin/env node
 /**
- * The local dev Postgres, addressed by ONE value: `DATABASE_URL` in `apps/web/.dev.vars`.
+ * The local dev Postgres, addressed by ONE value: `DATABASE_URL` in `apps/web/.env`.
  *
  * `docker-compose.dev.yml` used to pin port 5432 and a fixed `container_name`, so a second
  * checkout of the kit on the same machine could not start its database at all — it either
  * collided on the port or silently attached to the other checkout's container (compose derives
  * its project name from the directory, and every checkout's is `apps/web`). This script gives
  * each checkout its own project, container and port, and writes the port it chose into
- * `.dev.vars` so every other tool — `db:migrate`, `seed`, `drizzle-kit`, `wrangler dev` — follows
+ * `.env` so every other tool — `db:migrate`, `seed`, `drizzle-kit`, the Node server — follows
  * without being told.
  *
  *   node scripts/dev-db.mjs up     [--json]   start it (idempotent; prints the port)
  *   node scripts/dev-db.mjs down   [--json]   stop THIS checkout's database, never another's
  *   node scripts/dev-db.mjs status [--json]   what is running, where, on which port
- *   node scripts/dev-db.mjs env -- <cmd…>     run <cmd> with DATABASE_URL and the Worker's
- *                                             Hyperdrive override pointing at this database
+ *   node scripts/dev-db.mjs env -- <cmd…>     run <cmd> with DATABASE_URL pointing at this
+ *                                             database
  *
- * The port is sticky: a re-run keeps the one already in `.dev.vars` whenever it is still ours or
+ * The port is sticky: a re-run keeps the one already in `.env` whenever it is still ours or
  * still free, so a working database never moves underneath a checkout.
  */
 import { spawn, spawnSync } from 'node:child_process'
@@ -37,10 +37,8 @@ import {
 
 const WEB_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const COMPOSE_FILE = path.join(WEB_DIR, 'docker-compose.dev.yml')
-const DEV_VARS = path.join(WEB_DIR, '.dev.vars')
-const DEV_VARS_EXAMPLE = path.join(WEB_DIR, '.dev.vars.example')
-/** Wrangler reads this for the local Hyperdrive binding; the toml's value is only a fallback. */
-const HYPERDRIVE_ENV = 'CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE'
+const DEV_VARS = path.join(WEB_DIR, '.env')
+const DEV_VARS_EXAMPLE = path.join(WEB_DIR, '.env.example')
 const SERVICE = 'postgres-dev'
 /** The S3 gateway beside it (M6) — uploads on the Node server. */
 const S3_SERVICE = 's3-dev'
@@ -54,7 +52,7 @@ const PROJECT = `rocketpod-dev-${checkoutTag(WEB_DIR)}`
 const sh = (cmd, args, opts = {}) =>
   spawnSync(cmd, args, { encoding: 'utf8', cwd: WEB_DIR, ...opts })
 
-/** The DATABASE_URL a fresh checkout starts from (.dev.vars, else the example). */
+/** The DATABASE_URL a fresh checkout starts from (.env, else the example). */
 function currentUrl() {
   for (const file of [DEV_VARS, DEV_VARS_EXAMPLE]) {
     if (!existsSync(file)) continue
@@ -97,7 +95,7 @@ const portIsFree = port =>
 
 /**
  * The port this checkout should use, and the URL carrying it. Sticky: the port already in
- * `.dev.vars` wins whenever it is still ours or still free.
+ * `.env` wins whenever it is still ours or still free.
  */
 async function resolvePort() {
   const url = currentUrl()
@@ -121,7 +119,7 @@ async function resolvePort() {
   }
 }
 
-/** Persist values in `.dev.vars` so every other tool reads them through dotenv. */
+/** Persist values in `.env` so every other tool reads them through dotenv. */
 function writeDevVars(values) {
   if (!existsSync(DEV_VARS)) return false
   const text = readFileSync(DEV_VARS, 'utf8')
@@ -140,10 +138,9 @@ const composeEnv = (port, url, s3Port = S3_PORT_START) => ({
   DEV_S3_PORT: String(s3Port),
   DEV_S3_CONTAINER: `rocketpod-dev-s3-${checkoutTag(WEB_DIR)}`,
   DATABASE_URL: url,
-  [HYPERDRIVE_ENV]: url,
 })
 
-/** The STORAGE_* values a fresh checkout starts from (.dev.vars, else the example). */
+/** The STORAGE_* values a fresh checkout starts from (.env, else the example). */
 function currentStorage() {
   for (const file of [DEV_VARS, DEV_VARS_EXAMPLE]) {
     if (!existsSync(file)) continue
@@ -228,7 +225,7 @@ async function up(json) {
     if (s3Port !== null) console.log(`dev object storage (S3) ready on :${s3Port}`)
     if (moved)
       console.log(`  :${port} chosen because the previous port was taken by something else`)
-    if (wrote) console.log('  apps/web/.dev.vars updated to match')
+    if (wrote) console.log('  apps/web/.env updated to match')
   }
 }
 

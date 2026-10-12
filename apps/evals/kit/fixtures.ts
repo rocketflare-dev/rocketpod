@@ -53,7 +53,7 @@ export async function caseWorld(
       cfg,
       env,
       { tenantId: tenant.id, userId: user.id, title: doc.title, text: doc.text },
-      { jobs: env.JOBS_QUEUE }
+      { jobs: env.jobs }
     )
   }
   return {

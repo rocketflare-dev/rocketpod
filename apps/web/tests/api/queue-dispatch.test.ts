@@ -6,6 +6,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { queue } from '@/api/queue'
 import { buildJobEnvelope } from '@/api/services/jobs'
+import type { JobBatch } from '@/platform/types'
 import { createTestEnv } from '../mocks/bindings'
 
 const TENANT = '11111111-1111-4111-8111-111111111111'
@@ -42,7 +43,7 @@ function batchFor(queueName: string, messages = [pingMessage()]) {
     ackAll: vi.fn(),
     retryAll: vi.fn(),
   }
-  return { batch: batch as unknown as MessageBatch<unknown>, spies: batch }
+  return { batch: batch as unknown as JobBatch, spies: batch }
 }
 
 describe('queue() dispatcher', () => {

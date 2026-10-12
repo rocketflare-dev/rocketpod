@@ -1,17 +1,32 @@
 /**
- * Worker-shaped test bindings (D15), which double as the `Platform` view of themselves (M1): in-memory KV, a 404 ASSETS fetcher, the database
- * (a HYPERDRIVE stub pointing at the test Postgres), a recording Queue, an in-memory R2 bucket, a recording DO namespace,
- * a recording Workers AI stub, a recording Workflow namespace, and vars from `process.env` (loaded
- * from .env.test by dotenv-cli). The AI stub also answers `toMarkdown` (D18 uploads). Tests may
- * read `process.env`; `src/` may not.
+ * The test `Platform` (D15, M6b): native in-memory implementations of every capability — a rate
+ * limiter and operation locks over an in-memory KV-style store, a recording jobs queue, an
+ * in-memory object store, a recording realtime hub, a recording model runner (with `toMarkdown`
+ * for D18 uploads) and a recording run engine — plus vars from `process.env` (loaded from
+ * .env.test by dotenv-cli). Tests may read `process.env`; `src/` may not.
  *
  * Also `createExecutionContext()` — `waitUntil` collects promises so `waitOnExecutionContext`
  * can drain them; this is how the per-request DB close (middleware/database.ts) is awaited.
  */
+import type { RealtimeEvent } from '@rocketpod/shared/realtime'
+import type { ExecutionContext } from 'hono'
 import { deterministicEmbedding } from '@/api/services/ai/deterministic-embedding'
 import type { AppBindings } from '@/api/types'
-import { type CloudflareBindings, createCloudflarePlatform } from '@/platform/cloudflare'
-import { EMPTY_PLATFORM, type Platform } from '@/platform/types'
+import type {
+  DocumentConverter,
+  JobsQueue,
+  Locks,
+  Platform,
+  PlatformAi,
+  PutOptions,
+  RateLimitDecision,
+  RateLimiter,
+  RealtimeHub,
+  RunEngine,
+  StorageBody,
+  StorageService,
+  StoredObjectMeta,
+} from '@/platform/types'
 
 // ---- KV -----------------------------------------------------------------------------------
 
@@ -21,7 +36,7 @@ interface KvEntry {
   metadata?: unknown
 }
 
-/** Enough of KVNamespace for rate limiting and operation locks. */
+/** An in-memory key/value store with TTLs — the backing of the test rate limiter and locks. */
 export class MemoryKV {
   readonly store = new Map<string, KvEntry>()
 
@@ -93,6 +108,60 @@ export class MemoryKV {
   }
 }
 
+/** Minimal KV surface the limiter and locks below use — `MemoryKV` satisfies it. */
+export interface RateLimitKv {
+  get(key: string, type: 'json'): Promise<unknown>
+  put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void>
+  delete(key: string): Promise<void>
+}
+
+/**
+ * Pure sliding-window check: read the window, drop stale hits, decide, write back — the same
+ * semantics `src/node/limits.ts` implements atomically in Postgres.
+ */
+export async function checkRateLimit(
+  kv: RateLimitKv,
+  key: string,
+  options: { max: number; windowSeconds: number }
+): Promise<RateLimitDecision> {
+  const now = Date.now()
+  const windowMs = options.windowSeconds * 1000
+  const raw = (await kv.get(key, 'json')) as number[] | null
+  const hits = (raw ?? []).filter(t => typeof t === 'number' && now - t < windowMs)
+  if (hits.length >= options.max) {
+    const oldest = Math.min(...hits)
+    return {
+      allowed: false,
+      remaining: 0,
+      retryAfterSeconds: Math.max(1, Math.ceil((oldest + windowMs - now) / 1000)),
+    }
+  }
+  hits.push(now)
+  await kv.put(key, JSON.stringify(hits), { expirationTtl: options.windowSeconds })
+  return { allowed: true, remaining: options.max - hits.length, retryAfterSeconds: 0 }
+}
+
+export function createMemoryRateLimiter(kv: RateLimitKv): RateLimiter {
+  return { check: (key, options) => checkRateLimit(kv, key, options) }
+}
+
+/** `op_lock:<key>` holds `{ startedAt }` until released or expired. */
+export function createMemoryLocks(kv: RateLimitKv): Locks {
+  return {
+    async acquire(key, ttlSeconds) {
+      const lockKey = `op_lock:${key}`
+      if ((await kv.get(lockKey, 'json')) !== null) return false
+      await kv.put(lockKey, JSON.stringify({ startedAt: Date.now() }), {
+        expirationTtl: ttlSeconds,
+      })
+      return true
+    },
+    async release(key) {
+      await kv.delete(`op_lock:${key}`)
+    },
+  }
+}
+
 // ---- Queue ---------------------------------------------------------------------------------
 
 export interface RecordedMessage<T = unknown> {
@@ -114,101 +183,79 @@ export class RecordingQueue<T = unknown> {
   }
 }
 
-// ---- R2 -----------------------------------------------------------------------------------
+// ---- Storage --------------------------------------------------------------------------------
 
-interface R2Entry {
+/** One stored object, as a test inspects it through `stubs(env).files.objects`. */
+export interface StoredEntry {
   body: Uint8Array
-  httpMetadata?: R2HTTPMetadata
-  customMetadata?: Record<string, string>
+  contentType: string
+  metadata: Record<string, string>
   uploaded: Date
 }
 
-/** Enough of R2Bucket for `services/storage.ts` (Phase 2): put/get/head/delete/list. */
-export class MemoryR2Bucket {
-  readonly objects = new Map<string, R2Entry>()
+const DEFAULT_CONTENT_TYPE = 'application/octet-stream'
 
-  private toObject(key: string, e: R2Entry): R2Object {
+async function toBytes(body: StorageBody): Promise<Uint8Array> {
+  if (typeof body === 'string') return new TextEncoder().encode(body)
+  if (body instanceof ArrayBuffer) return new Uint8Array(body)
+  if (ArrayBuffer.isView(body)) return new Uint8Array(body.buffer, body.byteOffset, body.byteLength)
+  return new Uint8Array(await body.arrayBuffer())
+}
+
+/**
+ * An in-memory `StorageService` (D23). Paging honours `cursor` and `limit` the way an object store
+ * does — the cursor is the LAST key of the page, and a cursor comes back only while another page
+ * follows. Faithful here because a bulk delete pages through a prefix, and a fake that always
+ * answered one page would make a broken paging loop look correct.
+ */
+export class MemoryStorage implements StorageService {
+  readonly objects = new Map<string, StoredEntry>()
+
+  private meta(key: string, e: StoredEntry): StoredObjectMeta {
     return {
       key,
       size: e.body.byteLength,
+      contentType: e.contentType,
       etag: `"${e.body.byteLength}-${e.uploaded.getTime()}"`,
-      httpEtag: `"${e.body.byteLength}-${e.uploaded.getTime()}"`,
       uploaded: e.uploaded,
-      httpMetadata: e.httpMetadata ?? {},
-      customMetadata: e.customMetadata ?? {},
-      version: '1',
-      checksums: {} as R2Checksums,
-      storageClass: 'Standard',
-      writeHttpMetadata: (headers: Headers) => {
-        if (e.httpMetadata?.contentType) headers.set('content-type', e.httpMetadata.contentType)
-      },
-    } as unknown as R2Object
+      metadata: { ...e.metadata },
+    }
   }
 
-  async put(
-    key: string,
-    value: ReadableStream | ArrayBuffer | ArrayBufferView | string | null | Blob,
-    options?: { httpMetadata?: R2HTTPMetadata | Headers; customMetadata?: Record<string, string> }
-  ): Promise<R2Object> {
-    const body =
-      value === null
-        ? new Uint8Array()
-        : typeof value === 'string'
-          ? new TextEncoder().encode(value)
-          : value instanceof ArrayBuffer
-            ? new Uint8Array(value)
-            : ArrayBuffer.isView(value)
-              ? new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
-              : new Uint8Array(await new Response(value as ReadableStream | Blob).arrayBuffer())
-    const httpMetadata =
-      options?.httpMetadata instanceof Headers
-        ? { contentType: options.httpMetadata.get('content-type') ?? undefined }
-        : options?.httpMetadata
-    const entry: R2Entry = {
-      body,
-      httpMetadata,
-      customMetadata: options?.customMetadata,
+  async put(key: string, body: StorageBody, options?: Partial<PutOptions>) {
+    const entry: StoredEntry = {
+      body: await toBytes(body),
+      contentType: options?.contentType ?? DEFAULT_CONTENT_TYPE,
+      metadata: options?.metadata ?? {},
       uploaded: new Date(),
     }
     this.objects.set(key, entry)
-    return this.toObject(key, entry)
+    return this.meta(key, entry)
   }
 
-  async get(key: string): Promise<R2ObjectBody | null> {
+  async get(key: string) {
     const e = this.objects.get(key)
     if (!e) return null
-    const obj = this.toObject(key, e) as unknown as Record<string, unknown>
-    const bytes = e.body
     return {
-      ...obj,
-      body: new Response(bytes as unknown as BodyInit).body,
-      bodyUsed: false,
-      arrayBuffer: async () =>
-        bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
-      text: async () => new TextDecoder().decode(bytes),
-      json: async () => JSON.parse(new TextDecoder().decode(bytes)),
-      blob: async () => new Blob([bytes as unknown as BlobPart]),
-      bytes: async () => bytes,
-    } as unknown as R2ObjectBody
+      ...this.meta(key, e),
+      body: new Response(e.body as unknown as BodyInit).body as ReadableStream<Uint8Array>,
+    }
   }
 
-  async head(key: string): Promise<R2Object | null> {
+  async head(key: string) {
     const e = this.objects.get(key)
-    return e ? this.toObject(key, e) : null
+    return e ? this.meta(key, e) : null
   }
 
-  async delete(keys: string | string[]): Promise<void> {
-    for (const k of Array.isArray(keys) ? keys : [keys]) this.objects.delete(k)
+  async delete(key: string) {
+    this.objects.delete(key)
   }
 
-  /**
-   * Honours `cursor` and `limit` the way R2 does — the cursor is the LAST key of the page, and
-   * `truncated` says whether another page follows. Faithful here because a bulk delete pages
-   * through a prefix, and a stub that always answers one untruncated page would make a broken
-   * paging loop look correct.
-   */
-  async list(options?: { prefix?: string; limit?: number; cursor?: string }): Promise<R2Objects> {
-    const prefix = options?.prefix ?? ''
+  async deleteMany(keys: readonly string[]) {
+    for (const k of keys) this.objects.delete(k)
+  }
+
+  async listPage(prefix: string, options?: { cursor?: string; limit?: number }) {
     const limit = options?.limit ?? 1000
     const matching = [...this.objects.entries()]
       .filter(([k]) => k.startsWith(prefix))
@@ -217,57 +264,73 @@ export class MemoryR2Bucket {
     const start = after ? matching.findIndex(([k]) => k > after) : 0
     const page = start < 0 ? [] : matching.slice(start, start + limit)
     const truncated = start >= 0 && start + page.length < matching.length
-    const objects = page.map(([k, e]) => this.toObject(k, e))
     return {
-      objects,
-      truncated,
+      objects: page.map(([k, e]) => this.meta(k, e)),
       cursor: truncated ? page[page.length - 1]?.[0] : undefined,
-      delimitedPrefixes: [],
-    } as unknown as R2Objects
+    }
+  }
+
+  async list(prefix: string) {
+    const out: StoredObjectMeta[] = []
+    let cursor: string | undefined
+    do {
+      const page = await this.listPage(prefix, { cursor })
+      out.push(...page.objects)
+      cursor = page.cursor
+    } while (cursor)
+    return out
   }
 }
 
-// ---- Durable Object namespace ---------------------------------------------------------------
+// ---- Realtime -------------------------------------------------------------------------------
 
 export interface RecordedBroadcast {
   tenantId: string
+  /** `[method, ...args]` — `broadcast`, `broadcastToUser` or `broadcastToUsers`, then its arguments. */
   args: unknown[]
 }
 
+/** One `/ws` upgrade the route handed to the hub. */
+export interface RecordedAccept {
+  request: Request
+  member: { tenantId: string; userId: string; sessionId: string }
+}
+
 /**
- * Stub `NOTIFICATIONS_HUB` namespace (Phase 2, D8). `idFromName(tenantId).get()` returns a stub whose
- * RPC methods (`broadcast`, `broadcastToUser`, …) record their calls in `broadcasts` so route tests
- * can assert "a nudge was sent to tenant X" without a real Durable Object. `fetch` answers 501.
+ * A recording `RealtimeHub` (D8): every send records `{ tenantId, args: [method, ...args] }` in
+ * `broadcasts`, so route tests can assert "a nudge was sent to tenant X" without sockets. `accept`
+ * records the upgrade in `accepted` and answers 501 — the socket side is exercised against the
+ * real hub (`node-realtime.test.ts`).
  */
-export class RecordingDurableObjectNamespace {
+export class RecordingRealtime implements RealtimeHub {
   readonly broadcasts: RecordedBroadcast[] = []
-  idFromName(name: string) {
-    return { toString: () => name, name, equals: (o: { name?: string }) => o.name === name }
+  readonly accepted: RecordedAccept[] = []
+
+  private record(tenantId: string, args: unknown[]) {
+    this.broadcasts.push({ tenantId, args })
+    return Promise.resolve({ delivered: 0 })
   }
-  newUniqueId() {
-    return this.idFromName(crypto.randomUUID())
+
+  toTenant(tenantId: string, event: RealtimeEvent) {
+    return this.record(tenantId, ['broadcast', event])
   }
-  idFromString(id: string) {
-    return this.idFromName(id)
+
+  toUser(tenantId: string, userId: string, event: RealtimeEvent) {
+    return this.record(tenantId, ['broadcastToUser', userId, event])
   }
-  get(id: { name: string }) {
-    const record =
-      (method: string) =>
-      async (...args: unknown[]) => {
-        this.broadcasts.push({ tenantId: id.name, args: [method, ...args] })
-        return { delivered: 0 }
-      }
-    return new Proxy(
-      {
-        id,
-        name: id.name,
-        fetch: async () => new Response('DO stub', { status: 501 }),
-      } as Record<string, unknown>,
-      { get: (t, prop: string) => (prop in t ? t[prop] : record(prop)) }
-    )
+
+  toUsers(tenantId: string, userIds: string[], event: RealtimeEvent) {
+    return this.record(tenantId, ['broadcastToUsers', userIds, event])
   }
+
+  async accept(request: Request, member: RecordedAccept['member']): Promise<Response> {
+    this.accepted.push({ request, member })
+    return new Response('realtime stub', { status: 501 })
+  }
+
   clear(): void {
     this.broadcasts.length = 0
+    this.accepted.length = 0
   }
 }
 
@@ -284,7 +347,7 @@ export interface RecordedConversion {
   size: number
 }
 
-/** The platform's `ConversionResponse` shape (see `services/ai/types.ts` `MarkdownConversion`). */
+/** A converter's answer (see `src/platform/types.ts` `MarkdownConversion`). */
 export type FakeConversion =
   | {
       id: string
@@ -297,7 +360,7 @@ export type FakeConversion =
   | { id: string; name: string; mimeType: string; format: 'error'; error: string }
 
 /**
- * Stub `AI` binding (Phase 3, D17): `run()` records the call and answers an embeddings-shaped
+ * A recording model runner (Phase 3, D17): `run()` records the call and answers an embeddings-shaped
  * `{ shape, data }` of deterministic 1024-dim vectors (one per input text) so `resolveEmbeddings`'s
  * `workers_ai` branch is testable without the platform. Override `respond` to shape other models.
  * `toMarkdown()` (D18 uploads) records `{ name, type, size }` in `conversions` and answers markdown
@@ -352,7 +415,7 @@ export interface RecordedWorkflowInstance {
   params: unknown
 }
 
-/** What `instance.status()` answers — the shape of the platform's `InstanceStatus`. */
+/** What `instance.status()` answers — the vocabulary `reconcileRun` maps. */
 export interface FakeInstanceStatus {
   status:
     | 'queued'
@@ -376,11 +439,11 @@ export interface RecordedWorkflowEvent {
 }
 
 /**
- * Stub `AGENT_RUN_WORKFLOW` binding (Phase 3b, D7): `create()` records `{ id, params }` and
- * answers an instance whose `status()` is whatever `setStatus(id, …)` said (default `running`);
- * a second `create` with the same id throws like the platform; `get()` throws `instance.not_found`
- * for an id never created unless a status was pre-seeded for it. Nothing runs — tests drive the
- * `AgentRunWorkflow` class directly with a fake step.
+ * A recording `RunEngine` (Phase 3b, D7): `create()` records `{ id, params }` and answers an
+ * instance whose `status()` is whatever `setStatus(id, …)` said (default `running`); a second
+ * `create` with the same id throws like an engine does; `get()` throws `instance.not_found` for an
+ * id never created unless a status was pre-seeded for it. Nothing runs — tests drive the run body
+ * (`runAgentRun`) directly with a fake step (`tests/mocks/step.ts`).
  *
  * `sendEvent` RECORDS rather than no-ops, because the resume path is a behaviour worth asserting
  * ("the parked instance was woken, with this interrupt id"), and `notFoundOnSendEvent` makes it
@@ -456,46 +519,30 @@ export class RecordingWorkflow {
 
 // ---- Env -----------------------------------------------------------------------------------
 
-/**
- * The Worker-shaped bindings the fakes stand in for. The Cloudflare adapters
- * (`src/platform/cloudflare/`) read these, so a test env exercises the same adapter the Worker does.
- */
-export interface TestBindings {
-  RATE_LIMIT_KV?: KVNamespace
-  JOBS_QUEUE?: Queue
-  FILES?: R2Bucket
-  NOTIFICATIONS_HUB?: DurableObjectNamespace
-  AI?: Ai
-  AGENT_RUN_WORKFLOW?: Workflow
+/** The fakes behind one test env — reach them through `stubs(env)`. */
+interface TestStubs {
+  kv: MemoryKV
+  queue: RecordingQueue
+  files: MemoryStorage
+  hub: RecordingRealtime
+  ai: RecordingAi | undefined
+  workflow: RecordingWorkflow | undefined
 }
 
+const STUBS = new WeakMap<object, TestStubs>()
+
 /**
- * A test env is BOTH things at once (M1): the runtime env the app receives — pass it straight to
- * `app.request`, `queue()` and `scheduled()`, which adapt its bindings into a `Platform` like the
- * Worker does — and the `Platform` view of those same bindings, as live getters, so a service that
- * takes a `Platform` takes `env` too. Change a binding (or override it) and the view follows.
- * Reach the stubs' inspection surface (recorded messages, stored objects, KV store) through
- * `stubs(env)`.
+ * A test env is BOTH things at once: the runtime env the app receives — pass it straight to
+ * `app.request`, `queue()` and `dispatchScheduled()`, which read the prebuilt `PLATFORM` from it —
+ * and that same `Platform`, as getters, so a service that takes a `Platform` takes `env` too.
+ * Override a member (`createTestEnv({ storage: null })`) to model a missing capability. Reach the
+ * fakes' inspection surface (recorded messages, stored objects, the KV store) through `stubs(env)`.
  */
 export type TestEnv = AppBindings &
-  TestBindings &
   Platform & {
     DATABASE_URL: string
     [secret: string]: unknown
   }
-
-/** Define the `Platform` members as getters over the env's own bindings. */
-function withPlatformView<T extends object>(env: T): T & Platform {
-  const view = () => createCloudflarePlatform(env as Parameters<typeof createCloudflarePlatform>[0])
-  for (const key of Object.keys(EMPTY_PLATFORM) as (keyof Platform)[]) {
-    Object.defineProperty(env, key, {
-      get: () => view()[key],
-      enumerable: true,
-      configurable: true,
-    })
-  }
-  return env as T & Platform
-}
 
 const SECRET_KEYS = [
   'DATABASE_URL',
@@ -523,48 +570,69 @@ const SECRET_KEYS = [
   'AGENT_MAX_TURNS',
 ] as const
 
-function assetsStub(): Fetcher {
-  return {
-    fetch: async () => new Response('Not Found (ASSETS stub)', { status: 404 }),
-    connect: () => {
-      throw new Error('ASSETS.connect is not supported in tests')
-    },
-  } as unknown as Fetcher
+/** The SPA's assets, which a test never serves: every path is a 404. */
+function assetsStub(): NonNullable<AppBindings['ASSETS']> {
+  return { fetch: async () => new Response('Not Found (ASSETS stub)', { status: 404 }) }
 }
 
-function hyperdriveStub(connectionString: string): Hyperdrive {
-  const url = new URL(connectionString)
-  return {
-    connectionString,
-    host: url.hostname,
-    port: Number(url.port || 5432),
-    user: decodeURIComponent(url.username),
-    password: decodeURIComponent(url.password),
-    database: url.pathname.slice(1),
-    connect: () => {
-      throw new Error('HYPERDRIVE.connect is not supported in tests')
-    },
-  } as unknown as Hyperdrive
+const PLATFORM_KEYS = [
+  'jobs',
+  'storage',
+  'realtime',
+  'runs',
+  'rateLimiter',
+  'locks',
+  'ai',
+  'converter',
+] as const satisfies readonly (keyof Platform)[]
+
+/** The converter slice of a model runner that can convert, or null. */
+function converterOf(ai: PlatformAi | null): DocumentConverter | null {
+  if (!ai || typeof ai.toMarkdown !== 'function') return null
+  return document => (ai.toMarkdown as NonNullable<PlatformAi['toMarkdown']>).call(ai, document)
 }
 
 /**
- * A fresh env per call (KV and queue state are not shared between calls). Vars come from
- * process.env with .env.test-compatible defaults; pass `overrides` to change any of them.
+ * A fresh env per call (no state is shared between calls). Vars come from process.env with
+ * .env.test-compatible defaults; pass `overrides` to change any of them, or to replace or null a
+ * `Platform` member.
  */
 export function createTestEnv(overrides: Partial<TestEnv> = {}): TestEnv {
   const databaseUrl =
     process.env.DATABASE_URL ?? 'postgresql://test:test@localhost:5433/rocketpod_test'
-  const driver = process.env.DATABASE_DRIVER || 'postgres'
-  const env: Record<string, unknown> = {
-    RATE_LIMIT_KV: new MemoryKV() as unknown as KVNamespace,
-    // A deployed `neon` Worker has no Hyperdrive binding at all, so neither does its test env.
-    ...(driver === 'postgres' ? { HYPERDRIVE: hyperdriveStub(databaseUrl) } : {}),
+  const kv = new MemoryKV()
+  const fakes: TestStubs = {
+    kv,
+    queue: new RecordingQueue(),
+    files: new MemoryStorage(),
+    hub: new RecordingRealtime(),
+    ai: new RecordingAi(),
+    workflow: new RecordingWorkflow(),
+  }
+  const ai = fakes.ai as unknown as PlatformAi
+  const base: Platform = {
+    jobs: fakes.queue as unknown as JobsQueue,
+    storage: fakes.files,
+    realtime: fakes.hub,
+    runs: fakes.workflow as unknown as RunEngine,
+    rateLimiter: createMemoryRateLimiter(kv),
+    locks: createMemoryLocks(kv),
+    ai,
+    converter: converterOf(ai),
+  }
+  const members: Record<string, unknown> = { ...base }
+  for (const key of PLATFORM_KEYS) if (key in overrides) members[key] = overrides[key]
+  // A converter follows its model runner unless the test set one explicitly.
+  if ('ai' in overrides && !('converter' in overrides)) {
+    members.converter = converterOf((overrides.ai ?? null) as PlatformAi | null)
+  }
+  if ('ai' in overrides) fakes.ai = (overrides.ai ?? undefined) as RecordingAi | undefined
+  if ('runs' in overrides) {
+    fakes.workflow = (overrides.runs ?? undefined) as RecordingWorkflow | undefined
+  }
+
+  const vars: Record<string, unknown> = {
     ASSETS: assetsStub(),
-    JOBS_QUEUE: new RecordingQueue() as unknown as Queue,
-    FILES: new MemoryR2Bucket() as unknown as R2Bucket,
-    NOTIFICATIONS_HUB: new RecordingDurableObjectNamespace() as unknown as DurableObjectNamespace,
-    AI: new RecordingAi() as unknown as Ai,
-    AGENT_RUN_WORKFLOW: new RecordingWorkflow() as unknown as Workflow,
     APP_ENV: process.env.APP_ENV ?? 'development',
     APP_URL: process.env.APP_URL ?? 'http://localhost:3001',
     APP_NAME: process.env.APP_NAME ?? 'Rocketpod Test',
@@ -574,31 +642,32 @@ export function createTestEnv(overrides: Partial<TestEnv> = {}): TestEnv {
     TENANCY_MODE: process.env.TENANCY_MODE ?? 'multi',
     SIGNUP_MODE: process.env.SIGNUP_MODE ?? 'invite_only',
     TENANT_SCOPE_MODE: process.env.TENANT_SCOPE_MODE ?? 'off',
-    DATABASE_DRIVER: driver,
+    DATABASE_DRIVER: process.env.DATABASE_DRIVER || 'postgres',
   }
   for (const key of SECRET_KEYS) {
     const value = process.env[key]
-    if (value !== undefined && value !== '') env[key] = value
+    if (value !== undefined && value !== '') vars[key] = value
   }
-  env.DATABASE_URL = databaseUrl
-  return withPlatformView({ ...env, ...overrides }) as TestEnv
+  vars.DATABASE_URL = databaseUrl
+
+  const env: Record<string, unknown> = { ...vars }
+  for (const [key, value] of Object.entries(overrides)) {
+    if (!(PLATFORM_KEYS as readonly string[]).includes(key)) env[key] = value
+  }
+  const platform = Object.freeze(members) as unknown as Platform
+  env.PLATFORM = platform
+  for (const key of PLATFORM_KEYS) {
+    Object.defineProperty(env, key, { value: platform[key], enumerable: true })
+  }
+  STUBS.set(env, fakes)
+  return env as TestEnv
 }
 
-/** A test env as the Worker classes receive it (`AgentRunWorkflow`, `NotificationsHub`). */
-export function workerEnv(env: TestEnv): CloudflareBindings {
-  return env as unknown as CloudflareBindings
-}
-
-/** Typed access to the in-memory stubs behind a `createTestEnv()` env. */
-export function stubs(env: TestEnv) {
-  return {
-    kv: env.RATE_LIMIT_KV as unknown as MemoryKV,
-    queue: env.JOBS_QUEUE as unknown as RecordingQueue,
-    files: env.FILES as unknown as MemoryR2Bucket,
-    hub: env.NOTIFICATIONS_HUB as unknown as RecordingDurableObjectNamespace,
-    ai: env.AI as unknown as RecordingAi | undefined,
-    workflow: env.AGENT_RUN_WORKFLOW as unknown as RecordingWorkflow | undefined,
-  }
+/** Typed access to the in-memory fakes behind a `createTestEnv()` env. */
+export function stubs(env: TestEnv): TestStubs {
+  const fakes = STUBS.get(env)
+  if (!fakes) throw new Error('stubs(env): not an env from createTestEnv()')
+  return fakes
 }
 
 // ---- ExecutionContext ----------------------------------------------------------------------
@@ -616,10 +685,7 @@ export function createExecutionContext(): TestExecutionContext {
     },
     passThroughOnException() {},
     props: {},
-    exports: {} as Cloudflare.Exports,
-    tracing: {} as never,
-    abort() {},
-  } as TestExecutionContext
+  }
 }
 
 /** Await everything passed to `waitUntil`, including promises enqueued while draining. */

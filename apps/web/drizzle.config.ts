@@ -1,6 +1,6 @@
 import { defineConfig } from 'drizzle-kit'
 
-// Run via `pnpm db:generate` / `pnpm db:studio`, which load `.dev.vars` with dotenv-cli.
+// Run via `pnpm db:generate` / `pnpm db:studio`, which load `.env` with dotenv-cli.
 export default defineConfig({
   schema: './src/db/schema/index.ts',
   out: './migrations',

@@ -197,7 +197,7 @@ describe('POST /api/agents/runs', () => {
 
   it('503 agent_runs_not_configured without the Workflow binding, and no row is written', async () => {
     const a = await actor()
-    const res = await start(a.cookie, createTestEnv({ AGENT_RUN_WORKFLOW: undefined }))
+    const res = await start(a.cookie, createTestEnv({ runs: null }))
     expect(res.status).toBe(503)
     expect(await json(res)).toMatchObject({
       error: expect.any(String),
@@ -373,7 +373,7 @@ describe('reconcile on read', () => {
         await request(
           `/api/agents/runs/${run.id}`,
           { headers: a.cookie },
-          { env: createTestEnv({ AGENT_RUN_WORKFLOW: undefined }) }
+          { env: createTestEnv({ runs: null }) }
         )
       )
     )

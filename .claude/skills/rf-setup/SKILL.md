@@ -1,7 +1,7 @@
 ---
 name: rf-setup
 description: First run of this kit on this machine — checks the toolchain, starts Postgres, migrates, seeds demo data, and gets you signed in
-argument-hint: "[--offline] [--no-demo] [--no-plugins] [--db-url <postgres-url>]"
+argument-hint: "[--no-demo] [--no-plugins] [--db-url <postgres-url>]"
 ---
 
 # First run
@@ -13,7 +13,7 @@ SETUP.md Part 1 end to end and is **idempotent** — re-running after a fix is a
 
 - You may reach this skill from a plain "help me set up this project" — the user need not
   have typed `/rf-setup`. Before the first command, say in one sentence what the script will do
-  to their machine (start a Postgres container, write `apps/web/.dev.vars`, seed a demo
+  to their machine (start a Postgres container, write `apps/web/.env`, seed a demo
   database) and that it is idempotent. Then run it; don't wait for permission you already have.
 - Your Bash tool has **no TTY** and a **2-minute default timeout**. Always run the bootstrap with a
   10-minute timeout (`timeout: 600000`) — `pnpm install` alone can take minutes on a cold machine.
@@ -71,13 +71,12 @@ setup works either way, and they can detach later by hand.
 bash scripts/bootstrap.sh --no-dev $ARGUMENTS
 ```
 
-`--no-dev` means the script does NOT start the servers (you will, in step 3). `--offline` skips
-the Cloudflare login / Workers AI probe (no `wrangler whoami` at all); `--no-demo` runs plain `pnpm seed` (tenant, users and key,
+`--no-dev` means the script does NOT start the servers (you will, in step 3). `--no-demo` runs plain `pnpm seed` (tenant, users and key,
 but no populated workspace); `--no-plugins` skips the `plugins` step, which installs the plugins
 `.rocketflare.json` lists in `defaultPlugins` (step 6 below) — use it when the machine is offline or
 when somebody wants the app bare first. `--db-url <postgres-url>` uses a database that already
 exists (a Neon branch in a sandbox with no Docker) instead of starting one. Docker is then not
-checked, the URL goes into `apps/web/.dev.vars`, step 4 only waits for it to answer, and the seed
+checked, the URL goes into `apps/web/.env`, step 4 only waits for it to answer, and the seed
 is allowed to write to it. Use it when `docker` is missing and the user has given you a URL; never
 invent one, and never echo the URL back (it holds a password). Any URL is reached over TCP by
 postgres.js — the one driver (D35); don't pass `--driver` (`postgres` is accepted, `neon` refused).
@@ -90,19 +89,8 @@ postgres.js — the one driver (D35); don't pass `--driver` (`postgres` is accep
 | 1 | a step failed | show the tail of the output, fix the cause, re-run the same command (idempotent). A failing `6/10 plugins` is the one worth reading closely: re-run with `--no-plugins` to get a working app, then install the plugin with `/rf-plugin`, where the plan is shown before anything is written |
 | 2 | usage error | check `$ARGUMENTS` against the hint above and re-run |
 | 3 | a prerequisite is missing | install it, then re-run: Node 24 via `nvm install` (reads `.nvmrc`) or `fnm use`; pnpm via `corepack enable`; Docker via Docker Desktop, or `brew install colima docker && colima start` on macOS, or Docker Engine + the `docker` group on Linux. If Docker can't run here (a sandbox), ask the user for a Postgres URL (a Neon branch) and re-run with `--db-url` |
-| 4 | a dev port is held by another checkout | the DATABASE port is chosen automatically (`scripts/dev-db.mjs` takes the next free one), so this is :3000/:3001 (or `DEV_UI_PORT`/`DEV_API_PORT`): run `pnpm dev:status` and `pnpm dev:db:status`, show the user the other path/pid, and let THEM decide — stop it there, or move this checkout with `DEV_UI_PORT`/`DEV_API_PORT` in `apps/web/.dev.vars` plus `APP_URL` on the new UI port (SETUP.md 1.6) — never kill another checkout's processes |
-| 5 | Cloudflare login required | see below |
+| 4 | a dev port is held by another checkout | the DATABASE port is chosen automatically (`scripts/dev-db.mjs` takes the next free one), so this is :3000/:3001 (or `DEV_UI_PORT`/`DEV_API_PORT`): run `pnpm dev:status` and `pnpm dev:db:status`, show the user the other path/pid, and let THEM decide — stop it there, or move this checkout with `DEV_UI_PORT`/`DEV_API_PORT` in `apps/web/.env` plus `APP_URL` on the new UI port (SETUP.md 1.6) — never kill another checkout's processes |
 
-**Exit 5 — Cloudflare login.** Explain in one sentence: *the kit's zero-key chat and agents run on
-Workers AI, which `wrangler dev` proxies through a logged-in Cloudflare account (a free one is
-enough), and every call is billed to that account (10 000 free neurons a day).* Then ask: log in,
-or stay offline?
-
-- Log in: tell the user to run `pnpm web exec wrangler login` **in their own terminal** (the
-  browser OAuth callback must outlive a tool call, so you cannot run it), wait for them to confirm,
-  then re-run the bootstrap with `--online`.
-- Stay offline: re-run with `--offline`. Chat/agents answer 503 until a key or tenant provider
-  exists (SETUP.md 2.5); everything else works.
 
 ## 3. After success — start the app and sign in
 
@@ -110,7 +98,7 @@ or stay offline?
    ```
    pnpm dev
    ```
-2. Poll until the API answers, at most 90 seconds (if `apps/web/.dev.vars` sets `DEV_API_PORT` /
+2. Poll until the API answers, at most 90 seconds (if `apps/web/.env` sets `DEV_API_PORT` /
    `DEV_UI_PORT`, use those ports instead of 3001 / 3000 here and in step 3):
    ```
    curl -s localhost:3001/api/health
@@ -125,7 +113,7 @@ or stay offline?
    global admin `admin@rocketpod.example.com`), the port Postgres landed on if it was not 5432,
    **any plugin the `plugins` step installed and the page it adds** (`pnpm plugin list` names them; say
    "no plugins installed" rather than nothing when there are none), and any note the script printed
-   (an orphaned volume, `--offline`). Do not restate the ten ✔ lines
+   (an orphaned volume, a missing AI key). Do not restate the ten ✔ lines
    they just watched, and **do not echo the seeded API key** — it was printed once by the seed and
    is in their scrollback; say that `pnpm cli login` mints another whenever they want one.
 
@@ -137,11 +125,11 @@ open "want me to do anything else?". Offer these, in this order, with the first 
 
 | Option | What you do when it is chosen |
 |---|---|
-| **Show me around** | Walk the seeded app: **Chat** (streams a reply — Workers AI needs the `wrangler login`, else a key), **Agents** (`summarize-text`, watch the timeline fill), **Knowledge → Search** (the demo documents are indexed), **Analytics** (the seeded Organisation Overview). Drive it with them; one screen at a time |
+| **Show me around** | Walk the seeded app: **Chat** (streams a reply — needs `ANTHROPIC_API_KEY` or `AI_API_KEY` in `apps/web/.env`), **Agents** (`summarize-text`, watch the timeline fill), **Knowledge → Search** (the demo documents are indexed), **Analytics** (the seeded Organisation Overview). Drive it with them; one screen at a time |
 | **Check it really works** | `pnpm test:db:up && pnpm test` (ephemeral Postgres on :5433) — which runs the analytics plugin's own tests too, including the two-tenant cube isolation one — then the SETUP.md 1.6 analytics check, `pnpm cli analytics check-facts` |
 | **Make it mine** | `/rf-adapt <slug>` — the rename (package scope, Worker, database, CLI, theme). Ask for the slug if they have not said one |
 | **Add a capability** | `/rf-plugin` — install a plugin (a git repository copied in, with a plan you read first), or audit what is installed with `pnpm plugin list` / `pnpm plugin check` |
-| **Deploy it** | `/rf-provision` — **user-invoked only**: tell them to type it, and that it needs the three accounts (Cloudflare on Workers Paid, Neon, Resend) and `pnpm provision tokens` in their own terminal first |
+| **Deploy it** | Not built yet: the container image, Compose and Helm are `docs/ROADMAP.md` M7. Say so; `pnpm build && node apps/web/dist/server.js all` is the production server today |
 
 Leave the dev stack running unless they ask you to stop it (`pnpm dev:stop`). If they pick
 something not on the list, just do that — the list is a starting point, not a gate.
@@ -155,13 +143,13 @@ prerequisite lines, then hands over to `scripts/bootstrap.mjs` for the ten steps
 | Step | Name | What it proved |
 |---|---|---|
 | 1 | `toolchain` | Node 24, pnpm 10, Docker daemon and `docker compose` reachable. With `--db-url` it reads `docker skipped (external database <host>/<db>)` |
-| 2 | `install` | `pnpm install` done; `wrangler` resolves in `apps/web` |
-| 3 | `secrets` | `apps/web/.dev.vars` exists with `DATABASE_URL`, `OAUTH_ENCRYPTION_KEY` (generated, git-ignored) and `DATABASE_DRIVER=postgres` (D35, the only driver — a stale `neon` is rewritten, and a note says so). With `--db-url` it notes `DATABASE_URL set from --db-url` |
-| 4 | `database` | this checkout's Postgres container is up and healthy on the port it chose (5432 unless taken; the step says so and writes it to `.dev.vars`); the `Connected to … (postgres driver)` part names the driver. With `--db-url` there is no container: the line reads `external <host>/<db> · Connected to …` once `db:check` answers |
+| 2 | `install` | `pnpm install` done; `tsx` resolves in `apps/web` |
+| 3 | `secrets` | `apps/web/.env` exists with `DATABASE_URL`, `OAUTH_ENCRYPTION_KEY` (generated, git-ignored) and `DATABASE_DRIVER=postgres` (D35, the only driver — a stale `neon` is rewritten, and a note says so). With `--db-url` it notes `DATABASE_URL set from --db-url` |
+| 4 | `database` | this checkout's Postgres container is up and healthy on the port it chose (5432 unless taken; the step says so and writes it to `.env`); the `Connected to … (postgres driver)` part names the driver. With `--db-url` there is no container: the line reads `external <host>/<db> · Connected to …` once `db:check` answers |
 | 5 | `migrate` | role → migrations → grants applied; the pgvector extension is installed |
 | 6 | `plugins` | every plugin in `.rocketflare.json`'s `defaultPlugins` is installed, its tables generated and migrated. The kit declares ONE — `analytics`, which is where dashboards, cubes and the fact table live from 0.6.0 (`docs/CONCEPTS.md` §8) — so this step is what makes **Analytics** appear in the nav. Skipped with `--no-plugins`, which is a perfectly good app with no analytics in it and no drizzle-cube in either bundle |
 | 7 | `seed` | demo tenant, owner/admin/member users, one API key (printed once), plus the populated demo workspace unless `--no-demo`. The seed prints `seeding <host>/<db>` first; with `--db-url` it runs with `SEED_ALLOW_REMOTE=1` |
-| 8 | `cloudflare` | wrangler is logged in (Workers AI available) — or `--offline` was chosen (`[ai] off (--offline; wrangler login not checked)`) |
+| 8 | `ai` | which AI providers `apps/web/.env` configures (`chat … · embeddings …`) — informational, never a failure; with none, chat/agents/uploads answer 503 until a key is set (SETUP.md 2.5) |
 | 9 | `cli` | `pnpm cli whoami` with the seeded key — deferred/skipped with `--no-dev` (needs the server) |
 | 10 | `run` | `pnpm dev` started and `/api/health` answered — skipped with `--no-dev` (you do it in step 3) |
 

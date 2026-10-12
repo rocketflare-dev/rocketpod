@@ -5,7 +5,7 @@
  *
  * Two ways to get a database, because the flush runs in two kinds of place:
  * - `databaseSpanStore(db)` — a Workflow step or a job, whose client is open until after the flush.
- * - `ownConnectionSpanStore(cfg, env)` — a request, whose client is closed in `waitUntil` possibly
+ * - `ownConnectionSpanStore(cfg)` — a request, whose client is closed in `waitUntil` possibly
  *   BEFORE the tracer's flush runs there (and a chat stream closes its own first). It opens one
  *   short-lived client per non-empty flush (a view of the pool on Node, Hyperdrive on the Worker), so that is cheap.
  * `onConflictDoNothing` on `(tenant_id, trace_id, span_id)`: a run's root is recorded by
@@ -75,16 +75,12 @@ export function databaseSpanStore(db: Database): SpanSink {
   }
 }
 
-export interface SpanStoreEnv {
-  HYPERDRIVE?: { connectionString: string }
-}
-
 /** A sink that opens (and closes) its own client per flush. `null` when no database is configured. */
-export function ownConnectionSpanStore(cfg: AppConfig, env: SpanStoreEnv): SpanSink | null {
-  if (!env.HYPERDRIVE && !cfg.PREVIEW_DATABASE_URL && !cfg.DATABASE_URL) return null
+export function ownConnectionSpanStore(cfg: AppConfig): SpanSink | null {
+  if (!cfg.PREVIEW_DATABASE_URL && !cfg.DATABASE_URL) return null
   return async spans => {
     if (!spans.some(span => asUuid(span.tenantId))) return
-    const handle = openDatabase({ ...cfg, HYPERDRIVE: env.HYPERDRIVE })
+    const handle = openDatabase(cfg)
     try {
       await insertSpans(handle.db, spans)
     } finally {

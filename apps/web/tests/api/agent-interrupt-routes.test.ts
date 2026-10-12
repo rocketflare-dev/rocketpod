@@ -33,7 +33,7 @@ import { AGENTS, type AgentContext, type AnyAgentDefinition } from '@/api/servic
 import { enqueueRun, getRun, listEvents, parkRun } from '@/api/services/agents/runs'
 import { AiError } from '@/api/services/ai/errors'
 import type { ChatClient } from '@/api/services/ai/types'
-import { AgentRunWorkflow } from '@/api/workflows/agent-run'
+import { runAgentRun } from '@/api/workflows/agent-run-body'
 import { agentRunInterrupts, agentRuns } from '@/db/schema'
 import { FakeChatClient } from '../helpers/ai'
 import {
@@ -45,14 +45,8 @@ import {
 } from '../helpers/auth'
 import { setupTestDatabase } from '../helpers/db'
 import { json, request } from '../helpers/request'
-import {
-  createExecutionContext,
-  createTestEnv,
-  stubs,
-  type TestEnv,
-  workerEnv,
-} from '../mocks/bindings'
-import { createFakeWorkflowStep } from '../mocks/cloudflare-workers'
+import { createTestEnv, stubs, type TestEnv } from '../mocks/bindings'
+import { createFakeStep } from '../mocks/step'
 
 const state: { client: ChatClient | null } = { client: null }
 
@@ -409,7 +403,7 @@ describe('the restart fallback, end to end (T4/T5)', () => {
     const ask = interrupts[0]
     if (!ask) throw new Error('no ask')
 
-    // The instance is gone — a `wrangler dev` restart, or retention expiring.
+    // The instance is gone — a dev server restart, or retention expiring.
     const workflow = stubs(env).workflow
     if (!workflow) throw new Error('no workflow stub')
     workflow.notFoundOnSendEvent = true
@@ -421,16 +415,11 @@ describe('the restart fallback, end to end (T4/T5)', () => {
     expect(resumed).toMatchObject({ instanceId: `${run.id}-r1`, status: 'running' })
 
     // Now be that new instance. Its first step is `claim`, which only takes `queued|running`.
-    const { step, names } = createFakeWorkflowStep()
-    const outcome = await new AgentRunWorkflow(createExecutionContext(), workerEnv(env)).run(
-      {
-        payload: { runId: run.id, tenantId: a.tenant.id },
-        timestamp: new Date(),
-        instanceId: `${run.id}-r1`,
-        workflowName: 'rocketpod-agent-run',
-      },
-      step as unknown as Parameters<AgentRunWorkflow['run']>[1]
-    )
+    const { step, names } = createFakeStep()
+    const outcome = await runAgentRun({ runId: run.id, tenantId: a.tenant.id }, step, {
+      env,
+      platform: env,
+    })
     expect(outcome.status).toBe('succeeded')
     expect(names).toEqual(['claim', 'execute#0', 'finish'])
     // `ctx.interrupt` was create-or-READ: the second ask found the first ask's answer (T2).

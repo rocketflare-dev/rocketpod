@@ -54,14 +54,12 @@ import {
   missingDependencies,
   newlyAddedDependencies,
   nextAddedDependencies,
-  nextPluginMigrationTag,
   PLUGIN_MANIFEST_FILE,
   parsePluginRequirement,
   pinDeclaredRanges,
   planSteps,
   pluginIdProblem,
   pluginManifestProblems,
-  pluginMigrationTag,
   pluginPlatformProblems,
   pluginRoots,
   rangeWithin,
@@ -75,17 +73,14 @@ import {
   resolveSubdir,
   revertCoreEdits,
   STEP_KINDS,
-  SUPPORTED_PLUGIN_BINDING_TYPES,
   surfaceDirectories,
   tableClashes,
   tupleEntries,
   unsupportedForKit,
   withoutDependencies,
-  workerExportNames,
 } from '../../../../scripts/lib/plugin-lib.mjs'
 import { applyReplacements, deriveNames, KIT } from '../../../../scripts/lib/rename-lib.mjs'
 import type { Surface } from '../../../../scripts/lib/upgrade-lib.d.mts'
-import { SUPPORTED_PLUGIN_BINDING_TYPES as PROVISION_TYPES } from '../../scripts/provision/plugin-resources'
 
 const REPO_ROOT = path.resolve(__dirname, '../../../..')
 const read = (rel: string) => readFileSync(path.join(REPO_ROOT, rel), 'utf8')
@@ -116,7 +111,7 @@ describe('plugin ids', () => {
   })
 
   it('refuses a barrel filename', () => {
-    for (const reserved of ['index', 'server', 'ui', 'schema', 'types', 'worker-exports']) {
+    for (const reserved of ['index', 'server', 'ui', 'schema', 'types']) {
       expect(pluginIdProblem(reserved)).toMatch(/barrel filename/)
     }
   })
@@ -198,8 +193,8 @@ describe('the barrel writer', () => {
     () => {
       // If a round trip is not byte-identical, `pnpm plugin add` produces a commit that fails lint.
       // Only the barrels whose HALF the subject ships: an install writes a line per half that
-      // arrived, so a plugin with no Durable Object has no line in the worker barrel and a plugin
-      // with no CLI command has none in the CLI one. Asserting otherwise tests the fixture, not
+      // arrived, so a plugin with no UI has no line in the UI barrel and a plugin with no CLI
+      // command has none in the CLI one. Asserting otherwise tests the fixture, not
       // the writer.
       for (const kind of BARREL_KINDS) {
         if (!existsSync(path.join(REPO_ROOT, BARRELS[kind].half(subject as string)))) continue
@@ -242,39 +237,6 @@ describe('the barrel writer', () => {
     const withSchema = installedHere.filter(s => (s.registries ?? []).includes(BARRELS.schema.file))
     const rebuilt = withSchema.reduce((text, s) => addBarrelLine(text, 'schema', s.id), bare)
     if (withSchema.length > 0) expect(rebuilt).toBe(real)
-  })
-
-  /**
-   * The sixth barrel, and the reason it exists rather than a `coreEdits` entry or a printed line.
-   *
-   * Cloudflare resolves a binding's `class_name` against the named exports of the Worker's ENTRY
-   * module, so a plugin shipping a Durable Object or a Workflow needs a line in `src/worker.ts`.
-   * That used to be a numbered step in the install plan, which an unattended install (CI applies
-   * nothing it reads) simply did not perform: the tree built, deployed, and every request that
-   * reached the binding failed. `coreEdits` would work and is the wrong shape — it would have every
-   * class-shipping plugin mutating `worker.ts`, which is what a barrel exists to prevent.
-   */
-  it('writes one `export *` into the worker barrel, and worker.ts re-exports it permanently', () => {
-    expect(barrelLines('worker', 'orders')).toEqual(["export * from './orders/worker-exports'"])
-    expect(BARRELS.worker.half('orders')).toBe('apps/web/src/plugins/orders/worker-exports.ts')
-    // The one line in the entry module. It names no plugin, so no install ever edits this file.
-    expect(read('apps/web/src/worker.ts')).toContain("export * from './plugins/worker-exports'")
-  })
-
-  /**
-   * Driven with a FIXTURE id rather than what is installed, because no plugin here ships a class —
-   * and that is the state this has to hold in: `worker.ts` does `export *` from this barrel, and a
-   * TypeScript file with no top-level export is a SCRIPT rather than a module (TS2306 at the
-   * importer), so a bare kit must still carry the marker. The schema barrel's equivalent test can
-   * use the installed set because `example-feature` does ship tables.
-   */
-  it('keeps the worker barrel a MODULE with no plugin in it, and round-trips byte for byte', () => {
-    const real = read(BARRELS.worker.file)
-    expect(real).toContain('export {}')
-    const added = addBarrelLine(real, 'worker', 'orders')
-    expect(added).toContain("export * from './orders/worker-exports'")
-    expect(added).not.toContain('export {}')
-    expect(removeBarrelLine(added, 'worker', 'orders')).toBe(real)
   })
 
   it('points each barrel at the file whose presence means the plugin ships that half', () => {
@@ -422,7 +384,7 @@ describe('what a plugin may bring', () => {
   it('REFUSES anything that would write outside the plugin roots', () => {
     for (const p of [
       'apps/web/src/api/index.ts',
-      'apps/web/wrangler.toml',
+      'apps/web/vite.config.ts',
       'apps/web/src/plugins/other/index.ts',
       'packages/shared/src/jobs.ts',
       'apps/web/migrations/0001_x.sql',
@@ -610,115 +572,41 @@ const fixtureManifest = {
   uses: { '@/plugins/api': ['requestCtx'] },
   requires: { surfaces: [], plugins: [] },
   dependencies: { 'apps/web': { 'date-fns': '^3.0.0' } },
-  bindings: [{ type: 'kv', binding: 'ORDERS_KV', name: 'orders' }],
   crons: ['0 3 * * *'],
   apiPrefixes: ['/orders-webhook'],
   vars: [
     { key: 'ORDERS_MODE', example: '50' },
     { key: 'ORDERS_TOKEN', secret: true },
   ],
-  workerExports: ['OrdersWorkflow'],
   schema: { tables: ['orders_orders', 'orders_lines'], rlsExcluded: [] },
 }
 
 describe('platform declarations', () => {
-  it('knows the same binding types provisioning does', () => {
-    // The list lives twice — `plugin-resources.ts` for `pnpm provision`, `plugin-lib.mjs` for the
-    // plain-Node install script, which cannot import a `.ts` module. This assertion is what makes
-    // the duplication safe: narrow or widen one and the suite fails.
-    expect([...SUPPORTED_PLUGIN_BINDING_TYPES]).toEqual([...PROVISION_TYPES])
+  /**
+   * This kit has no Cloudflare runtime (M6b): a plugin reaches jobs, storage, realtime and runs
+   * through its context. A Rocketflare plugin that declares a binding or a Worker class would
+   * install cleanly and 503 on its first request, so the refusal is at INSTALL time.
+   */
+  it('accepts a plugin with no Cloudflare declarations', () => {
+    expect(pluginPlatformProblems(fixtureManifest)).toEqual([])
+    expect(pluginPlatformProblems({ ...fixtureManifest, bindings: [], workerExports: [] })).toEqual(
+      []
+    )
   })
 
-  it('refuses a binding type provisioning cannot write, at INSTALL time', () => {
-    // Otherwise it installs cleanly, deploys, and 503s on the first request that reads it off
-    // `Cloudflare.Env` — days later, for somebody else.
-    expect(pluginPlatformProblems(fixtureManifest)).toEqual([])
+  it('refuses any binding and any Worker class, naming each', () => {
     const problems = pluginPlatformProblems({
       ...fixtureManifest,
       bindings: [
         { type: 'kv', binding: 'A', name: 'a' },
-        { type: 'd1', binding: 'B', name: 'b' },
-        { type: 'hyperdrive', binding: 'C', name: 'c' },
+        { type: 'durable_object', binding: 'B' },
       ],
+      workerExports: ['OrdersWorkflow'],
     })
     expect(problems).toHaveLength(2)
-    expect(problems[0]).toMatch(/binding B declares type 'd1'/)
-    expect(problems[1]).toMatch(/supported: kv, queue, r2, workflow, durable_object/)
-  })
-
-  /**
-   * `workflow` and `durable_object` graduated when the sixth barrel landed, and only then: a
-   * `class_name` resolves against the named exports of `src/worker.ts`, so before
-   * `plugins/worker-exports.ts` made a plugin's class reachable there, either block would have
-   * named a class nothing exported — and `wrangler deploy` refuses the whole SCRIPT for that,
-   * which is worse than refusing the install. `d1` and `vectorize` still have no such mechanism.
-   */
-  it('accepts a workflow and a durable object, and demands what each block cannot be written without', () => {
-    expect(
-      pluginPlatformProblems({
-        ...fixtureManifest,
-        bindings: [
-          {
-            type: 'workflow',
-            binding: 'ORDERS_SYNC',
-            name: 'sync',
-            className: 'OrdersSyncWorkflow',
-          },
-          {
-            type: 'durable_object',
-            binding: 'ORDERS_HUB',
-            className: 'OrdersHub',
-            storage: 'sqlite',
-          },
-        ],
-      })
-    ).toEqual([])
-
-    // No class → a block pointing at nothing.
-    expect(
-      pluginPlatformProblems({
-        ...fixtureManifest,
-        bindings: [{ type: 'workflow', binding: 'W', name: 'w' }],
-      })
-    ).toContainEqual(expect.stringContaining('declares no className'))
-    // A workflow name is ACCOUNT-scoped, so it is the half that must differ between environments.
-    expect(
-      pluginPlatformProblems({
-        ...fixtureManifest,
-        bindings: [{ type: 'workflow', binding: 'W', className: 'W' }],
-      })
-    ).toContainEqual(expect.stringContaining('declares no name'))
-    // Storage is REQUIRED rather than defaulted: a namespace cannot be migrated between the two,
-    // so guessing it is not something anybody can undo.
-    expect(
-      pluginPlatformProblems({
-        ...fixtureManifest,
-        bindings: [{ type: 'durable_object', binding: 'H', className: 'H' }],
-      })
-    ).toContainEqual(expect.stringContaining('storage'))
-    // …and it is meaningless anywhere else.
-    expect(
-      pluginPlatformProblems({
-        ...fixtureManifest,
-        bindings: [{ type: 'kv', binding: 'K', name: 'k', storage: 'sqlite' }],
-      })
-    ).toContainEqual(expect.stringContaining('only a durable_object has'))
-  })
-
-  /**
-   * A DO migration tag is an identity Cloudflare has already acted on — the same thing a SQL
-   * migration's name is — so the numbering is append-only and the helper never reuses one.
-   */
-  it('numbers a plugin migration tag append-only, per plugin', () => {
-    expect(pluginMigrationTag('orders')).toBe('plugin-orders-v1')
-    expect(nextPluginMigrationTag([], 'orders')).toBe('plugin-orders-v1')
-    expect(nextPluginMigrationTag(['v1', 'plugin-orders-v1'], 'orders')).toBe('plugin-orders-v2')
-    // Gaps are never filled: the highest wins, so a tag can only ever move forward.
-    expect(nextPluginMigrationTag(['plugin-orders-v1', 'plugin-orders-v7'], 'orders')).toBe(
-      'plugin-orders-v8'
-    )
-    // Another plugin's tags are not this plugin's sequence.
-    expect(nextPluginMigrationTag(['plugin-billing-v9'], 'orders')).toBe('plugin-orders-v1')
+    expect(problems[0]).toMatch(/declares Cloudflare bindings \(kv A, durable_object B\)/)
+    expect(problems[0]).toMatch(/ctx\.platform/)
+    expect(problems[1]).toMatch(/declares workerExports \(OrdersWorkflow\)/)
   })
 })
 
@@ -824,7 +712,7 @@ describe('the install plan', () => {
       { path: 'migrations/install/0001_seed.sql', role: 'fragment' as const },
     ],
     byRoot: { 'apps/web/src/plugins/orders/': 1 },
-    barrels: ['shared', 'server', 'ui', 'schema', 'worker', 'cli'] as const,
+    barrels: ['shared', 'server', 'ui', 'schema', 'cli'] as const,
     verify: 'The Orders page lists one order.',
   }
 
@@ -833,21 +721,15 @@ describe('the install plan', () => {
     // The schema migration is the host's, always.
     expect(text).toContain('pnpm db:generate --name plugin-orders-1.1.0')
     expect(text).toContain('CREATE TABLE orders_orders, orders_lines')
-    // The platform half is one command per environment (decision 12), not a hand edit of two
-    // tomls — `pnpm provision cloudflare <env>` reads the same declarations off the surface.
-    expect(text).toContain('pnpm provision cloudflare staging')
-    expect(text).toContain('kv binding ORDERS_KV')
-    expect(text).toContain('cron "0 3 * * *"')
-    expect(text).toContain('route prefix /orders-webhook')
-    expect(text).toContain('[vars] ORDERS_MODE')
-    // A secret is TWO steps, because the key and the value are different kinds of work.
-    expect(text).toContain('add `ORDERS_TOKEN=` to apps/web/.dev.vars.example')
-    expect(text).toContain('pnpm provision secrets <env>')
-    expect(text).not.toMatch(/\[vars\] ORDERS_TOKEN/)
-    // NOT a step any more: `workerExports` became the sixth barrel, so the class reaches
-    // `src/worker.ts` through a line `plugin add` writes rather than one a person is told to write.
-    expect(text).not.toContain('apps/web/src/worker.ts')
-    expect(text).toContain('apps/web/src/plugins/worker-exports.ts')
+    // Crons and route prefixes are declarative (the registry is the schedule) — no step at all.
+    expect(text).not.toContain('provision')
+    expect(text).not.toContain('toml')
+    // Every var is an environment variable: its KEY goes in the template…
+    expect(text).toContain('add `ORDERS_MODE=` to apps/web/.env.example')
+    expect(text).toContain('add `ORDERS_TOKEN=` to apps/web/.env.example')
+    // …and a secret is a second, human step, because the value is a credential.
+    expect(text).toContain('Set a value for ORDERS_TOKEN')
+    expect(text).not.toContain('Set a value for ORDERS_MODE')
     expect(text).toContain('paste migrations/install/0001_seed.sql')
     expect(text).toContain('pnpm gate')
     // "by hand" is retired: every step says which KIND it is, and carries its own assertion.
@@ -1031,13 +913,7 @@ describe('scripts/plugin.mjs, end to end', () => {
  * human, because that list must only ever hold things that are not automatable in principle.
  */
 describe('the step taxonomy', () => {
-  const classy = {
-    ...fixtureManifest,
-    bindings: [
-      { type: 'kv', binding: 'ORDERS_KV', name: 'orders' },
-      { type: 'durable_object', binding: 'ORDERS_HUB', className: 'OrdersHub', storage: 'sqlite' },
-    ],
-  }
+  const classy = fixtureManifest
 
   it('has exactly three kinds, and only two of them ever reach a plan', () => {
     expect([...STEP_KINDS]).toEqual(['declarative', 'agent', 'human'])
@@ -1048,14 +924,12 @@ describe('the step taxonomy', () => {
   it('drops every step Parts 1 and 2 mechanised', () => {
     const steps = planSteps(classy)
     const text = JSON.stringify(steps)
-    // The barrel lines, the sixth included: `plugin add` writes them.
-    expect(text).not.toContain('worker.ts')
+    // The barrel lines: `plugin add` writes them.
     expect(text).not.toContain('barrel')
-    // The toml blocks, the cron, the prefixes and the DO migration tag: `provision cloudflare`
-    // writes them. What survives is the one INVOCATION, which somebody still has to run.
-    expect(text).not.toContain('[[durable_objects')
-    expect(text).not.toContain('[[migrations]]')
-    expect(steps.filter(s => s.id === 'provision')).toHaveLength(1)
+    // The cron and the prefixes: the registry is the schedule, the prefixes are read at runtime.
+    expect(text).not.toContain('0 3 * * *')
+    expect(text).not.toContain('/orders-webhook')
+    expect(steps.some(s => s.id === 'provision')).toBe(false)
   })
 
   it('gives every step a command, an observable result and the assertion that proves it', () => {
@@ -1072,7 +946,7 @@ describe('the step taxonomy', () => {
 
   it('splits a secret into an agent step (the key) and a human step (the value)', () => {
     const steps = planSteps(fixtureManifest)
-    const key = steps.find(s => s.id === 'secret-key:ORDERS_TOKEN')
+    const key = steps.find(s => s.id === 'env-key:ORDERS_TOKEN')
     const value = steps.find(s => s.id === 'secret-value:ORDERS_TOKEN')
     expect(key?.kind).toBe('agent')
     expect(key?.assert).toContain('grep')
@@ -1081,18 +955,14 @@ describe('the step taxonomy', () => {
   })
 
   it('makes every destructive part of a REMOVE human, and nothing else', () => {
-    const steps = removeSteps(classy, { archive: true, migrationTag: 'plugin-orders-v2' })
+    const steps = removeSteps(classy, { archive: true })
     const human = steps.filter(s => s.kind === 'human').map(s => s.id)
-    // A `DROP TABLE`, the archive copy taken or knowingly skipped, a `deleted_classes` migration
-    // that deletes a namespace and its contents, and live resources that may hold somebody's data.
-    expect(human).toEqual(['archive', 'drop-migration', 'do-migration', 'deprovision'])
+    // A `DROP TABLE`, and the archive copy taken or knowingly skipped.
+    expect(human).toEqual(['archive', 'drop-migration'])
     expect(steps.filter(s => s.kind === 'agent').map(s => s.id)).toEqual([
       'dependencies:apps/web',
       'gate',
     ])
-    // The DO tag is the NEXT free one, never a reused identity.
-    expect(steps.find(s => s.id === 'do-migration')?.command).toContain('plugin-orders-v2')
-    expect(steps.find(s => s.id === 'do-migration')?.command).toContain('deleted_classes')
   })
 
   it('renders human steps FIRST and under their own heading', () => {
@@ -1117,7 +987,7 @@ describe('the plan as JSON', () => {
         { path: 'migrations/0001_seed.sql', role: 'fragment' },
       ],
       byRoot: { 'apps/web/src/plugins/orders/': 1 },
-      barrels: ['server', 'worker'],
+      barrels: ['server', 'schema'],
       verify: null,
     }) as Record<string, any>
 
@@ -1125,9 +995,9 @@ describe('the plan as JSON', () => {
     expect(json.installable).toBe(true)
     expect(json.files.fragments).toEqual(['migrations/0001_seed.sql'])
     expect(json.barrels).toContainEqual({
-      kind: 'worker',
-      file: 'apps/web/src/plugins/worker-exports.ts',
-      lines: ["export * from './orders/worker-exports'"],
+      kind: 'schema',
+      file: 'apps/web/src/plugins/schema.ts',
+      lines: ["export * from './orders/db/schema'"],
     })
     for (const step of json.steps) expect(['agent', 'human']).toContain(step.kind)
     expect(json.steps.some((s: { kind: string }) => s.kind === 'human')).toBe(true)
@@ -1222,24 +1092,6 @@ describe('the audit', () => {
   it('reads a manifest that is not an object at all', () => {
     expect(pluginManifestProblems(null)[0].problem).toMatch(/not a JSON object/)
     expect(pluginManifestProblems('{}')[0].problem).toMatch(/not a JSON object/)
-  })
-
-  it('reads the names a worker-exports half exports, and knows when it cannot', () => {
-    expect(workerExportNames("export { OrdersHub } from './do'")).toEqual({
-      names: ['OrdersHub'],
-      opaque: false,
-    })
-    expect(workerExportNames("export { A as B } from './x'").names).toEqual(['B'])
-    expect(workerExportNames('export class OrdersSyncWorkflow {}').names).toEqual([
-      'OrdersSyncWorkflow',
-    ])
-    // A type is not a class Cloudflare can bind.
-    expect(workerExportNames("export type { T } from './t'").names).toEqual([])
-    expect(workerExportNames("export { type T } from './t'").names).toEqual([])
-    // A star re-export needs the module resolved to enumerate, so BOTH directions of the check are
-    // skipped rather than guessed — reporting "declares OrdersHub and does not export it" against
-    // a file that plainly does teaches an author to distrust the whole audit.
-    expect(workerExportNames("export * from './do'").opaque).toBe(true)
   })
 
   /**

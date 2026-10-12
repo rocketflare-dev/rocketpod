@@ -1,7 +1,7 @@
 /**
  * `example-feature.ping` (D7, D31): the smoke-test job. It only logs, so a developer can prove the
  * producer → Queues → consumer path end to end — `POST /api/example-feature/ping`, or
- * `rocketpod example-feature ping`, then watch `wrangler dev`. Copy this file to start a real
+ * `rocketpod example-feature ping`, then watch the server log (`pnpm dev`). Copy this file to start a real
  * handler.
  *
  * A plugin's handler is a kit handler in every respect: it awaits everything (there is no

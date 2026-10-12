@@ -1,7 +1,7 @@
 // @vitest-isolate
 // Spies on the global fetch (Resend failure path), so this file needs its own module registry.
 /**
- * `JOBS_QUEUE` consumer (D7) as a plain function over a hand-built `MessageBatch`: valid
+ * The jobs consumer (D7) as a plain function over a hand-built `JobBatch`: valid
  * `email.send` → email service ran (dev fallback line) + `ack()`; invalid envelope → `ack()` and no
  * retry (poison never loops); provider failure → `retry({ delaySeconds })` with backoff;
  * `activity.record` → row. Every message gets and closes its own DB handle.
@@ -18,6 +18,7 @@ import { buildJobEnvelope } from '@/api/services/jobs'
 import type { Logger } from '@/api/utils/core/logger'
 import { loadConfig } from '@/config'
 import { activityEvents } from '@/db/schema'
+import type { JobBatch } from '@/platform/types'
 import { createTestTenantWithUser } from '../helpers/auth'
 import { setupTestDatabase } from '../helpers/db'
 import { createTestEnv } from '../mocks/bindings'
@@ -48,7 +49,7 @@ function fakeMessage(body: unknown, attempts = 1) {
 }
 
 function fakeBatch(messages: ReturnType<typeof fakeMessage>[], queue = 'rocketpod-jobs') {
-  return { queue, messages, ackAll: vi.fn(), retryAll: vi.fn() } as unknown as MessageBatch<unknown>
+  return { queue, messages, ackAll: vi.fn(), retryAll: vi.fn() } as unknown as JobBatch
 }
 
 /** Deps with the shared test pool and a close spy — no real connection per message. */

@@ -14,7 +14,7 @@ Vitest in `apps/web` (all commands below are root scripts that delegate there, o
 `apps/web`), six projects (`apps/web/vitest.config.ts`): `api` + `api-isolated` (Node, **real Postgres** on 5433),
 `driver` (D35: `tests/driver/**` — the CONFORMANCE suite for the driver seam, through
 `openDatabase`, against the real database, run under both drivers; `tests/driver/CLAUDE.md`),
-`ui` (jsdom + Testing Library), `config` (Node, no database: wrangler parity, env schema, pure
+`ui` (jsdom + Testing Library), `config` (Node, no database: the no-Cloudflare guard, env schema, pure
 helpers, the driver guards `driver-results.test.ts` and `driver-conformance.test.ts`, and every
 installed plugin's own `src/plugins/*/tests/config/**`), and `kit-only` (Node, no database:
 `tests/kit-only/**`, the KIT's own tests — see below). The web suite is two `vitest run`
@@ -48,37 +48,37 @@ tests), and put the claim about THIS checkout in `kit-only`.
 ## Tests run under Node, against the real Hono app
 
 - `app.request(req, env, ctx)` with `env = createTestEnv(overrides)` from `apps/web/tests/mocks/bindings.ts`:
-  `DATABASE_URL` from `apps/web/.env.test`, `MemoryKV` as `RATE_LIMIT_KV`, a `RecordingQueue` as
-  `JOBS_QUEUE`, a `MemoryR2Bucket` as `FILES`, a `RecordingDurableObjectNamespace` as
-  `NOTIFICATIONS_HUB`, a `RecordingAi` as `AI` (deterministic 1024-dim vectors; `respond` overridable),
-  a `RecordingWorkflow` as `AGENT_RUN_WORKFLOW` (records `create({ id, params })` and `sendEvent`,
+  `DATABASE_URL` from `apps/web/.env.test` and an in-memory `Platform` (as `env.PLATFORM` and as
+  getters on `env` itself): a memory rate limiter and locks over `MemoryKV` (`rateLimiter`, `locks`),
+  a `RecordingQueue` (`jobs`), a `MemoryStorage` (`storage`), a `RecordingRealtime` (`realtime`), a
+  `RecordingAi` (`ai`, deterministic 1024-dim vectors; `respond` overridable — its `toMarkdown` is
+  the `converter`), a `RecordingWorkflow` (`runs`, records `create({ id, params })` and `sendEvent`,
   `setStatus(id, …)` drives `instance.status()`, `terminated[]` records a forced cancel, `get()` of
   an unknown id throws `instance.not_found`, and `failSendEvent` simulates the instance a park
-  outlived — retention expired, or `wrangler dev` restarted), and the database — a `HYPERDRIVE`
-  stub whose `connectionString` is the test URL; `ctx = createExecutionContext()` collects `waitUntil`
+  outlived — retention expired, or a dev server restarted), and `DATABASE_URL` pointing at the test
+  database; `ctx = createExecutionContext()` collects `waitUntil`
   promises so a test can `await waitOnExecutionContext(ctx)` before asserting side effects
 - Reach the stubs through **`stubs(env)`** → `{ kv, queue, files, hub, ai, workflow }`: `queue.messages`
   (what a route enqueued — `[{ body, options }]`), `files.objects` (key → stored bytes/metadata),
-  `hub.broadcasts` (`[{ tenantId, args: [method, ...args] }]` — every RPC call on any stub, e.g.
-  `['broadcast', event]`; the stub's `fetch` answers 501), `kv.store`, `ai.runs` (`[{ model, inputs }]`),
+  `hub.broadcasts` (`[{ tenantId, args: [method, ...args] }]`, e.g. `['broadcast', event]`) and
+  `hub.accepted` (`/ws` upgrades; `accept` answers 501), `kv.store`, `ai.runs` (`[{ model, inputs }]`),
   `workflow.created` (`[{ id, params }]`) + `workflow.setStatus(id, { status })`. `createTestEnv({
-  JOBS_QUEUE: undefined })` / `{ FILES: undefined }` / `{ NOTIFICATIONS_HUB: undefined }` /
-  `{ AGENT_RUN_WORKFLOW: undefined }` / `{ AI: undefined }` exercise the missing-binding branches
-  (throws / 503 / no-op / 503 `agent_runs_not_configured` / next embeddings tier)
-- `cloudflare:workers` is aliased to `apps/web/tests/mocks/cloudflare-workers.ts` (stub `DurableObject`,
-  `WorkflowEntrypoint`, plus `createFakeWorkflowStep(options)` → `{ step, calls, waits, names }` —
-  runs each `step.do` callback inline and records `{ name, config? }`; `waitForEvent` is a RECORDER,
-  not a throw, with an `events[]` payload queue, an `onWait` hook (the test's stand-in for a person
-  clicking Approve, which must flip the row BEFORE the wait resolves) and a `FakeWorkflowTimeoutError`
-  for the expiry path. `names` is every step name in order, because the one property no fake can
-  check is that they are DISTINCT per round) so worker modules import under Node
+  jobs: null })` / `{ storage: null }` / `{ realtime: null }` / `{ runs: null }` / `{ ai: null }`
+  exercise the missing-capability branches (503 / 503 / no-op / 503 `agent_runs_not_configured` /
+  next embeddings tier)
+- `apps/web/tests/mocks/step.ts` `createFakeStep(options)` → `{ step, calls, waits, names }` drives a
+  run body (`runAgentRun`): it runs each `step.do` callback inline and records `{ name, config? }`;
+  `waitForEvent` is a RECORDER, not a throw, with an `events[]` payload queue, an `onWait` hook (the
+  test's stand-in for a person clicking Approve, which must flip the row BEFORE the wait resolves)
+  and a `FakeStepTimeoutError` for the expiry path. `names` is every step name in order, because the
+  one property no fake can check is that they are DISTINCT per round
 - `apps/web/tests/helpers/request.ts` `request()` / `json()` drive the app through every middleware with a
   per-file random client IP (rate-limit isolation); `apps/web/tests/helpers/auth.ts` factories
   (`createTestUser`, `createTestTenant`, `linkUserToTenant`, `createTestTenantWithUser`,
   `createTestSession` → cookie value, `createTestApiKey` → plaintext) use `uniqueId()` suffixes;
   `inject('seed')` gives the run's seeded owner/tenant/API key/session (`TestSeed`)
-- No `@cloudflare/vitest-pool-workers` in the default suite (D15). It cannot reach a real Postgres
-  through Hyperdrive locally; the value here is integration tests against real Postgres
+- Integration tests run against real Postgres (and the S3 gateway for storage), never a mocked
+  database
 
 ## Database discipline
 
@@ -309,8 +309,8 @@ the whole rule, and it is why neither half duplicates the other.
   `vite.config.ts`**, so a `src/` file importing it fails `build:ui` rather than shipping the
   harness into a browser bundle — `tests/config/testkit-alias.test.ts` pins all three halves and
   scans `src/` directly, because a scan says WHICH file is wrong where a failed build says only that
-  one is. **`build:api` does not protect the other side**: wrangler resolves tsconfig paths, so a
-  stray import there is bundled rather than refused (measured at +866 KB), and the source scan in
+  one is. **`build:server` does not protect the other side**: esbuild resolves tsconfig paths, so a
+  stray import there is bundled rather than refused, and the source scan in
   `tests/config/plugins.test.ts` is the only thing standing between it and production
 - **The builders refuse a `db` nobody handed out** — they require a handle blessed by
   `setupTestDatabase`, tracked in a `WeakSet` rather than by shape, because `{ execute: vi.fn() }`

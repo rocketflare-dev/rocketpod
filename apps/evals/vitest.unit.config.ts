@@ -12,7 +12,6 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.join(web, 'src'),
-      'cloudflare:workers': path.join(web, 'tests/mocks/cloudflare-workers.ts'),
     },
   },
   test: {

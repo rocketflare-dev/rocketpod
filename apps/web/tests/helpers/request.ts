@@ -1,5 +1,5 @@
 /**
- * `request(path, init?)` drives the real Hono app with test bindings and a collecting
+ * `request(path, init?)` drives the real Hono app with the test platform and a collecting
  * ExecutionContext, then drains `waitUntil` so the per-request DB close (middleware/database.ts)
  * has completed before assertions run — the production path, no test hooks in src/.
  */

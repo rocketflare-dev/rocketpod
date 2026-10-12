@@ -19,7 +19,7 @@ export const GATE_STEPS = Object.freeze([
     display: 'biome check . --diagnostic-level=error',
     database: false,
   },
-  // `pnpm -r typecheck`: web runs `wrangler types` first, so it always compiles against fresh types.
+  // `pnpm -r typecheck`: tsc over every package.
   {
     id: 'typecheck',
     command: ['pnpm', 'typecheck'],
@@ -28,7 +28,7 @@ export const GATE_STEPS = Object.freeze([
   },
   // scripts/test.mjs: the target, the database and the conformance pass (lib/test-plan.mjs).
   { id: 'test', command: ['pnpm', 'test'], display: 'pnpm test', database: true },
-  // web: vite build + a dry-run `wrangler deploy` (what catches a Node-only import); cli: tsc.
+  // web: vite build + the Node server bundle (esbuild); cli: tsc.
   { id: 'build', command: ['pnpm', 'build'], display: 'pnpm -r build', database: false },
 ])
 

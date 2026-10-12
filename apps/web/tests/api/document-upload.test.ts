@@ -1,5 +1,5 @@
 /**
- * `POST /api/ai/documents/upload` (D18) end to end over the in-memory R2 bucket and the AI stub:
+ * `POST /api/ai/documents/upload` (D18) end to end over the in-memory object store and the AI stub:
  * a Markdown file (declared type empty, as browsers send `.md`) is decoded and indexed inline —
  * object under `tenants/<t>/documents/`, `files` row scope `documents`, `fileId` on the document,
  * chunks present; a PDF returns `pending` with a `document.convert` job on the queue and no
@@ -98,7 +98,7 @@ describe('POST /api/ai/documents/upload', () => {
     expect(file?.key.startsWith(`tenants/${tenant.id}/documents/`)).toBe(true)
     const object = stubs(env).files.objects.get(file?.key ?? '')
     expect(object).toBeDefined()
-    expect(object?.httpMetadata?.contentType).toBe('text/markdown')
+    expect(object?.contentType).toBe('text/markdown')
 
     const [row] = await db.select().from(documents).where(eq(documents.id, doc.id))
     // Decoded, CRLF normalised, never returned by the API.
@@ -160,7 +160,7 @@ describe('POST /api/ai/documents/upload', () => {
 
   it('a PDF without the AI binding → 503 conversion_not_configured and nothing written', async () => {
     const { tenant, cookie } = await actor()
-    const env = createTestEnv({ AI: undefined, EMBEDDINGS_API_KEY: 'sk-test-embeddings' })
+    const env = createTestEnv({ ai: null, EMBEDDINGS_API_KEY: 'sk-test-embeddings' })
     const res = await upload(env, cookie, pdf())
     expect(res.status).toBe(503)
     expect(await json(res)).toMatchObject({ code: 'conversion_not_configured' })
@@ -174,7 +174,7 @@ describe('POST /api/ai/documents/upload', () => {
 
   it('no embeddings provider at all → 503 ai_not_configured and nothing written', async () => {
     const { tenant, cookie } = await actor()
-    const env = createTestEnv({ AI: undefined, EMBEDDINGS_API_KEY: undefined })
+    const env = createTestEnv({ ai: null, EMBEDDINGS_API_KEY: undefined })
     const res = await upload(env, cookie, md())
     expect(res.status).toBe(503)
     expect(await json(res)).toMatchObject({ code: 'ai_not_configured' })

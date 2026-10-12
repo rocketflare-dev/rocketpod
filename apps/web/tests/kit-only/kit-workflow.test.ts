@@ -22,11 +22,9 @@ function job(id: string): string {
 }
 
 describe('kit.yml', () => {
-  it('runs on pull requests and pushes to main, and is never a deploy precondition', () => {
+  it('runs on pull requests and pushes to main, and is never a release precondition', () => {
     expect(KIT).toMatch(/\non:\n {2}pull_request:\n {2}push:\n {4}branches: \[main\]\n/)
     expect(KIT).not.toMatch(/workflow_call/)
-    const deploy = readFileSync(path.join(REPO_ROOT, '.github/workflows/deploy.yml'), 'utf8')
-    expect(deploy).not.toMatch(/uses: \.\/\.github\/workflows\/kit\.yml/)
   })
 
   it('kit-checks: the porting note, the published plugin API, the plugin audit, defaultPlugins', () => {
@@ -39,13 +37,8 @@ describe('kit.yml', () => {
     expect(checks).toContain('node scripts/default-plugins.mjs --github-output')
   })
 
-  it('kit-checks and renamed: the Launch kit check, on the kit and on the renamed copy (D36)', () => {
-    expect(job('kit-checks')).toContain('node scripts/kit-check.mjs --exec')
-    const renamed = job('renamed')
-    // After the rename, so it checks the COPY: its names, its manifest's kit block.
-    expect(renamed.indexOf('node scripts/kit-check.mjs --exec')).toBeGreaterThan(
-      renamed.indexOf('node scripts/rename.mjs my-app')
-    )
+  it('runs no Launch kit check: the contract is Cloudflare-shaped (launch.kit.json $runtime)', () => {
+    expect(KIT).not.toMatch(/^\s+run: node scripts\/kit-check\.mjs/m)
   })
 
   it('renamed: renames to a hyphenated slug, proves the kit-only files are gone, runs pnpm gate', () => {

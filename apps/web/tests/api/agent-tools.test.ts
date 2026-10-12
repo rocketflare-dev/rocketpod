@@ -198,7 +198,7 @@ describe('search_knowledge tool', () => {
 
   it('validates its input with the shared limits and explains itself without a provider', async () => {
     const { tenant } = await createTestTenantWithUser(db, 'owner')
-    const env = createTestEnv({ AI: undefined, EMBEDDINGS_API_KEY: undefined })
+    const env = createTestEnv({ ai: null, EMBEDDINGS_API_KEY: undefined })
     const tool = searchKnowledgeTool({
       db,
       cfg: loadConfig(env),

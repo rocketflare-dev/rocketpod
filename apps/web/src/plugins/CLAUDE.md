@@ -14,11 +14,9 @@ deleting them. Nothing else in the kit ever names a plugin, which is what makes 
 | `server.ts` | `SERVER_PLUGINS` / `serverPlugins` | `api/index.ts`, `utils/routes/api-prefixes.ts`, `queues/jobs.ts`, `scheduled.ts`, `agents/registry.ts`, `agents/tools/index.ts`, `prompts.ts`, `permissions/abilities.ts`, `utils/db/tenant-helpers.ts`, `services/access.ts`, `scripts/seed.ts`, the `rls-coverage` and unscoped-allowlist tests (never `db/schema/rls.ts` — a cycle) |
 | `ui.ts` | `UI_PLUGINS` / `uiPlugins` | `App.tsx`, `SideNav.tsx`, `SettingsLayout.tsx`, `lib/query-keys.ts`, `pages/agents/forms/index.ts` |
 | `schema.ts` | one `export *` per plugin | one `export *` line in `db/schema/index.ts` (position irrelevant — a duplicated name is TS2308) |
-| `worker-exports.ts` | one `export *` per plugin | one `export *` line in `src/worker.ts` — the Worker's ENTRY module, which is the only place Cloudflare resolves a binding's `class_name` from |
 | `apps/cli/src/plugins/index.ts` | `CLI_PLUGINS` / `cliPlugins` | `cli.ts` |
 
-**The two `export *` barrels carry an empty marker.** `schema.ts` and `worker-exports.ts` declare
-no const, so removing the last plugin would leave a file with no top-level export — which
+**The `export *` barrel carries an empty marker.** `schema.ts` declares no const, so removing the last plugin would leave a file with no top-level export — which
 TypeScript reads as a SCRIPT rather than a module, making its one importer TS2306 and stopping the
 whole app typechecking. `addBarrelLine` displaces `export {}` and `removeBarrelLine` puts it back,
 byte for byte.
@@ -48,26 +46,21 @@ in the host. Each half is checked where it is written; only the merge is cast.
 - **It has exactly four published entries** — `src/plugins/<id>/index.ts`, `<id>/ui/index.ts`,
   `packages/shared/src/plugins/<id>/index.ts` and `apps/cli/src/plugins/<id>/index.ts`. Everything
   else under it is private, which is what lets its semver cover a knowable surface. **No deep import
-  across a plugin boundary**, in either direction, except the six barrel lines;
+  across a plugin boundary**, in either direction, except the five barrel lines;
   `tests/config/plugins.test.ts` is the check. (`plugin.json` is the surface ANCHOR, read by the
   tooling, never imported.)
-- **It reaches the Worker's entry through the barrel, never by editing it.** A Durable Object or
-  Workflow class is bound by `class_name` against the named exports of `src/worker.ts` and nowhere
-  else, so a plugin shipping one puts `apps/web/src/plugins/<id>/worker-exports.ts` in its tree —
-  a file that re-exports its classes and nothing else — and lists their names in `workerExports`.
-  `plugin add` writes the barrel line; `plugin check` asserts the file exports every declared name.
-  The `[[durable_objects.bindings]]`, `[[workflows]]` and `[[migrations]]` blocks stay the HOST's
-  and are written by `pnpm provision cloudflare <env>` from the same manifest.
+- **It declares no Cloudflare `bindings` and no `workerExports`.** This kit has no Worker (M6b):
+  `pnpm plugin` refuses either at install and `plugin check` fails one on an installed plugin. A
+  plugin reaches jobs, storage, realtime, durable runs, rate limits and locks through `ctx.platform`.
 - **It ships no migration.** The HOST generates it once the schema barrel line exists:
   `pnpm db:generate --name plugin-<id>-<version>`, read the SQL, `pnpm db:migrate`. A plugin's own
   `migrations/` holds plain-SQL DATA fragments (backfills), never DDL — a kit or plugin migration
   copied in replaces drizzle's notion of current state with one that has never heard of the app's
   own tables.
-- **It edits no toml and no `package.json`.** A binding, cron or `[vars]` key it declares in
-  `plugin.json` is written into BOTH tomls by `pnpm provision cloudflare <env>`
-  (`.claude/rules/cloudflare.md`) — including a `workflow` or `durable_object` block and, for a
-  Durable Object, its `plugin-<id>-v1` `[[migrations]]` tag. The host owns every byte of its own
-  files; the plugin only declares.
+- **It edits no `package.json`.** A cron it declares is a `scheduledTasks` entry (the registry is
+  the schedule, `.claude/rules/runtime.md`); a var is an environment variable, declared in
+  `.env.example` by the install plan. The host owns every byte of its own files; the plugin only
+  declares.
 - **It declares compatibility as a FLOOR and a MEASUREMENT, never a prediction.** `minKit` is one
   bare `X.Y.Z` at the TOP level of `plugin.json` — the oldest kit it supports, with no ceiling,
   because a plugin cannot know which future kit will break it. `uses` is the host symbols it
@@ -151,9 +144,8 @@ as by a person and prose an agent may skim is not a control:
 than a sentence in a paragraph. `pnpm plugin check --json` does the same for the audit.
 
 **What it will not do, ever**, and each is in the plan instead: generate or copy a migration
-(`pnpm db:generate --name plugin-<id>-<version>` is yours, after the barrel line exists), edit a
-wrangler toml or write a resource id (a declared binding, cron or `[vars]` key is printed with the
-row you have to place), or apply anything you have not read.
+(`pnpm db:generate --name plugin-<id>-<version>` is yours, after the barrel line exists), install a
+Cloudflare-only plugin, or apply anything you have not read.
 
 A file in a plugin's repository that falls outside `apps/web/src/plugins/<id>/`,
 `packages/shared/src/plugins/<id>/`, `apps/cli/src/plugins/<id>/`, `docs/plugins/<id>/`,
@@ -186,9 +178,8 @@ Per installed plugin: the anchor exists and parses; **every manifest field**, na
 its legal values; `minKit`, `requires.surfaces` and `requires.plugins`; **every symbol in `uses`
 against the kit's ledger**; a barrel line for each half on disk and no line for a half that is not;
 no `*.rej`; a migration naming it when it declares tables; **every declared dependency really
-present in the host `package.json`**; the **worker-exports barrel both ways**; **a tenant-isolation
-test** when it declares tenant-scoped tables; **`hooks.onTenantDeleted` when it declares a
-`durable_object`**; and **its skills both ways** — each declared one present with a matching
+present in the host `package.json`**; **no Cloudflare declaration**; **a tenant-isolation
+test** when it declares tenant-scoped tables; and **its skills both ways** — each declared one present with a matching
 `name:` and a `description:`, and no undeclared directory in its namespace.
 
 Two of those deserve their reason stated. The isolation test is the kit's one non-negotiable that

@@ -12,7 +12,7 @@ import { z } from 'zod'
 export const ENV_PREFIX = 'ROCKETPOD'
 export const CONFIG_DIR_NAME = '.rocketpod'
 export const CONFIG_FILE_NAME = 'config.json'
-/** The kit's local `wrangler dev` port; a real app sets its production URL here. */
+/** The kit's local the dev server port; a real app sets its production URL here. */
 export const DEFAULT_SERVER_URL = 'http://localhost:3001'
 
 export const ENV = {

@@ -47,7 +47,7 @@ full. `logout` removes `apiKey`, `tenantId`, `tenantName`, `user` and keeps `ser
 | `ROCKETPOD_DEBUG`      | Print debug lines and stack traces to stderr                           |
 
 Precedence: `--server` flag > `ROCKETPOD_URL` > config `serverUrl` > `DEFAULT_SERVER_URL`
-(`http://localhost:3001`, the kit's `wrangler dev` port — a real app sets its production URL in
+(`http://localhost:3001`, the kit's the dev server port — a real app sets its production URL in
 `src/config.ts`). Key: `ROCKETPOD_API_KEY` > config `apiKey`.
 
 **ADAPTING** renames the bin (`package.json` → `bin`), the env prefix and directory (`ENV_PREFIX`,

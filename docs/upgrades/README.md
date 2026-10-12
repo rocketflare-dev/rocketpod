@@ -70,7 +70,7 @@ Exactly the four headings above, exact text, in that order, and then:
   who does not have your diff in front of them, months later, reading one step at a time. Name the
   registry entries a new file has to be added to, say which of the kit's own conventions the change
   depends on, and be explicit about anything the patch cannot carry: a new binding in both wrangler
-  tomls, a `.dev.vars` key, a data backfill. "Nothing to do" is a whole step only when it says what
+  tomls, a `.env` key, a data backfill. "Nothing to do" is a whole step only when it says what
   it is about.
 - **`## Conflicts to expect`** — one line each, `path → what changed → what to do`. Or `None.`,
   optionally followed by one short clause saying why there are none.

@@ -38,7 +38,7 @@ export async function handleTenantPurge(
     // here their absence IS the answer.
     ctx.logger.warn(
       { tenantId, tenantSlug },
-      'tenant.purge: no FILES binding, no stored objects to delete'
+      'tenant.purge: no object storage configured, no stored objects to delete'
     )
     return
   }

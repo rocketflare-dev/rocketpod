@@ -10,9 +10,8 @@ name: CI
 # included (apps/web/src/db/CLAUDE.md). No `services:` block, no restart hack: the compose file is
 # the one definition of the test database.
 #
-# deploy.yml calls this same file (`workflow_call`) before deploying a tag whose commit has no
-# green CI run yet, so a commit is gated once and the gate never drifts between main and deploy.
-# The kit's OWN checks (a renamed copy, the default plugins, the porting note) are kit.yml, which a
+# A release workflow may call this same file (`workflow_call`) before publishing a tag whose commit
+# has no green CI run yet, so a commit is gated once and the gate never drifts. The kit's OWN checks (a renamed copy, the default plugins, the porting note) are kit.yml, which a
 # copy never carries.
 #
 # Verified once (opt-in, for an app shipped by Launch): with the repository variable
@@ -30,7 +29,7 @@ on:
   workflow_call:
 
 concurrency:
-  # Cancel superseded runs on a PR branch, never when called from the deploy path.
+  # Cancel superseded runs on a PR branch, never when called from a release workflow.
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
@@ -38,8 +37,8 @@ jobs:
   gate:
     name: Gate
     runs-on: ubuntu-latest
-    # The lookup reads check runs and a commit's pull requests; nothing in this job writes. deploy.yml's
-    # `ci` job grants the same three: a called workflow may not ask for more than its caller grants.
+    # The lookup reads check runs and a commit's pull requests; nothing in this job writes. A caller
+    # must grant the same three: a called workflow may not ask for more than its caller grants.
     permissions:
       contents: read
       checks: read
@@ -54,7 +53,7 @@ jobs:
       # the merge tree equals it (the branch already contains main's tip); once main moves on, the
       # trees differ and the full gate runs. On a push to main: the pushed commit, then the heads of
       # its PRs (GET /commits/{sha}/pulls) — an up-to-date PR squashed or merged leaves the same
-      # tree. Any other event (deploy.yml's workflow_call on a tag or dispatch) answers false. Any
+      # tree. Any other event (a workflow_call on a tag or dispatch) answers false. Any
       # doubt answers false, and the script always exits 0: an empty or `false` output is the full
       # gate. It reads the tree from this very checkout, so there is nothing to re-check.
       - name: Verified by Launch?
@@ -91,7 +90,7 @@ jobs:
           "$RUNNER_TEMP/gitleaks" git --redact --exit-code 1 --verbose .
 
       # Launch's sandbox already passed lint, typecheck and test on this tree; build is the step it
-      # does not prove here (the dry-run `wrangler deploy` that catches a Node-only import).
+      # does not prove here (the UI bundle and the server bundle).
       - name: pnpm gate build (the rest passed in Launch on this tree)
         if: steps.verified.outputs.verified == 'true'
         run: pnpm gate build

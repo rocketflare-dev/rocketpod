@@ -80,7 +80,7 @@ pnpm gate
 
 `pnpm gate` runs lint, typecheck, test and build, and starts the test database itself (Docker must
 be running). Expect every step green, including
-`tests/config/wrangler-parity.test.ts` (staging suffixes) and `tests/ui/contrast.test.ts` (if the
+`tests/config/platform-seam.test.ts` (no Cloudflare) and `tests/ui/contrast.test.ts` (if the
 colour changed). A failing `typecheck` almost always means an `@<old-scope>/shared` import the
 pass could not see — `grep -rn "@rocketpod/" apps packages --include=*.ts --include=*.tsx`
 should be empty.
@@ -97,6 +97,5 @@ Tell the user:
   real ones** — not now.
 
 Then **end the turn with `AskUserQuestion`** rather than a paragraph — the same as `/rf-setup` does.
-The choices after a rename are: **run it** (`/rf-setup`, or `SETUP.md` Part 1 by hand), **deploy it**
-(`/rf-provision` — they type it themselves), **walk the six careful rows** (`checklist.md` beside this
+The choices after a rename are: **run it** (`/rf-setup`, or `SETUP.md` Part 1 by hand), **walk the six careful rows** (`checklist.md` beside this
 file), or **stop here**.

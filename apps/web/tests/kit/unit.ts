@@ -53,7 +53,7 @@ import type { PluginLogger } from '@/plugins/api/types'
 import type { WorkflowCtx } from '@/plugins/api/workflow'
 import { workflowCtx } from '@/plugins/api/workflow'
 import { createTestEnv, type TestEnv } from '../mocks/bindings'
-import { createFakeWorkflowStep } from '../mocks/cloudflare-workers'
+import { createFakeStep } from '../mocks/step'
 import { assertRealDatabase } from './real-db'
 
 /** Everything every builder needs: a real handle, and optionally the env and config around it. */
@@ -343,14 +343,14 @@ export function makeCronCtx(options: CronCtxOptions): CronCtx {
 
 /** The fake step recorder, so a test can assert the NAMES a run asked for and their order. */
 export type FakeWorkflowCtx = WorkflowCtx & {
-  readonly recorded: ReturnType<typeof createFakeWorkflowStep>
+  readonly recorded: ReturnType<typeof createFakeStep>
 }
 
 export interface WorkflowCtxOptions extends BaseOptions {
   /** Payloads for `waitForEvent`, in order. With none, a wait throws the timeout error. */
   events?: unknown[]
   /** The test's stand-in for a person clicking Approve — it must flip the ROW before the wait resolves. */
-  onWait?: Parameters<typeof createFakeWorkflowStep>[0] extends infer O
+  onWait?: Parameters<typeof createFakeStep>[0] extends infer O
     ? O extends { onWait?: infer F }
       ? F
       : never
@@ -363,7 +363,7 @@ export interface WorkflowCtxOptions extends BaseOptions {
  * **`db` is required here but is not the handle the steps use**, and that is worth reading rather
  * than working out from a surprise. The kit's rule is one client per STEP, opened when the step body
  * starts and closed when it ends whatever happens — so `workflowCtx` opens its own through
- * `openDatabase`, which `createTestEnv()` already points at the test database (either driver). What `db` proves is
+ * `openDatabase`, which `createTestEnv()` already points at the test database. What `db` proves is
  * that the integration harness is RUNNING: a workflow step hits real Postgres the instant it
  * executes, and without this assertion a test that never started the harness fails inside the step
  * body with a connection error instead of here, naming the fix.
@@ -376,15 +376,11 @@ export interface WorkflowCtxOptions extends BaseOptions {
  */
 export function makeWorkflowCtx(options: WorkflowCtxOptions): FakeWorkflowCtx {
   const { env, config, logger } = baseParts(options, 'makeWorkflowCtx')
-  const recorded = createFakeWorkflowStep({
+  const recorded = createFakeStep({
     ...(options.events && { events: options.events }),
     ...(options.onWait && { onWait: options.onWait }),
   })
-  // The fake covers `do` and `waitForEvent`; the platform type declares rollback options and a
-  // step context neither the kit's workflow nor a plugin's uses. Same cast, and same reason, as
-  // `tests/api/agent-run-workflow.test.ts` — the alias makes them one object at runtime.
-  const step = recorded.step as unknown as Parameters<typeof workflowCtx>[0]
-  const ctx = workflowCtx(step, env, config, logger as Logger, env)
+  const ctx = workflowCtx(recorded.step, env, config, logger as Logger, env)
   return Object.assign(ctx, { recorded })
 }
 

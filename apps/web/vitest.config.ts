@@ -15,9 +15,6 @@ const alias = {
    * harness into the browser bundle. `tests/config/testkit-alias.test.ts` pins all three halves.
    */
   '@testkit': path.resolve(__dirname, './tests/kit'),
-  // Worker-only module: DurableObject / WorkflowEntrypoint base classes. Tests run under Node
-  // (real Postgres, `app.request(req, env)` with tests/mocks/bindings.ts), not workerd.
-  'cloudflare:workers': path.resolve(__dirname, './tests/mocks/cloudflare-workers.ts'),
 }
 
 /**
@@ -160,7 +157,7 @@ export default defineConfig({
         resolve: { alias },
       },
       {
-        // No database: config schema, wrangler parity, pure helpers, and every installed plugin's own.
+        // No database: config schema, the no-Cloudflare guard, pure helpers, and every installed plugin's own.
         extends: true,
         test: {
           name: 'config',

@@ -19,22 +19,14 @@ export function fillDevVars(
 export function readDevVars(text: string): Record<string, string>
 export function describeTracing(values: Record<string, string>): string
 
-export type AiBlockState = 'on' | 'off' | 'absent'
-export function aiBlockState(tomlText: string): AiBlockState
-export function toggleAiBlock(tomlText: string, mode: 'on' | 'off'): string
+export function describeAi(values: Record<string, string>): string
 
 export function extractSeedKey(stdout: string): string | undefined
 
-export interface WhoamiResult {
-  loggedIn: boolean
-  email?: string
-  account?: string
-}
-export function parseWhoami(stdout: string | undefined): WhoamiResult
 
 export const TEST_DB_PORT: number
 export interface ChooseDevDbPortOptions {
-  /** The port already in use by this checkout (from `.dev.vars`), kept when still available. */
+  /** The port already in use by this checkout (from `.env`), kept when still available. */
   preferred?: number | null
   /** "Free, or already published by this checkout's own container." */
   isAvailable: (port: number) => boolean
@@ -79,8 +71,6 @@ export function databaseUrlTarget(url: string): string
 export interface BootstrapOptions {
   yes: boolean
   shareDbIgnored: boolean
-  offline: boolean
-  online: boolean
   dev: boolean
   demo: boolean
   plugins: boolean
@@ -106,7 +96,7 @@ export const BOOTSTRAP_SKIPPABLE_STEPS: readonly [
   'migrate',
   'plugins',
   'seed',
-  'cloudflare',
+  'ai',
 ]
 export type BootstrapSkippableStep = (typeof BOOTSTRAP_SKIPPABLE_STEPS)[number]
 export function parseBootstrapSkip(value: string | undefined): BootstrapSkippableStep[]

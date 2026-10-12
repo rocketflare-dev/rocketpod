@@ -1,5 +1,9 @@
 # Row-level security — posture and rollout
 
+> **Rocketpod (M6b).** Cloudflare is gone: no Worker, tomls, bindings, wrangler or provisioning.
+> Passages below that still name them describe Rocketflare and are rewritten in ROADMAP M8; the
+> runtime as it is now is `.claude/rules/runtime.md` and `docs/DESIGN-SELFHOSTED.md`.
+
 **Runtime isolation is predicates-only by default (`TENANT_SCOPE_MODE=off`).** Every domain query
 carries `eq(table.tenantId, tenantId)` from the auth context, and that never changes. Postgres RLS
 ships as *inert scaffolding*: policies exist on every tenant table, the app role exists but cannot
@@ -70,7 +74,7 @@ the app role is the alternative, at connection-setup cost". Record the outcome a
 2. `postgres` only: add `[[hyperdrive]] binding = "HYPERDRIVE_APP"` to **both** tomls (parity test),
    plus a `localConnectionString` using the local app role.
 3. Set `APP_DATABASE_URL` for `apps/web/scripts/db-roles.ts` in the migration environment (GitHub
-   Environment secret, and `apps/web/.dev.vars` locally). The username must equal `APP_ROLE` in `rls.ts`;
+   Environment secret, and `apps/web/.env` locally). The username must equal `APP_ROLE` in `rls.ts`;
    the script reconciles the role's password to the URL, so credential and grant cannot drift.
    Run `pnpm db:migrate` (roles → migrate → grants) once against each database.
 4. Flip `TENANT_SCOPE_MODE = "enforce"` in `[vars]` — staging first, soak, then production.

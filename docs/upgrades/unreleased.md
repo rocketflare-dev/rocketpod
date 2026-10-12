@@ -4,7 +4,7 @@ previous: 0.1.0
 date: null
 breaking: true
 migrations: ["pgboss schema + queues (pg-boss, installed by pnpm db:migrate)", "openworkflow schema (OpenWorkflow, installed by pnpm db:migrate)", "rate_limits and operation_locks tables (Node rate limiter and locks)"]
-areas: [api, db, config, shared, docs]
+areas: [api, db, config, shared, docs, tooling]
 touches_surfaces: []
 requires_surfaces: []
 manual: false
@@ -42,9 +42,18 @@ Every runtime capability is now a neutral `Platform`, a Node entry (`src/node/se
 - Realtime on Node (M5): `src/node/realtime.ts` is `Platform.realtime` in every mode. Publishing is `pg_notify('rp_realtime', …)`; `web`/`all` processes hold the `/ws` sockets (on `ws` 8.21.3) and LISTEN on one dedicated connection, so a nudge from any process reaches a socket on any pod. Same wire protocol as the DO (`ping` → `pong`), a 30 s protocol heartbeat, 1001 on shutdown, payloads over 7999 bytes dropped with a warning. New config: `DATABASE_LISTEN_URL` (optional; direct or session-mode Postgres behind PgBouncer).
 - `/ws` on Node: the server runs the app inside `upgradeScope` and completes the upgrade only when `hub.accept()` recorded the member; refusals keep their statuses (401, 403, 426).
 - Storage on Node (M6): `src/node/storage.ts` (`@aws-sdk/client-s3` 3.1150.0) is `Platform.storage` when `STORAGE_DRIVER=s3` and `STORAGE_BUCKET`/`STORAGE_ACCESS_KEY_ID`/`STORAGE_SECRET_ACCESS_KEY` are set (plus `STORAGE_ENDPOINT`, `STORAGE_REGION` = `us-east-1`, `STORAGE_FORCE_PATH_STYLE`); same answers as the R2 adapter (quoted ETag, metadata-less listings, `deleteMany` in calls of ≤ 1000), metadata keys case-preserved through `x-amz-meta-rp-keys`.
-- The dev and test compose files run the Versity S3 Gateway (`versity/versitygw:v1.8.0`, Apache-2.0; MinIO's images are no longer pullable anonymously): test on `:7433`, bucket `rocketpod-test` (`.env.test`); dev from `:7070`, bucket `rocketpod-dev`, started by `pnpm dev:db:up`, which writes the `STORAGE_*` lines into `.dev.vars`.
+- The dev and test compose files run the Versity S3 Gateway (`versity/versitygw:v1.8.0`, Apache-2.0; MinIO's images are no longer pullable anonymously): test on `:7433`, bucket `rocketpod-test` (`.env.test`); dev from `:7070`, bucket `rocketpod-dev`, started by `pnpm dev:db:up`, which writes the `STORAGE_*` lines into `.env`.
 - Rate limits and operation locks on Node (M6): `src/node/limits.ts` over the new `rate_limits` and `operation_locks` tables (`RLS_REVOKED_TABLES`). Same sliding-window answers and `Retry-After` as KV, exact under concurrency (row lock), database time; a lock is one `INSERT … ON CONFLICT DO UPDATE WHERE expires_at <= now()`. `runPruneExpired` also drops expired rows of both (`rateLimitKeys`, `operationLockKeys`).
 - Document conversion on Node (M6): `src/node/converter.ts` is `Platform.converter` — `unpdf` 1.8.1 (PDF → text), `mammoth` 1.13.0 (.docx → markdown), HTML stripped to text, XML/text decoded; Excel and OpenDocument answer a permanent `format: 'error'`.
+- **No Cloudflare (M6b).** The Worker entry (`src/worker.ts`), `src/platform/cloudflare/`, the `NotificationsHub` Durable Object, the `AgentRunWorkflow` shim, both wrangler tomls, `worker-configuration.d.ts`, `HYPERDRIVE`, and the `wrangler`, `@cliftonc/cfld` dependencies are deleted; `tests/config/platform-seam.test.ts` now fails any Workers package, `cloudflare:*` import, Workers type, binding read or wrangler script anywhere.
+- Tooling removed (M6b): `pnpm types`, `build:api`, `pnpm deploy[:staging]`, `pnpm provision` (+ `cf-provision.sh`, `scripts/provision/**`, `.provision.env.example`), `pnpm dev:tunnel` / `cfld`, `scripts/deployer.mjs` + `docs/DEPLOYER.md`, `scripts/bundle.mjs`, `.github/workflows/deploy.yml` and the `rf-provision` skill. `pnpm dev` now runs the Node server under `tsx watch` (with Vite); `pnpm build` is `build:ui` + `build:server`.
+- `apps/web/.dev.vars` / `.dev.vars.example` → `apps/web/.env` / `.env.example` everywhere (scripts, bootstrap, `dev-db.mjs`, drizzle config, evals).
+- Bootstrap step 8 is `ai` — one line saying which AI provider keys `.env` holds, never a failure; `--offline` / `--online` are accepted and ignored; exit 5 is gone; `ROCKETPOD_BOOTSTRAP_SKIP` names `ai` instead of `cloudflare`.
+- Plugins: `bindings[]` and `workerExports` are refused at `plugin add` and failed by `plugin check` (`<id>:cloudflare-only`); the `worker-exports` barrel is gone (five barrels); a plugin's vars are environment keys (`.env.example`), its crons are registry-only.
+- The upgrade manifest drops the `manual-toml` class; `isDeployable(manifest)` no longer reads tomls (the kit never deploys, a copy does).
+- `launch.kit.json` keeps its Cloudflare-shaped `worker`/`release` blocks only for schema validity and says so in `$runtime`; `kit.yml` no longer runs `scripts/kit-check.mjs`.
+- `.claude/rules/cloudflare.md` → `.claude/rules/runtime.md`. Client IP: without a socket address the first `X-Forwarded-For` entry; `cf-connecting-ip` is never read. The `/cdn-cgi/*` 404 handler is gone.
+- Test fakes are native `Platform` implementations: `createTestEnv()` puts an in-memory platform on `env.PLATFORM` (and as getters on `env`); override a member with `{ jobs: null }`, `{ storage: null }`, `{ ai: null }`…; `MemoryStorage`, `RecordingRealtime` (`accepted[]`), `createMemoryRateLimiter`/`createMemoryLocks`; `tests/mocks/step.ts` `createFakeStep` replaces `createFakeWorkflowStep`.
 - Platform AI without Workers AI (M6): chat resolves `ANTHROPIC_API_KEY` → `AI_API_KEY` (OpenAI-compatible at `AI_BASE_URL` with `AI_MODEL`, else OpenAI with `AI_MODEL` or `gpt-4.1-mini`) → Workers AI (the Worker only); embeddings resolve Workers AI (the Worker only) → `EMBEDDINGS_API_KEY` (OpenAI-compatible at `EMBEDDINGS_BASE_URL` with `EMBEDDINGS_MODEL`, else OpenAI). `readiness` mirrors both. The 503 messages name `AI_API_KEY` and no longer suggest binding Workers AI.
 
 ## How to apply
@@ -53,9 +62,9 @@ Every runtime capability is now a neutral `Platform`, a Node entry (`src/node/se
 2. In every route and service of your own, replace a `c.env.<BINDING>` read with the matching `c.get('platform')` member (`jobs`, `storage`, `realtime`, `runs`, `locks`, `rateLimiter`, `ai`, `converter`).
 3. In every job handler and cron task of your own, read capabilities from `ctx.platform` instead of `ctx.env.<BINDING>`.
 4. In every plugin tool or agent of your own, replace `ctx.env` with `ctx.platform`, and replace a `durableObject(...)` call with a capability on `ctx.platform`.
-5. Copy `apps/web/tests/config/platform-seam.test.ts` and add any Worker class of your own to its `ALLOWED` list.
-6. Copy `apps/web/src/node/`, `apps/web/scripts/build-server.mjs` and `apps/web/src/api/utils/routes/client-ip.ts`; add `@hono/node-server` and `esbuild` to `apps/web/package.json` and the `build:server` and `dev:node` scripts; make `build` run `build:server` last.
-7. Replace `apps/web/src/db/client.ts` with the kit's (one driver, `installProcessPool`, `parseArrayLiteral`), remove `@neondatabase/serverless` from `apps/web` and `apps/evals`, and set `DATABASE_DRIVER = "postgres"` in both tomls and `.dev.vars`; delete `NEON_LOCAL_PROXY` everywhere.
+5. Copy `apps/web/tests/config/platform-seam.test.ts`.
+6. Copy `apps/web/src/node/`, `apps/web/scripts/build-server.mjs` and `apps/web/src/api/utils/routes/client-ip.ts`; add `@hono/node-server` and `esbuild` to `apps/web/package.json` and the `build:server` script; make `build` run `build:server` last.
+7. Replace `apps/web/src/db/client.ts` with the kit's (one driver, `installProcessPool`, `parseArrayLiteral`), remove `@neondatabase/serverless` from `apps/web` and `apps/evals`, and set `DATABASE_DRIVER = "postgres"` in both tomls and `.env`; delete `NEON_LOCAL_PROXY` everywhere.
 8. Replace any `clientIp(…)` / hand-read `cf-connecting-ip` of your own with `clientIpOf(c)`.
 9. Remove the `neon` profile from `apps/web/docker-compose.{dev,test}.yml` and `--profile neon` / `GATE_SUITE_DRIVER` from your workflows.
 10. Add `pg-boss` (exact `12.37.1`) to `apps/web/package.json`, copy `apps/web/src/node/jobs.ts` and `apps/web/src/node/jobs-schema.ts`, and take the kit's `apps/web/scripts/migrate.ts`, `apps/web/src/node/server.ts` and `apps/web/src/node/platform.ts`; delete `apps/web/src/node/worker-loop.ts`.
@@ -70,6 +79,12 @@ Every runtime capability is now a neutral `Platform`, a Node entry (`src/node/se
 19. Take the kit's `runPruneExpired` in `apps/web/src/api/scheduled.ts` and `platformChat`/`resolveEmbeddings`/`readiness` in `apps/web/src/api/services/ai/resolve.ts`, and add the `STORAGE_*`, `AI_BASE_URL`, `AI_MODEL`, `AI_API_KEY`, `EMBEDDINGS_BASE_URL` and `EMBEDDINGS_MODEL` keys to `apps/web/src/config.ts`.
 20. Add the `s3-test` service to `apps/web/docker-compose.test.yml` and the `STORAGE_*` lines to `apps/web/.env.test`; add the `s3-dev` service and its two volumes to `apps/web/docker-compose.dev.yml` and take the kit's `apps/web/scripts/dev-db.mjs`.
 
+21. Delete `apps/web/src/worker.ts`, `apps/web/src/platform/cloudflare/`, `apps/web/src/api/durable-objects/`, `apps/web/src/api/workflows/agent-run.ts`, `apps/web/wrangler.toml`, `apps/web/wrangler.staging.toml`, `apps/web/worker-configuration.d.ts` and `apps/web/tests/mocks/cloudflare-workers.ts`, and remove `wrangler` and `@cliftonc/cfld` from `apps/web/package.json`.
+22. Rename `apps/web/.dev.vars` to `apps/web/.env` and `apps/web/.dev.vars.example` to `apps/web/.env.example`, and take the kit's `.gitignore` lines for them.
+23. Take the kit's `apps/web/package.json` scripts (`dev`, `dev:api`, `typecheck`, `build`) and `apps/web/scripts/dev-server.mjs`; delete your own `deploy`, `provision`, `types` and `dev:tunnel` scripts.
+24. Take the kit's `apps/web/tests/mocks/bindings.ts` and `apps/web/tests/mocks/step.ts`, and in your own tests replace a binding override (`{ FILES: undefined }`) with a platform one (`{ storage: null }`) and `stubs(env).files.objects.get(k)?.httpMetadata?.contentType` with `?.contentType`.
+25. Remove `bindings` and `workerExports` from every plugin manifest of your own, and reach the capability through `ctx.platform`.
+
 ## Conflicts to expect
 
 - `apps/web/src/api/types.ts` → `AppBindings` is no longer `Cloudflare.Env` → keep the neutral shape and read bindings through the platform.
@@ -77,6 +92,8 @@ Every runtime capability is now a neutral `Platform`, a Node entry (`src/node/se
 - `apps/web/src/db/client.ts` → the neon half is gone → take the kit's file whole; a copy never edits it.
 - `scripts/lib/test-plan.mjs` / `apps/web/tests/config/gate.test.ts` → one driver, no conformance second pass → take the kit's.
 - `apps/web/migrations/` → a copy with its own migrations numbered after 0017 → regenerate the rate-limit and lock migration with `pnpm db:generate` instead of copying the kit's.
+
+- `apps/web/tests/mocks/bindings.ts` → rewritten as an in-memory `Platform` → take the kit's whole, then re-add any fake of your own.
 
 ## Verify
 
@@ -94,3 +111,5 @@ Every runtime capability is now a neutral `Platform`, a Node entry (`src/node/se
 12. `pnpm web test:api` passes `tests/api/node-platform-adapters.test.ts` with the S3 gateway up (it skips the storage cases, saying so, when the gateway is unreachable).
 13. With `pnpm dev:db:up`, `pnpm db:migrate` and `node apps/web/dist/server.js all` running, uploading a PDF in Knowledge stores an object under `tenants/<id>/documents/` in the dev bucket and the document reaches `indexed` once an embeddings key is set.
 14. With the Node server running, the eleventh `POST /auth/dev-login` from one IP within a minute answers 429 with a `Retry-After` header.
+15. `pnpm web test:config` passes `tests/config/platform-seam.test.ts`, and `grep -rIl "@cloudflare/\|cloudflare:" --exclude-dir=node_modules apps packages` finds nothing.
+16. `pnpm dev` prints `web: listening on :3001` and `dev ready`; `http://localhost:3000` renders and dev-login signs in.

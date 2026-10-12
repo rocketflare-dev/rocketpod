@@ -50,7 +50,6 @@ export interface CreateDatabaseOptions {
 export interface DatabaseEnv {
   /** Only `postgres` remains; missing or empty means `postgres`. */
   DATABASE_DRIVER?: string
-  HYPERDRIVE?: { connectionString: string }
   PREVIEW_DATABASE_URL?: string
   DATABASE_URL?: string
 }
@@ -68,17 +67,14 @@ export function databaseDriver(env: Pick<DatabaseEnv, 'DATABASE_DRIVER'>): Datab
 }
 
 /**
- * The connection string: `PREVIEW_DATABASE_URL ?? HYPERDRIVE.connectionString ?? DATABASE_URL`.
- * Preview deployments bypass the shared Hyperdrive binding; `wrangler dev` supplies Hyperdrive's
- * `localConnectionString` when the toml has the block; the Node entry reads `DATABASE_URL`.
+ * The connection string: `PREVIEW_DATABASE_URL ?? DATABASE_URL`. A preview deployment's own
+ * database wins over the shared one.
  */
 export function resolveDatabaseUrl(env: DatabaseEnv): string {
   databaseDriver(env)
-  const url = env.PREVIEW_DATABASE_URL || env.HYPERDRIVE?.connectionString || env.DATABASE_URL
+  const url = env.PREVIEW_DATABASE_URL || env.DATABASE_URL
   if (!url) {
-    throw new Error(
-      'No database connection available: set DATABASE_URL (or the HYPERDRIVE binding on the Worker)'
-    )
+    throw new Error('No database connection available: set DATABASE_URL')
   }
   return url
 }
@@ -314,7 +310,7 @@ const scriptHandles = new Map<string, DatabaseHandle>()
 
 /**
  * A pooled handle for scripts and tests (max 5), memoised per driver and URL. `env` carries the
- * driver vars — a script passes `process.env`, where `.dev.vars` / `.env.test` put them; this file
+ * driver vars — a script passes `process.env`, where `.env` / `.env.test` put them; this file
  * never reads `process` itself. Not for the Worker — the request path must go through
  * `openDatabase` so the client is ended per request.
  */

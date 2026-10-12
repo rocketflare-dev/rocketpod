@@ -9,18 +9,18 @@ make answers better or worse?** They run locally with `pnpm eval`, cost real tok
 
 1. `pnpm test:db:up`. Evals use the TEST database (:5433, `apps/web/.env.test`) and migrate it
    themselves. They never truncate it, so a test run and an eval run can share it.
-2. Put `ANTHROPIC_API_KEY` in `apps/web/.dev.vars`. It's the only key the target and the judge need:
+2. Put `ANTHROPIC_API_KEY` in `apps/web/.env`. It's the only key the target and the judge need:
    both resolve through the kit's own resolver, on the platform tier. With no key, every suite
    **skips** and says why. `EMBEDDINGS_API_KEY` is optional. Without it, retrieval uses the test
    stub's deterministic vectors and leans on the lexical half of hybrid search. That's enough for
    the starter cases, which share vocabulary with their documents.
 3. `pnpm eval`. The first run takes a minute or two for the three starter suites (12 cases), and
    about $0.16 on the default Claude model plus the judge.
-4. Optional, to compare vendors: `FIREWORKS_API_KEY` and/or `GEMINI_API_KEY` in `.dev.vars`, then
+4. Optional, to compare vendors: `FIREWORKS_API_KEY` and/or `GEMINI_API_KEY` in `.env`, then
    `--provider fireworks|gemini` (and `--judge-provider`, see below).
 
 Only the model keys (Anthropic, Fireworks, Gemini), the embeddings key and the tracing keys are
-read from `.dev.vars`. A variable in the environment
+read from `.env`. A variable in the environment
 (CI's secret) wins over both files. If `LANGFUSE_*` or `OTEL_EXPORTER_OTLP_*` keys are set, eval
 traces are exported too, tagged `rocketpod.eval=true`.
 

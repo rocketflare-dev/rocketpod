@@ -140,7 +140,7 @@
       "id": "feature-agents",
       "kind": "optional-feature",
       "label": "The agent runtime (workflow, runs, run pages)",
-      "anchor": "apps/web/src/api/workflows/agent-run.ts",
+      "anchor": "apps/web/src/api/workflows/agent-run-body.ts",
       "paths": [
         "apps/web/src/api/workflows/**",
         "apps/web/src/api/services/agents/**",
@@ -150,7 +150,7 @@
         "packages/shared/src/ai/agents.ts"
       ],
       "registries": [
-        "apps/web/src/worker.ts",
+        "apps/web/src/node/runs.ts",
         "apps/web/src/api/index.ts",
         "apps/web/src/ui/App.tsx",
         "apps/web/src/plugins/types.ts#ServerPlugin.agents"
@@ -209,9 +209,7 @@
     "scripts/rename.mjs",
     "scripts/lib/rename-lib.mjs",
     "scripts/lib/rename-lib.d.mts",
-    "apps/web/wrangler.toml",
-    "apps/web/wrangler.staging.toml",
-    "apps/web/.dev.vars.example",
+    "apps/web/.env.example",
     "apps/web/.env.test",
     "apps/web/migrations/**",
     "apps/web/src/ui/public/**",

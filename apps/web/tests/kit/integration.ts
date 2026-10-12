@@ -8,7 +8,7 @@
  * There is now, so a plugin's tests are in scope for the rule like everything else.
  *
  * **Two entries, split by what a test needs rather than by which project it runs in.** This one is
- * the harness: a real database, the real Hono app, real bindings-shaped stubs, and the UI's provider
+ * the harness: a real database, the real Hono app, the in-memory platform fakes, and the UI's provider
  * tree. `@testkit/unit` is the other — builders for the plugin context family, for tests that never
  * touch data. The names below are re-exports, so the kit's own helpers stay the single
  * implementation and a plugin and a kit test are running the same code.
@@ -29,7 +29,7 @@
  */
 export { cleanDatabase, setupTestDatabase, testDatabaseUrl } from '../helpers/db'
 
-// ---- bindings and the app ----------------------------------------------------------------------
+// ---- the platform and the app ----------------------------------------------------------------------
 
 /**
  * `request(path, init?, options?)` drives the REAL app through every middleware and drains
@@ -40,9 +40,9 @@ export { cleanDatabase, setupTestDatabase, testDatabaseUrl } from '../helpers/db
  */
 export { json, type RequestOptions, request } from '../helpers/request'
 /**
- * `createTestEnv()` is `Cloudflare.Env`-shaped with in-memory stubs; `stubs(env)` is their
+ * `createTestEnv()` is the app's env carrying an in-memory `Platform`; `stubs(env)` is the fakes'
  * inspection surface (`queue.messages`, `files.objects`, `hub.broadcasts`, `ai.runs`,
- * `workflow.created`). Pass `{ JOBS_QUEUE: undefined }` and friends to exercise a missing binding.
+ * `workflow.created`). Pass `{ jobs: null }` and friends to exercise a missing capability.
  */
 export {
   createExecutionContext,
@@ -56,13 +56,12 @@ export {
 // ---- the cron dispatcher -----------------------------------------------------------------------
 
 /**
- * The host's scheduled dispatcher, so a plugin can prove its task and the toml expression MET.
+ * The host's scheduled dispatcher, so a plugin can prove its task runs under the expression it
+ * declares.
  *
- * A plugin declares the cron EXPRESSION in its `plugin.json` (which is what
- * `pnpm provision cloudflare <env>` copies into both tomls) and the TASK through
- * `ServerPlugin.scheduledTasks`. Those are two halves of a handshake, and the failure mode when
- * they disagree is silent: a task registered under an expression no toml carries simply never
- * runs, and nothing anywhere says so.
+ * A plugin registers its TASK under a cron EXPRESSION through `ServerPlugin.scheduledTasks`; the
+ * worker schedules every expression in the merged registry with pg-boss (`src/node/jobs.ts`), so
+ * the registry IS the schedule.
  *
  * `SCHEDULED_TASKS` is the merged registry — the kit's tasks plus every installed plugin's — and
  * `dispatchScheduled(cron, env, ctx)` runs the ones registered for that expression and returns a

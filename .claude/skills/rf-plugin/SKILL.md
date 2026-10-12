@@ -59,8 +59,7 @@ blocks and **"Nothing written. Read the plan, then re-run with --apply to instal
 - `Skills` — only when the plugin ships agent skills: each `.claude/skills/<dir>/` it installs.
   Nothing to do for them; after the install, tell the person the skill exists and what it is for
   (its `description`), because a skill nobody knows about is only found by accident.
-- `Barrel lines` — the exact line each of the six barrels gains (the sixth, `worker-exports.ts`,
-  only when the plugin ships a Durable Object or Workflow class).
+- `Barrel lines` — the exact line each of the five barrels gains (one per half the plugin ships).
 - `Dependencies` — what will be installed into which package.
 - **`Steps — nothing below is done for you`** — split into **Human steps** (a decision: the
   tooling stops and waits) and **Agent steps** (a command PLUS the assertion that proves it ran).
@@ -87,24 +86,19 @@ ask. Each appears only when the plugin declares the thing it is about.
 
 Nothing about the barrel lines, the bindings, the crons, the route prefixes, the `[vars]` keys or a
 Durable Object's `[[migrations]]` tag is here any more: those are **declarative**, written by
-`plugin add` and `pnpm provision cloudflare <env>`, and a step that has become declarative is
-removed rather than reworded.
+`plugin add`, and a step that has become declarative is removed rather than reworded.
 
 | What | Kind | How | Expect | What you change |
 |---|---|---|---|---|
 | **The migration** (`schema.tables` declared) | agent | `pnpm db:generate --name plugin-<id>-<version>`, **read the SQL**, then `pnpm db:migrate` | `CREATE TABLE` for each declared table, at YOUR migration index, in YOUR journal | Nothing by hand. Never copy a migration from the plugin repo — a foreign snapshot teaches drizzle a current state that never heard of your tables, and your next `db:generate` drops them |
 | **An install fragment** (`migrations/` in the repo) | agent | `pnpm db:generate --custom --name plugin-<id>-install`, then paste the named file into it | an empty custom migration to fill | The data half only (backfills, extensions, triggers) — DDL still comes from the schema |
-| **Bindings, crons, route prefixes, non-secret `[vars]`** | agent | `pnpm provision cloudflare <env>` per environment | `plugins: <id> → <BINDING>=<app>-<id>-<name>[-staging]`, then `<toml>: plugin declarations written` for BOTH tomls | Nothing by hand. You never type a resource id into a toml and never edit one while a phase runs (`/rf-provision`) |
-| **A `vars` entry marked `secret`** — the KEY | agent | add `KEY=` to `apps/web/.dev.vars.example` | the key in that file and in NEITHER toml | One line. A secret is never a `[vars]` key — not even in staging |
-| **A `vars` entry marked `secret`** — the VALUE | **human** | `pnpm provision secrets <env>` | the key listed by `wrangler secret list` for that environment | Nothing you can derive: ask for the credential |
+| **A `vars` entry** — the KEY | agent | add `KEY=` to `apps/web/.env.example` | the key in that file | One line. Crons and route prefixes need nothing: the registry is the schedule |
+| **A `vars` entry marked `secret`** — the VALUE | **human** | add it to `apps/web/.env` locally and to each deployment's secret store | the key set wherever the server runs | Nothing you can derive: ask for the credential |
 | **The gate** | agent | `pnpm gate` | exit 0 | Nothing. A failure here is the install, not the kit — read it before committing |
 
-**`workerExports` is no longer a row here.** A Durable Object or Workflow class reaches
-`apps/web/src/worker.ts` through the sixth barrel, `apps/web/src/plugins/worker-exports.ts`, which
-`plugin add` writes — and `pnpm provision cloudflare <env>` writes the matching
-`[[workflows]]` / `[[durable_objects.bindings]]` blocks and the `plugin-<id>-v1` `[[migrations]]`
-tag into both tomls. Removing such a plugin DOES have a human step: a `deleted_classes` migration
-deletes the namespace and everything stored in it.
+**`bindings` and `workerExports` are refused, not provisioned.** This kit has no Cloudflare
+runtime (M6b); a Rocketflare plugin that declares either fails `pnpm plugin add` before anything is
+written.
 
 Then commit: one commit, message `Install plugin <id>@<version>`, so the next upgrade reads against it.
 
@@ -169,9 +163,8 @@ pnpm plugin remove <id> --archive --apply     # --archive first copies each tabl
 pnpm db:generate --name plugin-<id>-remove    # → DROP TABLE …; read it, then pnpm db:migrate
 ```
 
-Ask about `--archive` **before** applying — after the drop it is not a choice any more. The plan
-also prints what to deprovision as HUMAN steps: provisioning creates a plugin's Cloudflare resources but
-never deletes one, and `pnpm remove` on a dependency is printed rather than run.
+Ask about `--archive` **before** applying — after the drop it is not a choice any more. `pnpm
+remove` on a dependency is printed rather than run.
 
 ## 6. Authoring a plugin
 
@@ -234,19 +227,18 @@ installed.
 ## 7. Hand back
 
 End the turn with `AskUserQuestion`, not a paragraph. After an install: **run it** (`pnpm dev` and
-open the plugin's page), **provision its resources** (`/rf-provision`, if it declared bindings —
-they type that one themselves), **install another**, or **stop**.
+open the plugin's page), **install another**, or **stop**.
 
 ## Rules
 
-- **Read the printed plan, show it, and get a human yes before `--apply`.** A plugin has full Worker
+- **Read the printed plan, show it, and get a human yes before `--apply`.** A plugin has full server
   and database access; this stop is the only review there is.
 - **Never copy a plugin's migration**, and never touch `apps/web/migrations/meta/`. The host
   generates its own once the schema barrel line exists.
-- **Never edit `.rocketflare.json`, `.rocketflare.local.json` or any of the six barrels by hand.**
+- **Never edit `.rocketflare.json`, `.rocketflare.local.json` or any of the five barrels by hand.**
   The script writes them, and `pnpm plugin check` is what proves the two halves agree.
-- **Never write a resource id into a wrangler toml.** A declared binding is `pnpm provision
-  cloudflare <env>`'s job, per environment, into both files.
+- **Never install a Cloudflare-only plugin.** `pnpm plugin` refuses a manifest with `bindings`
+  or `workerExports`; a plugin reaches jobs, storage, realtime and runs through `ctx.platform`.
 - **Never `kit.` for a plugin's AG-UI CUSTOM events** — that namespace is the kit's, and a
   third-party client is entitled to ignore it. Use `<id>.`.
 - **Expand and contract; never rename.** Add a column or a table, migrate, then remove the old one

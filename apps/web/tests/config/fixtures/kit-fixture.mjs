@@ -78,7 +78,7 @@ export function fixtureManifest() {
       devStart: 'node scripts/dev.mjs start',
       devStop: 'node scripts/dev.mjs stop',
       ports: { ui: 'DEV_UI_PORT', api: 'DEV_API_PORT', allowedHosts: 'DEV_ALLOWED_HOSTS' },
-      writes: ['apps/web/.dev.vars'],
+      writes: ['apps/web/.env'],
       env: { skip: 'KIT_BOOTSTRAP_SKIP', allowRoot: 'KIT_ALLOW_ROOT' },
     },
     upgrade: {

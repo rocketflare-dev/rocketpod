@@ -6,7 +6,7 @@
  *                           [--domain <apex>] [--colour <#hex>] <slug> ["Display Name"]
  *
  * Walks every text file git knows about (tracked + untracked, `.gitignore` honoured, plus
- * `apps/web/.dev.vars` when it exists so the local DB URL follows the compose file), applies the
+ * `apps/web/.env` when it exists so the local DB URL follows the compose file), applies the
  * nine ordered replacement classes from `scripts/lib/rename-lib.mjs`, then checks and reports the
  * rows a rename cannot do blindly ("careful rows", the letters in `docs/ADAPTING.md`):
  *
@@ -14,7 +14,7 @@
  *       `API_KEY_PREFIX` itself must come out as `<snake>_` — checked, warned
  *   (b) `apps/web/migrations/**` names the RLS role — rename BEFORE the first migration — warned
  *   (c) the docker `container_name`s / volume — renamed, reported
- *   (d) staging names keep `-staging` — the parity test is the proof — reported
+ *   (d) environments — nothing account-scoped is named after the app — reported
  *   (e) `--colour` rewrites the light theme's primary hex; the rest of the palette is yours — reported
  *   (f) `LogoMark` / `logo.svg` / `favicon.svg` are a human choice — reported
  *
@@ -75,7 +75,7 @@ const CLI_CONFIG_TS = 'apps/cli/src/config.ts'
 const INDEX_CSS = 'apps/web/src/ui/index.css'
 const INDEX_HTML = 'apps/web/src/ui/index.html'
 const MIGRATIONS_DIR = 'apps/web/migrations/'
-const DEV_VARS = 'apps/web/.dev.vars'
+const DEV_VARS = 'apps/web/.env'
 // The two package.json files that could wire the kit-only vitest project into a script.
 const PACKAGE_JSONS = ['package.json', 'apps/web/package.json']
 
@@ -379,11 +379,11 @@ function main(argv) {
       `(kept a plain SQL identifier: db-roles.ts refuses a hyphenated owner, so a hyphenated slug uses its snake form here). Renamed automatically. ` +
       'Two checkouts never collide either way: scripts/dev-db.mjs gives each its own compose project, container suffix and port.'
   )
-  // (d) staging suffix
+  // (d) environments
   report.push(
-    `(d) Staging names keep their suffix: \`${names.slug}-staging\`, \`${names.slug}-jobs-staging\`, ` +
-      `\`${names.slug}-agent-run-staging\`, \`${names.slug}-files-staging\` in apps/web/wrangler.staging.toml. ` +
-      'apps/web/tests/config/wrangler-parity.test.ts is the check — `pnpm web test:config`.'
+    `(d) Environments: nothing account-scoped is named after the app. Staging and production are ` +
+      `two deployments of one image, each with its own env (DATABASE_URL, STORAGE_BUCKET…); the queue ` +
+      `\`${names.slug}-jobs\` lives in each environment's own database.`
   )
   // (e) colour
   if (names.colour) {

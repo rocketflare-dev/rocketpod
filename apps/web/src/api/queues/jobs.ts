@@ -1,9 +1,9 @@
 /**
- * `JOBS_QUEUE` consumer (D7): a plain `(batch, deps)` function over the neutral `JobBatch`
+ * The jobs consumer (D7): a plain `(batch, deps)` function over the neutral `JobBatch`
  * (`src/platform/types.ts`), so tests call it with a hand-built batch and no runtime. Per message: parse the envelope (invalid → log + `ack()`, a poison
  * message must never retry), dispatch on `type` to `handlers/*`, `ack()` on success, `retry({
- * delaySeconds })` with exponential backoff on failure (the platform stops after the toml's
- * `max_retries`). Each message gets its own DB client, closed in `finally` — there is no
+ * delaySeconds })` with exponential backoff on failure (the queue stops after its
+ * `retryLimit` and dead-letters the message, `src/node/jobs-schema.ts`). Each message gets its own DB client, closed in `finally` — there is no
  * `waitUntil` in a queue consumer, everything is awaited.
  */
 import {
@@ -52,11 +52,11 @@ export type JobHandler<T extends JobType> = (
 
 export interface JobsConsumerDeps {
   env: AppBindings
-  /** Defaults to `resolvePlatform(env)` — the prebuilt `env.PLATFORM`, else the Worker's bindings. */
+  /** Defaults to `resolvePlatform(env)` — the prebuilt `env.PLATFORM` the entry point built. */
   platform?: Platform
   config: AppConfig
   logger: Logger
-  /** Override the per-message DB factory (tests). Defaults to `openDatabase({ ...config, HYPERDRIVE })`. */
+  /** Override the per-message DB factory (tests). Defaults to `openDatabase(config)`. */
   createDb?: () => DatabaseHandle
 }
 
@@ -89,7 +89,7 @@ const handlers = {
   >),
 } as { [T in JobType]: JobHandler<T> }
 
-/** First retry after 30 s, doubling, capped at 15 min. The toml's `retry_delay` is the floor. */
+/** First retry after 30 s, doubling, capped at 15 min. The queue's own `retryDelay` is the floor. */
 export const BACKOFF_BASE_SECONDS = 30
 export const BACKOFF_MAX_SECONDS = 15 * 60
 
@@ -99,8 +99,7 @@ export function backoffSeconds(attempts: number): number {
 }
 
 export async function processJobsBatch(batch: JobBatch, deps: JobsConsumerDeps): Promise<void> {
-  const createDb =
-    deps.createDb ?? (() => openDatabase({ ...deps.config, HYPERDRIVE: deps.env.HYPERDRIVE }))
+  const createDb = deps.createDb ?? (() => openDatabase(deps.config))
   const platform = deps.platform ?? resolvePlatform(deps.env)
 
   for (const message of batch.messages) {

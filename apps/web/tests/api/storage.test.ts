@@ -1,6 +1,7 @@
 /**
- * Storage seam (D23): key building and filename sanitising are pure; `createR2Storage` is exercised
- * over the in-memory R2 bucket the whole api suite uses, so the adapter and the mock agree.
+ * Storage seam (D23): key building and filename sanitising are pure; the in-memory `StorageService`
+ * the whole api suite uses is held to the interface's contract here (the S3 adapter's own contract
+ * test is `node-platform-adapters.test.ts`).
  */
 import { describe, expect, it } from 'vitest'
 import {
@@ -9,8 +10,7 @@ import {
   sanitizeFilename,
   tenantStoragePrefix,
 } from '@/api/services/storage'
-import { createR2Storage } from '@/platform/cloudflare'
-import { MemoryR2Bucket } from '../mocks/bindings'
+import { MemoryStorage } from '../mocks/bindings'
 
 const TENANT = '11111111-1111-4111-8111-111111111111'
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
@@ -71,10 +71,9 @@ describe('buildStorageKey', () => {
   })
 })
 
-describe('createR2Storage', () => {
+describe('MemoryStorage (the api suite’s StorageService)', () => {
   it('put → head/get → list → delete round-trips through the bucket', async () => {
-    const bucket = new MemoryR2Bucket()
-    const storage = createR2Storage(bucket as unknown as R2Bucket)
+    const storage = new MemoryStorage()
     const key = `tenants/${TENANT}/uploads/k1-hello.txt`
 
     const meta = await storage.put(key, 'hello', {
@@ -83,7 +82,7 @@ describe('createR2Storage', () => {
     })
     expect(meta).toMatchObject({ key, size: 5, contentType: 'text/plain' })
     expect(meta.etag).toMatch(/^".*"$/)
-    expect(bucket.objects.has(key)).toBe(true)
+    expect(storage.objects.has(key)).toBe(true)
 
     const head = await storage.head(key)
     expect(head).toMatchObject({ key, size: 5, contentType: 'text/plain', etag: meta.etag })
@@ -109,9 +108,8 @@ describe('createR2Storage', () => {
   })
 
   it('defaults an unknown content type to application/octet-stream', async () => {
-    const bucket = new MemoryR2Bucket()
-    await bucket.put('raw', 'x')
-    const storage = createR2Storage(bucket as unknown as R2Bucket)
+    const storage = new MemoryStorage()
+    await storage.put('raw', 'x')
     expect((await storage.head('raw'))?.contentType).toBe('application/octet-stream')
   })
 })

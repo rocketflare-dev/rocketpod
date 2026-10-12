@@ -1,5 +1,5 @@
 /**
- * Per-request database handle (D35): `openDatabase({ ...config, HYPERDRIVE })`, `c.set('db')`,
+ * Per-request database handle (D35): `openDatabase(config)`, `c.set('db')`,
  * and the handle is closed in `executionCtx.waitUntil` AFTER the response. On Node the handle is a
  * view of the process pool and closing it is a no-op (`installProcessPool`); on the Worker it is
  * a client of its own over Hyperdrive, so nothing is kept across requests. `finally`, not post-`next()`: a throwing handler
@@ -32,7 +32,7 @@ export async function deferOrAwait(c: AppContext, work: () => Promise<unknown>):
 
 export const databaseMiddleware = createMiddleware<AppEnv>(async (c, next) => {
   const cfg = c.get('config')
-  const handle = openDatabase({ ...cfg, HYPERDRIVE: c.env.HYPERDRIVE })
+  const handle = openDatabase(cfg)
   c.set('db', handle.db)
   c.set('dbClose', handle.close)
   try {

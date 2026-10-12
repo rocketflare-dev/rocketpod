@@ -24,7 +24,7 @@ steps to work top to bottom, `## Conflicts to expect` is `path → what changed 
 | `skipped-kit-only` | the kit's own identity (LICENSE, SECURITY.md, install.sh, the rename tool) and the kit's own tests (`kitOnly`: `apps/web/tests/kit-only/**`) | nothing — and delete a kit-only test if one is already here |
 | `skipped-plugin-owned` | a file an installed plugin owns — see below | **nothing here.** `pnpm plugin upgrade <id>`, after this |
 | `migration-derived` | `apps/web/migrations/**` | regenerate — see below |
-| `manual-toml` / `manual-env` | wrangler tomls, `.dev.vars.example`, `.env.test` | see below |
+| `manual-env` | `.env.example`, `.env.test` | see below |
 | `manual` | README, CI workflows, `package.json` | read the diff in `reference/`, apply what they want |
 | `binary` | not text | copy by hand if wanted |
 
@@ -93,36 +93,16 @@ anything drizzle cannot derive from schema: `INSERT`/`UPDATE`/`DELETE` backfills
 functions, triggers, `ALTER TABLE … USING`. A change to the embedding dimension is never a
 regenerate — that is a new table and a re-embed (`docs/ADAPTING.md` §3).
 
-## The wrangler tomls
+**A Rocketflare release** never ports through `/rf-upgrade` (this kit forked from it — record a
+hand port in `docs/FORK.md`); its wrangler tomls, bindings and provisioning have no counterpart
+here.
 
-`apps/web/wrangler.toml` and `wrangler.staging.toml` carry the adopter's real Hyperdrive and KV ids,
-a live `routes` line, their `APP_URL`, and an `[ai]` block whose comment state
-`pnpm bootstrap --offline` toggles. Never apply a textual patch to them.
-
-Read `reference/apps/web/wrangler*.toml` and carry across **only** what code can observe:
-`compatibility_date`, `compatibility_flags`, `[limits]`, `[triggers].crons`, `[[migrations]]`,
-binding names and DO `class_name`s — and a **new binding**, which goes in with the kit's
-`<PLACEHOLDER>` value, never a real id. That is exactly the shape `pnpm provision cloudflare <env>`
-fills, and `wrangler-parity.test.ts` only fails on placeholders under `REQUIRE_PROVISIONED=1`, so
-CI stays green in between.
-
-**`[vars]` values are the adopter's choice, not the kit's.** A new var goes in with the adopter's
-value; an existing var keeps it. The sharpest case is `DATABASE_DRIVER` (0.15.0, D35): the kit's
-tomls say `"neon"` and carry no `[[hyperdrive]]` block because a FRESH copy deploys on Neon, while
-an adopted copy's missing var means `postgres`. Never carry `"neon"` across and never delete the
-adopter's `[[hyperdrive]]` block — that would switch a live deployment's driver on the next deploy.
-Switching is `pnpm provision cloudflare <env> --driver neon`, a decision the adopter makes.
-
-Every edit goes into **both** files or the parity test fails — which is the point of it. Account-
-scoped names (`queue`, `bucket_name`, workflow `name`) keep the adopter's prefix and staging keeps
-its `-staging` suffix. Verify with `pnpm web test:config`.
-
-## `.dev.vars.example` and `.env.test`
+## `.env.example` and `.env.test`
 
 Key-level only: add the new keys with their comment block and a blank value, under the right
 heading. Do not apply the diff — those files carry the adopter's own database naming.
 `apps/web/src/config.ts` says whether a new key is required or feature-gated; say which in your
-summary, because `.dev.vars` itself is git-ignored and they have to add it by hand.
+summary, because `.env` itself is git-ignored and they have to add it by hand.
 
 ## `package.json`
 

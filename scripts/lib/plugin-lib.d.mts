@@ -10,10 +10,10 @@ export const RESERVED_PLUGIN_IDS: readonly string[]
 export function pluginIdProblem(id: unknown): string | null
 export function camelId(id: string): string
 
-export type BarrelKind = 'shared' | 'server' | 'ui' | 'schema' | 'worker' | 'cli'
+export type BarrelKind = 'shared' | 'server' | 'ui' | 'schema' | 'cli'
 export interface BarrelDefinition {
   file: string
-  /** `null` for the two `export *` barrels (`schema`, `worker`), which declare no tuple. */
+  /** `null` for the `export *` barrel (`schema`), which declares no tuple. */
   constName: string | null
   suffix: string | null
   /**
@@ -82,31 +82,10 @@ export function undeclaredSkillDirs(
 ): string[]
 
 /**
- * The binding types provisioning can write. Pinned against
- * `apps/web/scripts/provision/plugin-resources.ts`'s `SUPPORTED_PLUGIN_BINDING_TYPES` by
- * `plugin-lib.test.ts` — one is TypeScript, one has to be loadable from a plain `.mjs` script.
+ * A Cloudflare-only declaration (`bindings`, `workerExports`) as a refusal sentence each; empty
+ * means installable. This kit has no Cloudflare runtime (M6b).
  */
-export const SUPPORTED_PLUGIN_BINDING_TYPES: readonly [
-  'kv',
-  'queue',
-  'r2',
-  'workflow',
-  'durable_object',
-]
-/** The subset an account must CREATE; `wrangler deploy` registers the other two from the toml. */
-export const CREATED_PLUGIN_BINDING_TYPES: readonly ['kv', 'queue', 'r2']
-/** The types whose block names a class exported from the Worker entry (the sixth barrel). */
-export const CLASS_PLUGIN_BINDING_TYPES: readonly ['workflow', 'durable_object']
-/** The types carrying an account-scoped resource name, which must differ between environments. */
-export const NAMED_PLUGIN_BINDING_TYPES: readonly ['kv', 'queue', 'r2', 'workflow']
-export const DO_STORAGE_KINDS: readonly ['sqlite', 'none']
 export function pluginPlatformProblems(manifest: PluginManifest): string[]
-/** `plugin-<id>-v<n>` — append-only, host-owned, never renumbered. */
-export function pluginMigrationTag(pluginId: string, n?: number): string
-export function nextPluginMigrationTag(
-  existingTags: readonly string[],
-  pluginId: string
-): string
 
 /** A required peer plugin: an id alone asks for presence, `minVersion` adds a FLOOR. */
 export type PluginRequirement = string | { id: string; minVersion?: string | null }
@@ -142,20 +121,12 @@ export interface PluginManifest {
   skills?: string[]
   requires?: PluginRequires
   dependencies?: Record<string, Record<string, string>>
-  bindings?: Array<{
-    type: string
-    binding?: string
-    /** The account-scoped half; absent on a `durable_object`, which creates no resource. */
-    name?: string
-    consumer?: boolean
-    /** `workflow` / `durable_object`: the class the sixth barrel re-exports into `worker.ts`. */
-    className?: string
-    /** `durable_object` only, and required there — it picks new_sqlite_classes vs new_classes. */
-    storage?: string
-  }>
+  /** Rocketflare's Cloudflare bindings; any entry makes the plugin uninstallable here. */
+  bindings?: Array<{ type: string; binding?: string; name?: string }>
   crons?: Array<string | { cron: string; task?: string }>
   apiPrefixes?: string[]
   vars?: Array<string | { key?: string; name?: string; example?: string; secret?: boolean }>
+  /** Rocketflare's Worker classes; any entry makes the plugin uninstallable here. */
   workerExports?: string[]
   schema?: { tables?: string[]; rlsExcluded?: string[] }
   migrations?: string[]
@@ -254,7 +225,7 @@ export function planSteps(
 ): PlanStep[]
 export function removeSteps(
   manifest: PluginManifest,
-  options?: { archive?: boolean; migrationTag?: string | null }
+  options?: { archive?: boolean }
 ): PlanStep[]
 export function renderSteps(steps: readonly PlanStep[], heading?: string): string[]
 export function addPlanJson(plan: AddPlan): Record<string, unknown>
@@ -280,12 +251,6 @@ export function jsonKeyLine(source: string, keyPath: string): number | null
 export function pluginManifestProblems(
   manifest: unknown
 ): Array<{ field: string; problem: string; fix: string }>
-
-/**
- * The value names a `worker-exports.ts` exports. `opaque` when it carries an `export *`, whose
- * names cannot be known without resolving the module — both directions are skipped for one.
- */
-export function workerExportNames(source: string): { names: string[]; opaque: boolean }
 
 /** Structural evidence that a test file proves cross-tenant isolation. */
 export interface IsolationEvidence {

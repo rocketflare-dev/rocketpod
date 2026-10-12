@@ -17,7 +17,7 @@ import type { Database } from '@/db/client'
 import { aiConfigs } from '@/db/schema'
 
 export interface EvalProvider {
-  /** The env var holding its key (`apps/web/.dev.vars` or the environment). */
+  /** The env var holding its key (`apps/web/.env` or the environment). */
   keyEnv: string
   /** Absent → the platform tier (`platformChat`), no `ai_configs` row. */
   config?: { provider: AiProvider; baseUrl: string; defaultModel: string }

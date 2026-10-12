@@ -1,16 +1,17 @@
 ---
 paths:
   - apps/web/src/api/**
-  - apps/web/src/worker.ts
+  - apps/web/src/node/**
   - apps/web/src/config.ts
   - packages/shared/src/**
 ---
 
 # API Patterns
 
-Hono app assembled in `apps/web/src/api/index.ts` (exports `app` only). `apps/web/src/worker.ts` is the Worker entry:
-`export default { fetch, queue, scheduled }` plus the DO/Workflow class exports. Keeping the classes
-out of `api/index.ts` is what lets tests drive `app.request(req, env, ctx)` under Node.
+Hono app assembled in `apps/web/src/api/index.ts` (exports `app` only). `apps/web/src/node/server.ts`
+is the entry (`.claude/rules/runtime.md`): it builds the `Platform`, serves `app.fetch` and runs the
+worker loops. Keeping the entry out of `api/index.ts` is what lets tests drive
+`app.request(req, env, ctx)` with an in-memory platform.
 
 ## Middleware order (do not reorder casually — 04 §10)
 
@@ -21,7 +22,7 @@ out of `api/index.ts` is what lets tests drive `app.request(req, env, ctx)` unde
 5. `jsonBodyLimit` (1 MB) on `/api/*` and `/auth/*` — **skipped for the `UPLOAD_PATHS`** (`/api/files`, `/api/ai/documents/upload` — `isUploadPath`); each upload route mounts `uploadBodyLimit` (`MAX_UPLOAD_BYTES + 64 KB` multipart overhead) on its own `POST` and enforces the exact per-file cap in the handler
 6. `cors` — before CSRF so preflights are answered; **bypassed for WebSocket upgrades** (`Upgrade: websocket` — CORS does not govern the handshake, the route checks membership)
 7. `csrf` — cookie-only, no DB, cheap rejection (GET `/ws` is a safe method, no exemption needed)
-8. `databaseMiddleware` — per-request client from `openDatabase({ ...config, HYPERDRIVE })` (D35: a view of the Node process pool, or a postgres.js client over Hyperdrive on the Worker), `c.executionCtx.waitUntil(close())`
+8. `databaseMiddleware` — per-request client from `openDatabase(config)` (D35: a view of the Node process pool), `c.executionCtx.waitUntil(close())`
 9. `tracerMiddleware` (`middleware/tracing.ts`, on `/api/*`) — `c.set('tracer', tracerFor(cfg, { store: ownConnectionSpanStore(cfg, env) }))` (D32): the span recorder with the OTLP exporter when a backend is configured and the `ai_spans` store (its OWN short-lived client per non-empty flush — the request's is closed in `waitUntil`, possibly first); flushed through `deferOrAwait` (= `waitUntil`) AFTER the handler. A streaming route whose generations run after `next()` resolves (chat SSE) flushes again itself; flushing an empty batch is a no-op
 10. Mounts: `/api/health|ready` public → `/auth` (rate-limited login routes) → `/api/invite` public → `/api/admin/*` behind `globalAdminMiddleware` → `/ws` (no `authMiddleware`: a browser cannot set headers on an upgrade, so `routes/ws.ts` resolves the cookie itself) → every other `/api/*` (incl. `/api/files`, `/api/ai/{config,prompts,usage,agent-models,documents}`, `/api/chat`, `/api/agui`, `/api/agents`, `/api/traces`) with `authMiddleware` at the mount → every installed plugin's `publicMounts` under `/api/hooks/<id>`, with NO `authMiddleware` (D34) → **every installed plugin's authed mounts, last** (D31, so a plugin can never shadow a kit prefix — Hono matches in registration order; the analytics plugin's are `/api/analytics`, `/cubejs-api` and `/mcp`, the last two ONE router mounted twice because drizzle-cube registers absolute paths) → `app.all('*')` ASSETS catch-all with a JSON-404 guard for `/api|/auth|/ws` plus every prefix in `API_PREFIXES` (an unauthenticated `/cubejs-api/*` is therefore a 401 envelope, never `index.html` — `tests/api/health.test.ts`)
 
@@ -149,9 +150,9 @@ and `services/fact-tables/CLAUDE.md`. Three things a KIT route author still has 
   the tenant id, typed errors, and a tenant predicate on every query. What differs is only where
   they are REGISTERED: `ServerPlugin.mounts`, not `api/index.ts`'s table.
 - **A prefix outside `/api` costs three core edits the plugin cannot make**: `ServerPlugin.apiPrefixes`
-  feeds `API_PREFIXES` (the SPA catch-all's JSON-404 guard and the parity test), but
-  `[assets] run_worker_first` in BOTH tomls and the Vite dev proxy are files a plugin never touches.
-  `pnpm plugin add` prints them; `pnpm provision cloudflare <env>` writes the toml half.
+  feeds `API_PREFIXES` (the SPA catch-all's JSON-404 guard and the Node server's static-file
+  fallthrough), but the Vite dev proxy is a file a plugin never touches — `pnpm plugin add` prints
+  the line (or writes it as a declared `coreEdits` entry).
 - **A registry a plugin composes into is a FUNCTION, not a const.** `visibilityResources()` is the
   kit's worked example: it reads the plugin barrel, a plugin's visibility resource imports this
   module, and evaluated at module scope one side finds `serverPlugins` `undefined` — which fails at
@@ -329,7 +330,7 @@ Jobs rules (D7):
   unreachable. An R2 error throws and is retried: the alternative is a tenant's files living on for
   ever because one list call timed out. Everything in it is idempotent, which is what makes that
   retry free
-- `example-feature.ping` is the smoke job and it belongs to the `example-feature` PLUGIN (D31), not to the kit: `POST /api/example-feature/ping` (or `rocketpod example-feature ping`) enqueues it, then watch `wrangler dev`. The shape to copy is `apps/web/src/plugins/example-feature/jobs/ping.ts`
+- `example-feature.ping` is the smoke job and it belongs to the `example-feature` PLUGIN (D31), not to the kit: `POST /api/example-feature/ping` (or `rocketpod example-feature ping`) enqueues it, then watch the server log (`pnpm dev`). The shape to copy is `apps/web/src/plugins/example-feature/jobs/ping.ts`
 - `chat.compact` (D17) folds the messages outside a conversation's `CHAT_HISTORY_MAX_CHARS` budget into `conversations.summary`; the window comes from the same pure `selectHistoryWindow` the route uses, and the write is a compare-and-set on `summarised_through_id` so two deliveries cannot lose an update. `document.index` (D18) re-indexes a `documents` row from its stored `content` (`handlers/document-index.ts` → `indexDocument`); the message carries ids only. `ingestText` enqueues it for texts over 50 chunks
 
 Side effects that can outlive the response (email, tracing flush, DO nudge, `sql.end()`) go in
@@ -356,9 +357,10 @@ of `?tenantId` (or the session tenant) → 403; suspended → 403 `tenant_suspen
 tenant's DO stub with `X-Tenant-Id` / `X-User-Id` / `X-Session-Id`. The DO trusts those headers
 **only** because it is reachable solely through the binding — never expose it another way.
 
-## Workers runtime
+## Runtime APIs
 
-`nodejs_compat` is on, but the request path must stay free of Node-only APIs: no `pg`, `ws`,
-`node:fs`, `node:child_process`, `pg-boss`, `@opentelemetry/sdk-node`. `Buffer`, `AsyncLocalStorage`
-and `node:crypto` hashing work but prefer WebCrypto/`TextEncoder`. `pnpm build:api` (dry-run bundle)
-catches what `tsc` cannot — see `.claude/rules/cloudflare.md`.
+The app runs on Node, but `src/api/**` stays runtime-neutral: `process`, `node:fs`, `node:http`,
+`ws`, `pg-boss` and the other server modules belong in `src/node/` and reach the app through the
+`Platform` (`platform-seam.test.ts` fails a stray one). `AsyncLocalStorage`, `node:crypto` and
+`Buffer` are fine anywhere; prefer WebCrypto/`TextEncoder` in shared code — see
+`.claude/rules/runtime.md`.

@@ -85,9 +85,8 @@ span under the root.
 ## 4. Coaching: where traces go
 
 Tell the user plainly which of these they are on (`pnpm preflight` prints a `· tracing` line) and
-what switching costs. All keys are in `apps/web/.dev.vars` locally; deployed, the non-secret ones go
-in `[vars]` of **both** tomls (parity test) and the secrets through `wrangler secret put` or
-`pnpm provision secrets <env>`.
+what switching costs. All keys are in `apps/web/.env` locally; deployed, they are environment
+variables of the server (the secrets in the deployment's secret store).
 
 | Backend | Set | Notes |
 |---|---|---|
@@ -101,5 +100,5 @@ in `[vars]` of **both** tomls (parity test) and the secrets through `wrangler se
   **and** from `ai_spans` — the choice for tenants whose data must not leave the database or be kept.
 - The backend is platform-wide; per-tenant backends are not built (`docs/CONCEPTS.md` §9 Known gaps).
 - A backend that rejects spans never breaks a request: the export is swallowed and logged as
-  `tracing: OTLP export returned a non-OK status` in the wrangler console — look there first when
+  `tracing: OTLP export returned a non-OK status` in the server log (`pnpm dev` output) — look there first when
   "nothing shows up", then check the endpoint and preset with `pnpm preflight`.

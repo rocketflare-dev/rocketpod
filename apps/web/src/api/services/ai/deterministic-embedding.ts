@@ -13,7 +13,7 @@
  *
  * The shape is a hashed bag of words (each lower-cased alphanumeric token hashed to a bucket and a
  * sign): passages sharing words with a query rank closest — but ONLY when the query is embedded
- * the same way, which is the case in tests. Under `wrangler dev` a search query is embedded by the
+ * the same way, which is the case in tests. Under the dev server a search query is embedded by the
  * real provider (`@cf/baai/bge-m3`), so against seeded chunks the dense half of the hybrid search is
  * noise and the lexical half (any-term `to_tsquery`, `anyTermTsquery`) is what finds them. It is not a semantic
  * embedding and must never be mixed with real ones — a seeded document records

@@ -1,9 +1,8 @@
 # Workflows (D5, D7)
 
-`agent-run.ts` — `AgentRunWorkflow extends WorkflowEntrypoint<AppBindings, { runId, tenantId }>`,
-bound as `AGENT_RUN_WORKFLOW` in BOTH tomls (`name` is account-scoped: `rocketpod-agent-run` /
-`-staging`; `binding` + `class_name` identical — the parity test enforces). Exported from
-`src/worker.ts` only.
+`agent-run-body.ts` — `runAgentRun(params, step, { env, platform })`, the agent run's durable body
+against the neutral `Step` (`src/platform/types.ts`). OpenWorkflow drives it on Node
+(`src/node/runs.ts`, workflow name `agent-run`); tests drive it with `tests/mocks/step.ts`.
 
 Shape: `step.do('claim')` → a LOOP of `step.do('execute#N', { retries: { limit: 2, delay:
 '10 seconds', backoff: 'exponential' }, timeout: '10 minutes' })` and, whenever that returns
@@ -41,12 +40,12 @@ so it needs `run()` outside a step, and Workflows replays everything outside a s
 step is unlimited, so a long run is a bigger `timeout`, not more steps.
 
 Rules: idempotent steps (the `agent_runs` row is the claim); cooperative cancel (poll the row between
-turns); CPU is bounded PER STEP by `[limits] cpu_ms`; no `waitUntil` — await everything, including
-nudges (`createStepRealtime().settle()`). `wrangler dev` runs instances locally; inspect deployed ones
-with `wrangler workflows instances describe rocketpod-agent-run <runId>`.
+turns); no `waitUntil` — await everything, including nudges (`createStepRealtime().settle()`).
+`pnpm dev` runs the engine locally; inspect a run in the `openworkflow` schema
+(`workflow_runs`, `step_attempts`) by the `instanceId` on its `agent_runs` row.
 
-Testing: `tests/api/agent-run-workflow.test.ts` instantiates the class with `createTestEnv()` and
-`createFakeWorkflowStep(options)` (`tests/mocks/cloudflare-workers.ts`) and asserts on the rows.
+Testing: `tests/api/agent-run-workflow.test.ts` drives `runAgentRun` with `createTestEnv()` and
+`createFakeStep(options)` (`tests/mocks/step.ts`) and asserts on the rows.
 The fake's `waitForEvent` is a recorder: `{ events?, onWait? }` in, `{ step, calls, waits, names,
 queueEvent }` out. `onWait` is the test's stand-in for the resolve route (write the answer, flip the
 row, return a payload); an empty queue with no `onWait` rejects the way the platform's timeout does,

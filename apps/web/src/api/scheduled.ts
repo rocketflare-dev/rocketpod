@@ -1,12 +1,9 @@
 /**
  * Cron dispatcher (D7): tasks are registered per cron EXPRESSION and looked up by `event.cron`,
- * so adding a schedule is one entry in `[triggers] crons` (wrangler.toml — both files) and one
- * entry here. Every task is try/caught and logged individually; one failing task never blocks
- * the others. Config is validated the same way `fetch` does (D3).
- *
- * Local testing against `wrangler dev` (port 3001):
- *   curl "http://localhost:3001/cdn-cgi/local/scheduled?cron=0+4+*+*+*"
- * (`wrangler dev --test-scheduled` additionally exposes the same thing at `/__scheduled`).
+ * so adding a schedule is one entry here — the worker process schedules every expression in the
+ * registry with pg-boss, once across replicas (`src/node/jobs.ts`). Every task is try/caught and
+ * logged individually; one failing task never blocks the others. Config is validated the same way
+ * `fetch` does (D3). To run one expression now, call `dispatchScheduled` (the tests do).
  */
 import { lt, sql } from 'drizzle-orm'
 import { type AppConfig, loadConfig } from '../config'
@@ -57,8 +54,8 @@ export async function runPruneExpired(db: Database) {
   ).length
   const magicLinks = await pruneMagicLinkTokens(db)
   const invitations = await pruneInvitations(db)
-  // The Node platform's limiter and locks (M6): a key whose newest hit left its window, a lock
-  // whose holder never released it. Empty on the Worker, which keeps both in KV.
+  // The platform's limiter and locks (M6): a key whose newest hit left its window, a lock whose
+  // holder never released it.
   const rateLimitKeys = affected(
     await db.delete(rateLimits).where(lt(rateLimits.expiresAt, sql`now()`))
   )
@@ -109,7 +106,7 @@ export const pruneAiSpans: ScheduledTask = {
   },
 }
 
-/** Cron expression → tasks. Keep in sync with `[triggers] crons` in both wrangler tomls. */
+/** Cron expression → tasks. The registry IS the schedule: nothing else lists an expression. */
 const CORE_SCHEDULED_TASKS: Record<string, ScheduledTask[]> = {
   '0 4 * * *': [pruneExpired, pruneAiSpans],
 }
@@ -117,8 +114,7 @@ const CORE_SCHEDULED_TASKS: Record<string, ScheduledTask[]> = {
 /**
  * Core tasks plus every installed plugin's (D31). A plugin naming a cron the kit already runs
  * APPENDS to it — each task is try/caught on its own, so a plugin's failure cannot stop the kit's
- * prune — and a plugin naming a new cron expression must also add it to `[triggers]` in BOTH
- * tomls; nothing here can do that, and the parity test is what catches a forgotten one.
+ * prune — and a plugin naming a new cron expression gets its own pg-boss schedule.
  */
 export const SCHEDULED_TASKS: Record<string, ScheduledTask[]> = Object.entries(
   CORE_SCHEDULED_TASKS
@@ -148,7 +144,7 @@ export async function dispatchScheduled(
     return []
   }
 
-  const handle = openDatabase({ ...config, HYPERDRIVE: env.HYPERDRIVE })
+  const handle = openDatabase(config)
   const reports: TaskReport[] = []
   try {
     for (const task of tasks) {
@@ -182,7 +178,7 @@ export async function dispatchScheduled(
   return reports
 }
 
-/** The runtime's cron entry (`src/worker.ts` hands it the Worker's `scheduled` event). */
+/** The runtime's cron entry: one fired expression (`src/node/jobs.ts` hands it pg-boss's). */
 export async function scheduled(
   event: { cron: string },
   env: AppBindings,

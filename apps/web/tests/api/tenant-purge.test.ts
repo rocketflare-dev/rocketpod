@@ -1,7 +1,7 @@
 /**
  * `tenant.purge` (D7): the out-of-database half of deleting an organisation. The FK cascade is
  * complete inside Postgres and reaches nothing else, so this covers the seam that closes the gap —
- * the route ENQUEUES, the handler deletes the tenant's R2 objects and nobody else's, a second
+ * the route ENQUEUES, the handler deletes the tenant's stored objects and nobody else's, a second
  * delivery is a clean no-op, a Worker with no `FILES` binding acks rather than retrying for ever,
  * and a plugin's `onTenantDeleted` runs without one bad hook costing the next its turn.
  */
@@ -14,12 +14,12 @@ import type { Logger } from '@/api/utils/core/logger'
 import { runTenantDeletedHooks } from '@/api/utils/db/tenant-helpers'
 import { loadConfig } from '@/config'
 import { tenants } from '@/db/schema'
-import { createR2Storage } from '@/platform/cloudflare'
+import type { JobBatch } from '@/platform/types'
 import type { AnyServerPlugin } from '@/plugins/server'
 import { createTestSession, createTestTenantWithUser, sessionCookieHeader } from '../helpers/auth'
 import { setupTestDatabase } from '../helpers/db'
 import { request } from '../helpers/request'
-import { createTestEnv, MemoryR2Bucket, stubs, type TestEnv } from '../mocks/bindings'
+import { createTestEnv, MemoryStorage, stubs, type TestEnv } from '../mocks/bindings'
 
 const db = setupTestDatabase()
 
@@ -45,7 +45,7 @@ function fakeBatch(messages: ReturnType<typeof fakeMessage>[]) {
     messages,
     ackAll: vi.fn(),
     retryAll: vi.fn(),
-  } as unknown as MessageBatch<unknown>
+  } as unknown as JobBatch
 }
 
 function deps(env: TestEnv) {
@@ -67,7 +67,7 @@ async function runPurge(env: TestEnv, tenantId: string) {
 }
 
 async function putObject(env: TestEnv, key: string) {
-  await stubs(env).files.put(key, 'bytes', { httpMetadata: { contentType: 'text/plain' } })
+  await stubs(env).files.put(key, 'bytes', { contentType: 'text/plain' })
 }
 
 describe('DELETE /api/tenant', () => {
@@ -131,23 +131,26 @@ describe('the tenant.purge handler', () => {
     )
   })
 
-  it('acks rather than retrying when there is no FILES binding — no binding, no objects', async () => {
-    const env = createTestEnv({ FILES: undefined })
+  it('acks rather than retrying when no object storage is configured — no store, no objects', async () => {
+    const env = createTestEnv({ storage: null })
     const { message, logger } = await runPurge(env, '44444444-4444-4444-8444-444444444444')
 
     expect(message.ack).toHaveBeenCalledTimes(1)
     expect(message.retry).not.toHaveBeenCalled()
     expect(logger.warn).toHaveBeenCalledWith(
       expect.objectContaining({ tenantId: '44444444-4444-4444-8444-444444444444' }),
-      'tenant.purge: no FILES binding, no stored objects to delete'
+      'tenant.purge: no object storage configured, no stored objects to delete'
     )
   })
 
-  it('retries when R2 itself fails — a tenant’s files must not survive a timed-out list', async () => {
+  it('retries when the object store fails — a tenant’s files must not survive a timed-out list', async () => {
     const env = createTestEnv()
-    const bucket = stubs(env).files as unknown as { list: () => Promise<never> }
-    bucket.list = async () => {
-      throw new Error('R2 unavailable')
+    const store = stubs(env).files as unknown as {
+      list: () => Promise<never>
+      listPage: () => Promise<never>
+    }
+    store.list = store.listPage = async () => {
+      throw new Error('object store unavailable')
     }
     const { message } = await runPurge(env, '55555555-5555-4555-8555-555555555555')
 
@@ -158,17 +161,16 @@ describe('the tenant.purge handler', () => {
 
 describe('purgeTenantObjects', () => {
   it('pages through the prefix rather than assuming one page', async () => {
-    const bucket = new MemoryR2Bucket()
+    const storage = new MemoryStorage()
     const tenantId = '66666666-6666-4666-8666-666666666666'
     for (let i = 0; i < 5; i++) {
-      await bucket.put(`${tenantStoragePrefix(tenantId)}uploads/${i}-f.txt`, 'x')
+      await storage.put(`${tenantStoragePrefix(tenantId)}uploads/${i}-f.txt`, 'x')
     }
-    await bucket.put('tenants/other/uploads/keep.txt', 'x')
-    const storage = createR2Storage(bucket as unknown as R2Bucket)
+    await storage.put('tenants/other/uploads/keep.txt', 'x')
 
     // A page size the fixture exceeds: one page would silently leave three objects behind.
     expect(await purgeTenantObjects(storage, tenantId, { limit: 2 })).toBe(5)
-    expect([...bucket.objects.keys()]).toEqual(['tenants/other/uploads/keep.txt'])
+    expect([...storage.objects.keys()]).toEqual(['tenants/other/uploads/keep.txt'])
   })
 })
 
@@ -204,15 +206,15 @@ describe('onTenantDeleted', () => {
     )
   })
 
-  it('is called by the job, with the bindings a plugin needs to reach its own state', async () => {
+  it('is called by the job, with the env (and its platform) a plugin needs to reach its own state', async () => {
     const env = createTestEnv()
-    const seen: { tenantId: string; hasFiles: boolean }[] = []
+    const seen: { tenantId: string; hasStorage: boolean }[] = []
     const plugins = [
       plugin('recorder', (async (_db: unknown, tenantId: string, e: TestEnv) => {
-        seen.push({ tenantId, hasFiles: Boolean(e.FILES) })
+        seen.push({ tenantId, hasStorage: Boolean(e.PLATFORM?.storage) })
       }) as unknown as () => Promise<void>),
     ]
     await runTenantDeletedHooks(db, '88888888-8888-4888-8888-888888888888', env, undefined, plugins)
-    expect(seen).toEqual([{ tenantId: '88888888-8888-4888-8888-888888888888', hasFiles: true }])
+    expect(seen).toEqual([{ tenantId: '88888888-8888-4888-8888-888888888888', hasStorage: true }])
   })
 })

@@ -62,11 +62,11 @@ export interface AgentRunsEnv {
   readonly runs?: RunEngine | null
 }
 
-/** 503 `agent_runs_not_configured`: the Workflow binding is missing from the toml. */
+/** 503 `agent_runs_not_configured`: the process has no run engine (a web-only bare platform). */
 export class AgentRunsNotConfiguredError extends ServiceUnavailableError {
   constructor() {
     super(
-      'Agent runs are not configured: this server has no run engine (on Cloudflare: add [[workflows]] binding = "AGENT_RUN_WORKFLOW" to apps/web/wrangler*.toml and run `pnpm types`)',
+      'Agent runs are not configured: this server has no run engine (the Node server builds one from DATABASE_URL — src/node/runs.ts)',
       ERROR_CODES.agentRunsNotConfigured
     )
     this.name = 'AgentRunsNotConfiguredError'
@@ -357,7 +357,7 @@ export async function resumeRun(
  *   itself, which is the graceful path (the transcript and events stay coherent).
  * - `running`, asked AGAIN → **force**: terminate the Workflow instance and settle the row here.
  *   Cooperative cancellation only works while something is still polling, and a run whose model
- *   call hangs, whose instance was orphaned (a `wrangler dev` restart) or whose step died between
+ *   call hangs, whose instance was orphaned (a the dev server restart) or whose step died between
  *   polls would otherwise sit in `running` with "Cancelling…" forever, with no way out short of
  *   SQL. The second click is the way out; a terminate failure (already gone, no binding) does not
  *   stop the row being settled — the row is the truth.
@@ -458,7 +458,7 @@ export function nextInstanceId(runId: string, current: string | null): string {
  * Wake the parked run, and **create a new instance when the old one is gone** (T4/T5).
  *
  * `instance.not_found` is an ANSWER, not an error — the same reading `reconcileRun` already takes.
- * An instance disappears for ordinary reasons: a `wrangler dev` restart, or retention expiring
+ * An instance disappears for ordinary reasons: a the dev server restart, or retention expiring
  * (30 days on Workers Paid, **3 days on Free**). Without this branch such a park could never be
  * resumed, which is the worst outcome this feature has: an answered question, a run that never
  * hears it, and the exclusive slot held forever.

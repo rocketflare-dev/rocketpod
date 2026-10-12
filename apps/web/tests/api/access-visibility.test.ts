@@ -40,7 +40,7 @@ const db = setupTestDatabase()
 /** Deterministic vectors keyed on a word, so the dense half is exercised rather than mocked away. */
 function keywordEnv(): TestEnv {
   return createTestEnv({
-    AI: {
+    ai: {
       run: async (_model: string, inputs: { text?: string[] }) => ({
         data: (inputs.text ?? ['']).map(text => {
           const vector = new Array(1024).fill(0)
@@ -49,7 +49,7 @@ function keywordEnv(): TestEnv {
           return vector
         }),
       }),
-    } as unknown as TestEnv['AI'],
+    } as unknown as TestEnv['ai'],
   })
 }
 
@@ -183,7 +183,9 @@ describe('documents: every read path agrees', () => {
 
   it('the ORIGINAL behind a restricted document is not downloadable by id', async () => {
     const key = `tenants/${tenantId}/documents/${crypto.randomUUID()}-payslips.pdf`
-    await env.FILES?.put(key, new TextEncoder().encode('%PDF-1.4'))
+    await env.storage?.put(key, new TextEncoder().encode('%PDF-1.4'), {
+      contentType: 'application/pdf',
+    })
     const [file] = await db
       .insert(files)
       .values({

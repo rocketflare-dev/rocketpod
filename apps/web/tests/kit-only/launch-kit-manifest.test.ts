@@ -1,15 +1,15 @@
 /**
  * `launch.kit.json` — the Launch kit contract (D36, `docs/CONCEPTS.md` §13): THIS kit's manifest is
  * valid, and its VALUES match the code they name: the bootstrap parses the session's command and
- * reads its env names, the dev server reads its port names, the KV title map covers every KV
- * binding, the RLS role template names the role the migrations create. A manifest that parses but
- * points at the wrong flag is what this catches.
+ * reads its env names, the dev server reads its port names, the vars Launch provides are vars the
+ * config reads, the RLS role template names the role the migrations create. A manifest that parses
+ * but points at the wrong flag is what this catches. Its Cloudflare-only blocks (`worker`,
+ * `release`) are kept for the schema alone, and say so (`$runtime`).
  *
- * Kit-only: it judges this checkout's own manifest and tomls, which a copy is free to change (and
- * Launch's write_config rewrites). The shape cases, on a fixture manifest, are
+ * Kit-only: it judges this checkout's own manifest, which a copy is free to change. The shape cases, on a fixture manifest, are
  * `tests/config/launch-kit-manifest.test.ts` and travel into every copy.
  */
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { APP_ROLE } from '@/db/schema/rls'
@@ -25,7 +25,6 @@ import {
 } from '../../../../scripts/lib/kit-manifest.mjs'
 import { readManifest } from '../../../../scripts/lib/manifest.mjs'
 import { KIT, parseArgs as parseRenameArgs } from '../../../../scripts/lib/rename-lib.mjs'
-import { parseToml } from '../../../../scripts/lib/toml-lite.mjs'
 
 const REPO_ROOT = path.resolve(__dirname, '../../../..')
 const read = (rel: string) => readFileSync(path.join(REPO_ROOT, rel), 'utf8')
@@ -68,24 +67,23 @@ describe('launch.kit.json says what this kit really does', () => {
     expect(m.scaffold.kitOnly).toEqual(provenance?.kitOnly)
   })
 
-  it('worker: every KV title names a KV binding of both tomls', () => {
-    // A binding with no entry gets Launch's derived title; the kit's own KV is not derived
-    // (`RATE_LIMIT_KV` is created as `<slug>-rate-limit`), so the map must name it.
-    expect(Object.keys(m.worker.titles ?? {}).length).toBeGreaterThan(0)
-    for (const env of ['production', 'staging'] as const) {
-      const toml = parseToml(read(m.worker.tomls[env]))
-      const kv = (toml.kv_namespaces ?? []).map((k: { binding: string }) => k.binding)
-      expect(kv).toEqual(expect.arrayContaining(Object.keys(m.worker.titles ?? {})))
-    }
+  it('worker and release: kept for the schema only, and the manifest says so', () => {
+    // Rocketpod has no Worker toml and no deployer workflow (M6b); the note is what tells Launch
+    // and a reader that these two blocks describe nothing in this repository.
+    expect(read('launch.kit.json')).toMatch(/"\$runtime": "This kit runs in a container/)
+    expect(existsSync(path.join(REPO_ROOT, m.worker.tomls.production))).toBe(false)
+    expect(existsSync(path.join(REPO_ROOT, '.github/workflows', m.release.workflow))).toBe(false)
   })
 
-  it('launchProvides: the fixed vars are vars both tomls already declare', () => {
-    for (const env of ['production', 'staging'] as const) {
-      const vars = parseToml(read(m.worker.tomls[env])).vars ?? {}
-      for (const name of Object.keys(m.launchProvides.vars)) expect(vars).toHaveProperty(name)
-      expect(vars).toHaveProperty(m.launchProvides.appUrl)
-      expect(vars).toHaveProperty(m.launchProvides.databaseDriver.name)
-    }
+  it('launchProvides: every var Launch provides is one the config reads', () => {
+    const config = read('apps/web/src/config.ts')
+    const names = [
+      ...Object.keys(m.launchProvides.vars),
+      m.launchProvides.appUrl,
+      m.launchProvides.databaseUrl,
+      m.launchProvides.databaseDriver.name,
+    ]
+    for (const name of names) expect(config, name).toContain(name)
   })
 
   it('declaredConfig: every plain name is an optional name', () => {
@@ -109,7 +107,6 @@ describe('launch.kit.json says what this kit really does', () => {
     expect(opts).toMatchObject({
       dbUrl: 'postgresql://u:p@ep-x.us-east-2.aws.neon.tech/app',
       driver: 'postgres',
-      offline: true,
       dev: false,
       plugins: false,
       open: false,

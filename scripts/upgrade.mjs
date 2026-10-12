@@ -401,7 +401,6 @@ function main(argv) {
         if (f.class === 'added') addedFiles.push(f.path)
       } else if (
         f.class === 'migration-derived' ||
-        f.class === 'manual-toml' ||
         f.class === 'manual-env' ||
         f.class === 'manual' ||
         f.class === 'binary'
@@ -585,7 +584,6 @@ function report(plan, notes, applicable, { dryRun }) {
   }
   const manual = [
     ...bucket('manual'),
-    ...bucket('manual-toml'),
     ...bucket('manual-env'),
     ...bucket('added-collides'),
     ...bucket('binary'),

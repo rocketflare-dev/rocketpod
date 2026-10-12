@@ -4,18 +4,15 @@ node_modules/
 
 # Build outputs
 **/dist/
-**/.wrangler/
 
-# Secrets — never commit. `.dev.vars.example` and `.env.test` (dummy values) ARE committed.
-**/.dev.vars
-**/.dev.vars.*
-!**/.dev.vars.example
-.env
-.env.local
+# Secrets — never commit. `.env.example` and `.env.test` (dummy values) ARE committed.
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.test
 *.local
 .secrets.*.json
 .drizzle-cube.json  # the analytics plugin's local tooling config (D31) — never committed
-.cfld.json
 
 # Logs / coverage
 logs/
@@ -37,11 +34,6 @@ coverage/
 # Kit update check cache (scripts/kit-update-check.mjs — the newest release, at most a day old)
 .claude/kit-update-check.json
 
-# Provisioning answer cache (ids and hostnames only — no secrets; scripts/provision.ts)
-apps/web/.provision.json
-# Provisioning tokens — the four vendor tokens (+ optional Worker secrets) read by scripts/provision.ts;
-# written 0600 by `pnpm provision tokens`. `.provision.env.example` (blank values) IS committed.
-apps/web/.provision.env
 
 # Plugins installed into THIS checkout only (D31): the kit, or `pnpm plugin add --local`.
 # An app records its plugins as surfaces in the committed `.rocketflare.json` instead.

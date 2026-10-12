@@ -1,9 +1,9 @@
 /**
  * The agent target (D33): one case → one real agent run, IN-PROCESS, through the real runtime —
- * `enqueueRun` (the row, validated input), then the three Workflow step bodies inline (`claimStep` →
- * `executeRun` → `finishStep`) exactly as `AgentRunWorkflow` calls them, with no Workflow binding.
- * `executeRun` throws only to ask for a step retry, so it is retried here up to the same limit the
- * Workflow gives it (`EXECUTE_RETRIES`).
+ * `enqueueRun` (the row, validated input), then the three step bodies inline (`claimStep` →
+ * `executeRun` → `finishStep`) exactly as the run body (`runAgentRun`) calls them, with no run
+ * engine. `executeRun` throws only to ask for a step retry, so it is retried here up to the same
+ * limit the engine gives it (`EXECUTE_RETRIES`).
  *
  * A run that PARKS on a person (`ask_human`, an approval) cannot be answered by an eval: the final
  * `finishStep` settles it `cancelled`, the output is null, and the judges score it as the miss it

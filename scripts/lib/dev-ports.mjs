@@ -1,12 +1,12 @@
 /**
  * The local dev ports, read in ONE place by every consumer: Vite (`apps/web/vite.config.ts`), the
  * dev supervisor (`apps/web/scripts/dev-server.mjs`), the bootstrap and the seed's sign-in hint.
- * Defaults are the kit's :3000 (Vite, the UI) and :3001 (`wrangler dev`, the API); a machine where
+ * Defaults are the kit's :3000 (Vite, the UI) and :3001 (the dev server, the API); a machine where
  * those are taken (a Cloudflare Sandbox holds :3000) sets `DEV_UI_PORT` / `DEV_API_PORT` in the
- * shell or in `apps/web/.dev.vars`. The shell wins, then `.dev.vars`, then the default. Types:
+ * shell or in `apps/web/.env`. The shell wins, then `.env`, then the default. Types:
  * `dev-ports.d.mts`.
  *
- * `APP_URL` in `.dev.vars` must follow the UI port by hand — the Worker builds OAuth redirects,
+ * `APP_URL` in `.env` must follow the UI port by hand — the Worker builds OAuth redirects,
  * magic links and its CORS/CSRF allow-list from it, and cannot read `process.env`.
  */
 import { existsSync, readFileSync } from 'node:fs'
@@ -17,10 +17,7 @@ import { readDevVars } from './bootstrap-lib.mjs'
 export const DEFAULT_UI_PORT = 3000
 export const DEFAULT_API_PORT = 3001
 
-const DEV_VARS = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  '../../apps/web/.dev.vars'
-)
+const DEV_VARS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../apps/web/.env')
 
 /** A TCP port from `raw`, or throws naming `key` — a typo must not quietly fall back to :3000. */
 function parsePort(key, raw) {
@@ -42,7 +39,7 @@ function pick(key, env, devVars) {
 }
 
 /**
- * Pure: `{ ui, api }` from an environment and the parsed `.dev.vars` values. Throws on a value
+ * Pure: `{ ui, api }` from an environment and the parsed `.env` values. Throws on a value
  * that is not a port, or when both resolve to the same port.
  */
 export function resolveDevPorts(env = {}, devVars = {}) {
@@ -67,12 +64,12 @@ export function resolveDevAllowedHosts(env = {}, devVars = {}) {
   ]
 }
 
-/** `apps/web/.dev.vars` parsed, or `{}` when there is none yet (a fresh clone). */
+/** `apps/web/.env` parsed, or `{}` when there is none yet (a fresh clone). */
 export function readDevVarsFile(file = DEV_VARS) {
   return existsSync(file) ? readDevVars(readFileSync(file, 'utf8')) : {}
 }
 
-/** `{ ui, api }` for this checkout: `process.env`, then `apps/web/.dev.vars`, then 3000/3001. */
+/** `{ ui, api }` for this checkout: `process.env`, then `apps/web/.env`, then 3000/3001. */
 export function devPorts({ env = process.env, devVarsFile = DEV_VARS } = {}) {
   return resolveDevPorts(env, readDevVarsFile(devVarsFile))
 }

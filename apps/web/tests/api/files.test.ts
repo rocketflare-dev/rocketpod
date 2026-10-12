@@ -1,5 +1,5 @@
 /**
- * `/api/files` (D23) end to end over the in-memory R2 bucket: avatar upload sets `users.avatarUrl`
+ * `/api/files` (D23) end to end over the in-memory object store: avatar upload sets `users.avatarUrl`
  * and stores the object; MIME allowlist (415) and size cap (413); download streams the bytes with
  * Content-Type / Cache-Control / ETag; tenant isolation (404); delete = owner or admin+. Plus the
  * header matrix the document viewer depends on: a PDF is `inline` AND framable (`SAMEORIGIN` +
@@ -62,7 +62,7 @@ function upload(
 const png = (name = 'me.png') => ({ bytes: PNG_BYTES, name, type: 'image/png' })
 
 describe('POST /api/files?scope=avatars', () => {
-  it('201 → row, object in R2, users.avatarUrl = /api/files/<id>, activity recorded', async () => {
+  it('201 → row, object stored, users.avatarUrl = /api/files/<id>, activity recorded', async () => {
     const { owner, tenant, cookie } = await tenantWithOwner()
     const env = createTestEnv()
     const res = await upload(env, cookie, png('My Photo.png'))
@@ -85,8 +85,8 @@ describe('POST /api/files?scope=avatars', () => {
     const stored = stubs(env).files.objects.get(row?.key ?? '')
     expect(stored).toBeDefined()
     expect(Buffer.from(stored?.body ?? new Uint8Array()).equals(PNG_BYTES)).toBe(true)
-    expect(stored?.httpMetadata?.contentType).toBe('image/png')
-    expect(stored?.customMetadata).toMatchObject({ tenantId: tenant.id, ownerUserId: owner.id })
+    expect(stored?.contentType).toBe('image/png')
+    expect(stored?.metadata).toMatchObject({ tenantId: tenant.id, ownerUserId: owner.id })
 
     const [user] = await db.select().from(users).where(eq(users.id, owner.id))
     expect(user?.avatarUrl).toBe(`/api/files/${body.id}`)

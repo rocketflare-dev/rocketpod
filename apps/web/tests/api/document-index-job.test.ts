@@ -10,6 +10,7 @@ import { buildJobEnvelope } from '@/api/services/jobs'
 import type { Logger } from '@/api/utils/core/logger'
 import { loadConfig } from '@/config'
 import { chunks, documents } from '@/db/schema'
+import type { JobBatch } from '@/platform/types'
 import { createTestTenantWithUser } from '../helpers/auth'
 import { setupTestDatabase } from '../helpers/db'
 import { createTestEnv, stubs } from '../mocks/bindings'
@@ -38,7 +39,7 @@ function batch(messages: ReturnType<typeof message>[]) {
     messages,
     ackAll: vi.fn(),
     retryAll: vi.fn(),
-  } as unknown as MessageBatch<unknown>
+  } as unknown as JobBatch
 }
 
 async function pendingDocument(tenantId: string, content: string) {

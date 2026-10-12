@@ -6,7 +6,7 @@
  * a half-done machine: it inspects before it acts and never overwrites a value a person wrote.
  *
  *   1 toolchain   2 install   3 secrets   4 database   5 migrate   6 plugins
- *   7 seed        8 cloudflare  9 cli      10 run
+ *   7 seed        8 ai          9 cli      10 run
  *
  * Output follows `apps/web/scripts/dev-server.mjs`: each child's output is buffered and shown only
  * when it fails (`--verbose` / `DEV_VERBOSE=1` streams everything), one `✔ n/10` line per step with
@@ -27,29 +27,26 @@
  * whose commands all run as root). None of them is set by a person's normal run.
  *
  * Exit codes: 0 ok · 1 a step failed · 2 usage · 3 prerequisite missing · 4 a port or the Postgres
- * container is held by another checkout · 5 Cloudflare login required.
+ * container is held by another checkout.
  */
 import { spawn, spawnSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { createInterface } from 'node:readline'
 import {
-  aiBlockState,
   BootstrapUsageError,
   bootstrapStepPlan,
   databaseUrlPort,
+  describeAi,
   describeTracing,
   extractSeedKey,
   fillDevVars,
   localDriverFor,
   parseBootstrapArgs,
   parseNvmrc,
-  parseWhoami,
   planDefaultPlugins,
   readDevVars,
-  toggleAiBlock,
   upsertDevVar,
   versionAtLeast,
 } from './lib/bootstrap-lib.mjs'
@@ -58,13 +55,12 @@ import { pluginSurfaces, readManifest } from './lib/manifest.mjs'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..')
 const WEB_DIR = path.join(REPO_ROOT, 'apps/web')
-const DEV_VARS = path.join(WEB_DIR, '.dev.vars')
-const DEV_VARS_EXAMPLE = path.join(WEB_DIR, '.dev.vars.example')
-const TOMLS = ['wrangler.toml', 'wrangler.staging.toml'].map(f => path.join(WEB_DIR, f))
+const DEV_VARS = path.join(WEB_DIR, '.env')
+const DEV_VARS_EXAMPLE = path.join(WEB_DIR, '.env.example')
 /** Keys `config.ts` validates with `optionalSecret(32)` — blank is "unset", short is a ConfigError. */
 const REQUIRED_SECRETS = ['OAUTH_ENCRYPTION_KEY']
 const SECRET_MIN_LENGTH = 32
-/** :3001 / :3000 unless DEV_API_PORT / DEV_UI_PORT are set (shell or .dev.vars). */
+/** :3001 / :3000 unless DEV_API_PORT / DEV_UI_PORT are set (shell or .env). */
 const DEV_PORTS = devPorts()
 const API_URL = `http://localhost:${DEV_PORTS.api}`
 const UI_URL = `http://localhost:${DEV_PORTS.ui}`
@@ -75,7 +71,7 @@ const EXTERNAL_DB_CHECK_ATTEMPTS = 5
 const TOTAL_STEPS = 10
 const TAIL_LINES = 30
 
-const EXIT = { ok: 0, failed: 1, usage: 2, prerequisite: 3, held: 4, login: 5 }
+const EXIT = { ok: 0, failed: 1, usage: 2, prerequisite: 3, held: 4 }
 
 // ---- Arguments ---------------------------------------------------------------------------------
 
@@ -83,42 +79,40 @@ const USAGE = `Usage: pnpm bootstrap [options]        (or: bash scripts/bootstra
 
 Take a fresh clone to a running, signed-in dev stack in one command. Re-runnable.
 
-  --yes         never prompt; a missing Cloudflare login is exit 5 instead of a question
-  --offline     comment the [ai] block out of both wrangler tomls (no Cloudflare account needed;
-                chat/agents/embeddings then need a key or a tenant provider); never runs
-                \`wrangler whoami\`, so step 8 makes no network call
-  --online      keep/restore the [ai] block; exit 5 if wrangler is not logged in
+  --yes         never prompt
+  --offline, --online
+                accepted and ignored (Rocketflare's Workers AI toggle; Rocketpod has none —
+                set an AI provider key in apps/web/.env, see step 8)
   --no-dev      stop after step 8 and print the commands to run next
   --no-demo     seed without the demo data (plain \`pnpm seed\`)
   --no-plugins  skip the plugins step (do not install .rocketflare.json's defaultPlugins)
   --no-install  skip step 2 (\`pnpm install\`) when the caller has just installed; still checks
-                that apps/web/node_modules/.bin/wrangler is there
+                that apps/web/node_modules/.bin/tsx is there
   --share-db    accepted and ignored: every checkout now gets its own database (pnpm dev:db:status)
   --no-open     do not open the browser once the server answers
   --as <email>  seeded account to sign in as (default owner@example.test)
   --db-url <url>
                 use this Postgres (e.g. a Neon branch) instead of the Docker one: no Docker
-                checks, DATABASE_URL written to apps/web/.dev.vars, step 4 only waits for it,
+                checks, DATABASE_URL written to apps/web/.env, step 4 only waits for it,
                 the seed may write to it (SEED_ALLOW_REMOTE=1). Also --db-url=<url>;
                 not with --check
   --driver postgres
-                the LOCAL database driver, written to apps/web/.dev.vars (D35). postgres is the
+                the LOCAL database driver, written to apps/web/.env (D35). postgres is the
                 only one (Rocketpod removed neon); accepted for Launch's bootstrap command
-  --check      read-only preflight (= pnpm preflight): toolchain, secrets, database, Cloudflare,
-                dev status; exit 3 when anything is missing
+  --check      read-only preflight (= pnpm preflight): toolchain, secrets, database, AI
+                providers, dev status; exit 3 when anything is missing
   --verbose     stream every child's output (also DEV_VERBOSE=1)
   --help        this text
 
 Environment (for a caller that has done part of the work itself — a coding sandbox; not --check):
   ROCKETPOD_BOOTSTRAP_SKIP=<steps>
                 comma-separated steps to leave out: toolchain, install, secrets, database,
-                migrate, plugins, seed, cloudflare (an unknown name is exit 2). Skipping
-                cloudflare leaves both wrangler tomls untouched
+                migrate, plugins, seed, ai (an unknown name is exit 2)
   ROCKETPOD_ALLOW_ROOT=1
                 run as root (a container whose commands all run as uid 0)
 
 Exit codes: 0 ok · 1 a step failed · 2 usage · 3 prerequisite missing · 4 port/container held by
-another checkout · 5 Cloudflare login required`
+another checkout`
 
 /** A step's failure: what to print (the child's tail + a fix hint) and how to exit. */
 class StepError extends Error {
@@ -137,7 +131,6 @@ const ESC = String.fromCharCode(27) // built, not a literal: biome rejects the c
 const paint = code => text => (tty ? `${ESC}[${code}m${text}${ESC}[0m` : text)
 const green = paint('32')
 const red = paint('31')
-const yellow = paint('33')
 const dim = paint('2')
 const bold = paint('1')
 
@@ -191,15 +184,6 @@ function run(cmd, args, { cwd = REPO_ROOT, env = process.env, input } = {}) {
     child.on('error', error => resolve({ code: 127, output: `${output}\n${error.message}` }))
     child.on('close', code => resolve({ code: code ?? 1, output }))
     if (input) child.stdin.end(input)
-  })
-}
-
-/** Run a child on the terminal (login prompts, the dev stack); resolves with its exit code. */
-function runInherit(cmd, args, { cwd = REPO_ROOT, env = process.env } = {}) {
-  return new Promise(resolve => {
-    const child = spawn(cmd, args, { cwd, env, stdio: 'inherit' })
-    child.on('error', () => resolve(127))
-    child.on('close', code => resolve(code ?? 1))
   })
 }
 
@@ -266,17 +250,17 @@ async function dockerToolchain(plan) {
   return `docker ${docker.output.trim()} · compose ${compose.output.trim()}`
 }
 
-/** `skipped` (`--no-install`): the caller just installed; only the wrangler binary is checked. */
+/** `skipped` (`--no-install`): the caller just installed; only the tsx binary is checked. */
 async function stepInstall({ skipped = false } = {}) {
-  const wrangler = path.join(WEB_DIR, 'node_modules/.bin/wrangler')
+  const tsx = path.join(WEB_DIR, 'node_modules/.bin/tsx')
   if (skipped) {
-    if (!existsSync(wrangler)) {
-      throw new StepError('apps/web/node_modules/.bin/wrangler missing (install skipped)', {
+    if (!existsSync(tsx)) {
+      throw new StepError('apps/web/node_modules/.bin/tsx missing (install skipped)', {
         hint: 'pnpm install, or run the bootstrap without --no-install',
         exitCode: EXIT.prerequisite,
       })
     }
-    return { verify: 'skipped (--no-install); apps/web/node_modules/.bin/wrangler present' }
+    return { verify: 'skipped (--no-install); apps/web/node_modules/.bin/tsx present' }
   }
   const result = await pnpm(['install', '--prefer-offline'])
   if (result.code !== 0) {
@@ -285,13 +269,13 @@ async function stepInstall({ skipped = false } = {}) {
       output: result.output,
     })
   }
-  if (!existsSync(wrangler)) {
-    throw new StepError('apps/web/node_modules/.bin/wrangler missing after install', {
+  if (!existsSync(tsx)) {
+    throw new StepError('apps/web/node_modules/.bin/tsx missing after install', {
       hint: 'pnpm install --force',
       output: result.output,
     })
   }
-  return { verify: 'apps/web/node_modules/.bin/wrangler present' }
+  return { verify: 'apps/web/node_modules/.bin/tsx present' }
 }
 
 /**
@@ -324,14 +308,14 @@ function stepSecrets({ write, dbUrl = null, driver = null }) {
       notes.push(`DATABASE_DRIVER=${local} (local driver)`)
     }
     if (existing === null || text !== existing) writeFileSync(DEV_VARS, text)
-    if (existing === null) notes.push('created apps/web/.dev.vars from .dev.vars.example')
+    if (existing === null) notes.push('created apps/web/.env from .env.example')
     if (result.filled.length > 0) notes.push(`generated ${result.filled.join(', ')}`)
     for (const key of result.missing) {
-      notes.push(`warning: ${key} is in .dev.vars.example but not in your .dev.vars`)
+      notes.push(`warning: ${key} is in .env.example but not in your .env`)
     }
   } else if (text === null) {
-    throw new StepError('apps/web/.dev.vars is missing', {
-      hint: 'pnpm bootstrap (creates it from .dev.vars.example and generates the keys)',
+    throw new StepError('apps/web/.env is missing', {
+      hint: 'pnpm bootstrap (creates it from .env.example and generates the keys)',
       exitCode: EXIT.prerequisite,
     })
   }
@@ -339,12 +323,12 @@ function stepSecrets({ write, dbUrl = null, driver = null }) {
   const short = REQUIRED_SECRETS.filter(key => (values[key] ?? '').length < SECRET_MIN_LENGTH)
   if (short.length > 0) {
     throw new StepError(`${short.join(', ')} must be at least ${SECRET_MIN_LENGTH} characters`, {
-      hint: `openssl rand -hex 32 → ${short[0]} in apps/web/.dev.vars`,
+      hint: `openssl rand -hex 32 → ${short[0]} in apps/web/.env`,
       exitCode: EXIT.prerequisite,
     })
   }
   return {
-    verify: `${REQUIRED_SECRETS.join(', ')} set (≥ ${SECRET_MIN_LENGTH} chars) in apps/web/.dev.vars`,
+    verify: `${REQUIRED_SECRETS.join(', ')} set (≥ ${SECRET_MIN_LENGTH} chars) in apps/web/.env`,
     notes,
   }
 }
@@ -362,7 +346,7 @@ async function stepDatabaseCheck(plan) {
   if (result.code !== 0) {
     if (plan.database === 'external') {
       throw new StepError(`external Postgres ${plan.target} not reachable`, {
-        hint: 'check DATABASE_URL in apps/web/.dev.vars (host, password, sslmode) and the network',
+        hint: 'check DATABASE_URL in apps/web/.env (host, password, sslmode) and the network',
         output: result.output,
         exitCode: EXIT.prerequisite,
       })
@@ -404,7 +388,7 @@ async function stepExternalDatabase(plan) {
 async function stepDatabase(opts, plan) {
   if (plan.database === 'external') return stepExternalDatabase(plan)
   // scripts/dev-db.mjs owns the port, the container name and the compose project: it keeps the
-  // port already in .dev.vars when that is still ours or still free, and otherwise picks the
+  // port already in .env when that is still ours or still free, and otherwise picks the
   // next free one and writes it back. A second checkout therefore starts its OWN database
   // instead of colliding on 5432 or silently attaching to the first checkout's container.
   const up = await run('node', [path.join(WEB_DIR, 'scripts/dev-db.mjs'), 'up', '--json'], {
@@ -432,7 +416,7 @@ async function stepDatabase(opts, plan) {
       `port ${chosen.port}: the previous one was taken by another checkout or another program`
     )
   }
-  if (chosen?.wroteDevVars) notes.push('apps/web/.dev.vars updated to match (DATABASE_URL, driver)')
+  if (chosen?.wroteDevVars) notes.push('apps/web/.env updated to match (DATABASE_URL, driver)')
   const orphan = await legacyVolume()
   if (orphan) {
     notes.push(
@@ -571,87 +555,17 @@ async function stepSeed({ demo }, plan) {
   }
 }
 
-const wranglerWhoami = async () =>
-  parseWhoami((await pnpm(['web', 'exec', 'wrangler', 'whoami'])).output)
-
-const AI_COST_NOTE =
-  'Workers AI is the zero-key floor for chat, agents and embeddings: 10 000 free neurons a day, ' +
-  'then metered, billed to that Cloudflare account. `pnpm bootstrap --offline` turns it off.'
-
-function setAiBlocks(mode) {
-  for (const file of TOMLS) {
-    const text = readFileSync(file, 'utf8')
-    const next = toggleAiBlock(text, mode)
-    if (next !== text) writeFileSync(file, next)
-  }
-}
-
-const aiState = () => aiBlockState(readFileSync(TOMLS[0], 'utf8'))
-
-async function ask(question) {
-  const rl = createInterface({ input: process.stdin, output: process.stdout })
-  try {
-    return await new Promise(resolve => rl.question(question, resolve))
-  } finally {
-    rl.close()
-  }
-}
-
 /**
- * `--offline` → the block is commented out of both tomls and wrangler is never asked anything:
- * the result is the same logged in or not, so `wrangler whoami` (a network call) is skipped.
- * Logged in → `[ai]` stays (or comes back with `--online`).
- * Not logged in → `--online` / `--yes` / a non-TTY stdin exit 5 with the login command; a
- * terminal is asked once.
+ * Which AI providers `.env` configures — informational, never a failure: the stack runs without
+ * one, and chat, agents, uploads and knowledge search answer 503 until a key is set (or a tenant
+ * brings its own provider in Settings → AI). Values are never printed.
  */
-async function stepCloudflare(opts) {
-  const offlineNotes = () => [
-    '[ai] commented out in both wrangler tomls — chat, agents and embeddings need an API key or',
-    'a tenant provider (SETUP.md §2.5); `pnpm typecheck` regenerates worker-configuration.d.ts',
-    'without `AI` — do not commit that diff. `pnpm bootstrap --online` restores the block.',
-  ]
-  if (opts.offline) {
-    setAiBlocks('off')
-    return { verify: '[ai] off (--offline; wrangler login not checked)', notes: offlineNotes() }
-  }
-  let who = await wranglerWhoami()
-  const notes = []
-  if (who.loggedIn) {
-    const identity = [who.email, who.account].filter(Boolean).join(' · ')
-    if (aiState() === 'off' && opts.online) {
-      setAiBlocks('on')
-      notes.push('[ai] restored in both wrangler tomls (--online)')
-    }
-    const state = aiState()
-    if (state === 'on') notes.push(AI_COST_NOTE)
-    else notes.push('[ai] is commented out; `pnpm bootstrap --online` restores it')
-    return { verify: `logged in as ${identity}; [ai] ${state}`, notes }
-  }
-
-  const loginRequired = () =>
-    new StepError('wrangler is not logged in', {
-      hint: 'pnpm web exec wrangler login   (a free account is enough)  — or: pnpm bootstrap --offline',
-      exitCode: EXIT.login,
-    })
-  if (opts.online || opts.yes || opts.check || !process.stdin.isTTY) throw loginRequired()
-
-  say(
-    `${yellow('?')} Cloudflare: \`wrangler dev\` calls Workers AI through the [ai] binding, which needs`
-  )
-  say('  a logged-in account (free is enough). Offline comments the block out of both tomls.')
-  const answer = (await ask('  [l]ogin now (recommended) / [o]ffline: ')).trim().toLowerCase()
-  if (answer.startsWith('o')) {
-    setAiBlocks('off')
-    return { verify: 'not logged in; [ai] off (chosen)', notes: offlineNotes() }
-  }
-  const code = await runInherit('pnpm', ['web', 'exec', 'wrangler', 'login'])
-  who = await wranglerWhoami()
-  if (code !== 0 || !who.loggedIn) throw loginRequired()
-  const identity = [who.email, who.account].filter(Boolean).join(' · ')
-  return { verify: `logged in as ${identity}; [ai] ${aiState()}`, notes: [AI_COST_NOTE] }
+function stepAi() {
+  const values = existsSync(DEV_VARS) ? readDevVars(readFileSync(DEV_VARS, 'utf8')) : {}
+  return { verify: describeAi(values) }
 }
 
-/** Step 8, run after the server answers: the CLI against the seed key, env of the child only. */
+/** Step 9, run after the server answers: the CLI against the seed key, env of the child only. */
 async function stepCli(key) {
   const result = await pnpm(['--silent', 'cli', 'whoami'], {
     env: { ...process.env, ROCKETPOD_API_KEY: key, ROCKETPOD_URL: API_URL },
@@ -673,7 +587,7 @@ async function waitForHealth() {
       const res = await fetch(`${API_URL}/api/health`, { signal: AbortSignal.timeout(2000) })
       if (res.ok) return true
     } catch {
-      // ECONNREFUSED while wrangler boots is the normal state; keep polling.
+      // ECONNREFUSED while the server boots is the normal state; keep polling.
     }
     await sleep(1000)
   }
@@ -728,26 +642,7 @@ async function check() {
   await tryStep(1, 'toolchain', () => stepToolchain(plan))
   await tryStep(3, 'secrets', () => stepSecrets({ write: false }))
   await tryStep(4, 'database', () => stepDatabaseCheck(plan))
-  await tryStep(8, 'cloudflare', async () => {
-    if (!existsSync(path.join(WEB_DIR, 'node_modules/.bin/wrangler'))) {
-      throw new StepError('wrangler not installed yet', {
-        hint: 'pnpm bootstrap (step 2 installs it), then pnpm preflight again',
-        exitCode: EXIT.prerequisite,
-      })
-    }
-    const who = await wranglerWhoami()
-    const state = aiState()
-    if (!who.loggedIn && state === 'on') {
-      throw new StepError('wrangler not logged in while [ai] is on', {
-        hint: 'pnpm web exec wrangler login — or pnpm bootstrap --offline',
-        exitCode: EXIT.login,
-      })
-    }
-    const identity = who.loggedIn
-      ? `logged in as ${[who.email, who.account].filter(Boolean).join(' · ')}`
-      : 'not logged in'
-    return { verify: `${identity}; [ai] ${state}` }
-  })
+  await tryStep(8, 'ai', async () => stepAi())
   // Informational, never a failure (D32): where AI traces go. Secret values are never printed.
   if (existsSync(DEV_VARS)) {
     say(
@@ -769,7 +664,7 @@ async function bootstrap(opts) {
   const plan = bootstrapStepPlan({ dbUrl: opts.dbUrl })
   const skip = new Set(opts.skip)
   // A step named in ROCKETPOD_BOOTSTRAP_SKIP prints its line and does nothing. `install` is the
-  // exception: skipped, it still checks the wrangler binary every later step relies on.
+  // exception: skipped, it still checks the tsx binary every later step relies on.
   const maybe = (n, name, fn) =>
     skip.has(name)
       ? step(n, name, () => ({ verify: 'skipped (ROCKETPOD_BOOTSTRAP_SKIP)' }))
@@ -783,7 +678,7 @@ async function bootstrap(opts) {
   await maybe(5, 'migrate', stepMigrate)
   await maybe(6, 'plugins', () => stepPlugins(opts))
   const seeded = await maybe(7, 'seed', () => stepSeed({ demo: opts.demo }, plan))
-  await maybe(8, 'cloudflare', () => stepCloudflare(opts))
+  await maybe(8, 'ai', async () => stepAi())
 
   const loginUrl = `${UI_URL}/login?as=${encodeURIComponent(opts.as)}`
   if (!opts.dev) {
@@ -881,7 +776,7 @@ if (process.platform !== 'darwin' && process.platform !== 'linux') {
 }
 // A container whose commands all run as root (a coding sandbox) says so explicitly; the container
 // is its isolation boundary. Everyone else is refused, because root-owned node_modules and
-// .dev.vars break the next run as the person's own user.
+// .env break the next run as the person's own user.
 if (!opts.allowRoot && typeof os.userInfo === 'function' && os.userInfo().uid === 0) {
   process.stderr.write(
     'bootstrap: refusing to run as root — run as your own user (a container: ROCKETPOD_ALLOW_ROOT=1)\n'

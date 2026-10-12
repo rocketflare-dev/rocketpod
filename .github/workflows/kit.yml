@@ -5,17 +5,17 @@ name: Kit
 # copy's CI is ci.yml's one job; this file proves what only the kit can prove about itself:
 #
 #   kit-checks  the published plugin API is current, the vendored plugin audits clean, a behaviour
-#               change carries its porting note, `defaultPlugins` is well formed, the kit conforms
-#               to the Launch kit contract (launch.kit.json, D36) — no database;
-#   renamed     the gate on the checkout renamed to a HYPHENATED slug, as every copy is born, and
-#               then provisioned as Launch's write_config does it, with the copy's own Launch kit
-#               check in both states;
+#               change carries its porting note, `defaultPlugins` is well formed — no database;
+#   renamed     the gate on the checkout renamed to a HYPHENATED slug, as every copy is born;
 #   plugins     the gate with every `defaultPlugins` entry installed — a plugin's own tables and
 #               routes under the whole suite.
 #
-# A required pull-request check through branch protection, never a deploy precondition: the kit
-# does not deploy (deploy.yml's guard says so and skips), and a deploy of a copy must not wait on a
-# plugin installed from another repository.
+# The Launch kit check (scripts/kit-check.mjs) is not run: Launch's contract is Cloudflare-shaped
+# and Rocketpod is not conformant until Launch has a container target (launch.kit.json `$runtime`).
+#
+# A required pull-request check through branch protection, never a release precondition: the kit
+# itself ships nothing, and a release of a copy must not wait on a plugin installed from another
+# repository.
 on:
   pull_request:
   push:
@@ -43,12 +43,6 @@ jobs:
           cache: pnpm
       # plugin-api-doc.mjs parses the declared entries with the TypeScript compiler.
       - run: pnpm install --frozen-lockfile
-
-      # The Launch kit contract (D36): `launch.kit.json` and the files it names conform — the same
-      # static check Launch runs before the kit can be picked (scripts/kit-check.mjs, shared with
-      # the meta-kit). `--exec` also runs the gate list the manifest names.
-      - name: Launch kit check
-        run: node scripts/kit-check.mjs --exec
 
       # A behaviour change with no porting note is invisible to every copy already out there:
       # `pnpm kit:upgrade` replays a translated diff guided by those notes, so the gap is permanent.
@@ -133,24 +127,6 @@ jobs:
           git add -A
           git -c user.name=ci -c user.email=ci@example.com -c commit.gpgsign=false \
             commit --quiet --no-verify -m "Rename to my-app"
-      # A copy keeps launch.kit.json — Launch drives the APP through its own — so the renamed copy
-      # must conform too: names checked against `my-app`, the kit block still the kit's.
-      - name: The renamed copy conforms to the Launch kit contract
-        run: node scripts/kit-check.mjs --exec
-      # Then the state every app Launch deploys is in: its `write_config` commits real KV ids, its
-      # vars and `workers_dev = false` into both tomls (0.18.1 — a copy's tests judged its own
-      # placeholders, so every provisioned copy failed its Gate). The gate below runs on THAT tree.
-      - name: Provision the copy as Launch's write_config does
-        run: |
-          set -euo pipefail
-          node --input-type=module -e \
-            "const m = await import('./apps/web/tests/config/fixtures/kit-fixture.mjs'); console.log(m.provisionLikeLaunch('.'))"
-          git diff --stat
-          git add -A
-          git -c user.name=ci -c user.email=ci@example.com -c commit.gpgsign=false \
-            commit --quiet --no-verify -m "Provision as Launch does"
-      - name: The provisioned copy conforms (--provisioned)
-        run: node scripts/kit-check.mjs --provisioned
       # The renamed compose file names the renamed database (`my_app_test`); `pnpm test` starts it.
       - run: pnpm gate
 
@@ -176,9 +152,9 @@ jobs:
       - name: Install the default plugins
         run: |
           set -euo pipefail
-          # db:generate runs `dotenv -e .dev.vars`, so the file has to exist here as it does on a
+          # db:generate runs `dotenv -e .env`, so the file has to exist here as it does on a
           # laptop. Git-ignored, and it holds nothing secret: a throwaway local database URL.
-          printf 'DATABASE_URL=postgresql://test:test@localhost:5433/rocketpod_test\n' > apps/web/.dev.vars
+          printf 'DATABASE_URL=postgresql://test:test@localhost:5433/rocketpod_test\n' > apps/web/.env
           node scripts/default-plugins.mjs --tsv > "$RUNNER_TEMP/default-plugins.tsv"
           while IFS=$'\t' read -r id repo ref subdir; do
             [ -n "$id" ] || continue

@@ -9,7 +9,7 @@
  *   pnpm eval:view [a.json [b.json]] [--compare …]    print the score diff, then the vitest-evals report UI
  *
  * `run` loads the TEST database from `apps/web/.env.test` and the AI keys (only those) from
- * `apps/web/.dev.vars`, runs `vitest --config vitest.config.ts` with the vitest-evals reporter plus a
+ * `apps/web/.env`, runs `vitest --config vitest.config.ts` with the vitest-evals reporter plus a
  * JSON report at `.evals/runs/<timestamp>-<sha>.json`, stamps that file with the git sha, models and
  * prompt hashes, prints a score/cost/latency table, and — with `--compare` — the regressions, exiting
  * 1 past the threshold.
@@ -40,7 +40,7 @@ const RUNS = path.join(ROOT, '.evals', 'runs')
 const BASELINES = path.join(ROOT, 'baselines')
 const VITEST = path.join(ROOT, 'node_modules', '.bin', 'vitest')
 
-/** The only `.dev.vars` keys a run reads: model and embeddings keys, and a tracing backend. */
+/** The only `.env` keys a run reads: model and embeddings keys, and a tracing backend. */
 const DEV_VARS_KEYS = [
   'ANTHROPIC_API_KEY',
   'FIREWORKS_API_KEY',
@@ -87,7 +87,7 @@ function run(opts) {
   const env = {
     ...readEnvFile(path.join(WEB, '.env.test')),
     ...Object.fromEntries(
-      Object.entries(readEnvFile(path.join(WEB, '.dev.vars'))).filter(
+      Object.entries(readEnvFile(path.join(WEB, '.env'))).filter(
         ([k, v]) => DEV_VARS_KEYS.includes(k) && v
       )
     ),
@@ -108,9 +108,7 @@ function run(opts) {
   }
   for (const p of new Set([opts.provider ?? 'anthropic', opts.judgeProvider ?? 'anthropic'])) {
     if (keyFor[p] && !env[keyFor[p]]) {
-      console.warn(
-        `! No ${keyFor[p]} (apps/web/.dev.vars or the environment): every suite will skip.`
-      )
+      console.warn(`! No ${keyFor[p]} (apps/web/.env or the environment): every suite will skip.`)
     }
   }
 

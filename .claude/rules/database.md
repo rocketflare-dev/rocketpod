@@ -166,7 +166,7 @@ predicate**, not SQL injection — the app role can `set_config` itself.
   transaction-scoped form (`SET LOCAL`, `set_config(…, true)`, `pg_advisory_xact_lock`). The guard
   fails it
 - Scripts (`apps/web/scripts/lib/sql.ts` `openScriptSql`) and test fixtures (`getScriptDatabase(url,
-  process.env)`) read `DATABASE_DRIVER` from the ENVIRONMENT only (`.dev.vars` via dotenv, never the
+  process.env)`) read `DATABASE_DRIVER` from the ENVIRONMENT only (`.env` via dotenv, never the
   toml) and refuse anything but `postgres`
 
 ## Migrations

@@ -4,15 +4,14 @@
  */
 import { describe, expect, it } from 'vitest'
 import { operationLock } from '@/api/middleware/rate-limit'
-import { checkRateLimit, createKvLocks } from '@/platform/cloudflare'
 import { uniqueId } from '../helpers/auth'
 import { json, request } from '../helpers/request'
-import { createTestEnv, MemoryKV } from '../mocks/bindings'
+import { checkRateLimit, createMemoryLocks, createTestEnv, MemoryKV } from '../mocks/bindings'
 
 describe('authRateLimit on /auth/magic-link/request', () => {
   it('allows 10 per minute per IP, then 429 rate_limited with Retry-After', async () => {
     const env = createTestEnv() // ONE env = one KV shared by every request below
-    const headers = { 'cf-connecting-ip': '203.0.113.7' }
+    const headers = { 'x-forwarded-for': '203.0.113.7' }
     const body = { json: { email: `rl_${uniqueId().toLowerCase()}@example.test` }, env }
     for (let i = 0; i < 10; i++) {
       const res = await request('/auth/magic-link/request', { method: 'POST', headers }, body)
@@ -25,15 +24,15 @@ describe('authRateLimit on /auth/magic-link/request', () => {
     // a different IP is unaffected
     const other = await request(
       '/auth/magic-link/request',
-      { method: 'POST', headers: { 'cf-connecting-ip': '203.0.113.8' } },
+      { method: 'POST', headers: { 'x-forwarded-for': '203.0.113.8' } },
       body
     )
     expect(other.status).toBe(202)
   })
 
   it('is a no-op without the KV binding', async () => {
-    const env = createTestEnv({ RATE_LIMIT_KV: undefined })
-    const headers = { 'cf-connecting-ip': '203.0.113.9' }
+    const env = createTestEnv({ rateLimiter: null, locks: null })
+    const headers = { 'x-forwarded-for': '203.0.113.9' }
     for (let i = 0; i < 12; i++) {
       const res = await request(
         '/auth/dev-login',
@@ -46,14 +45,14 @@ describe('authRateLimit on /auth/magic-link/request', () => {
 
   it('also guards dev-login and OAuth start', async () => {
     const env = createTestEnv()
-    const headers = { 'cf-connecting-ip': '203.0.113.10' }
+    const headers = { 'x-forwarded-for': '203.0.113.10' }
     for (let i = 0; i < 10; i++) await request('/auth/google', { headers }, { env })
     expect((await request('/auth/google', { headers }, { env })).status).toBe(429)
     expect(
       (
         await request(
           '/auth/dev-login',
-          { method: 'POST', headers: { 'cf-connecting-ip': '203.0.113.11' } },
+          { method: 'POST', headers: { 'x-forwarded-for': '203.0.113.11' } },
           { json: { email: 'x' }, env }
         )
       ).status
@@ -82,7 +81,7 @@ describe('checkRateLimit', () => {
 describe('operationLock', () => {
   it('runs fn, refuses a concurrent caller with 409, releases afterwards, and works without KV', async () => {
     const store = new MemoryKV()
-    const kv = createKvLocks(store)
+    const kv = createMemoryLocks(store)
     let release: () => void = () => {}
     const gate = new Promise<void>(resolve => {
       release = resolve

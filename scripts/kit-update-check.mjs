@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
- * A Claude Code `SessionStart` hook: once per session, tell the person when the Rocketflare kit
+ * A Claude Code `SessionStart` hook: once per session, tell the person when the Rocketpod kit
  * this app was made from has a newer release, and point them at `/rf-upgrade`.
  *
  * It runs only in a COPY of the kit (`.rocketflare.json` with an `app` block), only on a fresh
  * `startup` (not `resume`, `clear` or `compact`), never in CI, and never with
- * `ROCKETFLARE_UPDATE_CHECK=0`. The newest release is one `git ls-remote --tags` against
+ * `ROCKETPOD_UPDATE_CHECK=0`. The newest release is one `git ls-remote --tags` against
  * `kit.repo` — no API, no token — cached in the git-ignored `.claude/kit-update-check.json` for a
  * day, so a day of sessions costs one network call; a failed check is remembered for an hour, so an
  * offline laptop pays the 4-second timeout at most once an hour rather than on every session. The

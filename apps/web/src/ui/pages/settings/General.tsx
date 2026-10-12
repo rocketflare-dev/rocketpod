@@ -5,8 +5,8 @@
  */
 
 import { ExclamationTriangleIcon } from '@heroicons/react/24/outline'
-import { updateTenantSettingsRequestSchema } from '@rocketflare/shared/tenant-settings'
-import { updateTenantRequestSchema } from '@rocketflare/shared/tenants'
+import { updateTenantSettingsRequestSchema } from '@rocketpod/shared/tenant-settings'
+import { updateTenantRequestSchema } from '@rocketpod/shared/tenants'
 import { useEffect, useState } from 'react'
 import {
   FieldError,

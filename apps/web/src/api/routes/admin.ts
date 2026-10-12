@@ -6,20 +6,20 @@
 import {
   accessRequestListQuerySchema,
   decideAccessRequestSchema,
-} from '@rocketflare/shared/access-requests'
+} from '@rocketpod/shared/access-requests'
 import {
   adminTenantListQuerySchema,
   adminUserListQuerySchema,
   blockUserRequestSchema,
   setGlobalAdminRequestSchema,
   suspendTenantRequestSchema,
-} from '@rocketflare/shared/admin'
+} from '@rocketpod/shared/admin'
 import {
   isFeatureName,
   setTenantOverrideRequestSchema,
   updateFeatureFlagRequestSchema,
-} from '@rocketflare/shared/features'
-import type { FeatureName } from '@rocketflare/shared/permissions'
+} from '@rocketpod/shared/features'
+import type { FeatureName } from '@rocketpod/shared/permissions'
 import { resolveCookieAuth } from '../middleware/auth'
 import {
   decideAccessRequest,

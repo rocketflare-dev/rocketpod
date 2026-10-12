@@ -6,7 +6,7 @@ export type {
   PackedRules,
   Role,
   Subjects,
-} from '@rocketflare/shared/permissions'
+} from '@rocketpod/shared/permissions'
 export {
   type AbilityContext,
   ADMIN_MANAGED,

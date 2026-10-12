@@ -13,7 +13,7 @@
  * NOT written at record time: `contentAttributes` adds it at export time, and only when
  * `OBSERVABILITY_CAPTURE_CONTENT` allows it, so the recorded span never has to be scrubbed.
  */
-import type { TokenUsage } from '@rocketflare/shared/ai/chat'
+import type { TokenUsage } from '@rocketpod/shared/ai/chat'
 import type { SpanAttributes, SpanKind } from './tracer'
 
 export const ATTR = {
@@ -42,20 +42,20 @@ export const ATTR = {
   environment: 'deployment.environment.name',
   errorType: 'error.type',
 
-  tenantId: 'rocketflare.tenant_id',
-  runId: 'rocketflare.run_id',
-  rfConversationId: 'rocketflare.conversation_id',
-  eval: 'rocketflare.eval',
-  feedbackRating: 'rocketflare.feedback.rating',
-  feedbackTarget: 'rocketflare.feedback.target',
-  provider: 'rocketflare.provider',
-  tags: 'rocketflare.tags',
-  decisionKey: 'rocketflare.decision.key',
-  decisionMethod: 'rocketflare.decision.method',
-  decisionQuestions: 'rocketflare.decision.questions',
-  decisionQuestionsHash: 'rocketflare.decision.questions_hash',
-  decisionMinConfidence: 'rocketflare.decision.min_confidence',
-  decisionReplayed: 'rocketflare.decision.replayed',
+  tenantId: 'rocketpod.tenant_id',
+  runId: 'rocketpod.run_id',
+  rfConversationId: 'rocketpod.conversation_id',
+  eval: 'rocketpod.eval',
+  feedbackRating: 'rocketpod.feedback.rating',
+  feedbackTarget: 'rocketpod.feedback.target',
+  provider: 'rocketpod.provider',
+  tags: 'rocketpod.tags',
+  decisionKey: 'rocketpod.decision.key',
+  decisionMethod: 'rocketpod.decision.method',
+  decisionQuestions: 'rocketpod.decision.questions',
+  decisionQuestionsHash: 'rocketpod.decision.questions_hash',
+  decisionMinConfidence: 'rocketpod.decision.min_confidence',
+  decisionReplayed: 'rocketpod.decision.replayed',
 
   oiSpanKind: 'openinference.span.kind',
   oiInputValue: 'input.value',
@@ -185,7 +185,7 @@ export function rootAttributes(params: {
     if (value === undefined) continue
     attrs[`${ATTR.lfTraceMetadataPrefix}${key}`] =
       typeof value === 'string' ? value.slice(0, 200) : value
-    attrs[`rocketflare.${key}`] = typeof value === 'string' ? value.slice(0, 200) : value
+    attrs[`rocketpod.${key}`] = typeof value === 'string' ? value.slice(0, 200) : value
   }
   return attrs
 }
@@ -265,7 +265,7 @@ export function embeddingAttributes(params: {
     [ATTR.provider]: params.provider,
     [ATTR.requestModel]: params.model,
     [ATTR.oiModelName]: params.model,
-    'rocketflare.embeddings.count': params.count,
+    'rocketpod.embeddings.count': params.count,
   }
 }
 

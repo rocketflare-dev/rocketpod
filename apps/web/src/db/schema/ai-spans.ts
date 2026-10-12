@@ -1,7 +1,7 @@
 /**
  * `ai_spans` — the local trace store (D32): every span the tracer records, batch-inserted in the
  * same flush that exports to OTLP, whether or not a backend is configured. It exists so an agent
- * (Claude Code, a developer at a terminal) can read a run's span tree with `rocketflare traces
+ * (Claude Code, a developer at a terminal) can read a run's span tree with `rocketpod traces
  * show` — no vendor REST adapter, no credentials, and it works on a laptop with zero config.
  *
  * Append-only, no `updated_at`; pruned by the nightly cron past `OBSERVABILITY_SPAN_RETENTION_DAYS`.
@@ -10,7 +10,7 @@
  * one cascade, because a deleted tenant's traces are its data). `content` is null when
  * `OBSERVABILITY_CAPTURE_CONTENT=false`; `attributes` never carries content.
  */
-import type { TraceSpanKind, TraceSpanStatus } from '@rocketflare/shared/ai/traces'
+import type { TraceSpanKind, TraceSpanStatus } from '@rocketpod/shared/ai/traces'
 import { relations } from 'drizzle-orm'
 import {
   index,
@@ -51,7 +51,7 @@ export const aiSpans = pgTable(
     inputTokens: integer('input_tokens'),
     outputTokens: integer('output_tokens'),
     toolName: text('tool_name'),
-    /** The exported attributes minus content (`gen_ai.*`, `rocketflare.*`, …). */
+    /** The exported attributes minus content (`gen_ai.*`, `rocketpod.*`, …). */
     attributes: jsonb('attributes').$type<Record<string, unknown>>().notNull(),
     /** Prompt/completion/tool I/O, clipped; null when capture is off. */
     content: jsonb('content').$type<{ input?: unknown; output?: unknown }>(),

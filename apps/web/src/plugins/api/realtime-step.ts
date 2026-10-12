@@ -13,7 +13,7 @@
  * deletable `feature-agents` surface.
  */
 
-import type { RealtimeEvent } from '@rocketflare/shared/realtime'
+import type { RealtimeEvent } from '@rocketpod/shared/realtime'
 import type { HubEnv, Realtime } from '../../api/services/realtime'
 import { nudge, nudgeUser, nudgeUsers, realtimeEvent } from '../../api/services/realtime'
 

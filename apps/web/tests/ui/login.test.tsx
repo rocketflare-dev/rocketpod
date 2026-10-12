@@ -112,7 +112,7 @@ describe('Login', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Global admin' }))
     await waitFor(() => expect(hardNavigate).toHaveBeenCalledWith('/admin'))
     expect(requestBody(fetchMock, 'POST /auth/dev-login')).toEqual({
-      email: 'admin@rocketflare.local',
+      email: 'admin@rocketpod.example.com',
       redirectTo: '/admin',
     })
   })

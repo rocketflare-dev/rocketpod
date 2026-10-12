@@ -23,8 +23,8 @@
  * `requires.surfaces: ["feature-knowledge"]`.
  */
 
-import { resolveDocumentUploadType } from '@rocketflare/shared/ai/embeddings'
-import type { ResourceVisibility } from '@rocketflare/shared/groups'
+import { resolveDocumentUploadType } from '@rocketpod/shared/ai/embeddings'
+import type { ResourceVisibility } from '@rocketpod/shared/groups'
 import { and, eq, inArray } from 'drizzle-orm'
 import {
   ConversionNotConfiguredError,

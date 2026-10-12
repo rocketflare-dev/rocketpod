@@ -16,7 +16,7 @@
  * Everything here is pure, so the route and the compaction job agree on the window by construction
  * rather than by two implementations that drift.
  */
-import { CHAT_HISTORY_MAX_MESSAGES } from '@rocketflare/shared/ai/chat'
+import { CHAT_HISTORY_MAX_MESSAGES } from '@rocketpod/shared/ai/chat'
 import type { MessageRow } from '../../../db/schema'
 import type { SystemPrompt } from './types'
 

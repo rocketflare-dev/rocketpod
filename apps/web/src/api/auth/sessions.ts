@@ -6,9 +6,9 @@
  * far the Worker is from Postgres. Sliding 30-day expiry: `touchSession` extends at most hourly (SQL-throttled) and is
  * called through `waitUntil`, never awaited on the response path.
  */
-import type { FeatureFlagEvaluation } from '@rocketflare/shared/features'
-import type { GroupRef } from '@rocketflare/shared/groups'
-import type { MembershipRole, TenantStatus } from '@rocketflare/shared/tenants'
+import type { FeatureFlagEvaluation } from '@rocketpod/shared/features'
+import type { GroupRef } from '@rocketpod/shared/groups'
+import type { MembershipRole, TenantStatus } from '@rocketpod/shared/tenants'
 import { and, eq, isNull, lt, or, sql } from 'drizzle-orm'
 import { type Database, rows } from '../../db/client'
 import { tenants, type User, userSessions, users } from '../../db/schema'

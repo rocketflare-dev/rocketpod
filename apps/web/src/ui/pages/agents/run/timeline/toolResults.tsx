@@ -2,7 +2,7 @@
  * What a tool call ANSWERED, rendered as the thing it is rather than as JSON.
  *
  * **Do not write parsers here.** `documentCardsFromToolResult(name, result)` already exists in
- * `@rocketflare/shared/ai/embeddings`, is pure, is documented as serving the agent-run projection,
+ * `@rocketpod/shared/ai/embeddings`, is pure, is documented as serving the agent-run projection,
  * and is the same function the chat stream and the AG-UI projection use — four callers, one
  * implementation. It `safeParse`s, so a retuned knowledge tool degrades to "no cards" rather than
  * to a crash, and it never queries, so it cannot widen tenant scope.
@@ -10,7 +10,7 @@
  * Everything else keeps `<details><pre>`, **truncated**: a 200 KB tool result pretty-printed into
  * the DOM is a real hang, not a theoretical one.
  */
-import { documentCardsFromToolResult } from '@rocketflare/shared/ai/embeddings'
+import { documentCardsFromToolResult } from '@rocketpod/shared/ai/embeddings'
 import { DocumentLink, documentLinkProps } from '@/ui/components/shared'
 
 /** Longest JSON blob rendered into a `<pre>`. Past it the reader gets the head and a byte count. */

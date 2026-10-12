@@ -7,11 +7,11 @@
  *
  * The case's `messages` are seeded as the thread's earlier turns, its `context` documents ingested
  * into a tenant of its own, and the whole turn runs inside `withEvalScope`, so its trace carries
- * `rocketflare.eval=true`. The AG-UI stream comes back as a transcript: the answer, the tool calls,
+ * `rocketpod.eval=true`. The AG-UI stream comes back as a transcript: the answer, the tool calls,
  * what retrieval returned, usage from the `ai_usage` ledger.
  */
-import { conversationSchema } from '@rocketflare/shared/ai/chat'
-import type { EvalCase } from '@rocketflare/shared/ai/evals'
+import { conversationSchema } from '@rocketpod/shared/ai/chat'
+import type { EvalCase } from '@rocketpod/shared/ai/evals'
 import { createHarness, type Harness } from 'vitest-evals'
 import { withEvalScope } from '@/api/observability/context'
 import { getPrompt } from '@/api/services/prompts'
@@ -23,7 +23,7 @@ import { transcriptFromAgui } from './transcript'
 
 export function chatHarness(): Harness<EvalCase, string> {
   return createHarness<EvalCase, string>({
-    name: 'rocketflare-chat',
+    name: 'rocketpod-chat',
     run: async ({ input: evalCase }) => {
       if (typeof evalCase.input !== 'string') {
         throw new Error(`case ${evalCase.id}: a chat case's input is the user's message (a string)`)

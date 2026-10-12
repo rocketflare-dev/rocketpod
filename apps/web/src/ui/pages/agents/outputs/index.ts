@@ -9,7 +9,7 @@
  * An agent with no entry gets the raw JSON view, which is a real answer rather than an apology: the
  * output is a validated object and reading it is sometimes the whole point.
  */
-import type { AgentKey } from '@rocketflare/shared/ai/agents'
+import type { AgentKey } from '@rocketpod/shared/ai/agents'
 import { researchTopicOutput } from './research-topic'
 import { summarizeTextOutput } from './summarize-text'
 import { triageResearchOutput } from './triage-research'

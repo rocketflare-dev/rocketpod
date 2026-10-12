@@ -13,7 +13,7 @@ import {
   type FileScope,
   isAvatarMimeType,
   MAX_UPLOAD_BYTES,
-} from '@rocketflare/shared/files'
+} from '@rocketpod/shared/files'
 import { eq } from 'drizzle-orm'
 import type { Database } from '../../db/client'
 import { type FileRow, files } from '../../db/schema'

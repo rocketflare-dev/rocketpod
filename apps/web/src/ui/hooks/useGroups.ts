@@ -8,7 +8,7 @@
  * `WebSocketProvider` refreshes this whole area with no socket code in these hooks.
  */
 
-import { documentSchema } from '@rocketflare/shared/ai/embeddings'
+import { documentSchema } from '@rocketpod/shared/ai/embeddings'
 import {
   type AddGroupMembersRequest,
   type CreateGroupRequest,
@@ -25,7 +25,7 @@ import {
   type SetVisibilityRequest,
   type UpdateGroupRequest,
   type UpdateGroupTypeRequest,
-} from '@rocketflare/shared/groups'
+} from '@rocketpod/shared/groups'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/ui/lib/api-client'
 import { queryKeys } from '@/ui/lib/query-keys'

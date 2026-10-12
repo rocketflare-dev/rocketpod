@@ -5,8 +5,8 @@ import {
   adminUserListItemSchema,
   type BlockUserRequest,
   type SetGlobalAdminRequest,
-} from '@rocketflare/shared/admin'
-import { paginatedResponse } from '@rocketflare/shared/pagination'
+} from '@rocketpod/shared/admin'
+import { paginatedResponse } from '@rocketpod/shared/pagination'
 import {
   keepPreviousData,
   queryOptions,

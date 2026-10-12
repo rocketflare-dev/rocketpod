@@ -6,7 +6,7 @@
  * Families are deliberately independent (`members` is NOT under `tenant`) so a tenant rename does
  * not refetch the member list; switching tenant clears the whole client instead (useAuth).
  */
-import type { DeclaredBy } from '@rocketflare/shared/plugins'
+import type { DeclaredBy } from '@rocketpod/shared/plugins'
 import { type UI_PLUGINS, uiPlugins } from '@/plugins/ui'
 
 /** Cleaned filters as they appear in a key. Callers pass any plain object (interfaces welcome). */

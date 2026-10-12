@@ -8,7 +8,7 @@
  * changes who can see content and the user should not discover that afterwards.
  */
 import { PlusIcon, TrashIcon, UserGroupIcon, UsersIcon } from '@heroicons/react/24/outline'
-import type { Group, GroupType } from '@rocketflare/shared/groups'
+import type { Group, GroupType } from '@rocketpod/shared/groups'
 import { useState } from 'react'
 import {
   ConfirmModal,

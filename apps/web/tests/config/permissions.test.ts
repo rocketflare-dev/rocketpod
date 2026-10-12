@@ -8,8 +8,8 @@ import {
   CORE_SUBJECTS,
   packedRulesSchema,
   type Role,
-} from '@rocketflare/shared/permissions'
-import { membershipRoleSchema } from '@rocketflare/shared/tenants'
+} from '@rocketpod/shared/permissions'
+import { membershipRoleSchema } from '@rocketpod/shared/tenants'
 import { describe, expect, it } from 'vitest'
 import {
   abilityFromPackedRules,

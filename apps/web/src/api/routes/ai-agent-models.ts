@@ -9,7 +9,7 @@ import {
   type AgentModelAssignment,
   type AgentModelEntry,
   upsertAgentModelRequestSchema,
-} from '@rocketflare/shared/ai/agent-models'
+} from '@rocketpod/shared/ai/agent-models'
 import { and, eq } from 'drizzle-orm'
 import { type AgentModelRow, agentModels } from '../../db/schema'
 import { guardPermission } from '../middleware/permissions'

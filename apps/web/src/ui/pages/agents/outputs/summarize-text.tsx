@@ -4,9 +4,9 @@
  * `summarizeTextOutputSchema` the runtime validated the output against.
  */
 import { DocumentMagnifyingGlassIcon } from '@heroicons/react/24/outline'
-import { type SummarizeTextOutput, summarizeTextOutputSchema } from '@rocketflare/shared/ai/agents'
-import type { AgentArtifact } from '@rocketflare/shared/ai/artifacts'
-import { documentPath } from '@rocketflare/shared/ai/embeddings'
+import { type SummarizeTextOutput, summarizeTextOutputSchema } from '@rocketpod/shared/ai/agents'
+import type { AgentArtifact } from '@rocketpod/shared/ai/artifacts'
+import { documentPath } from '@rocketpod/shared/ai/embeddings'
 import { Link } from 'react-router-dom'
 import { Markdown } from '@/ui/components/ai/Markdown'
 import type { AgentOutput, AgentOutputProps } from './types'

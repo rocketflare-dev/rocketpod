@@ -5,7 +5,7 @@
  * 600-character preview per passage, which is what the judge sees), and meet the case's rubric.
  * A run that parks on `ask_human` scores as a miss: an eval cannot answer it.
  */
-import { researchTopicOutputSchema } from '@rocketflare/shared/ai/agents'
+import { researchTopicOutputSchema } from '@rocketpod/shared/ai/agents'
 import {
   agentHarness,
   ContainsJudge,

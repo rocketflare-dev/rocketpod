@@ -35,13 +35,13 @@ import {
   KIT_CUSTOM_EVENTS,
   type KitAguiEvent,
   type KitNoticeCode,
-} from '@rocketflare/shared/ai/agui'
+} from '@rocketpod/shared/ai/agui'
 import {
   CHAT_HISTORY_MAX_MESSAGES,
   CHAT_MAX_TOOL_TURNS,
   CONVERSATION_TITLE_LENGTH,
-} from '@rocketflare/shared/ai/chat'
-import { documentCardsFromToolResult } from '@rocketflare/shared/ai/embeddings'
+} from '@rocketpod/shared/ai/chat'
+import { documentCardsFromToolResult } from '@rocketpod/shared/ai/embeddings'
 import { and, desc, eq } from 'drizzle-orm'
 import { stream } from 'hono/streaming'
 import type { Database } from '../../../db/client'
@@ -245,7 +245,7 @@ export function streamChatTurn(c: AppContext, params: ChatTurnParams): Response 
         // without it a thread whose provider changed cannot be priced or explained after the fact.
         provider: resolved.provider,
         model: resolved.model,
-        // D32: `rocketflare traces show <this message id>` resolves through this column.
+        // D32: `rocketpod traces show <this message id>` resolves through this column.
         traceId,
       })
       await sdb

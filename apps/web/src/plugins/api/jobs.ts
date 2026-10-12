@@ -16,7 +16,7 @@
  * which is exactly the mistake the missing field prevents. Every method that needs one takes it.
  */
 
-import type { JobEnvelope, JobInput } from '@rocketflare/shared/jobs'
+import type { JobEnvelope, JobInput } from '@rocketpod/shared/jobs'
 import type { JobContext } from '../../api/queues/jobs'
 import type { TaskContext } from '../../api/scheduled'
 import { tenantFeatures } from '../../api/services/features'
@@ -24,7 +24,7 @@ import { enqueueJob, enqueueJobs } from '../../api/services/jobs'
 import { createStepRealtimeFor } from './realtime-step'
 import type { PluginContext } from './types'
 
-export type { JobEnvelope, JobInput, JobOf, JobType } from '@rocketflare/shared/jobs'
+export type { JobEnvelope, JobInput, JobOf, JobType } from '@rocketpod/shared/jobs'
 export type { JobContext, JobHandler } from '../../api/queues/jobs'
 export type { ScheduledTask, TaskContext } from '../../api/scheduled'
 

@@ -12,8 +12,8 @@
  * sequence reaches the client, `messages.toolCalls` is persisted, `CHAT_KNOWLEDGE_TOOLS=false`
  * sends no tools at all, and the Workers AI notice.
  */
-import { KIT_CUSTOM_EVENTS } from '@rocketflare/shared/ai/agui'
-import { CHAT_MAX_TOOL_TURNS, conversationSchema } from '@rocketflare/shared/ai/chat'
+import { KIT_CUSTOM_EVENTS } from '@rocketpod/shared/ai/agui'
+import { CHAT_MAX_TOOL_TURNS, conversationSchema } from '@rocketpod/shared/ai/chat'
 import { and, eq } from 'drizzle-orm'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SEARCH_KNOWLEDGE_TOOL } from '@/api/services/agents/tools'

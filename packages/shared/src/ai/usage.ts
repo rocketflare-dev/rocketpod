@@ -2,7 +2,7 @@
  * AI usage contracts (D18): one `ai_usage` row per generation, written from the provider's usage
  * tap (`services/ai/usage.ts`), and the per-model summary `GET /api/ai/usage/summary` returns.
  * `costMicrocents` is nullable — the kit records tokens and prices them from
- * `@rocketflare/shared/ai/pricing`, which an app corrects; a model the table does not know stays
+ * `@rocketpod/shared/ai/pricing`, which an app corrects; a model the table does not know stays
  * null and is counted in `unpricedCalls`, so a partial total says so instead of pretending.
  */
 import { z } from 'zod'

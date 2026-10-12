@@ -12,7 +12,7 @@
  * unregistered agent, so the route's 400 `details` is the authority and `issuesFrom` maps it back
  * onto the fields.
  */
-import type { JsonSchema } from '@rocketflare/shared/ai/interrupts'
+import type { JsonSchema } from '@rocketpod/shared/ai/interrupts'
 import { z } from 'zod'
 import { FieldSet } from '../fields/FieldSet'
 import {

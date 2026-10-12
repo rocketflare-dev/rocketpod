@@ -3,9 +3,9 @@
  * Citations are filtered server-side against what the tools returned, so a title here is a document
  * the run really read — the link opens the viewer, not a search narrowed to it.
  */
-import { type ResearchTopicOutput, researchTopicOutputSchema } from '@rocketflare/shared/ai/agents'
-import type { AgentArtifact } from '@rocketflare/shared/ai/artifacts'
-import { documentPath } from '@rocketflare/shared/ai/embeddings'
+import { type ResearchTopicOutput, researchTopicOutputSchema } from '@rocketpod/shared/ai/agents'
+import type { AgentArtifact } from '@rocketpod/shared/ai/artifacts'
+import { documentPath } from '@rocketpod/shared/ai/embeddings'
 import { Markdown } from '@/ui/components/ai/Markdown'
 import { DocumentLink } from '@/ui/components/shared'
 import type { AgentOutput, AgentOutputProps } from './types'

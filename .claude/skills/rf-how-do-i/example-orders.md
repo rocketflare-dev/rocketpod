@@ -21,7 +21,7 @@ Orders are not the kit's own tables, not auth, not tenancy, not a cross-cutting 
 plugin, and the decision is that short. Two consequences settled before any file is named: the id is
 **`orders`**, which namespaces everything (`orders_*` tables, `orders.decided` job type,
 `/api/orders`, query-key roots `orders:…`, the `orders` CLI command); and the repository is
-`rocketflare-plugin-orders`, installed with `pnpm plugin add` and upgraded with
+`rocketpod-plugin-orders`, installed with `pnpm plugin add` and upgraded with
 `pnpm plugin upgrade` (`/rf-plugin`), shipping **no migration** — the host generates it.
 
 ## The interview (step 1)
@@ -54,7 +54,7 @@ dashboard of volume and turnaround.*
 ## The layers (step 2)
 
 Four published entry files are the plugin's whole API — `packages/shared/src/plugins/orders/index.ts`
-(the shared entry, imported as `@rocketflare/shared/plugins/orders/index`, and that `/index` is
+(the shared entry, imported as `@rocketpod/shared/plugins/orders/index`, and that `/index` is
 load-bearing), `apps/web/src/plugins/orders/index.ts`, `.../orders/ui/index.ts` and
 `apps/cli/src/plugins/orders/index.ts`. Everything below them is private; nothing in core may reach
 past them. `apps/web/src/plugins/example-feature/` is the shape to copy for all four.
@@ -71,9 +71,9 @@ past them. `apps/web/src/plugins/example-feature/` is the shape to copy for all 
 | Nudge | `nudge(realtime, realtimeEvent('entity.changed', tenantId, { entity: 'orders:order', id }))` in the service, **after** the transaction commits | nothing to register — `entity.changed` carries its own root | `services/invitations.ts` | `stubs(env).hub.broadcasts` |
 | Hook + page | `apps/web/src/plugins/orders/ui/hooks/useOrders.ts`, `ui/pages/OrdersPage.tsx`; the page is `lazy(() => import(...))` in the UI entry | `UiPlugin.routes` + `UiPlugin.nav` + `UiPlugin.queryKeys` (roots `orders:…`, matching the nudge) | `apps/web/src/plugins/example-feature/ui/` | `pnpm web test:ui` |
 | Cube | `apps/web/src/plugins/orders/cubes/orders.ts`, `where: eq(orders.tenantId, tenantIdOf(ctx))` | `ServerPlugin.extensions` — a plugin-owned registry the owning plugin narrows with zod; core stays ignorant of drizzle-cube | `api/cubes/activity-events.ts` | **a tenant-isolation case of its own** — two tenants, disjoint rows, in the plugin's tests |
-| Fact table | `orders_daily_facts` only if the live cube gets slow. Grain `(tenant_id, day, status)`, `fact_refreshed_at` | the same `extensions` registry, plus a `ServerPlugin.scheduledTasks` entry if it refreshes on its own cron | the analytics plugin's `db/schema/facts/` | `rocketflare analytics refresh-facts && rocketflare analytics check-facts` |
+| Fact table | `orders_daily_facts` only if the live cube gets slow. Grain `(tenant_id, day, status)`, `fact_refreshed_at` | the same `extensions` registry, plus a `ServerPlugin.scheduledTasks` entry if it refreshes on its own cron | the analytics plugin's `db/schema/facts/` | `rocketpod analytics refresh-facts && rocketpod analytics check-facts` |
 | Dashboard | a template in the plugin | the same `extensions` registry | `general-templates/tenant-overview` | the plugin's own template test |
-| CLI (optional) | `apps/cli/src/plugins/orders/index.ts` over `api.ts`, parsing the same schema, `--json` | `CliPlugin.register(program, action)` — the top-level `orders` command | `apps/cli/src/plugins/example-feature/index.ts` | `pnpm --filter @rocketflare/cli test` |
+| CLI (optional) | `apps/cli/src/plugins/orders/index.ts` over `api.ts`, parsing the same schema, `--json` | `CliPlugin.register(program, action)` — the top-level `orders` command | `apps/cli/src/plugins/example-feature/index.ts` | `pnpm --filter @rocketpod/cli test` |
 
 Build it in that order and each layer has what it needs. The contract first is not ceremony: the
 route, the page and the CLI all import it, so inventing a type in the route is the one shortcut that
@@ -129,7 +129,7 @@ does not exist.
 Contract, schema, permissions, route, service, page: an afternoon each, less once the first is done.
 The dashboard half is a second sitting, and worth deferring until real orders exist — a chart of
 seeded data teaches you nothing. The plugin wrapper itself costs almost nothing on top: a manifest,
-four entry files and `pnpm plugin add ../rocketflare-plugin-orders --local --apply` to develop it in
+four entry files and `pnpm plugin add ../rocketpod-plugin-orders --local --apply` to develop it in
 place inside a host.
 
 What the kit does **not** give you: multi-step or conditional approval (two approvers, thresholds by

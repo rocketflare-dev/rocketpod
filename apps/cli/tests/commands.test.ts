@@ -159,11 +159,11 @@ describe('members list', () => {
     const error = await captureError(runMembersList(ctx))
     expect(error).toBeInstanceOf(NotLoggedInError)
     expect(exitCodeFor(error)).toBe(EXIT_NOT_LOGGED_IN)
-    expect(error.hint).toContain('rocketflare login')
+    expect(error.hint).toContain('rocketpod login')
   })
 
-  it('uses ROCKETFLARE_API_KEY from the environment when set', async () => {
-    const t = await tempStore({ ROCKETFLARE_API_KEY: 'env-key', ROCKETFLARE_URL: SERVER })
+  it('uses ROCKETPOD_API_KEY from the environment when set', async () => {
+    const t = await tempStore({ ROCKETPOD_API_KEY: 'env-key', ROCKETPOD_URL: SERVER })
     cleanups.push(t.cleanup)
     const api = mockFetch({ '/api/members': () => jsonResponse(membersBody) })
     const { ctx } = await testContext({ store: t.store, fetch: api.fetch })
@@ -176,7 +176,7 @@ describe('keys list', () => {
   const key = {
     id: '11111111-2222-4333-8444-555555555556',
     name: 'cli:laptop',
-    keyPrefix: 'rocketflare_test',
+    keyPrefix: 'rocketpod_test',
     scopes: ['read', 'write'],
     createdByUserId: USER_ID,
     lastUsedAt: null,
@@ -191,7 +191,7 @@ describe('keys list', () => {
       fetch: mockFetch({ '/api/keys': () => jsonResponse([key]) }).fetch,
     })
     await runKeysList(ctx)
-    expect(out.content()).toMatch(/cli:laptop\s+rocketflare_test\s+read,write/)
+    expect(out.content()).toMatch(/cli:laptop\s+rocketpod_test\s+read,write/)
     expect(out.content()).not.toContain('Page ')
   })
   it('accepts a paginated envelope', async () => {
@@ -260,7 +260,7 @@ describe('whoami', () => {
     const text = out.content()
     expect(text).toContain('Alice <alice@example.com>')
     expect(text).toContain('Acme Inc')
-    expect(text).toContain('rocketflare_test…')
+    expect(text).toContain('rocketpod_test…')
     expect(text).not.toContain(TEST_KEY)
   })
 
@@ -275,7 +275,7 @@ describe('whoami', () => {
     const json = JSON.parse(out.content())
     expect(json.user.email).toBe('alice@example.com')
     expect(json.tenant).toBeNull()
-    expect(json.apiKey).toBe('rocketflare_test…')
+    expect(json.apiKey).toBe('rocketpod_test…')
     expect(out.content()).not.toContain(TEST_KEY)
   })
 })
@@ -316,11 +316,11 @@ describe('config commands', () => {
     const { ctx, out } = await testContext({ store, json: true })
     await runConfigGet(ctx)
     expect(out.content()).not.toContain(TEST_KEY)
-    expect(JSON.parse(out.content()).apiKey).toBe('rocketflare_test…')
+    expect(JSON.parse(out.content()).apiKey).toBe('rocketpod_test…')
 
     const { ctx: c2, out: o2 } = await testContext({ store })
     await runConfigGet(c2, 'apiKey')
-    expect(o2.content().trim()).toBe('rocketflare_test…')
+    expect(o2.content().trim()).toBe('rocketpod_test…')
 
     await expect(runConfigSet(c2, 'serverUrl', 'not a url')).rejects.toThrow(/not a valid URL/)
     await expect(runConfigSet(c2, 'bogus', 'x')).rejects.toThrow(/Unknown config key/)

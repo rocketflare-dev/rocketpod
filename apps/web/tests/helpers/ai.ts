@@ -8,9 +8,9 @@ import {
   type KitAguiEvent,
   type KitCustomEventName,
   kitAguiEventSchema,
-} from '@rocketflare/shared/ai/agui'
-import type { TokenUsage } from '@rocketflare/shared/ai/chat'
-import type { AiProvider } from '@rocketflare/shared/ai/config'
+} from '@rocketpod/shared/ai/agui'
+import type { TokenUsage } from '@rocketpod/shared/ai/chat'
+import type { AiProvider } from '@rocketpod/shared/ai/config'
 import type {
   ChatClient,
   ChatDelta,

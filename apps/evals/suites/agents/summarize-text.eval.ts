@@ -3,7 +3,7 @@
  * parse (`Schema`), keep the facts that matter (`Contains`), follow the requested style and add
  * nothing (`Rubric`), and stay cheap (`Budget` — it is a single model call).
  */
-import { summarizeTextOutputSchema } from '@rocketflare/shared/ai/agents'
+import { summarizeTextOutputSchema } from '@rocketpod/shared/ai/agents'
 import {
   agentHarness,
   BudgetJudge,

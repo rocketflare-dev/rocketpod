@@ -10,8 +10,8 @@
  * right. Adding is idempotent server-side, so a double-click costs nothing.
  */
 import { MagnifyingGlassIcon, XMarkIcon } from '@heroicons/react/24/outline'
-import type { Group } from '@rocketflare/shared/groups'
-import type { Member } from '@rocketflare/shared/tenants'
+import type { Group } from '@rocketpod/shared/groups'
+import type { Member } from '@rocketpod/shared/tenants'
 import { useMemo, useState } from 'react'
 import { EmptyState, Modal, SkeletonRows, showToast } from '@/ui/components/shared'
 import { useAddGroupMembers, useGroup, useRemoveGroupMember } from '@/ui/hooks/useGroups'

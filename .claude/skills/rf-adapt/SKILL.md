@@ -21,7 +21,7 @@ git status --short
 git log --oneline | head -3
 ```
 
-Expect: no output from `git status --short`, and a first commit like `Start from Rocketflare`
+Expect: no output from `git status --short`, and a first commit like `Start from Rocketpod`
 (`docs/ADAPTING.md` §0). If the tree is dirty, stop and ask the user to commit or stash — the
 rename must be one reviewable diff. If the history is the kit's own (many commits, no "Start from"
 line), say so: they are renaming the kit itself, not a copy. Proceed only if they confirm.
@@ -82,7 +82,7 @@ pnpm gate
 be running). Expect every step green, including
 `tests/config/wrangler-parity.test.ts` (staging suffixes) and `tests/ui/contrast.test.ts` (if the
 colour changed). A failing `typecheck` almost always means an `@<old-scope>/shared` import the
-pass could not see — `grep -rn "@rocketflare/" apps packages --include=*.ts --include=*.tsx`
+pass could not see — `grep -rn "@rocketpod/" apps packages --include=*.ts --include=*.tsx`
 should be empty.
 
 Then `git diff --stat` and commit: `git commit -am "Rename to <slug>"`.

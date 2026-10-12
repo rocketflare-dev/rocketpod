@@ -17,12 +17,12 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk'
-import type { TokenUsage } from '@rocketflare/shared/ai/chat'
+import type { TokenUsage } from '@rocketpod/shared/ai/chat'
 import {
   type AiProvider,
   EMBEDDING_DIM,
   THINKING_ANSWER_HEADROOM,
-} from '@rocketflare/shared/ai/config'
+} from '@rocketpod/shared/ai/config'
 import { AiError, normalizeAiError } from './errors'
 import { cachedSystem, withRollingCacheBreakpoints } from './kit'
 import { DEFAULT_BASE_URLS, WORKERS_AI_TOOL_CHOICE_MODELS } from './providers'

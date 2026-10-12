@@ -8,7 +8,7 @@
  *   to another provider (an `ai_configs` row there);
  * - the system prompt is the `evals-judge` registry entry followed by the judge's own instructions;
  * - every call is costed in `ai_usage` under feature `evals.judge` and traced (`invoke_agent
- *   evals-judge`, marked `rocketflare.eval=true`).
+ *   evals-judge`, marked `rocketpod.eval=true`).
  *
  * The judge runs in ONE tenant per process, separate from the cases' tenants, so a case's spend
  * never includes the judging of it.
@@ -62,7 +62,7 @@ export function parseJudgeJson(text: string): JsonValue | string {
 }
 
 export const judgeHarness = createJudgeHarness({
-  name: 'rocketflare-judge',
+  name: 'rocketpod-judge',
   run: async ({ system, prompt, responseFormat }) => {
     const db = evalDb()
     const env = evalWorkerEnv()

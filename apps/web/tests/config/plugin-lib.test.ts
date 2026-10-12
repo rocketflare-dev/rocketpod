@@ -291,7 +291,7 @@ describe('the barrel writer', () => {
  *
  * A plugin is authored in the KIT's vocabulary and translated on the way in, and translation moves
  * a package scope in the alphabet: `@heroicons/react` sorts AFTER `@acme/shared` and BEFORE
- * `@rocketflare/shared`. So a file that is correctly sorted in the kit arrives unsorted in an app
+ * `@rocketpod/shared`. So a file that is correctly sorted in the kit arrives unsorted in an app
  * whose scope sorts the other way, and `pnpm lint` — the first line of the gate the install plan
  * tells you to run next — fails on a file the tool wrote. `rename.mjs` has the same problem and
  * solves it the same way.
@@ -604,7 +604,7 @@ const fixtureManifest = {
   id: 'orders',
   label: 'Orders',
   version: '1.1.0',
-  repo: 'https://github.com/acme/rocketflare-plugin-orders.git',
+  repo: 'https://github.com/acme/rocketpod-plugin-orders.git',
   subdir: '',
   minKit: '0.5.0',
   uses: { '@/plugins/api': ['requestCtx'] },
@@ -952,7 +952,7 @@ describe('scripts/plugin.mjs, end to end', () => {
         const rebadged = JSON.parse(
           readFileSync(manifestFile, 'utf8').replaceAll(subject as string, 'smoke-plugin')
         )
-        rebadged.repo = 'https://github.com/acme/rocketflare-plugin-smoke.git'
+        rebadged.repo = 'https://github.com/acme/rocketpod-plugin-smoke.git'
         rebadged.minKit = '0.1.0'
         writeFileSync(manifestFile, `${JSON.stringify(rebadged, null, 2)}\n`)
 

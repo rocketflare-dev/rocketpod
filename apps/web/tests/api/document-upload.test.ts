@@ -9,7 +9,7 @@
  * the object and the `files` row; `DELETE /api/files/:id` on the original → 409 `owned_by_document`;
  * cross-tenant 404; anon 401.
  */
-import { documentSchema } from '@rocketflare/shared/ai/embeddings'
+import { documentSchema } from '@rocketpod/shared/ai/embeddings'
 import { and, eq } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
 import { chunks, documents, files } from '@/db/schema'

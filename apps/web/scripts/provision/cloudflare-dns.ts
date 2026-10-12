@@ -124,7 +124,7 @@ export class CloudflareClient {
   }
 }
 
-const withComment = (rec: DnsRecordInput) => ({ ...rec, comment: 'rocketflare provision: Resend' })
+const withComment = (rec: DnsRecordInput) => ({ ...rec, comment: 'rocketpod provision: Resend' })
 const normalise = (v: string) => v.trim().replace(/^"|"$/g, '').replace(/\.$/, '').toLowerCase()
 
 // ---- pure helpers (tests/config/provision-zone.test.ts) ----------------------------------

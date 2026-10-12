@@ -15,7 +15,7 @@
  * The one asymmetry worth naming: an EMPTY grant list under `visibility: 'groups'` matches nobody,
  * so a resource whose last group was deleted becomes owner-and-admins-only rather than public.
  */
-import type { GroupRef, ResourceVisibility } from '@rocketflare/shared/groups'
+import type { GroupRef, ResourceVisibility } from '@rocketpod/shared/groups'
 import { and, count, eq, inArray, type SQL, sql } from 'drizzle-orm'
 import type { Database } from '../../db/client'
 import { documentGroups, documents, groups, groupTypes } from '../../db/schema'

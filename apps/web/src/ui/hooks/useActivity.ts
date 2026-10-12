@@ -1,6 +1,6 @@
 /** Tenant activity log (D13): `GET /api/activity`, admin-level, paginated. */
-import { activityEventSchema } from '@rocketflare/shared/activity'
-import { paginatedResponse } from '@rocketflare/shared/pagination'
+import { activityEventSchema } from '@rocketpod/shared/activity'
+import { paginatedResponse } from '@rocketpod/shared/pagination'
 import { keepPreviousData, queryOptions, useQuery } from '@tanstack/react-query'
 import { api } from '@/ui/lib/api-client'
 import { cleanFilters, queryKeys, toSearchParams } from '@/ui/lib/query-keys'

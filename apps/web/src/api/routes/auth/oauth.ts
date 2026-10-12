@@ -9,7 +9,7 @@
  * is checked before the redirect. Unknown or unconfigured provider → 404 envelope; under
  * `AUTH_OIDC_ONLY` every provider but `oidc` → `/login?error=oidc_only`.
  */
-import { ERROR_CODES } from '@rocketflare/shared/errors'
+import { ERROR_CODES } from '@rocketpod/shared/errors'
 import { generateCodeVerifier, generateState } from 'arctic'
 import { isOidcOnly, oauthRedirectUri } from '../../../config'
 import {

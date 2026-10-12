@@ -40,7 +40,7 @@ function fakeMessage(body: unknown, attempts = 1) {
 
 function fakeBatch(messages: ReturnType<typeof fakeMessage>[]) {
   return {
-    queue: 'rocketflare-jobs',
+    queue: 'rocketpod-jobs',
     messages,
     ackAll: vi.fn(),
     retryAll: vi.fn(),

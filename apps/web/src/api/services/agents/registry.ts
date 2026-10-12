@@ -5,17 +5,12 @@
  * cancellation, persistence, events — so an agent is a declarative meta and one async function that
  * reads `ctx.input`, calls the model through `ctx.chat` (with `ctx.tools` — the knowledge base is
  * available to every agent through `search_knowledge`), emits progress and returns its output.
- * Adding an agent = a key in `@rocketflare/shared/ai/agents`, a prompt in `services/prompts.ts`, a file in
+ * Adding an agent = a key in `@rocketpod/shared/ai/agents`, a prompt in `services/prompts.ts`, a file in
  * `examples/` and one entry here. No migration.
  */
-import type {
-  AgentInfo,
-  AgentKey,
-  AgentMeta,
-  AgentRunEventType,
-} from '@rocketflare/shared/ai/agents'
-import type { AgentArtifact, AgentArtifactInput } from '@rocketflare/shared/ai/artifacts'
-import type { AgentInterruptSpec, AgentSteeringNote } from '@rocketflare/shared/ai/interrupts'
+import type { AgentInfo, AgentKey, AgentMeta, AgentRunEventType } from '@rocketpod/shared/ai/agents'
+import type { AgentArtifact, AgentArtifactInput } from '@rocketpod/shared/ai/artifacts'
+import type { AgentInterruptSpec, AgentSteeringNote } from '@rocketpod/shared/ai/interrupts'
 import type { AppConfig } from '../../../config'
 import type { Database } from '../../../db/client'
 import { serverPlugins } from '../../../plugins/server'

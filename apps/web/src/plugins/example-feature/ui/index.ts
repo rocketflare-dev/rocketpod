@@ -19,7 +19,7 @@ import { SparklesIcon } from '@heroicons/react/24/outline'
 import {
   EXAMPLE_FEATURE_FLAG,
   exampleFeatureShared,
-} from '@rocketflare/shared/plugins/example-feature/index'
+} from '@rocketpod/shared/plugins/example-feature/index'
 import { lazy } from 'react'
 import type { NavGuard, UiPlugin } from '@/plugins/api/ui-wiring'
 import { exampleFeatureQueryKeys } from './query-keys'

@@ -14,9 +14,9 @@
  * `method` is `typesafe` (calibrated) or `llm_self_report` (a chat model's own numbers). It is a
  * text column over the contract's closed set, so a third engine is a contract change, not a migration.
  */
-import type { TokenUsage } from '@rocketflare/shared/ai/chat'
-import type { DecisionAnswers, DecisionRequest } from '@rocketflare/shared/ai/decisions'
-import { DECISION_METHODS } from '@rocketflare/shared/ai/decisions'
+import type { TokenUsage } from '@rocketpod/shared/ai/chat'
+import type { DecisionAnswers, DecisionRequest } from '@rocketpod/shared/ai/decisions'
+import { DECISION_METHODS } from '@rocketpod/shared/ai/decisions'
 import { relations } from 'drizzle-orm'
 import { index, integer, jsonb, pgTable, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
 import { tenantRef, timestamps } from './_helpers'

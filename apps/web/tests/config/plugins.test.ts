@@ -22,16 +22,16 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
-import type { AgentKey, CORE_AGENT_KEYS } from '@rocketflare/shared/ai/agents'
-import type { CoreJobType, JobOf, JobType } from '@rocketflare/shared/jobs'
-import type { Subjects } from '@rocketflare/shared/permissions'
+import type { AgentKey, CORE_AGENT_KEYS } from '@rocketpod/shared/ai/agents'
+import type { CoreJobType, JobOf, JobType } from '@rocketpod/shared/jobs'
+import type { Subjects } from '@rocketpod/shared/permissions'
 import {
   type AgentKeyOf,
   type FeatureKeyOf,
   isPluginId,
   type JobTypeOf,
   type SharedPlugin,
-} from '@rocketflare/shared/plugins'
+} from '@rocketpod/shared/plugins'
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import { z } from 'zod'
 import { SERVER_PLUGINS, serverPlugins } from '@/plugins/server'
@@ -65,7 +65,7 @@ describe('plugin ids', () => {
     expect(isPluginId('my_plugin')).toBe(false)
     // The rename translates a copy of the kit into somebody's app; an id carrying the kit's name
     // would be rewritten with everything else, and the barrel line would stop resolving.
-    expect(isPluginId('rocketflare-extras')).toBe(false)
+    expect(isPluginId('rocketpod-extras')).toBe(false)
   })
 })
 
@@ -142,7 +142,7 @@ describe('a plugin UI entry', () => {
   const good = `
     import { lazy } from 'react'
     import { CubeIcon } from '@heroicons/react/24/outline'
-    import { ordersShared } from '@rocketflare/shared/plugins/orders/index'
+    import { ordersShared } from '@rocketpod/shared/plugins/orders/index'
     import type { UiPlugin } from '@/plugins/types'
     const OrdersPage = lazy(() => import('./pages/OrdersPage'))
     export const ordersUi: UiPlugin = { shared: ordersShared, routes: [{ path: '/orders', Component: OrdersPage }] }
@@ -193,8 +193,8 @@ describe('the plugin import rule', () => {
     // The schema kit is reached relatively from a table file, which is how a plugin's own tree
     // spells it — four levels out of `plugins/<id>/db/schema`.
     expect(pluginImportIssue(TABLE, '../../../../db/schema/kit')).toBeNull()
-    expect(pluginImportIssue(ROUTE, '@rocketflare/shared/plugins/orders/index')).toBeNull()
-    expect(pluginImportIssue(ROUTE, '@rocketflare/shared/pagination')).toBeNull()
+    expect(pluginImportIssue(ROUTE, '@rocketpod/shared/plugins/orders/index')).toBeNull()
+    expect(pluginImportIssue(ROUTE, '@rocketpod/shared/pagination')).toBeNull()
     expect(
       pluginImportIssue('apps/web/src/plugins/orders/ui/index.ts', '@/plugins/api/ui-wiring')
     ).toBeNull()

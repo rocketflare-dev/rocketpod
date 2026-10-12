@@ -10,9 +10,9 @@
  * is. The transcript is built from `agent_run_events`, the same rows the run page and the AG-UI
  * projection read.
  */
-import type { AgentKey } from '@rocketflare/shared/ai/agents'
-import { decisionAnswerLabel } from '@rocketflare/shared/ai/decisions'
-import type { EvalCase } from '@rocketflare/shared/ai/evals'
+import type { AgentKey } from '@rocketpod/shared/ai/agents'
+import { decisionAnswerLabel } from '@rocketpod/shared/ai/decisions'
+import type { EvalCase } from '@rocketpod/shared/ai/evals'
 import { and, asc, eq } from 'drizzle-orm'
 import { createHarness, type Harness, type JsonValue } from 'vitest-evals'
 import { withEvalScope } from '@/api/observability/context'
@@ -36,7 +36,7 @@ import { transcriptFromRunEvents } from './transcript'
 
 export function agentHarness(agentKey: AgentKey): Harness<EvalCase, JsonValue | undefined> {
   return createHarness<EvalCase, JsonValue | undefined>({
-    name: `rocketflare-agent:${agentKey}`,
+    name: `rocketpod-agent:${agentKey}`,
     run: async ({ input: evalCase }) => {
       const agent = getAgent(agentKey)
       const world = await caseWorld(evalCase, [agent.meta.promptKey])

@@ -17,8 +17,8 @@ import { describe, expect, it } from 'vitest'
 import { resolveRepoRoot } from '../../../../scripts/release-check.mjs'
 
 const SCRIPT_ROOT = '/opt/kit'
-const CWD = '/work/rocketflare-plugins'
-const TOPLEVEL = '/work/rocketflare-plugins'
+const CWD = '/work/rocketpod-plugins'
+const TOPLEVEL = '/work/rocketpod-plugins'
 
 const never = (): string | null => {
   throw new Error('git must not be consulted once --repo-root has answered')

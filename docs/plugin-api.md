@@ -66,8 +66,8 @@ name here is a name you can import today.
 | Add a nav item and a route | `UiPlugin` | `@/plugins/types` |
 | Guard a nav item on a flag | `featureGuard` | `@/plugins/api/ui-wiring` |
 | Call the API from a page | `api` | `@/plugins/api/ui` |
-| Declare contracts, jobs, subjects, flags | `SharedPlugin` | `@rocketflare/shared/plugins/api` |
-| Answer a paginated list, in the contract | `paginatedResponse` | `@rocketflare/shared/plugins/api` |
+| Declare contracts, jobs, subjects, flags | `SharedPlugin` | `@rocketpod/shared/plugins/api` |
+| Answer a paginated list, in the contract | `paginatedResponse` | `@rocketpod/shared/plugins/api` |
 | Add a CLI command | `CliPlugin` | `'./types' (apps/cli/src/plugins/types.ts)` |
 | Call the API from a command | `requireClient` | `'../api' (apps/cli/src/plugins/api.ts)` |
 | Prove tenant isolation | `request` | `@testkit/integration` |
@@ -581,7 +581,7 @@ Components and hooks, for a lazy PAGE. Never for the UI entry.
 - `function EmptyStateCard(props: EmptyStateProps)`
   Panel-wrapped empty state for grid layouts.
 - `function FieldError({ message, id }: { message?: string \| null; id?: string })`
-  Inline field error. Forms are plain React + the `@rocketflare/shared` zod schema the server uses (`schema.safeParse(values)` before submit); this renders one issue's message.
+  Inline field error. Forms are plain React + the `@rocketpod/shared` zod schema the server uses (`schema.safeParse(values)` before submit); this renders one issue's message.
 - `function fieldErrorFor( issues: readonly { path: readonly PropertyKey[]; message: string }[] \| undefined, field: string ): string \| undefined`
   Pick the first zod issue for a field path out of a `safeParse` failure.
 - `function formatBytes(bytes: number \| null \| undefined, fallback = '—'): string`
@@ -595,7 +595,7 @@ Components and hooks, for a lazy PAGE. Never for the UI entry.
 - `function LoadingIndicator({ size = 'md', centered = false, fullPage = false, className = '', }: LoadingIndicatorProps)`
   DaisyUI spinner in the primary colour.
 - `function LogoMark({ className = 'w-7 h-7' }: { className?: string })`
-  The Rocketflare mark — a rocket launching from a cloud — inlined so it needs no request and scales with `className`. The fills are the brand illustration colours, fixed on purpose…
+  The Rocketpod mark — a rocket launching from a cloud — inlined so it needs no request and scales with `className`. The fills are the brand illustration colours, fixed on purpose…
 - `function Modal({ open, onClose, title, children, actions, closeButton = true, className = '', }: ModalProps)`
   `<dialog>`-based modal: native focus trap, Escape and backdrop close, `aria-modal` for free. Controlled — the caller owns `open`. Falls back to the `open` attribute where…
 - `interface ModalProps`
@@ -749,7 +749,7 @@ The build-time schema symbols. A `pgTable(...)` runs at module scope, so these c
   `created_at` / `updated_at` as `timestamptz`, both defaulting to now(). Spread into a table.
 - `const users: table "users" { createdAt, updatedAt, id, email, name, avatarUrl, isGlobalAdmin, emailVerifiedAt, lastLoginAt, blockedAt }`
 
-### `@rocketflare/shared/plugins/api`
+### `@rocketpod/shared/plugins/api`
 
 What a plugin's CONTRACT module imports: the error envelope, pagination, `SharedPlugin`.
 
@@ -792,7 +792,7 @@ What a plugin's CONTRACT module imports: the error envelope, pagination, `Shared
 - `const paginationQuerySchema: z.ZodObject<{ page: z.ZodDefault<z.ZodNumber>; pageSize: z.ZodDefault<z.ZodNumber>; }, "strip", z.ZodTypeAny, { page: number; pageSize: number; }, { page?: number \| undefined; pageSize?: number \| undefined; }>`
   Page-based pagination (page-based). Query: `?page=1&pageSize=25`.
 - `const PLUGIN_ID_RE: RegExp`
-  `^[a-z][a-z0-9-]*$` and never containing `rocketflare`: a plugin is written in the kit's vocabulary so `scripts/rename.mjs` can translate it into a renamed app on the way in, and…
+  `^[a-z][a-z0-9-]*$` and never containing `rocketpod`: a plugin is written in the kit's vocabulary so `scripts/rename.mjs` can translate it into a renamed app on the way in, and an…
 - `function pluginNamespace(id: string): string`
   `<id>:` — the prefix every query-key root and demo-seed id a plugin owns must carry.
 - `type PromptKeyOf = NonNullable<DeclaredBy<S, 'promptKeys'>>[number]`
@@ -1393,50 +1393,50 @@ nothing in the comparison that can throw.
 @/db/schema/kit :: const :: tenantUsers :: const tenantUsers: table "tenant_users" { tenantId, userId, role, joinedAt, invitedByUserId }
 @/db/schema/kit :: function :: timestamps :: function timestamps()
 @/db/schema/kit :: const :: users :: const users: table "users" { createdAt, updatedAt, id, email, name, avatarUrl, isGlobalAdmin, emailVerifiedAt, lastLoginAt, blockedAt }
-@rocketflare/shared/plugins/api :: type :: Actions :: type Actions = (typeof ACTIONS)[number]
-@rocketflare/shared/plugins/api :: type :: AgentKeyOf :: type AgentKeyOf = NonNullable<DeclaredBy<S, 'agentKeys'>>[number]
-@rocketflare/shared/plugins/api :: type :: ApiErrorBody :: type ApiErrorBody = z.infer<typeof apiErrorSchema>
-@rocketflare/shared/plugins/api :: const :: apiErrorSchema :: const apiErrorSchema: z.ZodObject<{ error: z.ZodString; statusCode: z.ZodNumber; code: z.ZodOptional<z.ZodString>; details: z.ZodOptional<z.ZodUnknown>; }, "strip", z.ZodTypeAny, { error: string; statusCode: number; code?: string | undefined; details?: unknown; }, { error: string; statusCode: number; code?: string | unde… (truncated)
-@rocketflare/shared/plugins/api :: type :: DeclaredBy :: type DeclaredBy = Extract<P, Record<K, unknown>> extends infer Declaring ? Declaring extends Record<K, unknown> ? Declaring[K] : never : never
-@rocketflare/shared/plugins/api :: const :: ERROR_CODES :: const ERROR_CODES: { readonly validationFailed: "validation_failed"; readonly unauthorized: "unauthorized"; readonly sessionExpired: "session_expired"; readonly forbidden: "forbidden"; readonly notFound: "not_found"; readonly conflict: "conflict"; readonly rateLimited: "rate_limited"; readonly pendingApproval: "pendin… (truncated)
-@rocketflare/shared/plugins/api :: type :: ErrorCode :: type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES]
-@rocketflare/shared/plugins/api :: interface :: FeatureDefinition :: interface FeatureDefinition
-@rocketflare/shared/plugins/api :: type :: FeatureFlagState :: type FeatureFlagState = z.infer<typeof featureFlagStateSchema>
-@rocketflare/shared/plugins/api :: type :: FeatureKeyOf :: type FeatureKeyOf = Extract< NonNullable<DeclaredBy<S, 'features'>> extends infer F ? F extends unknown ? keyof F : never : never, string >
-@rocketflare/shared/plugins/api :: type :: FeatureRolloutUnit :: type FeatureRolloutUnit = z.infer<typeof featureRolloutUnitSchema>
-@rocketflare/shared/plugins/api :: type :: GroupRef :: type GroupRef = z.infer<typeof groupRefSchema>
-@rocketflare/shared/plugins/api :: function :: isPluginId :: function isPluginId(value: string): boolean
-@rocketflare/shared/plugins/api :: type :: JobInput :: type JobInput = z.infer<typeof jobInputSchema>
-@rocketflare/shared/plugins/api :: type :: JobOf :: type JobOf = Extract<JobEnvelope, { type: T }>
-@rocketflare/shared/plugins/api :: type :: JobType :: type JobType = JobEnvelope['type']
-@rocketflare/shared/plugins/api :: type :: JobTypeOf :: type JobTypeOf = TypeOf< NonNullable<DeclaredBy<S, 'jobs'>>[number] >['type']
-@rocketflare/shared/plugins/api :: type :: JobVariant :: type JobVariant = ZodDiscriminatedUnionOption<'type'>
-@rocketflare/shared/plugins/api :: type :: MembershipRole :: type MembershipRole = z.infer<typeof membershipRoleSchema>
-@rocketflare/shared/plugins/api :: function :: paginatedResponse :: function paginatedResponse<T extends z.ZodTypeAny>(item: T)
-@rocketflare/shared/plugins/api :: function :: paginationMeta :: function paginationMeta(page: number, pageSize: number, total: number): PaginationMeta
-@rocketflare/shared/plugins/api :: type :: PaginationMeta :: type PaginationMeta = z.infer<typeof paginationMetaSchema>
-@rocketflare/shared/plugins/api :: const :: paginationMetaSchema :: const paginationMetaSchema: z.ZodObject<{ page: z.ZodNumber; pageSize: z.ZodNumber; total: z.ZodNumber; totalPages: z.ZodNumber; }, "strip", z.ZodTypeAny, { page: number; pageSize: number; total: number; totalPages: number; }, { page: number; pageSize: number; total: number; totalPages: number; }>
-@rocketflare/shared/plugins/api :: type :: PaginationQuery :: type PaginationQuery = z.infer<typeof paginationQuerySchema>
-@rocketflare/shared/plugins/api :: const :: paginationQuerySchema :: const paginationQuerySchema: z.ZodObject<{ page: z.ZodDefault<z.ZodNumber>; pageSize: z.ZodDefault<z.ZodNumber>; }, "strip", z.ZodTypeAny, { page: number; pageSize: number; }, { page?: number | undefined; pageSize?: number | undefined; }>
-@rocketflare/shared/plugins/api :: const :: PLUGIN_ID_RE :: const PLUGIN_ID_RE: RegExp
-@rocketflare/shared/plugins/api :: function :: pluginNamespace :: function pluginNamespace(id: string): string
-@rocketflare/shared/plugins/api :: type :: PromptKeyOf :: type PromptKeyOf = NonNullable<DeclaredBy<S, 'promptKeys'>>[number]
-@rocketflare/shared/plugins/api :: type :: RealtimeEvent :: type RealtimeEvent = z.infer<typeof realtimeEventSchema>
-@rocketflare/shared/plugins/api :: type :: RealtimeEventType :: type RealtimeEventType = z.infer<typeof realtimeEventTypeSchema>
-@rocketflare/shared/plugins/api :: type :: ResourceVisibility :: type ResourceVisibility = z.infer<typeof resourceVisibilitySchema>
-@rocketflare/shared/plugins/api :: interface :: SharedPlugin :: interface SharedPlugin
-@rocketflare/shared/plugins/api :: member :: SharedPlugin.id :: readonly id: string
-@rocketflare/shared/plugins/api :: member :: SharedPlugin.label :: readonly label: string
-@rocketflare/shared/plugins/api :: member :: SharedPlugin.version :: readonly version?: string
-@rocketflare/shared/plugins/api :: member :: SharedPlugin.agentKeys :: readonly agentKeys?: readonly string[]
-@rocketflare/shared/plugins/api :: member :: SharedPlugin.promptKeys :: readonly promptKeys?: readonly string[]
-@rocketflare/shared/plugins/api :: member :: SharedPlugin.jobs :: readonly jobs?: readonly JobVariant[]
-@rocketflare/shared/plugins/api :: member :: SharedPlugin.subjects :: readonly subjects?: readonly string[]
-@rocketflare/shared/plugins/api :: member :: SharedPlugin.features :: readonly features?: Readonly<Record<string, FeatureDefinition>>
-@rocketflare/shared/plugins/api :: member :: SharedPlugin.config :: readonly config?: ZodRawShape
-@rocketflare/shared/plugins/api :: member :: SharedPlugin.realtimeRoots :: readonly realtimeRoots?: readonly string[]
-@rocketflare/shared/plugins/api :: type :: SubjectOf :: type SubjectOf = NonNullable<DeclaredBy<S, 'subjects'>>[number]
-@rocketflare/shared/plugins/api :: type :: Subjects :: type Subjects = CoreSubject | PluginSubject | FeatureSubject
+@rocketpod/shared/plugins/api :: type :: Actions :: type Actions = (typeof ACTIONS)[number]
+@rocketpod/shared/plugins/api :: type :: AgentKeyOf :: type AgentKeyOf = NonNullable<DeclaredBy<S, 'agentKeys'>>[number]
+@rocketpod/shared/plugins/api :: type :: ApiErrorBody :: type ApiErrorBody = z.infer<typeof apiErrorSchema>
+@rocketpod/shared/plugins/api :: const :: apiErrorSchema :: const apiErrorSchema: z.ZodObject<{ error: z.ZodString; statusCode: z.ZodNumber; code: z.ZodOptional<z.ZodString>; details: z.ZodOptional<z.ZodUnknown>; }, "strip", z.ZodTypeAny, { error: string; statusCode: number; code?: string | undefined; details?: unknown; }, { error: string; statusCode: number; code?: string | unde… (truncated)
+@rocketpod/shared/plugins/api :: type :: DeclaredBy :: type DeclaredBy = Extract<P, Record<K, unknown>> extends infer Declaring ? Declaring extends Record<K, unknown> ? Declaring[K] : never : never
+@rocketpod/shared/plugins/api :: const :: ERROR_CODES :: const ERROR_CODES: { readonly validationFailed: "validation_failed"; readonly unauthorized: "unauthorized"; readonly sessionExpired: "session_expired"; readonly forbidden: "forbidden"; readonly notFound: "not_found"; readonly conflict: "conflict"; readonly rateLimited: "rate_limited"; readonly pendingApproval: "pendin… (truncated)
+@rocketpod/shared/plugins/api :: type :: ErrorCode :: type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES]
+@rocketpod/shared/plugins/api :: interface :: FeatureDefinition :: interface FeatureDefinition
+@rocketpod/shared/plugins/api :: type :: FeatureFlagState :: type FeatureFlagState = z.infer<typeof featureFlagStateSchema>
+@rocketpod/shared/plugins/api :: type :: FeatureKeyOf :: type FeatureKeyOf = Extract< NonNullable<DeclaredBy<S, 'features'>> extends infer F ? F extends unknown ? keyof F : never : never, string >
+@rocketpod/shared/plugins/api :: type :: FeatureRolloutUnit :: type FeatureRolloutUnit = z.infer<typeof featureRolloutUnitSchema>
+@rocketpod/shared/plugins/api :: type :: GroupRef :: type GroupRef = z.infer<typeof groupRefSchema>
+@rocketpod/shared/plugins/api :: function :: isPluginId :: function isPluginId(value: string): boolean
+@rocketpod/shared/plugins/api :: type :: JobInput :: type JobInput = z.infer<typeof jobInputSchema>
+@rocketpod/shared/plugins/api :: type :: JobOf :: type JobOf = Extract<JobEnvelope, { type: T }>
+@rocketpod/shared/plugins/api :: type :: JobType :: type JobType = JobEnvelope['type']
+@rocketpod/shared/plugins/api :: type :: JobTypeOf :: type JobTypeOf = TypeOf< NonNullable<DeclaredBy<S, 'jobs'>>[number] >['type']
+@rocketpod/shared/plugins/api :: type :: JobVariant :: type JobVariant = ZodDiscriminatedUnionOption<'type'>
+@rocketpod/shared/plugins/api :: type :: MembershipRole :: type MembershipRole = z.infer<typeof membershipRoleSchema>
+@rocketpod/shared/plugins/api :: function :: paginatedResponse :: function paginatedResponse<T extends z.ZodTypeAny>(item: T)
+@rocketpod/shared/plugins/api :: function :: paginationMeta :: function paginationMeta(page: number, pageSize: number, total: number): PaginationMeta
+@rocketpod/shared/plugins/api :: type :: PaginationMeta :: type PaginationMeta = z.infer<typeof paginationMetaSchema>
+@rocketpod/shared/plugins/api :: const :: paginationMetaSchema :: const paginationMetaSchema: z.ZodObject<{ page: z.ZodNumber; pageSize: z.ZodNumber; total: z.ZodNumber; totalPages: z.ZodNumber; }, "strip", z.ZodTypeAny, { page: number; pageSize: number; total: number; totalPages: number; }, { page: number; pageSize: number; total: number; totalPages: number; }>
+@rocketpod/shared/plugins/api :: type :: PaginationQuery :: type PaginationQuery = z.infer<typeof paginationQuerySchema>
+@rocketpod/shared/plugins/api :: const :: paginationQuerySchema :: const paginationQuerySchema: z.ZodObject<{ page: z.ZodDefault<z.ZodNumber>; pageSize: z.ZodDefault<z.ZodNumber>; }, "strip", z.ZodTypeAny, { page: number; pageSize: number; }, { page?: number | undefined; pageSize?: number | undefined; }>
+@rocketpod/shared/plugins/api :: const :: PLUGIN_ID_RE :: const PLUGIN_ID_RE: RegExp
+@rocketpod/shared/plugins/api :: function :: pluginNamespace :: function pluginNamespace(id: string): string
+@rocketpod/shared/plugins/api :: type :: PromptKeyOf :: type PromptKeyOf = NonNullable<DeclaredBy<S, 'promptKeys'>>[number]
+@rocketpod/shared/plugins/api :: type :: RealtimeEvent :: type RealtimeEvent = z.infer<typeof realtimeEventSchema>
+@rocketpod/shared/plugins/api :: type :: RealtimeEventType :: type RealtimeEventType = z.infer<typeof realtimeEventTypeSchema>
+@rocketpod/shared/plugins/api :: type :: ResourceVisibility :: type ResourceVisibility = z.infer<typeof resourceVisibilitySchema>
+@rocketpod/shared/plugins/api :: interface :: SharedPlugin :: interface SharedPlugin
+@rocketpod/shared/plugins/api :: member :: SharedPlugin.id :: readonly id: string
+@rocketpod/shared/plugins/api :: member :: SharedPlugin.label :: readonly label: string
+@rocketpod/shared/plugins/api :: member :: SharedPlugin.version :: readonly version?: string
+@rocketpod/shared/plugins/api :: member :: SharedPlugin.agentKeys :: readonly agentKeys?: readonly string[]
+@rocketpod/shared/plugins/api :: member :: SharedPlugin.promptKeys :: readonly promptKeys?: readonly string[]
+@rocketpod/shared/plugins/api :: member :: SharedPlugin.jobs :: readonly jobs?: readonly JobVariant[]
+@rocketpod/shared/plugins/api :: member :: SharedPlugin.subjects :: readonly subjects?: readonly string[]
+@rocketpod/shared/plugins/api :: member :: SharedPlugin.features :: readonly features?: Readonly<Record<string, FeatureDefinition>>
+@rocketpod/shared/plugins/api :: member :: SharedPlugin.config :: readonly config?: ZodRawShape
+@rocketpod/shared/plugins/api :: member :: SharedPlugin.realtimeRoots :: readonly realtimeRoots?: readonly string[]
+@rocketpod/shared/plugins/api :: type :: SubjectOf :: type SubjectOf = NonNullable<DeclaredBy<S, 'subjects'>>[number]
+@rocketpod/shared/plugins/api :: type :: Subjects :: type Subjects = CoreSubject | PluginSubject | FeatureSubject
 '../api' (apps/cli/src/plugins/api.ts) :: type :: ActionWrapper :: type ActionWrapper = ( handler: (ctx: CommandContext, command: Command) => Promise<void> ) => (...args: unknown[]) => Promise<void>
 '../api' (apps/cli/src/plugins/api.ts) :: type :: AnyCliPlugin :: type AnyCliPlugin = CliPlugin<SharedPlugin>
 '../api' (apps/cli/src/plugins/api.ts) :: interface :: ApiClient :: interface ApiClient

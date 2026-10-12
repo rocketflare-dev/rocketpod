@@ -115,7 +115,7 @@ is sent as `client_secret_basic` only (no `private_key_jwt`).
   limit → CORS → CSRF → DB → tracing → mounts). Auth is per mount. The ASSETS catch-all 404s every
   API prefix, so a missing route never returns `index.html`. Order and exceptions:
   `.claude/rules/api.md`.
-- **Contracts (D13)**: zod schemas from `@rocketflare/shared` are used by the server, UI and CLI.
+- **Contracts (D13)**: zod schemas from `@rocketpod/shared` are used by the server, UI and CLI.
   There is no `hono/client` RPC. Errors are `{ error, statusCode, code?, details? }` everywhere,
   and success bodies are bare.
 - **Routes are thin** and never run long work (§5).
@@ -235,7 +235,7 @@ path); no per-PR previews.
   off-box `DATABASE_URL` (not loopback) is left alone by `dev-db.mjs` and skips preflight's Docker
   checks. The seed runs there with `SEED_ALLOW_REMOTE=1`. A sandbox that already installed, made
   the database and knows it is migrated says so instead of paying for it again: `--no-install`,
-  `ROCKETFLARE_BOOTSTRAP_SKIP=<steps>` (any of steps 1–8 by name) and `ROCKETFLARE_ALLOW_ROOT=1`
+  `ROCKETPOD_BOOTSTRAP_SKIP=<steps>` (any of steps 1–8 by name) and `ROCKETPOD_ALLOW_ROOT=1`
   (its commands run as root; the container is the boundary) — `SETUP.md` Part 1.
 - **Migrations**: `db:generate` → read the SQL → `db:migrate` (role → migrations → grants).
   Migrations are forward-only.
@@ -440,7 +440,7 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   auth — existing `LANGFUSE_*` keys migrate with no new secret; `OBSERVABILITY_CAPTURE_CONTENT=false`
   strips prompts, completions and tool I/O from both sinks; `pruneAiSpans` on the nightly cron keeps
   `OBSERVABILITY_SPAN_RETENTION_DAYS` (14). Read back through `GET /api/traces[/:id]` (`read
-  Trace`, admin+ — spans hold other people's prompts) and `rocketflare traces list|show`; the
+  Trace`, admin+ — spans hold other people's prompts) and `rocketpod traces list|show`; the
   `rf-traces` skill teaches an agent to debug from the span tree. Switch recipes: `docs/DEPLOY.md`
   § Tracing.
 
@@ -457,7 +457,7 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   tools, as in production); the agent target runs `enqueueRun` → `claimStep` → `executeRun` →
   `finishStep` inline. Each case gets a tenant of its own with its `context` documents ingested, so
   retrieval can only find what the case put there. Everything a target does runs in
-  `withEvalScope` (`observability/context.ts`), which marks its traces `rocketflare.eval=true`.
+  `withEvalScope` (`observability/context.ts`), which marks its traces `rocketpod.eval=true`.
   **The harness input IS the `EvalCase`** (`shared/ai/evals.ts`: input, messages, context,
   expected `{ output, rubric, tools, toolsMatch, contains }`, tags, source), so judges read each
   case's own expectations; `describeCases` attaches to a case only the judges it declares something
@@ -480,12 +480,12 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   (`POST /api/feedback`, `create Feedback` for every member, on an answer they can READ — another
   member's thread is a 404, admins included). One row per `(tenant, target, user)` in
   `ai_feedback`; voting again replaces, the same thumb twice withdraws. Each vote is also a
-  zero-length `feedback` span under the answer's trace root (`rocketflare.feedback.rating`), shown by
-  `rocketflare traces show`. AG-UI capabilities now declare `feedback: true` for chat and runs.
-  Admins (`read Feedback`) list the queue (`rocketflare feedback list --rating down`) and
+  zero-length `feedback` span under the answer's trace root (`rocketpod.feedback.rating`), shown by
+  `rocketpod traces show`. AG-UI capabilities now declare `feedback: true` for chat and runs.
+  Admins (`read Feedback`) list the queue (`rocketpod feedback list --rating down`) and
   `GET /api/evals/export?messageId|runId` drafts an `EvalCase` — question, history, the passages
   retrieved, the tools called, the OBSERVED answer as `expected.output`, the feedback — which
-  `rocketflare evals promote <id> --dataset <name>` appends to a dataset after warning that it is
+  `rocketpod evals promote <id> --dataset <name>` appends to a dataset after warning that it is
   tenant data (it will not write without `--yes` or a confirmed prompt).
 
   **D33 decisions** (design grilling, 2026-09-25, issue #21): vitest-evals as the runner, in its
@@ -575,7 +575,7 @@ pruned to the newest `BUNDLE_KEEP_DRAFTS` (5) after each attach.
 
 A thin client over `/api/*` using a tenant API key. It parses with shared schemas and never keeps
 a second copy of the contract (D26). `api.ts` is the only `fetch` site. Config lives in
-`~/.rocketflare/config.json` (0600); `ROCKETFLARE_API_KEY`/`ROCKETFLARE_URL` override it for CI.
+`~/.rocketpod/config.json` (0600); `ROCKETPOD_API_KEY`/`ROCKETPOD_URL` override it for CI.
 `--json` is available on every read. `traces list|show` reads the local AI trace store (D32);
 `feedback list` is the thumbs queue and `evals promote <id> --dataset <name>` appends a draft eval
 case to `apps/evals/datasets/` (D33, both admin+). Exit codes: 0 ok · 1 error · 2 not logged in ·
@@ -588,7 +588,7 @@ shell completion; not published.
 
 ## 12. Shared package
 
-`packages/shared` is private and has no build step: `@rocketflare/shared/<module>` resolves to
+`packages/shared` is private and has no build step: `@rocketpod/shared/<module>` resolves to
 `src/<module>.ts` (so a plugin entry is `…/plugins/<id>/index`). Contracts come first (D13): a new
 API surface starts here. Allowed imports: `zod`, siblings, type-only `@casl/ability`, and
 `@ag-ui/core` only in `ai/agui.ts` (`shared-imports.test.ts`). It never imports `apps/*`, and
@@ -658,11 +658,10 @@ cycle). Detail: `packages/shared/CLAUDE.md`.
   newest tag at `kit.repo` (`git ls-remote`, cached a day in the git-ignored
   `.claude/kit-update-check.json`; a failed check an hour) and hands Claude one message to relay
   once per session, with the CHANGELOG summaries and a pointer to `/rf-upgrade`. Copies only, a
-  fresh `startup` only, never in CI, `ROCKETFLARE_UPDATE_CHECK=0` to silence; any failure is
+  fresh `startup` only, never in CI, `ROCKETPOD_UPDATE_CHECK=0` to silence; any failure is
   silence.
-- **The kit reminds its own maintainers too**: two `PreToolUse` hooks on `git commit` —
-  `changelog-nudge.mjs` (source changed, no `unreleased.md` entry) and `release-site-nudge.mjs`
-  (root `package.json` version changed → update rocketflare.dev after tagging). Both answer with
+- **The kit reminds its own maintainers too**: a `PreToolUse` hook on `git commit` —
+  `changelog-nudge.mjs` (source changed, no `unreleased.md` entry). It answers with
   `hookSpecificOutput.additionalContext`, because a `PreToolUse` hook's plain stdout reaches only
   the debug log. Silent in a copy.
 - **Released history is never rewritten** — every copy pins a commit.
@@ -719,7 +718,7 @@ The full gate stays green at every step. `SETUP.md` is the walkthrough.
 - Resolved inside the session query, with no extra round trip. Gate every door: API mounts (404
   `feature_disabled`, not 403), plugin registries, **hooks that create rows**, and nav/routes.
 - Admin UI at `/admin/feature-flags`; a tenant override nudges that tenant.
-  `GET /api/features` / `rocketflare features list` show effective state.
+  `GET /api/features` / `rocketpod features list` show effective state.
 - **Rejected**: Cloudflare Flagship. It has no notion of your tenants, whole-object `PUT` loses
   updates, it has no local store, and the browser SDK needs a token. It fits the kit's own
   cross-deployment rollouts, not per-tenant entitlements.
@@ -880,7 +879,7 @@ description, not what it says — a stale command in a SKILL.md is caught only b
 
 An **organisation connection** to Microsoft 365 or Google Workspace (D34): an org admin grants an
 operator-registered app access to the whole directory, calendars and — later — mail and files, and
-Rocketflare syncs them into the tenant. It is **not login** (§2): a different app, a different
+Rocketpod syncs them into the tenant. It is **not login** (§2): a different app, a different
 grant (admin consent / domain-wide delegation, app-only tokens), a different subject (the
 organisation, not the signer). The design, operator and customer-admin setup, phases and the MCP
 assessment are in `docs/CONNECTORS.md`.

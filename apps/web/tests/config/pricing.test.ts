@@ -8,7 +8,7 @@ import {
   MODEL_PRICES,
   PRICES_UPDATED,
   priceFor,
-} from '@rocketflare/shared/ai/pricing'
+} from '@rocketpod/shared/ai/pricing'
 import { describe, expect, it } from 'vitest'
 
 describe('priceFor', () => {

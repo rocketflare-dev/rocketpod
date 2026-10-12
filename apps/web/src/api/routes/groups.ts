@@ -26,7 +26,7 @@ import {
   groupListQuerySchema,
   updateGroupRequestSchema,
   updateGroupTypeRequestSchema,
-} from '@rocketflare/shared/groups'
+} from '@rocketpod/shared/groups'
 import { guardPermission } from '../middleware/permissions'
 import { countGroupGrants, visibilityResources } from '../services/access'
 import { recordActivity } from '../services/activity'

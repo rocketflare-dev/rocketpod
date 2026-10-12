@@ -5,7 +5,7 @@
  */
 
 import { InboxArrowDownIcon } from '@heroicons/react/24/outline'
-import type { AccessRequest, AccessRequestStatus } from '@rocketflare/shared/access-requests'
+import type { AccessRequest, AccessRequestStatus } from '@rocketpod/shared/access-requests'
 import { useState } from 'react'
 import {
   EmptyState,

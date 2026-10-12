@@ -10,7 +10,7 @@
  * documents the RUN's requester may read (D29) — this is the tool a model reaches for when a search
  * comes back empty, so an unfiltered list here would leak every restricted title in the tenant.
  */
-import { KNOWLEDGE_TOOLS } from '@rocketflare/shared/ai/embeddings'
+import { KNOWLEDGE_TOOLS } from '@rocketpod/shared/ai/embeddings'
 import { and, desc, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { documents } from '../../../../db/schema'

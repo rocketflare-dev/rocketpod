@@ -1,4 +1,4 @@
--- Analytics left the kit for `rocketflare-plugin-analytics` (D31, Phase C, kit 0.6.0).
+-- Analytics left the kit for `rocketpod-plugin-analytics` (D31, Phase C, kit 0.6.0).
 --
 -- Edited after `pnpm db:generate`, which is allowed for a migration that has not been applied:
 -- `IF EXISTS` on each table, and the three `DROP POLICY` statements removed because dropping a

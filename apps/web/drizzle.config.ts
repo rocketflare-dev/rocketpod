@@ -8,7 +8,7 @@ export default defineConfig({
   dbCredentials: {
     url:
       process.env.DATABASE_URL ||
-      'postgresql://rocketflare:rocketflare_pass@localhost:5432/rocketflare_dev',
+      'postgresql://rocketpod:rocketpod_pass@localhost:5432/rocketpod_dev',
   },
   verbose: true,
   strict: true,

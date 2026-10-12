@@ -11,7 +11,7 @@ import {
   type ProviderPreset,
   presetsFor,
   WORKERS_AI_CHAT_MODEL,
-} from '@rocketflare/shared/ai/config'
+} from '@rocketpod/shared/ai/config'
 
 export interface ProviderInfo {
   id: AiProvider
@@ -60,7 +60,7 @@ export interface ProviderInfo {
  * `wrangler ai models list --json` filtered on the `function_calling` property, keep those whose
  * `wrangler ai models schema <model>` declares `tool_choice` under `input.oneOf[].properties`,
  * drive each through a two-turn tool loop to confirm it streams (nothing documents the stream
- * shape), and price it in `@rocketflare/shared/ai/pricing` from the catalog's own `price` property
+ * shape), and price it in `@rocketpod/shared/ai/pricing` from the catalog's own `price` property
  * — an unpriced model shows on the Usage page as an `unpricedCall`.
  */
 export const WORKERS_AI_TOOL_CHOICE_MODELS = [

@@ -3,13 +3,13 @@
  * the chat-model fallback (`llm.ts`). `ctx.decide` (services/agents) codes against this and never
  * against a vendor, exactly as the tool loop codes against `ChatClient`.
  */
-import type { TokenUsage } from '@rocketflare/shared/ai/chat'
-import type { AiProvider } from '@rocketflare/shared/ai/config'
+import type { TokenUsage } from '@rocketpod/shared/ai/chat'
+import type { AiProvider } from '@rocketpod/shared/ai/config'
 import type {
   DecisionAnswers,
   DecisionMethod,
   DecisionRequest,
-} from '@rocketflare/shared/ai/decisions'
+} from '@rocketpod/shared/ai/decisions'
 
 export interface DecisionResult {
   /** One answer per question id in the request — engines throw rather than return a partial set. */

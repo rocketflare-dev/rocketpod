@@ -4,7 +4,7 @@
  * `/api/ai/documents/upload`, D18) are the exceptions: they get `MAX_UPLOAD_BYTES` plus multipart
  * overhead, and each handler enforces the exact per-file limit. Over-limit → 413 in the shared envelope.
  */
-import { MAX_UPLOAD_BYTES } from '@rocketflare/shared/files'
+import { MAX_UPLOAD_BYTES } from '@rocketpod/shared/files'
 import type { Context } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 

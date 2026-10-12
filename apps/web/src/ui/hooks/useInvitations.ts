@@ -6,14 +6,14 @@
  * of which the banner needs to render "join Acme" → `/invite/<token>`. `pendingInvitationSchema`
  * accepts them as optional extras and the banner degrades (no link) when they are absent.
  */
-import { sessionResponseSchema } from '@rocketflare/shared/auth'
-import { paginatedResponse, paginationMetaSchema } from '@rocketflare/shared/pagination'
+import { sessionResponseSchema } from '@rocketpod/shared/auth'
+import { paginatedResponse, paginationMetaSchema } from '@rocketpod/shared/pagination'
 import {
   type BulkInviteRequest,
   type InviteMemberRequest,
   invitationDetailsSchema,
   invitationSchema,
-} from '@rocketflare/shared/tenants'
+} from '@rocketpod/shared/tenants'
 import {
   keepPreviousData,
   queryOptions,

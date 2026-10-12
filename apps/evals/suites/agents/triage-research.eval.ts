@@ -6,7 +6,7 @@
  * answer as `research-topic`'s suite does. Run it once with a TypeSafe key in `.dev.vars` and once
  * without to compare Jev with the chat-model fallback on the same cases.
  */
-import { triageResearchOutputSchema } from '@rocketflare/shared/ai/agents'
+import { triageResearchOutputSchema } from '@rocketpod/shared/ai/agents'
 import {
   agentHarness,
   ContainsJudge,

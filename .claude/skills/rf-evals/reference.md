@@ -15,7 +15,7 @@
 | `--concurrency 2` | Suite files run at once (`EVAL_CONCURRENCY`) — provider rate limits are the ceiling |
 | `pnpm eval:baseline [suite…] [--from <run.json>]` | Write `apps/evals/baselines/<suite>.json` from the latest (or named) run |
 | `pnpm eval:view [a.json [b.json]] [--compare …]` | Print the score diff (two runs, or the latest vs the one before / the baselines), then serve the vitest-evals report UI over the runs |
-| `pnpm --filter @rocketflare/evals test` | The eval kit's own unit tests (no model, no DB) — in the gate |
+| `pnpm --filter @rocketpod/evals test` | The eval kit's own unit tests (no model, no DB) — in the gate |
 | `pnpm cli feedback list [--rating up\|down] [--target message\|agent_run] [--json]` | The thumbs queue (admin+) |
 | `pnpm cli evals promote <id> --dataset <name> [--run] [--id <caseId>] [--dir <path>] [--yes]` | Append a draft case from a real message or run (admin+). Refuses to write tenant data unconfirmed |
 
@@ -63,7 +63,7 @@ suite threshold (0.7 by default).
 
 LLM judges run through `judgeHarness`, which calls the kit's resolver on the `evals-judge` prompt
 key (so Settings → agent models, or `--judge-model`, picks the model). Every call is an `ai_usage`
-row under feature `evals.judge` and a trace `invoke_agent evals-judge` with `rocketflare.eval=true`.
+row under feature `evals.judge` and a trace `invoke_agent evals-judge` with `rocketpod.eval=true`.
 The scorers are plain functions in `kit/scoring.ts`. An app's own judge is
 `{ name, assess(ctx), appliesTo? }`, where `ctx.input` is the case, `ctx.output` the answer,
 `ctx.toolCalls` the calls and `ctx.run` the whole transcript.
@@ -79,7 +79,7 @@ A run that parks on a person is settled `cancelled` by `finishStep` and scores a
 
 ## Run file
 
-A vitest JSON report plus a `rocketflare` header: `{ sha, dirty, createdAt, filters, model,
+A vitest JSON report plus a `rocketpod` header: `{ sha, dirty, createdAt, filters, model,
 modelsObserved, judgeModel, promptHashes: { <promptKey>: [hash] } }`. Per case:
 `testResults[].assertionResults[]` → `title` (the case id), `status`, `meta.eval.{avgScore, scores[]}`
 (each with `metadata.rationale`) and `meta.harness.run` (`session.events`, `usage`, `timings`,

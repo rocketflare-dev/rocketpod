@@ -10,7 +10,7 @@
  * still converting, and for a converted PDF it is usually the cover page.
  */
 import { DocumentTextIcon } from '@heroicons/react/24/outline'
-import type { DocumentCard as DocumentCardData } from '@rocketflare/shared/ai/embeddings'
+import type { DocumentCard as DocumentCardData } from '@rocketpod/shared/ai/embeddings'
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { formatBytes } from '@/ui/lib/format'

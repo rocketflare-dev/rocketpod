@@ -14,7 +14,7 @@
  * not a hook.
  */
 
-import { EXAMPLE_FEATURE_FLAG } from '@rocketflare/shared/plugins/example-feature/index'
+import { EXAMPLE_FEATURE_FLAG } from '@rocketpod/shared/plugins/example-feature/index'
 import { eq } from 'drizzle-orm'
 import type { HookCtx, SeedCtx } from '@/plugins/api'
 import { allTables } from '@/plugins/api/peers'

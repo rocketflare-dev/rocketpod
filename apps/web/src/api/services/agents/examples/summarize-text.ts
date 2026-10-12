@@ -26,8 +26,8 @@ import {
   type SummarizeTextOutput,
   summarizeTextInputSchema,
   summarizeTextOutputSchema,
-} from '@rocketflare/shared/ai/agents'
-import { approvalPayloadSchema } from '@rocketflare/shared/ai/interrupts'
+} from '@rocketpod/shared/ai/agents'
+import { approvalPayloadSchema } from '@rocketpod/shared/ai/interrupts'
 import { z } from 'zod'
 import { ingestText } from '../../ai/ingest'
 import { callStructuredTool } from '../../ai/kit'

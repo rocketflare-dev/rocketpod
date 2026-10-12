@@ -4,7 +4,7 @@
  * stays inline (a person is waiting) and enqueues nothing. Assertions run against the
  * `RecordingQueue` behind `stubs(env).queue`.
  */
-import { jobEnvelopeSchema } from '@rocketflare/shared/jobs'
+import { jobEnvelopeSchema } from '@rocketpod/shared/jobs'
 import { describe, expect, it } from 'vitest'
 import {
   buildJobEnvelope,
@@ -106,9 +106,9 @@ describe('enqueueJob / enqueueJobs', () => {
 
   it('isJobsQueue matches every environment of the queue by prefix', () => {
     expect(isJobsQueue(JOBS_QUEUE_NAME_PREFIX)).toBe(true)
-    expect(isJobsQueue('rocketflare-jobs')).toBe(true)
-    expect(isJobsQueue('rocketflare-jobs-staging')).toBe(true)
-    expect(isJobsQueue('rocketflare-jobs-dlq')).toBe(true)
+    expect(isJobsQueue('rocketpod-jobs')).toBe(true)
+    expect(isJobsQueue('rocketpod-jobs-staging')).toBe(true)
+    expect(isJobsQueue('rocketpod-jobs-dlq')).toBe(true)
     expect(isJobsQueue('other-queue')).toBe(false)
     expect(isJobsQueue('')).toBe(false)
   })

@@ -11,7 +11,7 @@
  * unsupported file); anything thrown by the binding itself is transient and left for the queue's
  * retry.
  */
-import { resolveDocumentUploadType } from '@rocketflare/shared/ai/embeddings'
+import { resolveDocumentUploadType } from '@rocketpod/shared/ai/embeddings'
 import { type AiEnv, type MarkdownDocumentInput, markdownConverterOf } from './types'
 
 export class ConversionFailedError extends Error {

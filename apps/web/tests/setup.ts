@@ -18,7 +18,7 @@ import {
   setupTestDatabase,
 } from './helpers/db'
 
-const MEMO = Symbol.for('rocketflare.tests.globalSetup')
+const MEMO = Symbol.for('rocketpod.tests.globalSetup')
 type MemoHost = typeof globalThis & { [MEMO]?: Promise<TestSeed> }
 
 export default async function setup(context: {

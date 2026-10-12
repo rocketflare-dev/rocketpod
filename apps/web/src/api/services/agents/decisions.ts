@@ -27,7 +27,7 @@ import {
   type DecisionRequest,
   decisionAnswerLabel,
   decisionRequestSchema,
-} from '@rocketflare/shared/ai/decisions'
+} from '@rocketpod/shared/ai/decisions'
 import { and, asc, eq } from 'drizzle-orm'
 import type { Database } from '../../../db/client'
 import { type AgentRunDecisionRow, agentRunDecisions } from '../../../db/schema'
@@ -201,7 +201,7 @@ export function createDecide(deps: DecideDeps): AgentDecide {
       },
       decision => ({
         output: summarise(decision.answers),
-        attributes: { 'rocketflare.decision.min_confidence': minConfidence(decision.answers) },
+        attributes: { 'rocketpod.decision.min_confidence': minConfidence(decision.answers) },
       })
     )
   }) as AgentDecide

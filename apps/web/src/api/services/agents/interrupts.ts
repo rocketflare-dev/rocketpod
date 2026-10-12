@@ -20,13 +20,13 @@
  * module that both answers questions and settles runs would close an import cycle with the module
  * that owns the lifecycle.
  */
-import type { AgentInterruptSpec, AgentInterruptStatus } from '@rocketflare/shared/ai/interrupts'
+import type { AgentInterruptSpec, AgentInterruptStatus } from '@rocketpod/shared/ai/interrupts'
 import {
   type AgentRunInterrupt,
   aguiReasonFor,
   interruptPayloadSchema,
   rejectionFor,
-} from '@rocketflare/shared/ai/interrupts'
+} from '@rocketpod/shared/ai/interrupts'
 import { and, asc, eq, inArray } from 'drizzle-orm'
 import type { Database } from '../../../db/client'
 import { type AgentRunInterruptRow, agentRunInterrupts } from '../../../db/schema'

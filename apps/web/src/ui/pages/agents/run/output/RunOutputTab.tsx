@@ -27,7 +27,7 @@ export function RunOutputTab({
   const [raw, setRaw] = useState(false)
   const hasOutput = output !== null && output !== undefined
   // D33: the run's output is an answer like any chat reply, and a thumbs-down here is a candidate
-  // for `rocketflare evals promote`.
+  // for `rocketpod evals promote`.
   const { data: myVotes } = useMyFeedback('agent_run', hasOutput ? [runId] : [])
   if (output === null || output === undefined) {
     return (

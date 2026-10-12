@@ -9,7 +9,7 @@
  * generic toast. Same cookie + `X-Requested-With` discipline as `lib/api-client.ts`.
  *
  * `@ag-ui/core` reaches the browser only through this module's import of
- * `@rocketflare/shared/ai/agui` — it must stay out of the eager shell (`.claude/rules/ui.md`).
+ * `@rocketpod/shared/ai/agui` — it must stay out of the eager shell (`.claude/rules/ui.md`).
  */
 import {
   AguiEventType,
@@ -19,10 +19,10 @@ import {
   type KitNoticeCode,
   kitAguiEventSchema,
   parseKitCustom,
-} from '@rocketflare/shared/ai/agui'
-import type { TokenUsage } from '@rocketflare/shared/ai/chat'
-import type { DocumentCard } from '@rocketflare/shared/ai/embeddings'
-import type { ApiErrorBody } from '@rocketflare/shared/errors'
+} from '@rocketpod/shared/ai/agui'
+import type { TokenUsage } from '@rocketpod/shared/ai/chat'
+import type { DocumentCard } from '@rocketpod/shared/ai/embeddings'
+import type { ApiErrorBody } from '@rocketpod/shared/errors'
 import { ApiError, notifyUnauthorized, parseErrorBody } from './api-client'
 import { isAbortError, readSse } from './sse'
 

@@ -1,6 +1,6 @@
 /**
  * The `ai_spans` sink (D32): recorded spans batch-inserted into Postgres in the same flush as the
- * OTLP export, so `rocketflare traces show` works with zero credentials. A span with no tenant is
+ * OTLP export, so `rocketpod traces show` works with zero credentials. A span with no tenant is
  * skipped — the table is tenant-scoped and RLS'd, and every AI path the kit traces has one.
  *
  * Two ways to get a database, because the flush runs in two kinds of place:

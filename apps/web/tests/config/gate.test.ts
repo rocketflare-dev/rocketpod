@@ -6,7 +6,7 @@
  */
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
-import { gateListSchema } from '@rocketflare/shared/gate'
+import { gateListSchema } from '@rocketpod/shared/gate'
 import { describe, expect, it } from 'vitest'
 import { GATE_STEPS, gateList, parseGateArgs } from '../../../../scripts/lib/gate-lib.mjs'
 import type { TestPlan } from '../../../../scripts/lib/test-plan.d.mts'

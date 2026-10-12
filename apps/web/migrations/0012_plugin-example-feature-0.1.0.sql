@@ -13,4 +13,4 @@ ALTER TABLE "example_notes" ADD CONSTRAINT "example_notes_tenant_id_tenants_id_f
 ALTER TABLE "example_notes" ADD CONSTRAINT "example_notes_owner_user_id_users_id_fk" FOREIGN KEY ("owner_user_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "example_notes_tenant_created_idx" ON "example_notes" USING btree ("tenant_id","created_at");--> statement-breakpoint
 CREATE INDEX "example_notes_tenant_owner_idx" ON "example_notes" USING btree ("tenant_id","owner_user_id");--> statement-breakpoint
-CREATE POLICY "example_notes_tenant_isolation" ON "example_notes" AS PERMISSIVE FOR ALL TO "rocketflare_app" USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid) WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+CREATE POLICY "example_notes_tenant_isolation" ON "example_notes" AS PERMISSIVE FOR ALL TO "rocketpod_app" USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid) WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);

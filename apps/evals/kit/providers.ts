@@ -9,8 +9,8 @@
  * `openai_compatible` against Google's OpenAI-compatible endpoint (the client appends
  * `/chat/completions`).
  */
-import type { AiProvider } from '@rocketflare/shared/ai/config'
-import { PROVIDER_PRESETS } from '@rocketflare/shared/ai/config'
+import type { AiProvider } from '@rocketpod/shared/ai/config'
+import { PROVIDER_PRESETS } from '@rocketpod/shared/ai/config'
 import { encrypt, requireEncryptionKey } from '@/api/auth/oauth-encryption'
 import type { AppConfig } from '@/config'
 import type { Database } from '@/db/client'

@@ -14,14 +14,14 @@
  * are `level_<i>` because some providers reject a bare-digit property name.
  */
 
-import type { TokenUsage } from '@rocketflare/shared/ai/chat'
+import type { TokenUsage } from '@rocketpod/shared/ai/chat'
 import type {
   DecisionAnswer,
   DecisionAnswers,
   DecisionQuestion,
   DecisionRequest,
-} from '@rocketflare/shared/ai/decisions'
-import { choiceConfidence, noulConfidence, scoreConfidence } from '@rocketflare/shared/ai/decisions'
+} from '@rocketpod/shared/ai/decisions'
+import { choiceConfidence, noulConfidence, scoreConfidence } from '@rocketpod/shared/ai/decisions'
 import { z } from 'zod'
 import { callStructuredTool } from '../kit'
 import type { ChatClient, SystemPrompt } from '../types'

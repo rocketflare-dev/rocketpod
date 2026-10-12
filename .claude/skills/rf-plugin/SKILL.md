@@ -1,6 +1,6 @@
 ---
 name: rf-plugin
-description: Install, upgrade, remove and audit Rocketflare plugins — a plugin is a git repository copied into this app, not an npm package. Use when someone asks to add a plugin, pull in a plugin's later releases, uninstall one, check the installed set, or author a plugin of their own.
+description: Install, upgrade, remove and audit Rocketpod plugins — a plugin is a git repository copied into this app, not an npm package. Use when someone asks to add a plugin, pull in a plugin's later releases, uninstall one, check the installed set, or author a plugin of their own.
 argument-hint: "[add <repo|path> | upgrade <id> | remove <id> | list | check]"
 ---
 
@@ -178,7 +178,7 @@ never deletes one, and `pnpm remove` on a dependency is printed rather than run.
 The loop is a local path plus the sidecar:
 
 ```
-pnpm plugin add ../rocketflare-plugin-<id> --local --apply   # read directly, recorded in .rocketflare.local.json
+pnpm plugin add ../rocketpod-plugin-<id> --local --apply   # read directly, recorded in .rocketflare.local.json
 # edit it in place; the host's own `pnpm test` runs its tests
 pnpm plugin export <id> <dir>                                 # copy it back out as a repository
 ```

@@ -47,7 +47,7 @@ Node 24 (`.nvmrc`), pnpm 10 (`corepack enable` reads `packageManager`), Docker; 
 (Windows: WSL2). Then:
 
 ```bash
-git clone https://github.com/rocketflare-dev/rocketflare.git && cd rocketflare
+git clone https://github.com/rocketflare-dev/rocketpod.git && cd rocketpod
 bash scripts/bootstrap.sh        # toolchain → install → .dev.vars → Postgres → migrate → seed --demo → pnpm dev, signed in
 pnpm test:db:up && pnpm test     # the full suite against a throwaway Postgres on :5433
 ```
@@ -161,22 +161,12 @@ the approval. Enqueue email.send instead — the consumer retries with backoff.
 
 ### <a name="cutting-a-release"></a> Cutting a release
 
-Maintainers only. `SETUP.md` 3.7 is the release dance every copy of the kit deploys with; the kit
-adds one step, because rocketflare.dev keeps its own copy of the release list.
+Maintainers only. `SETUP.md` 3.7 is the release dance every copy of the kit deploys with.
 
 1. `pnpm kit:release X.Y.Z`, then `node scripts/release-check.mjs --tag X.Y.Z` and the gate.
 2. `git commit -am "Release X.Y.Z" && git tag -m "Release X.Y.Z" X.Y.Z && git push origin main X.Y.Z`.
    The tag has to be annotated because tags are signed. The kit's `deploy.yml` skips deployment,
    since its tomls hold placeholders, and `notify-plugins.yml` pings the plugin repositories.
-3. **Update the site's changelog**, which never happens automatically. `rocketflare-www` stores
-   the release list as committed data (`src/data/releases.ts`) so it can build without the kit. In a
-   checkout next to this one, on a branch (a push to its `main` deploys):
-   `npm run sync:releases` adds the entry from the new porting note's frontmatter with a `TODO`
-   summary. Replace that with one line in the site's voice, then run
-   `npm run check:releases && npm run build` and open a PR. Merging deploys rocketflare.dev.
-   In a Claude Code session you are reminded of this step: `scripts/release-site-nudge.mjs` fires
-   on the release commit (any commit that changes the root `package.json` version). The plugins
-   monorepo carries the same hook, and there step 3 also means updating `src/data/plugins.ts`.
 
 ### <a name="architecture-guidelines"></a> Architecture guidelines
 

@@ -8,7 +8,7 @@
  * deriving one from the output it already returns. Both shipped agents DO call `ctx.artifact()`,
  * so for them this covers runs recorded before they did.
  */
-import type { AgentArtifact } from '@rocketflare/shared/ai/artifacts'
+import type { AgentArtifact } from '@rocketpod/shared/ai/artifacts'
 import type { ComponentType } from 'react'
 import type { z } from 'zod'
 

@@ -17,7 +17,7 @@ kit depends on it. `../CLAUDE.md` is the seam it plugs into.
 | `ServerPlugin.hooks` | `onTenantCreated` (one welcome note, idempotent by "only when there are none") and `seedDemo` (two notes + the flag at 50 % rollout) |
 | `UiPlugin.routes` / `nav` | `/example-feature`, `lazy()`, above the kit's "Organisation" group; route and nav share ONE guard |
 | `UiPlugin.queryKeys` | `example-feature:notes` — the same string the server's `entity.changed` nudge carries, declared once in `shared.ts` |
-| `CliPlugin.register` | `rocketflare example-feature ping` and `… notes list` |
+| `CliPlugin.register` | `rocketpod example-feature ping` and `… notes list` |
 | `"skills"` | `example-feature` → `.claude/skills/example-feature/SKILL.md`: how to exercise this plugin (flag, notes, ping, public link). Vendored, so it lives in the kit's tree at its installed path; a plugin REPOSITORY ships it at `skills/example-feature/` |
 | its own tests | `tests/{api,ui,config}/`, discovered by the host's projects; the api one pins that tenant B can neither list, read nor delete tenant A's notes |
 

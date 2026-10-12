@@ -1,5 +1,5 @@
 /**
- * `rocketflare evals promote <messageId|runId> --dataset <name>` (D33) — turn one real answer into
+ * `rocketpod evals promote <messageId|runId> --dataset <name>` (D33) — turn one real answer into
  * a draft eval case and append it to `apps/evals/datasets/<name>.jsonl` for review in a pull
  * request.
  *
@@ -15,11 +15,7 @@ import { existsSync } from 'node:fs'
 import { appendFile, mkdir, readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { createInterface } from 'node:readline/promises'
-import {
-  type EvalCase,
-  evalCaseSchema,
-  evalExportResponseSchema,
-} from '@rocketflare/shared/ai/evals'
+import { type EvalCase, evalCaseSchema, evalExportResponseSchema } from '@rocketpod/shared/ai/evals'
 import { CliApiError } from '../api'
 import { type CommandContext, requireClient } from '../context'
 import { CliError } from '../errors'

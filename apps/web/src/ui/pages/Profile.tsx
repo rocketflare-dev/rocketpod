@@ -7,7 +7,7 @@
  */
 
 import { LinkIcon } from '@heroicons/react/24/outline'
-import { updateProfileRequestSchema } from '@rocketflare/shared/user-settings'
+import { updateProfileRequestSchema } from '@rocketpod/shared/user-settings'
 import { useEffect, useRef, useState } from 'react'
 import { PROVIDER_ICONS, providerLabel } from '@/ui/components/icons/ProviderIcons'
 import {

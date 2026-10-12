@@ -11,7 +11,7 @@
  * may not see (D29 — the SAME answer as unknown, and the hint never says the document exists) or a
  * not-yet-converted upload each get a plain answer rather than an error.
  */
-import { type DocumentContent, KNOWLEDGE_TOOLS } from '@rocketflare/shared/ai/embeddings'
+import { type DocumentContent, KNOWLEDGE_TOOLS } from '@rocketpod/shared/ai/embeddings'
 import { z } from 'zod'
 import { readDocumentWindow } from '../../ai/document-content'
 import type { Tool } from '../../ai/kit'

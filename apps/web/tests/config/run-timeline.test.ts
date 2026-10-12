@@ -4,7 +4,7 @@
  * conversion. No database, no DOM — these are data functions, and each of them is guarding a
  * specific way the page could be silently wrong.
  */
-import type { JsonSchema } from '@rocketflare/shared/ai/interrupts'
+import type { JsonSchema } from '@rocketpod/shared/ai/interrupts'
 import { describe, expect, it } from 'vitest'
 import {
   fieldsFromJsonSchema,

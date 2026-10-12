@@ -12,7 +12,7 @@ import {
   PROMPT_MAX_LENGTH,
   type PromptWithResolved,
   updatePromptRequestSchema,
-} from '@rocketflare/shared/ai/prompts'
+} from '@rocketpod/shared/ai/prompts'
 import { type FormEvent, useRef, useState } from 'react'
 import {
   ConfirmModal,

@@ -25,11 +25,11 @@
  * error surfaces in whatever file next touches it rather than here.
  */
 
-import { ERROR_CODES } from '@rocketflare/shared/errors'
-import type { GroupRef, ResourceVisibility } from '@rocketflare/shared/groups'
-import type { JobEnvelope, JobInput } from '@rocketflare/shared/jobs'
-import type { PaginationMeta, PaginationQuery } from '@rocketflare/shared/pagination'
-import type { Actions, Subjects } from '@rocketflare/shared/permissions'
+import { ERROR_CODES } from '@rocketpod/shared/errors'
+import type { GroupRef, ResourceVisibility } from '@rocketpod/shared/groups'
+import type { JobEnvelope, JobInput } from '@rocketpod/shared/jobs'
+import type { PaginationMeta, PaginationQuery } from '@rocketpod/shared/pagination'
+import type { Actions, Subjects } from '@rocketpod/shared/permissions'
 import { can as canDo, guardPermission } from '../../api/middleware/permissions'
 import type { SetResourceGroupsInput } from '../../api/services/access'
 import type { AccessScope } from '../../api/services/access-sql'

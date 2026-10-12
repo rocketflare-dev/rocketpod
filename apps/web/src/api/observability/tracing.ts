@@ -168,7 +168,7 @@ export async function withAgentTrace<T>(
 
 export interface TraceClientMeta {
   provider: string
-  /** Kept as `rocketflare.generation.name`; the span itself is `chat <model>` per semconv. */
+  /** Kept as `rocketpod.generation.name`; the span itself is `chat <model>` per semconv. */
   name?: string
 }
 

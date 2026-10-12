@@ -19,7 +19,7 @@
  * `Tool.requiresApproval` — where the point of the second is that the gate raises before the
  * handler ever runs, so a parked run has written nothing.
  */
-import { researchTopicOutputSchema } from '@rocketflare/shared/ai/agents'
+import { researchTopicOutputSchema } from '@rocketpod/shared/ai/agents'
 import { eq } from 'drizzle-orm'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { listArtifacts } from '@/api/services/agents/artifacts'

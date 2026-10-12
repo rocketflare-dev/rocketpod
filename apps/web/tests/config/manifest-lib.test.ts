@@ -114,7 +114,7 @@ describe('readManifest', () => {
  * Written as literals, `scripts/rename.mjs` rewrote all three: a copy renamed to `acme` looked for
  * `.acme.json`, found nothing, and every `pnpm plugin` command died with "not found" against a file
  * sitting in the root. Nothing in the kit's own suite could see it, because in the kit the two
- * spellings are the same string. Building them from `KIT.slug` — which lives in a file the rename
+ * spellings are the same string. Building them from `KIT.ecosystem` — which lives in a file the rename
  * skips — is what makes them survive, and this is the test that says so.
  */
 describe('the fixed filenames survive a rename', () => {
@@ -124,9 +124,9 @@ describe('the fixed filenames survive a rename', () => {
     applyReplacements(readFileSync(path.join(REPO_ROOT, rel), 'utf8'), names).text
 
   it('belong to the kit, not to the app', () => {
-    expect(MANIFEST_FILE).toBe(`.${KIT.slug}.json`)
-    expect(SIDECAR_FILE).toBe(`.${KIT.slug}.local.json`)
-    expect(PLUGIN_MANIFEST_FILE).toBe(`${KIT.slug}-plugin.json`)
+    expect(MANIFEST_FILE).toBe(`.${KIT.ecosystem}.json`)
+    expect(SIDECAR_FILE).toBe(`.${KIT.ecosystem}.local.json`)
+    expect(PLUGIN_MANIFEST_FILE).toBe(`${KIT.ecosystem}-plugin.json`)
   })
 
   it('are not written as literals the rename can rewrite', () => {
@@ -136,7 +136,7 @@ describe('the fixed filenames survive a rename', () => {
       // is not what this is about — only a STRING the code would then go looking for.
       expect(renamed).not.toMatch(/'\.acme\.json'/)
       expect(renamed).not.toMatch(/'acme-plugin\.json'/)
-      expect(renamed).toContain('KIT.slug')
+      expect(renamed).toContain('KIT.ecosystem')
     }
   })
 })

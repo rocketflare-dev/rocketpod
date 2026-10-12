@@ -12,8 +12,8 @@
  * exactly one answer to "is this feature on for this request", and never the CASL ability, whose
  * `manage all` would hand the dark surface to every global admin. See `permissions/features.ts`.
  */
-import { ERROR_CODES } from '@rocketflare/shared/errors'
-import type { FeatureName } from '@rocketflare/shared/permissions'
+import { ERROR_CODES } from '@rocketpod/shared/errors'
+import type { FeatureName } from '@rocketpod/shared/permissions'
 import { createMiddleware } from 'hono/factory'
 import { hasFeature } from '../../permissions/features'
 import type { AppEnv } from '../types'

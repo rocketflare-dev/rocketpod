@@ -33,7 +33,7 @@ plugin is the worked example — `apps/web/src/plugins/example-feature/plugin.js
   "id": "example-feature",
   "label": "Example feature",
   "version": "0.1.0",
-  "repo": "https://github.com/rocketflare-dev/rocketflare.git",
+  "repo": "https://github.com/rocketflare-dev/rocketpod.git",
   "subdir": "",
   "anchor": "apps/web/src/plugins/example-feature/plugin.json",
   "minKit": "0.8.0",

@@ -22,8 +22,8 @@
  * `db:check`, step 7 seeds with SEED_ALLOW_REMOTE=1. Still ten steps. `bootstrapStepPlan` decides.
  *
  * For a caller that has done part of the work itself (a coding sandbox: its own `pnpm install`, a
- * database it just made): `--no-install` leaves step 2 out, `ROCKETFLARE_BOOTSTRAP_SKIP` names any
- * of steps 1–8 to leave out, and `ROCKETFLARE_ALLOW_ROOT=1` lifts the root refusal (a container
+ * database it just made): `--no-install` leaves step 2 out, `ROCKETPOD_BOOTSTRAP_SKIP` names any
+ * of steps 1–8 to leave out, and `ROCKETPOD_ALLOW_ROOT=1` lifts the root refusal (a container
  * whose commands all run as root). None of them is set by a person's normal run.
  *
  * Exit codes: 0 ok · 1 a step failed · 2 usage · 3 prerequisite missing · 4 a port or the Postgres
@@ -112,11 +112,11 @@ Take a fresh clone to a running, signed-in dev stack in one command. Re-runnable
   --help        this text
 
 Environment (for a caller that has done part of the work itself — a coding sandbox; not --check):
-  ROCKETFLARE_BOOTSTRAP_SKIP=<steps>
+  ROCKETPOD_BOOTSTRAP_SKIP=<steps>
                 comma-separated steps to leave out: toolchain, install, secrets, database,
                 migrate, plugins, seed, cloudflare (an unknown name is exit 2). Skipping
                 cloudflare leaves both wrangler tomls untouched
-  ROCKETFLARE_ALLOW_ROOT=1
+  ROCKETPOD_ALLOW_ROOT=1
                 run as root (a container whose commands all run as uid 0)
 
 Exit codes: 0 ok · 1 a step failed · 2 usage · 3 prerequisite missing · 4 port/container held by
@@ -470,7 +470,7 @@ async function stepDatabase(opts, plan) {
 async function legacyVolume() {
   const ls = await run('docker', ['volume', 'ls', '--format', '{{.Name}}'])
   if (ls.code !== 0) return null
-  return ls.output.split('\n').find(name => name.trim() === 'web_rocketflare-dev-data') ?? null
+  return ls.output.split('\n').find(name => name.trim() === 'web_rocketpod-dev-data') ?? null
 }
 
 async function stepMigrate() {
@@ -659,7 +659,7 @@ async function stepCloudflare(opts) {
 /** Step 8, run after the server answers: the CLI against the seed key, env of the child only. */
 async function stepCli(key) {
   const result = await pnpm(['--silent', 'cli', 'whoami'], {
-    env: { ...process.env, ROCKETFLARE_API_KEY: key, ROCKETFLARE_URL: API_URL },
+    env: { ...process.env, ROCKETPOD_API_KEY: key, ROCKETPOD_URL: API_URL },
   })
   if (result.code !== 0) {
     throw new StepError(`pnpm cli whoami exited ${result.code}`, {
@@ -770,14 +770,14 @@ async function check() {
 }
 
 async function bootstrap(opts) {
-  say(bold(`Rocketflare bootstrap — ${REPO_ROOT}`))
+  say(bold(`Rocketpod bootstrap — ${REPO_ROOT}`))
   const plan = bootstrapStepPlan({ dbUrl: opts.dbUrl })
   const skip = new Set(opts.skip)
-  // A step named in ROCKETFLARE_BOOTSTRAP_SKIP prints its line and does nothing. `install` is the
+  // A step named in ROCKETPOD_BOOTSTRAP_SKIP prints its line and does nothing. `install` is the
   // exception: skipped, it still checks the wrangler binary every later step relies on.
   const maybe = (n, name, fn) =>
     skip.has(name)
-      ? step(n, name, () => ({ verify: 'skipped (ROCKETFLARE_BOOTSTRAP_SKIP)' }))
+      ? step(n, name, () => ({ verify: 'skipped (ROCKETPOD_BOOTSTRAP_SKIP)' }))
       : step(n, name, fn)
   await maybe(1, 'toolchain', () => stepToolchain(plan))
   await step(2, 'install', () => stepInstall({ skipped: skip.has('install') }))
@@ -889,7 +889,7 @@ if (process.platform !== 'darwin' && process.platform !== 'linux') {
 // .dev.vars break the next run as the person's own user.
 if (!opts.allowRoot && typeof os.userInfo === 'function' && os.userInfo().uid === 0) {
   process.stderr.write(
-    'bootstrap: refusing to run as root — run as your own user (a container: ROCKETFLARE_ALLOW_ROOT=1)\n'
+    'bootstrap: refusing to run as root — run as your own user (a container: ROCKETPOD_ALLOW_ROOT=1)\n'
   )
   process.exit(EXIT.prerequisite)
 }

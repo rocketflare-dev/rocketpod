@@ -22,7 +22,7 @@ make answers better or worse?** They run locally with `pnpm eval`, cost real tok
 Only the model keys (Anthropic, Fireworks, Gemini), the embeddings key and the tracing keys are
 read from `.dev.vars`. A variable in the environment
 (CI's secret) wins over both files. If `LANGFUSE_*` or `OTEL_EXPORTER_OTLP_*` keys are set, eval
-traces are exported too, tagged `rocketflare.eval=true`.
+traces are exported too, tagged `rocketpod.eval=true`.
 
 ## Layout
 
@@ -43,7 +43,7 @@ The targets import `apps/web` source in-process through the same `@/` alias.
 
 ```ts
 // apps/evals/suites/agents/triage-ticket.eval.ts
-import { triageTicketOutputSchema } from '@rocketflare/shared/ai/agents'
+import { triageTicketOutputSchema } from '@rocketpod/shared/ai/agents'
 import { agentHarness, ContainsJudge, describeCases, loadDataset, RubricJudge, SchemaJudge } from '../../kit'
 
 describeCases('agent · triage-ticket', {

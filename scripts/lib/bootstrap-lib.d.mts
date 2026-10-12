@@ -93,9 +93,9 @@ export interface BootstrapOptions {
   check: boolean
   verbose: boolean
   help: boolean
-  /** Steps left out, in step order: `ROCKETFLARE_BOOTSTRAP_SKIP`, plus `install` for `--no-install`. */
+  /** Steps left out, in step order: `ROCKETPOD_BOOTSTRAP_SKIP`, plus `install` for `--no-install`. */
   skip: BootstrapSkippableStep[]
-  /** `ROCKETFLARE_ALLOW_ROOT=1`: run as uid 0 (a container whose commands all run as root). */
+  /** `ROCKETPOD_ALLOW_ROOT=1`: run as uid 0 (a container whose commands all run as root). */
   allowRoot: boolean
 }
 export const BOOTSTRAP_SKIPPABLE_STEPS: readonly [

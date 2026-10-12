@@ -20,7 +20,7 @@
 # `pnpm exec wrangler` (the apps/web devDependency) — works whether it is invoked from the root,
 # from apps/web, or by absolute path.
 #
-# Requires: pnpm, an authenticated wrangler session (`pnpm --filter @rocketflare/web exec wrangler login`
+# Requires: pnpm, an authenticated wrangler session (`pnpm --filter @rocketpod/web exec wrangler login`
 # from the root, or CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID in the environment), and — only
 # under DATABASE_DRIVER=postgres — NEON_DATABASE_URL, the DIRECT (non `-pooler`) host of that
 # environment's Postgres. Hyperdrive pools itself; see docs/DEPLOY.md → Database driver.
@@ -110,7 +110,7 @@ redact() { sed -E 's#postgres[a-z]*://[^ "'"'"']*#<redacted>#g'; }
 # ---- preflight ------------------------------------------------------------------------------
 if ! command -v pnpm >/dev/null 2>&1; then echo "pnpm not found (corepack enable)" >&2; exit 1; fi
 if ! wr whoami >/dev/null 2>&1; then
-  echo "wrangler is not authenticated. Run: pnpm --filter @rocketflare/web exec wrangler login   (or export CLOUDFLARE_API_TOKEN)" >&2
+  echo "wrangler is not authenticated. Run: pnpm --filter @rocketpod/web exec wrangler login   (or export CLOUDFLARE_API_TOKEN)" >&2
   exit 1
 fi
 if [ "$DRIVER" = "postgres" ]; then
@@ -291,7 +291,7 @@ EOT
 fi
 cat <<EOT
 Then (from the workspace root):
-  REQUIRE_PROVISIONED=1 pnpm --filter @rocketflare/web test:config   # parity test must pass with no <PLACEHOLDER> left
+  REQUIRE_PROVISIONED=1 pnpm --filter @rocketpod/web test:config   # parity test must pass with no <PLACEHOLDER> left
   git diff apps/web/${TOML}                                    # review; ids are not secrets and are committed
 Name-referenced resources for this environment (already declared in ${TOML}):
   queue      = "${QUEUE_NAME}"

@@ -535,7 +535,7 @@ describe('pnpm plugin, with skills, end to end', () => {
   })
 
   it('upgrade patches the plugin’s files in the kit repository itself, which has no app names', () => {
-    // There used to be a `deriveNames('rocketflare')` stand-in here, which throws ("the kit's own
+    // There used to be a `deriveNames('rocketpod')` stand-in here, which throws ("the kit's own
     // name"): every patched file became a warning and the anchor stayed at the old version.
     const host = makeHost({ kit: true })
     const plugin = makePlugin()

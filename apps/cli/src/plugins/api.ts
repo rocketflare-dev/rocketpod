@@ -3,7 +3,7 @@
  *
  * The rule a plugin's CLI half keeps is the one every kit command keeps: **it owns no second copy
  * of the contract.** It calls the plugin's own routes through `requireClient(ctx).request(...)` and
- * parses the response with the same `@rocketflare/shared` schema the server validated with. It
+ * parses the response with the same `@rocketpod/shared` schema the server validated with. It
  * builds no envelopes, constructs no URLs by hand, and never calls `fetch`.
  *
  * It also never prints an error and never calls `process.exit`. It throws `CliError`; `cli.ts`

@@ -35,7 +35,7 @@ import {
   type WorkflowSleepDuration,
   type WorkflowStep,
 } from 'cloudflare:workers'
-import { AGENT_RESUME_EVENT, MAX_INTERRUPT_ROUNDS } from '@rocketflare/shared/ai/agents'
+import { AGENT_RESUME_EVENT, MAX_INTERRUPT_ROUNDS } from '@rocketpod/shared/ai/agents'
 import { type AppConfig, loadConfig } from '../../config'
 import { type Database, openDatabase } from '../../db/client'
 import type { AgentRunParams } from '../services/agents/runs'

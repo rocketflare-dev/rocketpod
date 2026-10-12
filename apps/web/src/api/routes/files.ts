@@ -23,7 +23,7 @@ import {
   MAX_UPLOAD_BYTES,
   type StoredFile,
   uploadQuerySchema,
-} from '@rocketflare/shared/files'
+} from '@rocketpod/shared/files'
 import { and, eq } from 'drizzle-orm'
 import type { Database } from '../../db/client'
 import { documents, type FileRow, files, users } from '../../db/schema'

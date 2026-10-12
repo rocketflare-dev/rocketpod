@@ -3,8 +3,8 @@
  * the one thing that quietly turns the whole feature back into a poll — a realtime nudge landing
  * on the key the stream is appending to.
  */
-import { AguiEventType, type KitAguiEvent } from '@rocketflare/shared/ai/agui'
-import { invalidationsFor, REALTIME_INVALIDATIONS } from '@rocketflare/shared/realtime'
+import { AguiEventType, type KitAguiEvent } from '@rocketpod/shared/ai/agui'
+import { invalidationsFor, REALTIME_INVALIDATIONS } from '@rocketpod/shared/realtime'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { renderHook, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'

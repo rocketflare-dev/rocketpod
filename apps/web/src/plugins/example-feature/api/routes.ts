@@ -40,7 +40,7 @@ import {
   exampleNoteListQuerySchema,
   type UpdateExampleNoteRequest,
   updateExampleNoteRequestSchema,
-} from '@rocketflare/shared/plugins/example-feature/index'
+} from '@rocketpod/shared/plugins/example-feature/index'
 import type { RequestCtx } from '@/plugins/api'
 import { createRouter, PUBLIC_MOUNT_ROOT, requestCtx, signState, validate } from '@/plugins/api'
 import {
@@ -62,7 +62,7 @@ export const exampleFeatureRouter = createRouter()
 
 /**
  * Prove the producer → Queues → consumer path end to end without leaving the app: this route is all
- * the CLI's `rocketflare example-feature ping` does, which is what keeps the CLI a thin client over
+ * the CLI's `rocketpod example-feature ping` does, which is what keeps the CLI a thin client over
  * the same contract rather than a second place that knows how to build an envelope.
  *
  * **A route never runs long work; it enqueues.** `ctx.enqueue` already has the binding, and a

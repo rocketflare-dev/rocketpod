@@ -11,8 +11,8 @@ import {
   type PromptKey,
   type PromptRegistry,
   type PromptWithResolved,
-} from '@rocketflare/shared/ai/prompts'
-import type { PromptKeyOf, SHARED_PLUGINS } from '@rocketflare/shared/plugins'
+} from '@rocketpod/shared/ai/prompts'
+import type { PromptKeyOf, SHARED_PLUGINS } from '@rocketpod/shared/plugins'
 import { and, eq } from 'drizzle-orm'
 import type { Database } from '../../db/client'
 import { type PromptOverrideRow, promptOverrides } from '../../db/schema'

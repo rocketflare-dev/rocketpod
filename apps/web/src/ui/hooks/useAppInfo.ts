@@ -5,7 +5,7 @@ import { type AppEnv, isAppEnv } from '@/ui/lib/environment'
 import { queryKeys } from '@/ui/lib/query-keys'
 
 /** Fallback shown before `/api/health` answers, or if it lacks a `name`. */
-export const APP_NAME = 'Rocketflare'
+export const APP_NAME = 'Rocketpod'
 
 /**
  * Contract with `GET /api/health` (src/api/routes/health.ts):

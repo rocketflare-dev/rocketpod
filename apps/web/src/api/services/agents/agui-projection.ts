@@ -17,22 +17,22 @@
  *   `@ag-ui/core@0.0.59`; add `kit.tool.error` to the CUSTOM union only if a screen needs the red
  *   state.
  */
-import type { AgentRun, AgentRunEvent } from '@rocketflare/shared/ai/agents'
-import { isRunActive } from '@rocketflare/shared/ai/agents'
+import type { AgentRun, AgentRunEvent } from '@rocketpod/shared/ai/agents'
+import { isRunActive } from '@rocketpod/shared/ai/agents'
 import {
   AguiEventType,
   KIT_CUSTOM_EVENTS,
   type KitAguiEvent,
   toAguiInterrupt,
-} from '@rocketflare/shared/ai/agui'
-import type { AgentArtifact } from '@rocketflare/shared/ai/artifacts'
-import { agentDecisionEventDataSchema } from '@rocketflare/shared/ai/decisions'
-import { documentCardsFromToolResult } from '@rocketflare/shared/ai/embeddings'
-import type { AgentRunInterrupt } from '@rocketflare/shared/ai/interrupts'
+} from '@rocketpod/shared/ai/agui'
+import type { AgentArtifact } from '@rocketpod/shared/ai/artifacts'
+import { agentDecisionEventDataSchema } from '@rocketpod/shared/ai/decisions'
+import { documentCardsFromToolResult } from '@rocketpod/shared/ai/embeddings'
+import type { AgentRunInterrupt } from '@rocketpod/shared/ai/interrupts'
 import {
   agentInterruptResolvedEventDataSchema,
   steeringNoteDataSchema,
-} from '@rocketflare/shared/ai/interrupts'
+} from '@rocketpod/shared/ai/interrupts'
 import { kitCustom } from '../ai/agui'
 
 /**

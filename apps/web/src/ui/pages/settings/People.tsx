@@ -15,7 +15,7 @@ import {
   UserGroupIcon,
   UserPlusIcon,
 } from '@heroicons/react/24/outline'
-import { type Member, type TenantRole, tenantRoleSchema } from '@rocketflare/shared/tenants'
+import { type Member, type TenantRole, tenantRoleSchema } from '@rocketpod/shared/tenants'
 import { useState } from 'react'
 import { RoleBadge } from '@/ui/components/RoleBadge'
 import {

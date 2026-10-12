@@ -209,8 +209,8 @@ describe('usesOf', () => {
       '@testkit/integration': ['createTestEnv', 'request'],
       // …then the declared entries the ledger does not cover, alphabetically. They are RECORDED
       // rather than dropped in the walk; `missingFrom` is what declines to judge them.
-      '@rocketflare/shared/pagination': ['paginationQuerySchema'],
-      '@rocketflare/shared/plugins/types': ['SharedPlugin'],
+      '@rocketpod/shared/pagination': ['paginationQuerySchema'],
+      '@rocketpod/shared/plugins/types': ['SharedPlugin'],
     })
   })
 
@@ -238,19 +238,19 @@ describe('usesOf', () => {
   /**
    * **A declared entry that is not ledgered is RECORDED, not dropped.** The whole of
    * `packages/shared/src` is importable while only part of it is ledgered, and keying the walk by
-   * ledger entry alone meant a plugin importing `@rocketflare/shared/pagination` measured as using
+   * ledger entry alone meant a plugin importing `@rocketpod/shared/pagination` measured as using
    * *nothing* — indistinguishable from a plugin that imports nothing at all. Losing the
    * measurement in the walk is the silent drift this machinery exists to remove, so the data is
    * kept here and `missingFrom` owns the policy of which entries the ledger may judge.
    */
   it('records an importable entry the ledger does not cover', () => {
-    expect(usesOf(root, 'orders')['@rocketflare/shared/pagination']).toEqual([
+    expect(usesOf(root, 'orders')['@rocketpod/shared/pagination']).toEqual([
       'paginationQuerySchema',
     ])
   })
 
   it('leaves an unledgered entry out of the DIFF, which is where the policy lives', () => {
-    const uses = { '@rocketflare/shared/pagination': ['paginationQuerySchema'] }
+    const uses = { '@rocketpod/shared/pagination': ['paginationQuerySchema'] }
     const onlyApi = readLedger(
       fixtureRepo({
         'docs/plugin-api.md': ledgerDoc([
@@ -258,7 +258,7 @@ describe('usesOf', () => {
         ]),
       })
     ) as Ledger
-    // The ledger carries no `@rocketflare/shared/pagination` row, so it is not entitled to judge
+    // The ledger carries no `@rocketpod/shared/pagination` row, so it is not entitled to judge
     // that entry — reporting every symbol under it as missing would be a flood that says nothing.
     expect(missingFrom(uses, onlyApi)).toEqual([])
   })

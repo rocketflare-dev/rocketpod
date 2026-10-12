@@ -17,8 +17,8 @@
  * `summarised_through_id` is still what this run read. Two overlapping jobs therefore produce one
  * summary and one no-op rather than a lost update, and the loser costs tokens, not correctness.
  */
-import { CHAT_COMPACTION_MIN_CHARS, CHAT_SUMMARY_MAX_CHARS } from '@rocketflare/shared/ai/chat'
-import type { JobOf } from '@rocketflare/shared/jobs'
+import { CHAT_COMPACTION_MIN_CHARS, CHAT_SUMMARY_MAX_CHARS } from '@rocketpod/shared/ai/chat'
+import type { JobOf } from '@rocketpod/shared/jobs'
 import { and, asc, eq, isNull } from 'drizzle-orm'
 import { z } from 'zod'
 import { conversations, messages } from '../../../db/schema'

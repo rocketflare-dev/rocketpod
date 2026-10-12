@@ -8,12 +8,12 @@ delete; no design decisions are needed to get to a running app.
 The kit is a template, not an upstream. Clone it, delete its history, and start your own:
 
 ```bash
-git clone https://github.com/rocketflare-dev/rocketflare.git myapp && cd myapp
-rm -rf .git && git init && git add -A && git commit -m "Start from Rocketflare"
+git clone https://github.com/rocketflare-dev/rocketpod.git myapp && cd myapp
+rm -rf .git && git init && git add -A && git commit -m "Start from Rocketpod"
 git remote add origin git@github.com:<you>/myapp.git
 ```
 
-Or the one-liner — `curl -fsSL https://rocketflare.dev/install.sh | bash -s -- myapp` (read
+Or the one-liner — `curl -fsSL https://rocketpod.example.com/install.sh | bash -s -- myapp` (read
 `scripts/install.sh` first: it clones, detaches exactly as above with the kit commit recorded in the
 first message, then execs `scripts/bootstrap.sh`). Either way, `bash scripts/bootstrap.sh` (or
 `/rf-setup`) is the first run — `SETUP.md` Part 1 as one command.
@@ -48,11 +48,11 @@ The script walks every text file git knows about (tracked and untracked, `.gitig
 the tool itself, its test and the adapt skill are skipped; the `rocketflare-dev` org and every
 `rocketflare-dev/<repo>` — the kit's origin, its plugins, the neon-proxy image, the reusable plugin
 CI — is preserved as upstream) plus `apps/web/.dev.vars` when it exists (git-ignored, but its
-`DATABASE_URL` must follow the compose file), applies nine ordered token classes — `@rocketflare/`
-→ `@<slug>/`, `ROCKETFLARE` → `<UPPER>`, `rocketflare.dev|.local` → `<domain>` (default
-`<slug>.example.com`), `.rocketflare` → `.<slug>`, the Postgres owner `rocketflare` → `<snake>`,
-`rocketflare_` → `<snake>_`, `rocketflare-` → `<slug>-`, `Rocketflare` → the display name, bare
-`rocketflare` → `<slug>` — refuses a dirty tree without `--force`, then runs `pnpm install`,
+`DATABASE_URL` must follow the compose file), applies nine ordered token classes — `@rocketpod/`
+→ `@<slug>/`, `ROCKETPOD` → `<UPPER>`, `rocketpod.example.com|.local` → `<domain>` (default
+`<slug>.example.com`), `.rocketpod` → `.<slug>`, the Postgres owner `rocketpod` → `<snake>`,
+`rocketpod_` → `<snake>_`, `rocketpod-` → `<slug>-`, `Rocketpod` → the display name, bare
+`rocketpod` → `<slug>` — refuses a dirty tree without `--force`, then runs `pnpm install`,
 `node scripts/plugin-api-doc.mjs` (the document cuts summaries at a width the name moves) and
 `biome check --write` (`--skip-install` to defer all three). Exit `0` ok · `1` error · `2` usage. Delete
 `apps/web/.provision.json` (the git-ignored provisioning cache) when re-adapting a copy that was
@@ -65,31 +65,31 @@ or nothing resolves.
 
 | Token | Where | Replace with | Script |
 |---|---|---|---|
-| `@rocketflare/web`, `@rocketflare/cli`, `@rocketflare/shared` | the `name` field of `apps/web/package.json`, `apps/cli/package.json`, `packages/shared/package.json`; every `"@rocketflare/shared": "workspace:*"` dependency; **every import specifier** `@rocketflare/shared/<module>` in `apps/web/src`, `apps/web/tests`, `apps/cli/src` (`grep -rn "@rocketflare/" apps packages --include=*.ts --include=*.tsx --include=*.json -l`); the root `package.json` scripts (`--filter @rocketflare/web`, `--filter @rocketflare/cli`); `.github/workflows/deploy.yml` (`--filter @rocketflare/web`); `CLAUDE.md`, `docs/*.md`, `.claude/rules/*.md` | `@myapp/web`, `@myapp/cli`, `@myapp/shared` — then `pnpm install` (relinks the workspace) | automatic (`scope`) |
-| `rocketflare` (root package name) | root `package.json` `name` | `myapp` | automatic (`bare`) |
-| `rocketflare_` (API key prefix, separator included — keys are `rocketflare_<43 chars>`) | `API_KEY_PREFIX` in `apps/web/src/api/utils/core/hash.ts`; SET `API_KEY_PREFIX_LENGTH` (the stored handle) to `len('<prefix>_') + 8` and `REDACTED_KEY_CHARS` in `apps/cli/src/config.ts` (the CLI's masked form) to `len('<prefix>_') + 4` — shorter and every key in a list shows zero characters of its token; the CLI tests assume exactly prefix + 4; the `rocketflare_…` literals in `apps/web/tests/{api/keys,api/auth-cli,ui/api-keys}.test.*` and `apps/cli/tests/*` | `myapp_` — existing keys keep working (only the display handle changes) | automatic — both handles SET to prefix + 8 / prefix + 4, reported as (a) |
-| `rocketflare` (CLI bin) | `apps/cli/package.json` `bin` key; `program.name('rocketflare')` in `apps/cli/src/cli.ts`; the `pnpm cli` examples in `SETUP.md`, `README.md`, `docs/CONCEPTS.md` | `myapp` — users type `myapp login` | automatic (`bare`) |
-| `~/.rocketflare` (CLI config dir) | `apps/cli/src/config.ts` (`ROCKETFLARE_CONFIG_DIR` default); `.claude/rules/cli.md`; `SETUP.md` 1.7 | `~/.myapp` | automatic (`cfgdir`) |
-| `ROCKETFLARE_` (CLI env prefix: `ROCKETFLARE_API_KEY`, `ROCKETFLARE_URL`, `ROCKETFLARE_CONFIG_DIR`, `ROCKETFLARE_DEBUG`) | `apps/cli/src/config.ts`; `apps/cli/tests`; `docs/CONCEPTS.md` → CLI; `.claude/rules/cli.md` | `MYAPP_` | automatic (`env`) |
-| `ROCKETFLARE_BOOTSTRAP_SKIP`, `ROCKETFLARE_ALLOW_ROOT` (the bootstrap's sandbox switches) | `scripts/bootstrap.mjs`, `scripts/lib/bootstrap-lib.mjs`; `launch.kit.json` `session.env` | `MYAPP_BOOTSTRAP_SKIP`, `MYAPP_ALLOW_ROOT` | automatic (`env`); `launch.kit.json` keeps its `kit` block (`id`, `name`, `repo`) — it names the kit, not the app (`renameKitManifest`) |
-| `rocketflare` | `apps/web/package.json` `cfld.name`; `apps/web/wrangler.toml` / `wrangler.staging.toml` `name` (staging keeps `-staging`); `apps/web/scripts/cf-provision.sh`; `.claude/rules/cloudflare.md` examples | `myapp` | automatic (`bare` / `kebab`) |
-| `rocketflare-agent-run` (Workflow — name is account-scoped) | `name = ` in `[[workflows]]` of both tomls (staging `-staging`); no code references — the binding is always `AGENT_RUN_WORKFLOW`, the class `AgentRunWorkflow`; `docs/DEPLOY.md`, `.claude/rules/cloudflare.md`, `apps/web/src/api/workflows/CLAUDE.md` examples | `myapp-agent-run` — nothing to create; `wrangler deploy` registers it | automatic (`kebab`); the `-staging` suffix reported as (d) |
-| `rocketflare-jobs` (queue — name is account-scoped) | `queue = ` in `[[queues.producers]]` AND `[[queues.consumers]]` of both tomls (staging `-staging`; the commented `dead_letter_queue` too); **`JOBS_QUEUE_NAME_PREFIX` in `apps/web/src/api/services/jobs.ts`** — the consumer matches `batch.queue` by this prefix, so the toml and the constant must agree or every batch is `ackAll()`ed as "unknown queue"; the literals in `apps/web/tests/api/{queue-dispatch,jobs-producer,jobs-consumer}.test.ts` | `myapp-jobs` — then `wrangler queues create myapp-jobs[-staging]` per environment | automatic (`kebab`, incl. `JOBS_QUEUE_NAME_PREFIX`); reported as (d) |
-| `rocketflare-files` (R2 bucket — account-scoped) | `bucket_name` in `[[r2_buckets]]` of both tomls (staging `-staging`); no code references — the binding is always `FILES` | `myapp-files` — then `wrangler r2 bucket create myapp-files[-staging]` | automatic (`kebab`); reported as (d) |
-| `rocketflare_dev`, `rocketflare_test`, `rocketflare` / `rocketflare_pass`, `test` / `test` | `apps/web/docker-compose.dev.yml`, `apps/web/docker-compose.test.yml`, `apps/web/.dev.vars.example`, `apps/web/.env.test`, `apps/web/drizzle.config.ts`, `localConnectionString` in both tomls, `.github/workflows/ci.yml` (Postgres service) | `myapp_dev`, `myapp_test`, `myapp` / a local-only password | automatic (`dbuser` + `snake`: the owner stays the snake form — `db-roles.ts` refuses a hyphenated identifier; `.dev.vars` `DATABASE_URL` rewritten when the file exists); reported as (c) |
-| `rocketflare_app` | `apps/web/src/db/schema/rls.ts` `APP_ROLE`, `apps/web/.env.test` `APP_DATABASE_URL`, `docs/RLS.md` | `myapp_app` (policies name the role; do this before the first migration) | automatic, including `apps/web/migrations/**` (SQL + meta snapshots) — WARNED as (b): a database migrated under the old name keeps the old role; drop it and migrate again |
-| `Rocketflare` / `Rocketflare Test` | `[vars] APP_NAME` in both tomls, `apps/web/.env.test`, `apps/web/src/ui/index.html` `<title>`, `README.md` | display name | automatic (`display`) |
-| `noreply@rocketflare.dev`, `app.rocketflare.dev`, `staging.rocketflare.dev` | `[vars] EMAIL_FROM`, `APP_URL`, commented `routes` in both tomls | your domains | automatic (`domain`, from `--domain`) |
-| `rocketflare-light` / `rocketflare-dark` | `apps/web/src/ui/index.css` theme blocks, `index.html` pre-hydration script, `ThemeToggle.tsx`, `apps/web/tests/ui/theme-toggle.test.tsx` | `myapp-light` / `myapp-dark` (or keep) | automatic (`kebab`) |
-| `rocketflare-dev-postgres` / `rocketflare-test-postgres` | `container_name` in `apps/web/docker-compose.dev.yml` / `docker-compose.test.yml` | `myapp-dev-postgres` / `myapp-test-postgres` — pinned names mean a SECOND checkout of the same kit on one machine shares ONE database (Compose derives the project name `web` from the directory, so `pnpm dev:db:up` attaches to the running container instead of failing; `pnpm bootstrap` detects it and stops unless `--share-db`) until renamed | automatic (`bare`; the `-dev-data` volume too); reported as (c) with the `docker rm` / `volume rm` for the OLD names |
-| `admin@rocketflare.local` | `apps/web/scripts/seed.ts` (the seeded global admin), the dev quick-login list in `apps/web/src/ui/pages/Login.tsx`, `SETUP.md` | `admin@myapp.local` | automatic (`domain`) |
+| `@rocketpod/web`, `@rocketpod/cli`, `@rocketpod/shared` | the `name` field of `apps/web/package.json`, `apps/cli/package.json`, `packages/shared/package.json`; every `"@rocketpod/shared": "workspace:*"` dependency; **every import specifier** `@rocketpod/shared/<module>` in `apps/web/src`, `apps/web/tests`, `apps/cli/src` (`grep -rn "@rocketpod/" apps packages --include=*.ts --include=*.tsx --include=*.json -l`); the root `package.json` scripts (`--filter @rocketpod/web`, `--filter @rocketpod/cli`); `.github/workflows/deploy.yml` (`--filter @rocketpod/web`); `CLAUDE.md`, `docs/*.md`, `.claude/rules/*.md` | `@myapp/web`, `@myapp/cli`, `@myapp/shared` — then `pnpm install` (relinks the workspace) | automatic (`scope`) |
+| `rocketpod` (root package name) | root `package.json` `name` | `myapp` | automatic (`bare`) |
+| `rocketpod_` (API key prefix, separator included — keys are `rocketpod_<43 chars>`) | `API_KEY_PREFIX` in `apps/web/src/api/utils/core/hash.ts`; SET `API_KEY_PREFIX_LENGTH` (the stored handle) to `len('<prefix>_') + 8` and `REDACTED_KEY_CHARS` in `apps/cli/src/config.ts` (the CLI's masked form) to `len('<prefix>_') + 4` — shorter and every key in a list shows zero characters of its token; the CLI tests assume exactly prefix + 4; the `rocketpod_…` literals in `apps/web/tests/{api/keys,api/auth-cli,ui/api-keys}.test.*` and `apps/cli/tests/*` | `myapp_` — existing keys keep working (only the display handle changes) | automatic — both handles SET to prefix + 8 / prefix + 4, reported as (a) |
+| `rocketpod` (CLI bin) | `apps/cli/package.json` `bin` key; `program.name('rocketpod')` in `apps/cli/src/cli.ts`; the `pnpm cli` examples in `SETUP.md`, `README.md`, `docs/CONCEPTS.md` | `myapp` — users type `myapp login` | automatic (`bare`) |
+| `~/.rocketpod` (CLI config dir) | `apps/cli/src/config.ts` (`ROCKETPOD_CONFIG_DIR` default); `.claude/rules/cli.md`; `SETUP.md` 1.7 | `~/.myapp` | automatic (`cfgdir`) |
+| `ROCKETPOD_` (CLI env prefix: `ROCKETPOD_API_KEY`, `ROCKETPOD_URL`, `ROCKETPOD_CONFIG_DIR`, `ROCKETPOD_DEBUG`) | `apps/cli/src/config.ts`; `apps/cli/tests`; `docs/CONCEPTS.md` → CLI; `.claude/rules/cli.md` | `MYAPP_` | automatic (`env`) |
+| `ROCKETPOD_BOOTSTRAP_SKIP`, `ROCKETPOD_ALLOW_ROOT` (the bootstrap's sandbox switches) | `scripts/bootstrap.mjs`, `scripts/lib/bootstrap-lib.mjs`; `launch.kit.json` `session.env` | `MYAPP_BOOTSTRAP_SKIP`, `MYAPP_ALLOW_ROOT` | automatic (`env`); `launch.kit.json` keeps its `kit` block (`id`, `name`, `repo`) — it names the kit, not the app (`renameKitManifest`) |
+| `rocketpod` | `apps/web/package.json` `cfld.name`; `apps/web/wrangler.toml` / `wrangler.staging.toml` `name` (staging keeps `-staging`); `apps/web/scripts/cf-provision.sh`; `.claude/rules/cloudflare.md` examples | `myapp` | automatic (`bare` / `kebab`) |
+| `rocketpod-agent-run` (Workflow — name is account-scoped) | `name = ` in `[[workflows]]` of both tomls (staging `-staging`); no code references — the binding is always `AGENT_RUN_WORKFLOW`, the class `AgentRunWorkflow`; `docs/DEPLOY.md`, `.claude/rules/cloudflare.md`, `apps/web/src/api/workflows/CLAUDE.md` examples | `myapp-agent-run` — nothing to create; `wrangler deploy` registers it | automatic (`kebab`); the `-staging` suffix reported as (d) |
+| `rocketpod-jobs` (queue — name is account-scoped) | `queue = ` in `[[queues.producers]]` AND `[[queues.consumers]]` of both tomls (staging `-staging`; the commented `dead_letter_queue` too); **`JOBS_QUEUE_NAME_PREFIX` in `apps/web/src/api/services/jobs.ts`** — the consumer matches `batch.queue` by this prefix, so the toml and the constant must agree or every batch is `ackAll()`ed as "unknown queue"; the literals in `apps/web/tests/api/{queue-dispatch,jobs-producer,jobs-consumer}.test.ts` | `myapp-jobs` — then `wrangler queues create myapp-jobs[-staging]` per environment | automatic (`kebab`, incl. `JOBS_QUEUE_NAME_PREFIX`); reported as (d) |
+| `rocketpod-files` (R2 bucket — account-scoped) | `bucket_name` in `[[r2_buckets]]` of both tomls (staging `-staging`); no code references — the binding is always `FILES` | `myapp-files` — then `wrangler r2 bucket create myapp-files[-staging]` | automatic (`kebab`); reported as (d) |
+| `rocketpod_dev`, `rocketpod_test`, `rocketpod` / `rocketpod_pass`, `test` / `test` | `apps/web/docker-compose.dev.yml`, `apps/web/docker-compose.test.yml`, `apps/web/.dev.vars.example`, `apps/web/.env.test`, `apps/web/drizzle.config.ts`, `localConnectionString` in both tomls, `.github/workflows/ci.yml` (Postgres service) | `myapp_dev`, `myapp_test`, `myapp` / a local-only password | automatic (`dbuser` + `snake`: the owner stays the snake form — `db-roles.ts` refuses a hyphenated identifier; `.dev.vars` `DATABASE_URL` rewritten when the file exists); reported as (c) |
+| `rocketpod_app` | `apps/web/src/db/schema/rls.ts` `APP_ROLE`, `apps/web/.env.test` `APP_DATABASE_URL`, `docs/RLS.md` | `myapp_app` (policies name the role; do this before the first migration) | automatic, including `apps/web/migrations/**` (SQL + meta snapshots) — WARNED as (b): a database migrated under the old name keeps the old role; drop it and migrate again |
+| `Rocketpod` / `Rocketpod Test` | `[vars] APP_NAME` in both tomls, `apps/web/.env.test`, `apps/web/src/ui/index.html` `<title>`, `README.md` | display name | automatic (`display`) |
+| `noreply@rocketpod.example.com`, `app.rocketpod.example.com`, `staging.rocketpod.example.com` | `[vars] EMAIL_FROM`, `APP_URL`, commented `routes` in both tomls | your domains | automatic (`domain`, from `--domain`) |
+| `rocketpod-light` / `rocketpod-dark` | `apps/web/src/ui/index.css` theme blocks, `index.html` pre-hydration script, `ThemeToggle.tsx`, `apps/web/tests/ui/theme-toggle.test.tsx` | `myapp-light` / `myapp-dark` (or keep) | automatic (`kebab`) |
+| `rocketpod-dev-postgres` / `rocketpod-test-postgres` | `container_name` in `apps/web/docker-compose.dev.yml` / `docker-compose.test.yml` | `myapp-dev-postgres` / `myapp-test-postgres` — pinned names mean a SECOND checkout of the same kit on one machine shares ONE database (Compose derives the project name `web` from the directory, so `pnpm dev:db:up` attaches to the running container instead of failing; `pnpm bootstrap` detects it and stops unless `--share-db`) until renamed | automatic (`bare`; the `-dev-data` volume too); reported as (c) with the `docker rm` / `volume rm` for the OLD names |
+| `admin@rocketpod.example.com` | `apps/web/scripts/seed.ts` (the seeded global admin), the dev quick-login list in `apps/web/src/ui/pages/Login.tsx`, `SETUP.md` | `admin@myapp.local` | automatic (`domain`) |
 | brand colour variables | the header block of `apps/web/src/ui/index.css` (the only place hex values live) | your palette — then `pnpm web test:ui` (contrast gate) | `--colour` rewrites the LIGHT theme's primary hex only (`--color-primary`, `--surface-active`, `--focus-ring`, `--dc-primary-rgb`, `<meta name="theme-color">`); the dark primary, `-content` colours and `--tone-primary-*` tints reported as (e) |
 | `LogoMark` | `apps/web/src/ui/components/shared/LogoMark.tsx`, `apps/web/src/ui/public/logo.svg` + favicons | your mark | not touched — reported as (f) |
 | `EMBEDDING_DIM` (1024) | `packages/shared/src/ai/config.ts` (imported by `apps/web/src/db/schema/chunks.ts` and the `openai*` embeddings adapter) — only if you will NOT use the default `@cf/baai/bge-m3`; see §3 "Changing the embedding model or dimension" | before the first migration, never after | not touched — the decision is flagged in (b) |
 
 Then, from the root: `pnpm install && pnpm gate`. The
 parity test will tell you if the two tomls drifted during the rename; `typecheck` will tell you if
-an `@rocketflare/shared` import was missed. Keep `packages/shared` **private** (`"private": true`, no
+an `@rocketpod/shared` import was missed. Keep `packages/shared` **private** (`"private": true`, no
 `publishConfig`) whatever you call it.
 
 ## 2. Delete once you have real ones
@@ -205,7 +205,7 @@ Written into core, the loop is:
 
 1. **Contract** — `packages/shared/src/<feature>.ts`: zod schemas for the resource, its
    create/update bodies, and list query (`paginationQuerySchema`). Export types with `z.infer`;
-   re-export from `packages/shared/src/index.ts`. Consumers import `@rocketflare/shared/<feature>`.
+   re-export from `packages/shared/src/index.ts`. Consumers import `@rocketpod/shared/<feature>`.
 2. **Schema** — `apps/web/src/db/schema/<feature>.ts`: `id`, `...tenantRef()`, columns,
    `...timestamps()`, `tenantIsolation('<table>')` in `extraConfig`; export from `schema/index.ts`;
    `pnpm db:generate`; read the SQL; `pnpm db:migrate`.
@@ -221,7 +221,7 @@ Written into core, the loop is:
 5. **Page** — `apps/web/src/ui/pages/<Feature>/…` using `components/shared/` primitives; add to
    `App.tsx` (lazy) and `SideNav` with the same guard the page uses.
 6. **Command** (optional) — `apps/cli/src/commands/<feature>.ts`: a thin commander command over
-   `apps/cli/src/api.ts`, parsing the response with the same `@rocketflare/shared/<feature>` schema;
+   `apps/cli/src/api.ts`, parsing the response with the same `@rocketpod/shared/<feature>` schema;
    `--json` on every list; exit codes per `.claude/rules/cli.md`. Register it in `cli.ts`.
 
 Written as a plugin, the same six steps land in the four published files instead — the shared
@@ -386,7 +386,7 @@ limits are an app change (`MAX_UPLOAD_BYTES` is one constant today).
   its tree. **Heat-map charts**: `@nivo/heatmap` is an optional drizzle-cube peer whose named import
   breaks the Rollup build, so `apps/web/vite.config.ts` aliases it to the plugin's own
   `ui/lib/nivo-heatmap.tsx` stub (which renders a notice). To enable it:
-  `pnpm --filter @rocketflare/web add @nivo/heatmap`, delete the alias and the stub, `pnpm build:ui`.
+  `pnpm --filter @rocketpod/web add @nivo/heatmap`, delete the alias and the stub, `pnpm build:ui`.
   **Dashboard theming**: drizzle-cube reads `--dc-*` CSS variables, mapped to the kit's tokens in
   the plugin's `ui/drizzle-cube-theme.css` — which is imported beside the library's own stylesheet
   so it ships only in the lazy analytics chunk. Change the kit's tokens, not the `--dc-*` lines.
@@ -403,8 +403,8 @@ limits are an app change (`MAX_UPLOAD_BYTES` is one constant today).
   (the parity test compares `[vars]` keys, so it has to be in both either way). Tool-free chat is
   cheaper per turn and streams token by token on every provider.
 - **Headless CLI login** (CI, agents, no browser): skip `pnpm cli login`; create a tenant API key in
-  Settings → API keys (or `POST /api/keys` with a session cookie) and export `ROCKETFLARE_API_KEY` +
-  `ROCKETFLARE_URL`. `pnpm cli whoami` confirms.
+  Settings → API keys (or `POST /api/keys` with a session cookie) and export `ROCKETPOD_API_KEY` +
+  `ROCKETPOD_URL`. `pnpm cli whoami` confirms.
 
 ## 4. Keep the docs true
 

@@ -14,7 +14,7 @@
  * callers that do hold a card, so the two sites cannot drift on what "one line" means.
  */
 import { DocumentTextIcon } from '@heroicons/react/24/outline'
-import type { DocumentCard as DocumentCardData } from '@rocketflare/shared/ai/embeddings'
+import type { DocumentCard as DocumentCardData } from '@rocketpod/shared/ai/embeddings'
 import { Link } from 'react-router-dom'
 
 const STATUS_LABELS: Record<DocumentCardData['status'], string> = {

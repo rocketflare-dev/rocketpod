@@ -16,8 +16,8 @@ import {
   parseKitCustom,
   readRunAgentTail,
   toAguiInterrupt,
-} from '@rocketflare/shared/ai/agui'
-import type { AgentRunInterrupt } from '@rocketflare/shared/ai/interrupts'
+} from '@rocketpod/shared/ai/agui'
+import type { AgentRunInterrupt } from '@rocketpod/shared/ai/interrupts'
 import { describe, expect, it } from 'vitest'
 import { createAguiEncoder, PROTO_UNSUPPORTED_EVENTS } from '@/api/services/ai/agui'
 

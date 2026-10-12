@@ -6,14 +6,14 @@
  *
  * The owner (DATABASE_URL's user) owns every table and bypasses RLS — on Neon it is a
  * `neon_superuser` member (BYPASSRLS, CREATEROLE, but NOT a superuser), locally a real superuser —
- * so policies are inert on that connection by design. `rocketflare_app` is the role the policies
+ * so policies are inert on that connection by design. `rocketpod_app` is the role the policies
  * name: NOSUPERUSER, NOBYPASSRLS, DML only on `public`, and LOGIN only once `APP_DATABASE_URL`
  * supplies a credential. Only a superuser may even name SUPERUSER/BYPASSRLS/REPLICATION in an
  * ALTER ROLE, so those are set only when the owner is one; on Neon they stay at CREATE ROLE's
  * defaults (off), and the post-check verifies rolsuper/rolbypassrls are false on every host.
  *
  * Runs TWICE around migrations because its halves want opposite sides of them:
- *   --phase=role   BEFORE migrate.ts  (`CREATE POLICY ... TO rocketflare_app` needs the role to exist)
+ *   --phase=role   BEFORE migrate.ts  (`CREATE POLICY ... TO rocketpod_app` needs the role to exist)
  *   --phase=grants AFTER  migrate.ts  (REVOKE can only name tables that exist)
  * `all` (default) does both — correct once the tables exist (every environment from its second
  * run onward). Idempotent; one transaction; safe to re-run on every deploy.

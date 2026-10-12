@@ -1,6 +1,6 @@
 ---
 name: rf-upgrade
-description: Port later Rocketflare kit releases into this app — fetches the kit, translates its diff into your names, skips everything belonging to parts you deleted, and walks the manual decisions. Use when someone asks to upgrade Rocketflare, pull in kit improvements, or check what is new in the kit.
+description: Port later Rocketpod kit releases into this app — fetches the kit, translates its diff into your names, skips everything belonging to parts you deleted, and walks the manual decisions. Use when someone asks to upgrade Rocketpod, pull in kit improvements, or check what is new in the kit.
 argument-hint: "[--to <version>]"
 ---
 
@@ -24,7 +24,7 @@ those files before you see them. If you find yourself typing out a file the plan
 **Often you arrive here from the update check.** In a copy, a `SessionStart` hook
 (`scripts/kit-update-check.mjs`) tells Claude once per session when `kit.repo` has a newer release
 than `kit.version`, with each release's one-line summary. That message is a pointer, not a plan: start at
-step 1 as usual. Silence it with `ROCKETFLARE_UPDATE_CHECK=0`; force a re-check by deleting
+step 1 as usual. Silence it with `ROCKETPOD_UPDATE_CHECK=0`; force a re-check by deleting
 `.claude/kit-update-check.json` (it caches the answer for a day).
 
 ## 1. Check the ground

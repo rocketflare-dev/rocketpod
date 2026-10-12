@@ -23,10 +23,10 @@
  * builds. `makeRequestCtx` is the exception and says so on itself.
  */
 
-import type { GroupRef } from '@rocketflare/shared/groups'
-import type { PaginationQuery } from '@rocketflare/shared/pagination'
-import type { Actions, Subjects } from '@rocketflare/shared/permissions'
-import type { MembershipRole } from '@rocketflare/shared/tenants'
+import type { GroupRef } from '@rocketpod/shared/groups'
+import type { PaginationQuery } from '@rocketpod/shared/pagination'
+import type { Actions, Subjects } from '@rocketpod/shared/permissions'
+import type { MembershipRole } from '@rocketpod/shared/tenants'
 import type { AgentToolContext } from '@/api/services/agents/tools'
 import { createR2Storage } from '@/api/services/storage'
 import {

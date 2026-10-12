@@ -6,8 +6,8 @@
  * `usage` frame (or the persisted message) carries it. Memoised for the same reason `Markdown` is.
  */
 import { CheckCircleIcon } from '@heroicons/react/24/outline'
-import type { TokenUsage } from '@rocketflare/shared/ai/chat'
-import type { DocumentCard as DocumentCardData } from '@rocketflare/shared/ai/embeddings'
+import type { TokenUsage } from '@rocketpod/shared/ai/chat'
+import type { DocumentCard as DocumentCardData } from '@rocketpod/shared/ai/embeddings'
 import { memo, type ReactNode } from 'react'
 import { DocumentCard } from '@/ui/components/shared'
 import type { ToolStep } from '@/ui/hooks/useChat'

@@ -9,8 +9,8 @@
  */
 
 import type Anthropic from '@anthropic-ai/sdk'
-import { type TokenUsage, tokenUsageSchema } from '@rocketflare/shared/ai/chat'
-import type { AgentInterruptSpec, JsonSchema } from '@rocketflare/shared/ai/interrupts'
+import { type TokenUsage, tokenUsageSchema } from '@rocketpod/shared/ai/chat'
+import type { AgentInterruptSpec, JsonSchema } from '@rocketpod/shared/ai/interrupts'
 import { type ZodType, z } from 'zod'
 import { zodToJsonSchema } from 'zod-to-json-schema'
 import { traceToolCall } from '../../observability/context'

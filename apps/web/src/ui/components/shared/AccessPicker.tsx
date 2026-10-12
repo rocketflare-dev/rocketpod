@@ -13,7 +13,7 @@
  *   from them. The caller passes the right list; this component does not know the rules.
  */
 import { LockClosedIcon } from '@heroicons/react/24/outline'
-import type { GroupRef, ResourceVisibility } from '@rocketflare/shared/groups'
+import type { GroupRef, ResourceVisibility } from '@rocketpod/shared/groups'
 
 export interface AccessPickerProps {
   visibility: ResourceVisibility

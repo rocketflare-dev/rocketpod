@@ -1,4 +1,4 @@
-/** `rocketflare whoami` — who the stored key belongs to (`/api/me`) and its tenant (`/api/tenant`) (D26). */
+/** `rocketpod whoami` — who the stored key belongs to (`/api/me`) and its tenant (`/api/tenant`) (D26). */
 import chalk from 'chalk'
 import { whoAmI } from '../auth'
 import { redactKey } from '../config'

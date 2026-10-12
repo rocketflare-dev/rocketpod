@@ -39,7 +39,7 @@ describe('/api/keys', () => {
     const created = await json<{ id: string; key: string; keyPrefix: string; scopes: string[] }>(
       res
     )
-    expect(created.key).toMatch(/^rocketflare_/)
+    expect(created.key).toMatch(/^rocketpod_/)
     expect(created.keyPrefix).toBe(created.key.slice(0, API_KEY_PREFIX_LENGTH))
     expect(created.scopes).toEqual(['read'])
     const list = await json<{ items: Array<Record<string, unknown>> }>(

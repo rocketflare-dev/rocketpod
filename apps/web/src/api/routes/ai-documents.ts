@@ -17,10 +17,10 @@ import {
   type SearchResponse,
   searchRequestSchema,
   uploadDocumentFieldsSchema,
-} from '@rocketflare/shared/ai/embeddings'
-import { MAX_UPLOAD_BYTES } from '@rocketflare/shared/files'
-import { setVisibilityRequestSchema } from '@rocketflare/shared/groups'
-import { paginationQuerySchema } from '@rocketflare/shared/pagination'
+} from '@rocketpod/shared/ai/embeddings'
+import { MAX_UPLOAD_BYTES } from '@rocketpod/shared/files'
+import { setVisibilityRequestSchema } from '@rocketpod/shared/groups'
+import { paginationQuerySchema } from '@rocketpod/shared/pagination'
 import { and, count, desc, eq } from 'drizzle-orm'
 import { documents, files } from '../../db/schema'
 import { uploadBodyLimit } from '../middleware/body-limit'

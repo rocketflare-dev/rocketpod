@@ -20,7 +20,7 @@ import {
   type MagicLinkRequest,
   magicLinkRequestSchema,
   type OAuthProviderName,
-} from '@rocketflare/shared/auth'
+} from '@rocketpod/shared/auth'
 import { useEffect, useRef, useState } from 'react'
 import { Navigate, useSearchParams } from 'react-router-dom'
 import { AuthCard } from '@/ui/components/AuthCard'
@@ -48,7 +48,7 @@ export const DEV_ACCOUNTS = [
   { email: 'owner@example.test', label: 'Owner' },
   { email: 'admin@example.test', label: 'Admin' },
   { email: 'member@example.test', label: 'Member' },
-  { email: 'admin@rocketflare.local', label: 'Global admin' },
+  { email: 'admin@rocketpod.example.com', label: 'Global admin' },
 ] as const
 
 export default function Login() {

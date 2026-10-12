@@ -22,10 +22,10 @@ import type {
   AiReadiness,
   AiScope,
   AiScopeReadiness,
-} from '@rocketflare/shared/ai/config'
-import { DEFAULT_MODELS, WORKERS_AI_CHAT_MODEL } from '@rocketflare/shared/ai/config'
-import type { DecisionMethod } from '@rocketflare/shared/ai/decisions'
-import type { PromptKey } from '@rocketflare/shared/ai/prompts'
+} from '@rocketpod/shared/ai/config'
+import { DEFAULT_MODELS, WORKERS_AI_CHAT_MODEL } from '@rocketpod/shared/ai/config'
+import type { DecisionMethod } from '@rocketpod/shared/ai/decisions'
+import type { PromptKey } from '@rocketpod/shared/ai/prompts'
 import { and, eq } from 'drizzle-orm'
 import type { AppConfig } from '../../../config'
 import type { Database } from '../../../db/client'

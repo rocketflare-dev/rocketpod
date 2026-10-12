@@ -7,7 +7,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { evalCaseSchema } from '@rocketflare/shared/ai/evals'
+import { evalCaseSchema } from '@rocketpod/shared/ai/evals'
 import { afterEach, describe, expect, it } from 'vitest'
 import { findDatasetsDir, runEvalsPromote } from '../src/commands/evals'
 import { runFeedbackList } from '../src/commands/feedback'
@@ -41,7 +41,7 @@ async function loggedInStore() {
 
 /** A repo-shaped temp dir: `<root>/apps/evals/datasets`, returned with a nested cwd inside it. */
 async function repo() {
-  const root = await mkdtemp(join(tmpdir(), 'rocketflare-evals-'))
+  const root = await mkdtemp(join(tmpdir(), 'rocketpod-evals-'))
   cleanups.push(() => rm(root, { recursive: true, force: true }))
   const datasets = join(root, 'apps', 'evals', 'datasets')
   await mkdir(datasets, { recursive: true })
@@ -225,7 +225,7 @@ describe('traces show — feedback', () => {
           parentSpanId: 'a1',
           name: 'feedback',
           kind: 'span',
-          attributes: { 'rocketflare.feedback.rating': -1 },
+          attributes: { 'rocketpod.feedback.rating': -1 },
           content: { input: 'Cited the wrong policy' },
         }),
       ],

@@ -28,9 +28,9 @@ import {
   INGEST_TEXT_MAX_CHARS,
   ingestTextRequestSchema,
   uploadDocumentFieldsSchema,
-} from '@rocketflare/shared/ai/embeddings'
-import { filePath, MAX_UPLOAD_BYTES } from '@rocketflare/shared/files'
-import type { ResourceVisibility } from '@rocketflare/shared/groups'
+} from '@rocketpod/shared/ai/embeddings'
+import { filePath, MAX_UPLOAD_BYTES } from '@rocketpod/shared/files'
+import type { ResourceVisibility } from '@rocketpod/shared/groups'
 import { type FormEvent, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {

@@ -1,6 +1,6 @@
 /**
  * Promotion from real traffic (D33): turn one assistant message or one agent run into a DRAFT
- * `EvalCase` — `GET /api/evals/export`, read by `rocketflare evals promote`. The draft is honest
+ * `EvalCase` — `GET /api/evals/export`, read by `rocketpod evals promote`. The draft is honest
  * about what it is:
  *
  * - `input` is what the person asked (the user turn before the answer, or the run's input) and
@@ -15,15 +15,15 @@
  * Every read carries the tenant predicate; the route is admin+ (`read Feedback`) because the
  * result is another member's conversation.
  */
-import type { AgentToolEndEventData, AgentToolStartEventData } from '@rocketflare/shared/ai/agents'
-import type { ToolCallRecord } from '@rocketflare/shared/ai/chat'
+import type { AgentToolEndEventData, AgentToolStartEventData } from '@rocketpod/shared/ai/agents'
+import type { ToolCallRecord } from '@rocketpod/shared/ai/chat'
 import type {
   EvalCase,
   EvalContextDoc,
   EvalExportQuery,
   EvalMessage,
-} from '@rocketflare/shared/ai/evals'
-import { evalCaseSchema } from '@rocketflare/shared/ai/evals'
+} from '@rocketpod/shared/ai/evals'
+import { evalCaseSchema } from '@rocketpod/shared/ai/evals'
 import { and, asc, desc, eq, lt, or } from 'drizzle-orm'
 import type { Database } from '../../db/client'
 import { agentRunEvents, agentRuns, aiFeedback, messages } from '../../db/schema'

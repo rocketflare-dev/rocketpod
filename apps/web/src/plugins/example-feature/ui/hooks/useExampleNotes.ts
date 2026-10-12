@@ -14,7 +14,7 @@ import {
   exampleNoteListResponseSchema,
   exampleNoteSchema,
   examplePingResponseSchema,
-} from '@rocketflare/shared/plugins/example-feature/index'
+} from '@rocketpod/shared/plugins/example-feature/index'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 // Every request goes through this: `credentials: 'include'`, the shared error envelope, and a
 // `schema` option that parses the response with the same contract the server validated with.

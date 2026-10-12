@@ -70,7 +70,7 @@ import {
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = path.resolve(HERE, '..')
 // Re-exported rather than restated: `manifest.mjs` is the one place the provenance file is named,
-// and it builds the name from `KIT.slug` so a rename cannot rewrite it.
+// and it builds the name from `KIT.ecosystem` so a rename cannot rewrite it.
 const MANIFEST = MANIFEST_FILE
 const WORK_DIR = '.upgrade'
 

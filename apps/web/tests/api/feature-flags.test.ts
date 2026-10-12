@@ -12,8 +12,8 @@
  * here runs for an owner AND for a global admin, and the API test is where that is pinned.
  */
 
-import { FEATURE_FLAGS, FEATURE_KEYS, type FeatureDefinition } from '@rocketflare/shared/features'
-import type { FeatureName } from '@rocketflare/shared/permissions'
+import { FEATURE_FLAGS, FEATURE_KEYS, type FeatureDefinition } from '@rocketpod/shared/features'
+import type { FeatureName } from '@rocketpod/shared/permissions'
 import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { featureFlags, tenantFeatureOverrides } from '@/db/schema'

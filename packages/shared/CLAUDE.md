@@ -1,4 +1,4 @@
-# Shared Contracts (`packages/shared` — `@rocketflare/shared`, private)
+# Shared Contracts (`packages/shared` — `@rocketpod/shared`, private)
 
 Zod schemas + inferred types used by BOTH the API and the UI (D13). Contracts first: a new or
 changed API surface starts here, then the route `validate()`s with it, then the UI parses the
@@ -53,7 +53,7 @@ takes), `jobEnvelopeSchema` (`+ id, enqueuedAt, attempt?`, what the consumer par
 inline and framable are different properties, `filePath(id)`, `fileSchema`/`uploadResponseSchema`,
 `uploadQuerySchema` (D23) ·
 `jobs.ts` also carries `document.index` (`{ tenantId, documentId }` — re-index a `documents` row, D18) ·
-**`ai/`** (Phase 3, D17/D18/D32; barrel `ai/index.ts`, deep imports `@rocketflare/shared/ai/<file>` equally valid):
+**`ai/`** (Phase 3, D17/D18/D32; barrel `ai/index.ts`, deep imports `@rocketpod/shared/ai/<file>` equally valid):
 `config.ts` — `AI_PROVIDERS`/`aiProviderSchema` (append LAST: the DB column is a text enum; `typesafe`
 serves `decisions` only), `AI_SCOPES` (`chat | embeddings | decisions`), readiness `source`
 `tenant | platform | fallback | none` (`fallback` = decisions answered by the chat model),
@@ -140,7 +140,7 @@ rendering all share · `usage.ts` — `aiUsageSchema`, `aiUsageSummarySchema`,
 `agent_runs_not_configured`, `agent_run_active`; `permissions.ts` subjects added: `AiConfig`, `Prompt`,
 `Conversation`, `AgentRun`, `Document` — plus whatever an installed PLUGIN declares in
 `SharedPlugin.subjects` (the analytics plugin's `Dashboard` and `Analytics`, D19 + D31, which is
-where its contracts live too: `@rocketflare/shared/plugins/analytics/index`). Known gap:
+where its contracts live too: `@rocketpod/shared/plugins/analytics/index`). Known gap:
 `GET /api/ai/config/providers` has no schema here (the catalog is server data in
 `apps/web/src/api/services/ai/providers.ts`; the UI keeps a permissive one).
 
@@ -190,4 +190,4 @@ entry in `api/services/access.ts` — never infer "restricted" from the presence
   the bundler's decision rather than ours. `apps/web/tests/config/shared-imports.test.ts` checks all
   three spellings
 - `tenantRoleSchema` (assignable) on every input; `membershipRoleSchema` (+`support`) on outputs only
-- Server code imports via `@rocketflare/shared/*`; UI too. Re-export every file from `index.ts`
+- Server code imports via `@rocketpod/shared/*`; UI too. Re-export every file from `index.ts`

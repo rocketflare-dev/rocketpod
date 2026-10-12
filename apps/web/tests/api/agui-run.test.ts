@@ -12,7 +12,7 @@
  * protobuf transport is negotiable.
  */
 import { decode as decodeProto } from '@ag-ui/proto'
-import { KIT_CUSTOM_EVENTS } from '@rocketflare/shared/ai/agui'
+import { KIT_CUSTOM_EVENTS } from '@rocketpod/shared/ai/agui'
 import { and, eq } from 'drizzle-orm'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { AiNotConfiguredError } from '@/api/services/ai/errors'

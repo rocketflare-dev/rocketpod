@@ -4,7 +4,7 @@
  * either overflowing the model or losing its beginning without saying so, and the route and the
  * `chat.compact` job both call them, which is what keeps their idea of "the window" identical.
  */
-import { CHAT_HISTORY_MAX_MESSAGES } from '@rocketflare/shared/ai/chat'
+import { CHAT_HISTORY_MAX_MESSAGES } from '@rocketpod/shared/ai/chat'
 import { describe, expect, it } from 'vitest'
 import { pendingCompaction, selectHistoryWindow, withSummary } from '@/api/services/ai/chat-history'
 import type { MessageRow } from '@/db/schema'

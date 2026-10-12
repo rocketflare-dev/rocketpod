@@ -133,7 +133,7 @@ describe('OTLP/JSON shape', () => {
     expect(
       toOtlpRequest(
         [span],
-        { serviceName: 'Rocketflare', serviceVersion: '1.2.3', environment: 'test' },
+        { serviceName: 'Rocketpod', serviceVersion: '1.2.3', environment: 'test' },
         { langfuse: false }
       )
     ).toEqual({
@@ -141,16 +141,16 @@ describe('OTLP/JSON shape', () => {
         {
           resource: {
             attributes: [
-              { key: 'service.name', value: { stringValue: 'Rocketflare' } },
+              { key: 'service.name', value: { stringValue: 'Rocketpod' } },
               { key: 'service.version', value: { stringValue: '1.2.3' } },
               { key: 'deployment.environment.name', value: { stringValue: 'test' } },
-              { key: 'telemetry.sdk.name', value: { stringValue: 'rocketflare' } },
+              { key: 'telemetry.sdk.name', value: { stringValue: 'rocketpod' } },
               { key: 'telemetry.sdk.language', value: { stringValue: 'webjs' } },
             ],
           },
           scopeSpans: [
             {
-              scope: { name: 'rocketflare', version: '1.2.3' },
+              scope: { name: 'rocketpod', version: '1.2.3' },
               spans: [
                 {
                   traceId: '0af7651916cd43dd8448eb211c80319c',
@@ -278,7 +278,7 @@ describe('nesting', () => {
     expect(tool?.attributes['gen_ai.tool.call.id']).toBe('call_1')
     expect(retrieval?.parentSpanId).toBe(tool?.spanId)
     expect(new Set(spans.map(s => s.traceId)).size).toBe(1)
-    expect(spans.every(s => s.attributes['rocketflare.tenant_id'] === 't')).toBe(true)
+    expect(spans.every(s => s.attributes['rocketpod.tenant_id'] === 't')).toBe(true)
     expect(llm[0]).toMatchObject({ model: 'm', provider: 'anthropic', inputTokens: 10 })
   })
 

@@ -4,8 +4,8 @@
  * emits NO terminal event, and that must not read as an error); a 503 `ai_not_configured` renders
  * the configure call to action (admins) or the "ask an admin" copy.
  */
-import { AguiEventType, KIT_CUSTOM_EVENTS } from '@rocketflare/shared/ai/agui'
-import type { Message } from '@rocketflare/shared/ai/chat'
+import { AguiEventType, KIT_CUSTOM_EVENTS } from '@rocketpod/shared/ai/agui'
+import type { Message } from '@rocketpod/shared/ai/chat'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { Route, Routes } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'

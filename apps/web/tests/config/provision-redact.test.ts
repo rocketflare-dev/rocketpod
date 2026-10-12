@@ -33,7 +33,7 @@ describe('redact', () => {
   })
   it('leaves plain text untouched', () => {
     const plain =
-      'hyperdrive rocketflare-staging exists id=abcdef12abcdef12abcdef12abcdef12 — mail.example.com'
+      'hyperdrive rocketpod-staging exists id=abcdef12abcdef12abcdef12abcdef12 — mail.example.com'
     expect(redact(plain)).toBe(plain)
     expect(redact('re_ short')).toBe('re_ short')
   })

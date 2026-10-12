@@ -1,11 +1,11 @@
 /**
- * `rocketflare feedback list` — thumbs on AI answers (`GET /api/feedback`, admin+) (D33).
+ * `rocketpod feedback list` — thumbs on AI answers (`GET /api/feedback`, admin+) (D33).
  *
  * The promotion queue: `--rating down` is where eval cases come from. Each row names the rated
- * target (`message` / `agent_run`) and its id, which is exactly what `rocketflare evals promote`
- * and `rocketflare traces show` take.
+ * target (`message` / `agent_run`) and its id, which is exactly what `rocketpod evals promote`
+ * and `rocketpod traces show` take.
  */
-import { feedbackListResponseSchema } from '@rocketflare/shared/ai/evals'
+import { feedbackListResponseSchema } from '@rocketpod/shared/ai/evals'
 import chalk from 'chalk'
 import { type CommandContext, requireClient } from '../context'
 import { formatDate, formatPagination, renderTable } from '../utils/output'

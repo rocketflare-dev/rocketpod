@@ -11,7 +11,7 @@
  * the validated `redirectTo` or `/`; failures redirect to
  * `/login?error=invalid_token|expired|not_invited|blocked`.
  */
-import { magicLinkRequestSchema } from '@rocketflare/shared/auth'
+import { magicLinkRequestSchema } from '@rocketpod/shared/auth'
 import type { AppConfig } from '../../../config'
 import type { Database } from '../../../db/client'
 import { consumeMagicLinkToken, issueMagicLinkToken } from '../../auth/magic-link'

@@ -1,7 +1,7 @@
 /**
  * `example-feature.ping` (D7, D31): the smoke-test job. It only logs, so a developer can prove the
  * producer → Queues → consumer path end to end — `POST /api/example-feature/ping`, or
- * `rocketflare example-feature ping`, then watch `wrangler dev`. Copy this file to start a real
+ * `rocketpod example-feature ping`, then watch `wrangler dev`. Copy this file to start a real
  * handler.
  *
  * A plugin's handler is a kit handler in every respect: it awaits everything (there is no
@@ -16,8 +16,8 @@
  * `tenantId`. A job's tenant comes from its PAYLOAD, which is exactly the mistake the missing field
  * prevents.
  */
-import type { JobOf } from '@rocketflare/shared/jobs'
-import { EXAMPLE_PING_JOB } from '@rocketflare/shared/plugins/example-feature/index'
+import type { JobOf } from '@rocketpod/shared/jobs'
+import { EXAMPLE_PING_JOB } from '@rocketpod/shared/plugins/example-feature/index'
 import type { JobCtx, JobHandler } from '@/plugins/api'
 import { jobCtx } from '@/plugins/api'
 

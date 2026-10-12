@@ -3,8 +3,8 @@ import {
   apiKeySchema,
   type CreateApiKeyRequest,
   createApiKeyResponseSchema,
-} from '@rocketflare/shared/api-keys'
-import { paginatedResponse } from '@rocketflare/shared/pagination'
+} from '@rocketpod/shared/api-keys'
+import { paginatedResponse } from '@rocketpod/shared/pagination'
 import {
   keepPreviousData,
   queryOptions,

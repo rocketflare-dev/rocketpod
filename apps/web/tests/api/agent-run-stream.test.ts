@@ -14,8 +14,8 @@ import {
   RUN_STREAM_POLL_MS,
   RUN_STREAM_SLOW_MS,
   RUN_STREAM_TAIL_LIMIT,
-} from '@rocketflare/shared/ai/agents'
-import { kitAguiEventSchema } from '@rocketflare/shared/ai/agui'
+} from '@rocketpod/shared/ai/agents'
+import { kitAguiEventSchema } from '@rocketpod/shared/ai/agui'
 import { eq } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
 import { requestInterrupt } from '@/api/services/agents/interrupts'

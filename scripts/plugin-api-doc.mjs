@@ -55,7 +55,7 @@ const ROLES = {
   '@/plugins/types': '`ServerPlugin` and `UiPlugin` — the slots a plugin fills.',
   '@/db/schema/kit':
     'The build-time schema symbols. A `pgTable(...)` runs at module scope, so these cannot be injected.',
-  '@rocketflare/shared/plugins/api':
+  '@rocketpod/shared/plugins/api':
     "What a plugin's CONTRACT module imports: the error envelope, pagination, `SharedPlugin`.",
   "'../api' (apps/cli/src/plugins/api.ts)":
     'The CLI half: the one `fetch` site, the exit codes, the output helpers.',
@@ -142,11 +142,11 @@ const CAPABILITIES = [
   ['Add a nav item and a route', 'UiPlugin', '@/plugins/types'],
   ['Guard a nav item on a flag', 'featureGuard', '@/plugins/api/ui-wiring'],
   ['Call the API from a page', 'api', '@/plugins/api/ui'],
-  ['Declare contracts, jobs, subjects, flags', 'SharedPlugin', '@rocketflare/shared/plugins/api'],
+  ['Declare contracts, jobs, subjects, flags', 'SharedPlugin', '@rocketpod/shared/plugins/api'],
   [
     'Answer a paginated list, in the contract',
     'paginatedResponse',
-    '@rocketflare/shared/plugins/api',
+    '@rocketpod/shared/plugins/api',
   ],
   ['Add a CLI command', 'CliPlugin', "'./types' (apps/cli/src/plugins/types.ts)"],
   ['Call the API from a command', 'requireClient', "'../api' (apps/cli/src/plugins/api.ts)"],

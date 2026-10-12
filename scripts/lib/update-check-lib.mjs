@@ -16,8 +16,8 @@ export const CACHE_TTL_MS = 24 * 60 * 60 * 1000
  */
 export const FAILURE_TTL_MS = 60 * 60 * 1000
 
-/** Opt-out: `ROCKETFLARE_UPDATE_CHECK=0|false|off|no`. */
-export const OPT_OUT_ENV = 'ROCKETFLARE_UPDATE_CHECK'
+/** Opt-out: `ROCKETPOD_UPDATE_CHECK=0|false|off|no`. */
+export const OPT_OUT_ENV = 'ROCKETPOD_UPDATE_CHECK'
 
 /** Releases summarised in the message; anything older is counted, not listed. */
 export const MAX_LISTED = 3
@@ -112,13 +112,13 @@ export function updateMessage({ current, latest, summaries }) {
   if (!latest || compareVersions(latest, current) <= 0) return null
   const listed = summaries.slice(0, MAX_LISTED)
   const lines = [
-    `Rocketflare kit update available: ${latest} (this app is on ${current}).`,
+    `Rocketpod kit update available: ${latest} (this app is on ${current}).`,
     ...listed.map(s => `- ${s.version}: ${s.summary}`),
   ]
   const unlisted = summaries.length - listed.length
   if (unlisted > 0) lines.push(`- …and ${unlisted} earlier release(s).`)
   lines.push(
-    'Tell the user this ONCE, in one or two sentences, at the start of your first reply — then carry on with what they asked. Suggest `/rf-upgrade` to see what applies to this app (it plans before it changes anything). Do not start an upgrade unless they ask. To silence this check: ROCKETFLARE_UPDATE_CHECK=0.'
+    'Tell the user this ONCE, in one or two sentences, at the start of your first reply — then carry on with what they asked. Suggest `/rf-upgrade` to see what applies to this app (it plans before it changes anything). Do not start an upgrade unless they ask. To silence this check: ROCKETPOD_UPDATE_CHECK=0.'
   )
   return lines.join('\n')
 }

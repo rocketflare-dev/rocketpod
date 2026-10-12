@@ -11,7 +11,7 @@ import {
   agentListResponseSchema,
   agentRunWithEventsSchema,
   createAgentRunResponseSchema,
-} from '@rocketflare/shared/ai/agents'
+} from '@rocketpod/shared/ai/agents'
 import { eq } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
 import { RECONCILE_LIVENESS_MS } from '@/api/services/agents/runs'

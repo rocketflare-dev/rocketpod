@@ -9,8 +9,8 @@
 import {
   agentModelAssignmentSchema,
   agentModelsListResponseSchema,
-} from '@rocketflare/shared/ai/agent-models'
-import { aiConfigSchema, WORKERS_AI_CHAT_MODEL } from '@rocketflare/shared/ai/config'
+} from '@rocketpod/shared/ai/agent-models'
+import { aiConfigSchema, WORKERS_AI_CHAT_MODEL } from '@rocketpod/shared/ai/config'
 import { describe, expect, it } from 'vitest'
 import { resolveChat } from '@/api/services/ai/resolve'
 import { loadConfig } from '@/config'

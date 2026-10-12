@@ -28,7 +28,7 @@ import type { MirrorReader } from '../../../../scripts/release.d.mts'
 import { releaseContext, resolveDefaultPlugin } from '../../../../scripts/release.mjs'
 
 const PLUGIN_MANIFEST = 'rocketflare-plugin.json'
-const REPO = 'https://example.test/rocketflare-plugin-orders.git'
+const REPO = 'https://example.test/rocketpod-plugin-orders.git'
 
 const entry = (over: Partial<DefaultPluginEntry> = {}): DefaultPluginEntry => ({
   id: 'orders',
@@ -204,7 +204,7 @@ describe('releaseContext', () => {
 /**
  * The three repository SHAPES a release can be cut in (D31). The first two must behave exactly as
  * they did before `--plugin` existed, which is what most of these assertions are for; the third is
- * the plugin monorepo `rocketflare-plugins`, whose manifests live in subdirectories and which has
+ * the plugin monorepo `rocketpod-plugins`, whose manifests live in subdirectories and which has
  * none at its root.
  */
 describe('releaseContext across repository shapes', () => {

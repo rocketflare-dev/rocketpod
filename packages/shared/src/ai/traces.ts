@@ -1,7 +1,7 @@
 /**
  * AI trace contracts (D32): the local span store (`ai_spans`) read back as traces, for
  * `GET /api/traces` (list) and `GET /api/traces/:id` (one trace's spans, parent-linked) and the
- * CLI's `rocketflare traces list|show`. A span is one unit of AI work — the agent/chat root, each
+ * CLI's `rocketpod traces list|show`. A span is one unit of AI work — the agent/chat root, each
  * model call, each tool execution, retrieval and embeddings — with the GenAI attributes it was
  * exported with. `content` is null when the deployment sets `OBSERVABILITY_CAPTURE_CONTENT=false`.
  * Trace ids are OTLP hex (32 chars) so the same id opens the trace in the configured backend.
@@ -74,7 +74,7 @@ export const traceListQuerySchema = paginationQuerySchema.extend({
   conversationId: z.string().uuid().optional(),
   /** ISO timestamp: traces that started at or after it. */
   since: z.coerce.date().optional(),
-  /** Agent key or surface (`chat`, `research-topic`) — matches the root's `rocketflare.name`. */
+  /** Agent key or surface (`chat`, `research-topic`) — matches the root's `rocketpod.name`. */
   agent: z.string().min(1).max(100).optional(),
   status: traceSpanStatusSchema.optional(),
 })

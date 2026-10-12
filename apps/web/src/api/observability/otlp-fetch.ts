@@ -66,7 +66,7 @@ export interface OtlpExporterOptions {
   logger?: Pick<Logger, 'warn' | 'debug'>
 }
 
-export const SCOPE_NAME = 'rocketflare'
+export const SCOPE_NAME = 'rocketpod'
 
 export function tracesUrl(endpoint: string): string {
   const base = endpoint.replace(/\/+$/, '')

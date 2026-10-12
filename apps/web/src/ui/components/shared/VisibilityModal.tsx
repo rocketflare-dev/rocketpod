@@ -5,7 +5,7 @@
  * The caller decides whether to render it at all (`manage Document` / owner, or `manage
  * Dashboard`), and supplies the mutation; this component owns only the draft state.
  */
-import type { GroupRef, ResourceVisibility } from '@rocketflare/shared/groups'
+import type { GroupRef, ResourceVisibility } from '@rocketpod/shared/groups'
 import { useEffect, useState } from 'react'
 import { AccessPicker } from './AccessPicker'
 import { Modal } from './Modal'

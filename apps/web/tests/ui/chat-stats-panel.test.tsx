@@ -7,7 +7,7 @@
 import type {
   ConversationCompactionStats,
   ConversationContextStats,
-} from '@rocketflare/shared/ai/chat'
+} from '@rocketpod/shared/ai/chat'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ChatStatsPanel, compactionState } from '@/ui/pages/chat/ChatStatsPanel'

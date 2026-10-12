@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest'
 import { checkTestDatabaseEnv, isLocalDatabaseUrl, neonEndpointId } from '../helpers/db-safety'
 
-const LOCAL = 'postgresql://test:test@localhost:5433/rocketflare_test'
+const LOCAL = 'postgresql://test:test@localhost:5433/rocketpod_test'
 const POOLED =
   'postgresql://session_owner:s3cret@ep-cool-darkness-123456-pooler.us-east-2.aws.neon.tech/session_app?sslmode=require'
 const DIRECT =
@@ -118,7 +118,7 @@ describe('safetyCheck: the ephemeral gate branch', () => {
     expect(() =>
       checkTestDatabaseEnv({
         ...gate,
-        APP_DATABASE_URL: DIRECT.replace('session_owner:s3cret', 'rocketflare_app:x'),
+        APP_DATABASE_URL: DIRECT.replace('session_owner:s3cret', 'rocketpod_app:x'),
       })
     ).not.toThrow()
     refuses(

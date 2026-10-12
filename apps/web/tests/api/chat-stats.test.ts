@@ -5,7 +5,7 @@
  * arithmetic (the panel must agree with the window the next turn will actually send), and the
  * honesty rules (an unpriced model is null and counted, never guessed at today's rate).
  */
-import { conversationStatsSchema } from '@rocketflare/shared/ai/chat'
+import { conversationStatsSchema } from '@rocketpod/shared/ai/chat'
 import { eq } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
 import { summariseByModel } from '@/api/services/ai/chat-stats'

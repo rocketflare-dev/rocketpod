@@ -30,7 +30,7 @@ describe('createApiClient', () => {
     const headers = headersOf(calls)
     expect(headers.Authorization).toBe(`Bearer ${TEST_KEY}`)
     expect(headers.Accept).toBe('application/json')
-    expect(headers['User-Agent']).toMatch(/^rocketflare-cli\//)
+    expect(headers['User-Agent']).toMatch(/^rocketpod-cli\//)
     expect(calls[0]?.url.search).toBe('?page=1')
   })
 
@@ -53,7 +53,7 @@ describe('createApiClient', () => {
     const error = await captureError(client.get('/api/me'))
     expect(error).toBeInstanceOf(CliApiError)
     expect(error).toMatchObject({ status: 401, code: 'unauthorized', message: 'Unauthorized' })
-    expect(error.hint).toContain('rocketflare login')
+    expect(error.hint).toContain('rocketpod login')
     expect(exitCodeFor(error)).toBe(EXIT_NOT_LOGGED_IN)
   })
 

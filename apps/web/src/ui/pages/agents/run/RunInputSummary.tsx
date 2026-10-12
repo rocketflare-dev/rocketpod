@@ -12,7 +12,7 @@
  * value and one short one, and a scrollbar around a paragraph reads as an accident.
  */
 import { ChevronDownIcon, ChevronRightIcon } from '@heroicons/react/24/outline'
-import type { JsonSchema } from '@rocketflare/shared/ai/interrupts'
+import type { JsonSchema } from '@rocketpod/shared/ai/interrupts'
 import { useMemo, useState } from 'react'
 import { INPUT_VALUE_PREVIEW_CHARS, type InputValue, summariseInput } from './inputSummary'
 

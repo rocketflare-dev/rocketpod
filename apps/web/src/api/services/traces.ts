@@ -12,8 +12,8 @@ import type {
   TraceListResponse,
   TraceSpan,
   TraceSummary,
-} from '@rocketflare/shared/ai/traces'
-import { paginationMeta } from '@rocketflare/shared/pagination'
+} from '@rocketpod/shared/ai/traces'
+import { paginationMeta } from '@rocketpod/shared/pagination'
 import { and, asc, eq, type SQL, sql } from 'drizzle-orm'
 import type { AppConfig } from '../../config'
 import { type Database, rows } from '../../db/client'
@@ -121,7 +121,7 @@ export async function listTraces(
   if (query.runId) where.push(sql`s.run_id = ${query.runId}`)
   if (query.conversationId) where.push(sql`s.conversation_id = ${query.conversationId}`)
   if (query.since) where.push(sql`s.started_at >= ${query.since.toISOString()}`)
-  if (query.agent) having.push(sql`bool_or(s.attributes->>'rocketflare.name' = ${query.agent})`)
+  if (query.agent) having.push(sql`bool_or(s.attributes->>'rocketpod.name' = ${query.agent})`)
   if (query.status === 'error') {
     having.push(sql`CASE WHEN bool_or(s.parent_span_id IS NULL)
       THEN coalesce(bool_or(s.parent_span_id IS NULL AND s.status = 'error'), false)

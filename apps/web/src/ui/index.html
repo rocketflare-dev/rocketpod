@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="rocketflare-light">
+<html lang="en" data-theme="rocketpod-light">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-    <title>Rocketflare</title>
-    <meta name="description" content="Rocketflare" />
+    <title>Rocketpod</title>
+    <meta name="description" content="Rocketpod" />
 
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="theme-color" content="#2563eb" />
@@ -16,11 +16,11 @@
     <script>
       ;(function () {
         var saved = localStorage.getItem('theme')
-        if (saved !== 'rocketflare-light' && saved !== 'rocketflare-dark') {
+        if (saved !== 'rocketpod-light' && saved !== 'rocketpod-dark') {
           saved =
             window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
-              ? 'rocketflare-dark'
-              : 'rocketflare-light'
+              ? 'rocketpod-dark'
+              : 'rocketpod-light'
         }
         document.documentElement.setAttribute('data-theme', saved)
       })()

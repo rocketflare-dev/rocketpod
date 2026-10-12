@@ -24,8 +24,8 @@ import {
   type DocumentUploadType,
   INGEST_TEXT_MAX_CHARS,
   resolveDocumentUploadType,
-} from '@rocketflare/shared/ai/embeddings'
-import type { GroupRef, ResourceVisibility } from '@rocketflare/shared/groups'
+} from '@rocketpod/shared/ai/embeddings'
+import type { GroupRef, ResourceVisibility } from '@rocketpod/shared/groups'
 import { and, eq, sql } from 'drizzle-orm'
 import type { AppConfig } from '../../../config'
 import type { Database } from '../../../db/client'

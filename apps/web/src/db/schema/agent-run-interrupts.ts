@@ -14,14 +14,14 @@
  * - **`status` is the decision and every settle is a compare-and-set on `pending`.** That is what
  *   makes "two people answer at once → one 200, one 409" true, and it is why a rejection is
  *   `status = 'cancelled'` rather than an `approved` boolean: two ways to say no is how a UI and a
- *   server end up disagreeing (see `@rocketflare/shared/ai/interrupts`).
+ *   server end up disagreeing (see `@rocketpod/shared/ai/interrupts`).
  *
  * `runId` is the ONLY host-specific column. Giving chat the same machinery is a nullable
  * `conversationId` sibling plus `CHECK (num_nonnulls(run_id, conversation_id) = 1)` — that is the
  * whole migration, which is why nothing else here names a run.
  */
-import type { AgentInterruptSpec, JsonSchema } from '@rocketflare/shared/ai/interrupts'
-import { AGENT_INTERRUPT_KINDS, AGENT_INTERRUPT_STATUSES } from '@rocketflare/shared/ai/interrupts'
+import type { AgentInterruptSpec, JsonSchema } from '@rocketpod/shared/ai/interrupts'
+import { AGENT_INTERRUPT_KINDS, AGENT_INTERRUPT_STATUSES } from '@rocketpod/shared/ai/interrupts'
 import { relations } from 'drizzle-orm'
 import { index, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
 import { tenantRef, timestamps } from './_helpers'
@@ -42,7 +42,7 @@ export const agentRunInterrupts = pgTable(
     /** The agent's own name for this ask, stable across attempts. Half of the idempotency key. */
     key: text('key').notNull(),
     /**
-     * The closed set from `@rocketflare/shared/ai/interrupts`, used DIRECTLY rather than mirrored
+     * The closed set from `@rocketpod/shared/ai/interrupts`, used DIRECTLY rather than mirrored
      * into a local `*_VALUES` const: the column and the contract cannot drift if there is only one
      * list. Still `text`, so a fifth kind is a contract change and not a migration.
      */

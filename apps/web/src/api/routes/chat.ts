@@ -19,7 +19,7 @@ import {
   createConversationRequestSchema,
   type Message,
   sendMessageRequestSchema,
-} from '@rocketflare/shared/ai/chat'
+} from '@rocketpod/shared/ai/chat'
 import { and, asc, count, desc, eq, sql } from 'drizzle-orm'
 import type { Database } from '../../db/client'
 import { type ConversationRow, conversations, type MessageRow, messages } from '../../db/schema'

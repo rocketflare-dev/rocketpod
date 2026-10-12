@@ -2,9 +2,9 @@
  * Cookie + Bearer authentication (D12): `/auth/session`, `authMiddleware` codes, sliding expiry,
  * logout, select-tenant.
  */
-import type { SessionResponse } from '@rocketflare/shared/auth'
-import { ERROR_CODES } from '@rocketflare/shared/errors'
-import { FEATURE_FLAGS, FEATURE_KEYS } from '@rocketflare/shared/features'
+import type { SessionResponse } from '@rocketpod/shared/auth'
+import { ERROR_CODES } from '@rocketpod/shared/errors'
+import { FEATURE_FLAGS, FEATURE_KEYS } from '@rocketpod/shared/features'
 import { eq } from 'drizzle-orm'
 import { describe, expect, inject, it } from 'vitest'
 import { SESSION_COOKIE_NAME } from '@/api/auth/cookies'
@@ -137,7 +137,7 @@ describe('authMiddleware on /api/*', () => {
   })
 
   it('bearer path: invalid key → 401', async () => {
-    const res = await request('/api/tenant', { headers: bearerHeader('rocketflare_not_a_key') })
+    const res = await request('/api/tenant', { headers: bearerHeader('rocketpod_not_a_key') })
     expect(res.status).toBe(401)
   })
 

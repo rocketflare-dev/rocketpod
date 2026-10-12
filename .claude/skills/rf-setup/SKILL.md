@@ -39,7 +39,7 @@ git log --oneline | head -3 && git log --oneline | wc -l && git remote -v
 
 Offer the detach ONLY when all of these hold, and say which one you saw:
 
-- there is more than one commit, and the first commit is **not** `Start from Rocketflare`
+- there is more than one commit, and the first commit is **not** `Start from Rocketpod`
   (`git log --reverse --oneline | head -1`) — the one-liner installer already detaches, so a copy
   made that way needs nothing;
 - `origin` points at the kit's own repository.
@@ -49,7 +49,7 @@ irreversibly, replaced by one of their own. Two cases you must name in the quest
 signature is identical for both:
 
 - **They copied the kit** → detaching is right, and is what `docs/ADAPTING.md` §0 tells them to do.
-- **This IS the kit** (they are working on Rocketflare itself, or a fork they intend to pull from)
+- **This IS the kit** (they are working on Rocketpod itself, or a fork they intend to pull from)
   → say no. Deleting the history of the kit's own checkout is the one truly unrecoverable thing in
   this skill.
 
@@ -59,7 +59,7 @@ to diff against the kit later:
 ```
 KIT_COMMIT=$(git rev-parse --short HEAD)
 rm -rf .git && git init -q && git add -A
-git commit -q -m "Start from Rocketflare" -m "Kit commit: $KIT_COMMIT"
+git commit -q -m "Start from Rocketpod" -m "Kit commit: $KIT_COMMIT"
 ```
 
 Then tell them to add their own `origin`. On no, or on any doubt, carry on to step 1 unchanged —
@@ -130,7 +130,7 @@ or stay offline?
    ```
 4. Report what is true now, in **at most six lines** — where the app is (the two URLs), who they
    are signed in as (**owner@example.test**; also `admin@` and `member@example.test`, and the
-   global admin `admin@rocketflare.local`), the port Postgres landed on if it was not 5432, the
+   global admin `admin@rocketpod.example.com`), the port Postgres landed on if it was not 5432, the
    local database driver if it is not `postgres` (`neon`, through the proxy — step 4 says so), **any
    plugin the `plugins` step installed and the page it adds** (`pnpm plugin list` names them; say
    "no plugins installed" rather than nothing when there are none), and any note the script printed

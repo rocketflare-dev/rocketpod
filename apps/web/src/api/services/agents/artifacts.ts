@@ -11,8 +11,8 @@
  * so the timeline records WHERE it appeared while the table records what it is. The event is
  * written by the runtime (`ctx.artifact`), not here, because only the runtime holds the emitter.
  */
-import type { AgentArtifact, AgentArtifactInput } from '@rocketflare/shared/ai/artifacts'
-import { agentArtifactInputSchema } from '@rocketflare/shared/ai/artifacts'
+import type { AgentArtifact, AgentArtifactInput } from '@rocketpod/shared/ai/artifacts'
+import { agentArtifactInputSchema } from '@rocketpod/shared/ai/artifacts'
 import { and, asc, eq } from 'drizzle-orm'
 import type { Database } from '../../../db/client'
 import { type AgentRunArtifactRow, agentRunArtifacts } from '../../../db/schema'

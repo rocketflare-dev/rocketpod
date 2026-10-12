@@ -11,8 +11,8 @@
  * terminates the Workflow instance and settles the row), so a run whose loop stopped polling can
  * never strand somebody on "Cancelling…" or hold an exclusive agent's only slot forever.
  */
-import type { AgentRun } from '@rocketflare/shared/ai/agents'
-import { isRunActive } from '@rocketflare/shared/ai/agents'
+import type { AgentRun } from '@rocketpod/shared/ai/agents'
+import { isRunActive } from '@rocketpod/shared/ai/agents'
 import { useCancelAgentRun } from '@/ui/hooks/useAgents'
 import { formatDuration, runDuration } from '@/ui/lib/format'
 

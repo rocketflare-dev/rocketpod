@@ -8,7 +8,7 @@ import {
   aiConfigSchema,
   aiReadinessSchema,
   WORKERS_AI_CHAT_MODEL,
-} from '@rocketflare/shared/ai/config'
+} from '@rocketpod/shared/ai/config'
 import { and, eq } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
 import { decrypt } from '@/api/auth/oauth-encryption'

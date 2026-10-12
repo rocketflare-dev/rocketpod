@@ -1,15 +1,15 @@
 /**
  * `ai_feedback` — a person's thumbs up/down on an AI answer (D33): an assistant message or an agent
  * run's output. One row per `(tenant, target, user)`: voting again replaces the vote, withdrawing
- * it deletes the row. The list is the evals promotion queue (`rocketflare feedback list --rating
- * down` → `rocketflare evals promote`).
+ * it deletes the row. The list is the evals promotion queue (`rocketpod feedback list --rating
+ * down` → `rocketpod evals promote`).
  *
  * `target_id` is a plain uuid with no foreign key, like `ai_spans.run_id`: it points at one of two
  * tables, and a rating is a record of what somebody thought of an answer — deleting the thread must
  * not quietly rewrite what the promotion queue says. `trace_id` is copied from the rated row so the
- * feedback span lands in the answer's own trace (`rocketflare traces show`).
+ * feedback span lands in the answer's own trace (`rocketpod traces show`).
  */
-import type { FeedbackTarget } from '@rocketflare/shared/ai/evals'
+import type { FeedbackTarget } from '@rocketpod/shared/ai/evals'
 import { relations } from 'drizzle-orm'
 import { index, pgTable, smallint, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
 import { tenantRef, timestamps } from './_helpers'

@@ -25,15 +25,15 @@ import { KIT } from './rename-lib.mjs'
 import { isKitManifest } from './upgrade-lib.mjs'
 
 /**
- * Both names are BUILT from `KIT.slug` rather than written as literals, and that is not style.
+ * Both names are BUILT from `KIT.ecosystem` rather than written as literals, and that is not style.
  * `scripts/rename.mjs` rewrites the kit's name in every file it is not told to skip, and the
  * provenance file is deliberately NOT renamed with the app — so a literal here becomes
  * `.<slug>.json` in a renamed copy and every plugin command then fails to find a file that is
  * sitting right there. `rename-lib.mjs` is on the rename's own exclusion list (the tool has to keep
- * working after it has run), so `KIT.slug` is `rocketflare` for ever, in the kit and in every copy.
+ * working after it has run), so `KIT.ecosystem` is `rocketflare` for ever, in the kit and in every copy.
  */
-export const MANIFEST_FILE = `.${KIT.slug}.json`
-export const SIDECAR_FILE = `.${KIT.slug}.local.json`
+export const MANIFEST_FILE = `.${KIT.ecosystem}.json`
+export const SIDECAR_FILE = `.${KIT.ecosystem}.local.json`
 
 /** The repository root, from this file's location — the same anchor every other script uses. */
 export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')

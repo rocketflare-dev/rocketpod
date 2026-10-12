@@ -6,7 +6,7 @@
  * Schema, because *a client that can edit tool arguments is a client that can call anything*. The
  * textarea is therefore a convenience over a body the route will check, never the check itself.
  */
-import type { ApprovalTool } from '@rocketflare/shared/ai/interrupts'
+import type { ApprovalTool } from '@rocketpod/shared/ai/interrupts'
 import { FieldError } from '@/ui/components/shared'
 import { humaniseToolName } from '../timeline/timelineModel'
 import { pretty } from '../timeline/toolResults'

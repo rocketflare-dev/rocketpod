@@ -59,7 +59,7 @@ export const BARRELS = [
 const UI_ENTRY_ALLOWED = [
   'react',
   '@heroicons/react/24/outline',
-  '@rocketflare/shared/',
+  '@rocketpod/shared/',
   '@/plugins/types',
   // The WIRING half of the UI kit: the nav/route/guard vocabulary and nothing that renders. Its
   // components half (`@/plugins/api/ui`) is deliberately absent — that is for a lazy PAGE.
@@ -209,7 +209,7 @@ export function pluginImportIssue(
 ): string | null {
   if (!isPluginFile(importer)) return null
   const target = resolveSpecifier(importer, specifier)
-  // A bare specifier that is not `@/` or `@rocketflare/shared/` — an ordinary dependency.
+  // A bare specifier that is not `@/` or `@rocketpod/shared/` — an ordinary dependency.
   if (!target) return null
   // Its own files are always fine; another plugin's are `deepImportIssue`'s to report — and a
   // PUBLISHED entry of a plugin it requires is allowed (D31), so every plugin path stops here.

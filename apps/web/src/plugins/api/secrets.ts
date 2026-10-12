@@ -62,7 +62,7 @@ export async function openSecret(config: PluginConfig, sealed: string): Promise<
  * minute lifetime is the right price.
  */
 
-const STATE_KEY_INFO = 'rocketflare:signed-state:v1'
+const STATE_KEY_INFO = 'rocketpod:signed-state:v1'
 const DEFAULT_STATE_TTL_SECONDS = 600
 
 function toBase64Url(bytes: Uint8Array): string {

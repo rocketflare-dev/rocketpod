@@ -7,7 +7,7 @@
  * - `DELETE /:target/:targetId` — withdraw your own vote (204, idempotent).
  * - `GET /mine?target=&targetIds=` — your own votes on those targets, for the thumbs' state.
  * - `GET /` — every vote in the tenant (`read Feedback`, admin+): the promotion queue behind
- *   `rocketflare feedback list`.
+ *   `rocketpod feedback list`.
  */
 import {
   createFeedbackRequestSchema,
@@ -17,7 +17,7 @@ import {
   feedbackMineResponseSchema,
   feedbackSchema,
   feedbackTargetParamSchema,
-} from '@rocketflare/shared/ai/evals'
+} from '@rocketpod/shared/ai/evals'
 import { guardPermission, isAdminLevel } from '../middleware/permissions'
 import {
   type FeedbackActor,

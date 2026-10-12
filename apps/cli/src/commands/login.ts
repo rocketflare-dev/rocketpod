@@ -1,4 +1,4 @@
-/** `rocketflare login [--server <url>]` — browser handoff → API key in config (D26). */
+/** `rocketpod login [--server <url>]` — browser handoff → API key in config (D26). */
 import { loginFlow } from '../auth'
 import type { CommandContext } from '../context'
 

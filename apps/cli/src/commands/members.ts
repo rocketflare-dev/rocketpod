@@ -1,8 +1,8 @@
-/** `rocketflare members list [--page] [--page-size]` — `GET /api/members` → `paginatedResponse(memberSchema)` (D26). */
+/** `rocketpod members list [--page] [--page-size]` — `GET /api/members` → `paginatedResponse(memberSchema)` (D26). */
 // EXAMPLE (surface `example-cli-commands` in .rocketflare.json): one of the three read-list
 // commands that document the pattern. Delete the ones you do not want — `docs/ADAPTING.md` §2.
-import { paginatedResponse } from '@rocketflare/shared/pagination'
-import { memberSchema } from '@rocketflare/shared/tenants'
+import { paginatedResponse } from '@rocketpod/shared/pagination'
+import { memberSchema } from '@rocketpod/shared/tenants'
 import { type CommandContext, requireClient } from '../context'
 import { formatDate, formatPagination, renderTable } from '../utils/output'
 

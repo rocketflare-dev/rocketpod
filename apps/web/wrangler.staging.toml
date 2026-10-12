@@ -3,27 +3,27 @@
 # URLs/APP_ENV, and resource ids. tests/config/wrangler-parity.test.ts enforces this and
 # fails while any <PLACEHOLDER> remains. See docs/DEPLOY.md and scripts/cf-provision.sh.
 #
-# ADAPTING: rename `rocketflare` → your app (worker name, queue/workflow names, buckets).
+# ADAPTING: rename `rocketpod` → your app (worker name, queue/workflow names, buckets).
 
-name = "rocketflare-staging"
+name = "rocketpod-staging"
 main = "src/worker.ts"
 compatibility_date = "2026-06-01"
 compatibility_flags = ["nodejs_compat"]
 
-# Fallback host rocketflare-staging.<subdomain>.workers.dev while the custom domain is set up.
+# Fallback host rocketpod-staging.<subdomain>.workers.dev while the custom domain is set up.
 workers_dev = true
 
 # Custom domain (wrangler creates the DNS record on deploy). Uncomment once the zone exists.
-# routes = [{ pattern = "staging.rocketflare.dev", custom_domain = true }]
+# routes = [{ pattern = "staging.rocketpod.example.com", custom_domain = true }]
 
 [vars]
 APP_ENV = "staging"                    # development | staging | production
-APP_URL = "https://staging.rocketflare.dev"  # public origin; derives OAuth redirect URIs, magic links, CSRF
-APP_NAME = "Rocketflare"
+APP_URL = "https://staging.rocketpod.example.com"  # public origin; derives OAuth redirect URIs, magic links, CSRF
+APP_NAME = "Rocketpod"
 # Overridden at deploy time by CI: `wrangler deploy --var RELEASE_VERSION:<tag>`
 RELEASE_VERSION = "dev"
 LOG_LEVEL = "info"
-EMAIL_FROM = "Rocketflare <noreply@rocketflare.dev>"
+EMAIL_FROM = "Rocketpod <noreply@rocketpod.example.com>"
 TENANCY_MODE = "multi"                 # multi | single   (docs/CONCEPTS.md → Tenancy)
 SIGNUP_MODE = "invite_only"            # open | invite_only | approval
 TENANT_SCOPE_MODE = "off"              # off | enforce    (docs/RLS.md — enforce needs an app-role connection)
@@ -45,7 +45,7 @@ OBSERVABILITY_SPAN_RETENTION_DAYS = "14"   # Tracing (D32): days of ai_spans the
 #   Headers are a SECRET: `wrangler secret put OTEL_EXPORTER_OTLP_HEADERS` (k=v,k=v)
 # Single sign-on through any OIDC issuer — add these to BOTH files (SETUP.md "Sign in with any OIDC issuer"):
 #   OIDC_ISSUER = "https://idp.example.com/realms/acme"   # exactly the issuer's `issuer`; redirect URI {APP_URL}/auth/oidc/callback
-#   OIDC_CLIENT_ID = "rocketflare"
+#   OIDC_CLIENT_ID = "rocketpod"
 #   OIDC_LABEL = "Acme SSO"                 # button text (default "Single sign-on")
 #   OIDC_SCOPES = "openid email profile"    # default; add "groups" if your issuer needs it
 #   AUTH_OIDC_ONLY = "false"                # "true" = login page shows only the SSO button, other methods hidden
@@ -119,18 +119,18 @@ crons = [
 ]
 
 # Background jobs (D7): one queue, one consumer; `src/api/queue.ts` dispatches on `batch.queue`.
-# Create: wrangler queues create rocketflare-jobs-staging
+# Create: wrangler queues create rocketpod-jobs-staging
 [[queues.producers]]
 binding = "JOBS_QUEUE"
-queue = "rocketflare-jobs-staging"
+queue = "rocketpod-jobs-staging"
 
 [[queues.consumers]]
-queue = "rocketflare-jobs-staging"
+queue = "rocketpod-jobs-staging"
 max_batch_size = 10
 max_batch_timeout = 5
 max_retries = 3
 retry_delay = 60
-# dead_letter_queue = "rocketflare-jobs-staging-dlq"
+# dead_letter_queue = "rocketpod-jobs-staging-dlq"
 
 # Realtime (D8): stateless WebSocket hub Durable Object, one instance per tenant
 # (`idFromName(tenantId)`), hibernation API. Implementing a DO in-script disables preview URLs.
@@ -142,10 +142,10 @@ class_name = "NotificationsHub"
 tag = "v1"
 new_classes = ["NotificationsHub"]
 
-# File storage (D23): R2 behind `services/storage.ts`. Create: wrangler r2 bucket create rocketflare-files-staging
+# File storage (D23): R2 behind `services/storage.ts`. Create: wrangler r2 bucket create rocketpod-files-staging
 [[r2_buckets]]
 binding = "FILES"
-bucket_name = "rocketflare-files-staging"
+bucket_name = "rocketpod-files-staging"
 
 # Workers AI (D17/D18): the zero-key floor for chat (`@cf/meta/llama-3.3-70b-instruct-fp8-fast`),
 # embeddings (`@cf/baai/bge-m3`, 1024-dim) and document conversion (`AI.toMarkdown`); billed to this
@@ -161,7 +161,7 @@ remote = true
 # ACCOUNT-scoped (staging uses `-staging`); binding and class_name are identical in both tomls.
 # Nothing to create: `wrangler deploy` registers the Workflow. Instance id = agent_runs.id.
 [[workflows]]
-name = "rocketflare-agent-run-staging"
+name = "rocketpod-agent-run-staging"
 binding = "AGENT_RUN_WORKFLOW"
 class_name = "AgentRunWorkflow"
 

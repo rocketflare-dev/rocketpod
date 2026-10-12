@@ -133,12 +133,12 @@ Open http://localhost:3000 once the app runs: the mark in the header and the bro
 ## (g) Installed plugins — translated on the way in, and again on the way forward
 
 **What to check.** A plugin is a git repository copied into this app, and it is written in the
-**kit's** vocabulary — `@rocketflare/shared`, `rocketflare_app`, the kit's own name in strings and
+**kit's** vocabulary — `@rocketpod/shared`, `rocketpod_app`, the kit's own name in strings and
 comments. `scripts/rename.mjs` walks every tracked file, so a plugin's three directories are
 renamed exactly like core code; the dry-run table shows them as ordinary file rows under
 `apps/web/src/plugins/<id>/`, not as a group of their own. What matters here is that it actually
 reached them, because a missed import is a `typecheck` failure with a confusing message
-(`Cannot find module '@rocketflare/shared/...'`) rather than an obvious rename bug.
+(`Cannot find module '@rocketpod/shared/...'`) rather than an obvious rename bug.
 
 The same is true **later**: `pnpm plugin add` and `pnpm plugin upgrade` run the identical
 `applyReplacements()` translation on every file they copy in, reading the token map back out of
@@ -148,13 +148,13 @@ app's names, and you never translate one by hand.
 **How to check.**
 ```
 pnpm plugin list
-grep -rn "@rocketflare/\|rocketflare_" apps/web/src/plugins packages/shared/src/plugins apps/cli/src/plugins 2>/dev/null | head
+grep -rn "@rocketpod/\|rocketpod_" apps/web/src/plugins packages/shared/src/plugins apps/cli/src/plugins 2>/dev/null | head
 pnpm plugin check
 ```
 Expect: `No plugins installed.` (then there is nothing to do here), or one line per plugin and an
 **empty** grep — every kit token translated — and `✔ n plugin(s) check out`.
 
-**What to change.** Nothing, normally. A surviving `@rocketflare/…` import means the rename could
+**What to change.** Nothing, normally. A surviving `@rocketpod/…` import means the rename could
 not see that file: fix it by hand, then `pnpm typecheck`. Never edit the six barrels
 (`apps/web/src/plugins/{server,ui,schema,worker-exports}.ts`,
 `packages/shared/src/plugins/index.ts`, `apps/cli/src/plugins/index.ts`) to make something pass — `pnpm plugin` writes those lines, and

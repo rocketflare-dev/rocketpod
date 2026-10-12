@@ -16,7 +16,7 @@ import {
   SparklesIcon,
   UserGroupIcon,
 } from '@heroicons/react/24/outline'
-import type { Actions, Subjects } from '@rocketflare/shared/permissions'
+import type { Actions, Subjects } from '@rocketpod/shared/permissions'
 import { uiPlugins } from '@/plugins/ui'
 import { PageHeader, type TabConfig, URLTabs } from '@/ui/components/shared'
 import { useAuth } from '@/ui/hooks/useAuth'

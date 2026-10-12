@@ -135,7 +135,7 @@ const mounts: readonly (readonly [string, Hono<AppEnv>, MiddlewareHandler?])[] =
   // list is the enumerable auth surface (D13).
   ['/api/agui', aguiRouter],
   ['/api/agents', agentsRouter],
-  // D32: the local AI trace store, read by `rocketflare traces` — admin+ (`read Trace`).
+  // D32: the local AI trace store, read by `rocketpod traces` — admin+ (`read Trace`).
   ['/api/traces', tracesRouter],
   // D33: thumbs on AI answers (member create; admin+ read) and the eval-case export (admin+).
   ['/api/feedback', feedbackRouter],

@@ -15,8 +15,8 @@
  * `cubesFor`, `listTemplates`, the nav — reads the array it returns. A third source (a per-plan
  * entitlement, say) would be unioned in here and nothing else would change.
  */
-import { evaluateFeatures, type FeatureFlagEvaluation } from '@rocketflare/shared/features'
-import type { FeatureName } from '@rocketflare/shared/permissions'
+import { evaluateFeatures, type FeatureFlagEvaluation } from '@rocketpod/shared/features'
+import type { FeatureName } from '@rocketpod/shared/permissions'
 import type { AppConfig } from '../config'
 
 /**

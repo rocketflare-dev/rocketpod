@@ -11,8 +11,8 @@
  * protocol's way of saying "the client went away"; it is a normal end, never an error.
  */
 
-import type { KitNoticeCode } from '@rocketflare/shared/ai/agui'
-import { AguiEventType, KIT_CUSTOM_EVENTS, parseKitCustom } from '@rocketflare/shared/ai/agui'
+import type { KitNoticeCode } from '@rocketpod/shared/ai/agui'
+import { AguiEventType, KIT_CUSTOM_EVENTS, parseKitCustom } from '@rocketpod/shared/ai/agui'
 import {
   type ConversationStats,
   type ConversationWithMessages,
@@ -23,9 +23,9 @@ import {
   conversationWithMessagesSchema,
   type Message,
   type TokenUsage,
-} from '@rocketflare/shared/ai/chat'
-import type { DocumentCard } from '@rocketflare/shared/ai/embeddings'
-import { paginatedResponse } from '@rocketflare/shared/pagination'
+} from '@rocketpod/shared/ai/chat'
+import type { DocumentCard } from '@rocketpod/shared/ai/embeddings'
+import { paginatedResponse } from '@rocketpod/shared/pagination'
 import {
   keepPreviousData,
   queryOptions,

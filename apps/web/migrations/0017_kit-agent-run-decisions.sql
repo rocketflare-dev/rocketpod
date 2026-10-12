@@ -21,4 +21,4 @@ ALTER TABLE "agent_run_decisions" ADD CONSTRAINT "agent_run_decisions_run_id_age
 CREATE UNIQUE INDEX "agent_run_decisions_run_key_idx" ON "agent_run_decisions" USING btree ("run_id","key");--> statement-breakpoint
 CREATE INDEX "agent_run_decisions_tenant_created_idx" ON "agent_run_decisions" USING btree ("tenant_id","created_at" DESC NULLS LAST);--> statement-breakpoint
 CREATE INDEX "agent_run_decisions_tenant_hash_idx" ON "agent_run_decisions" USING btree ("tenant_id","questions_hash");--> statement-breakpoint
-CREATE POLICY "agent_run_decisions_tenant_isolation" ON "agent_run_decisions" AS PERMISSIVE FOR ALL TO "rocketflare_app" USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid) WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+CREATE POLICY "agent_run_decisions_tenant_isolation" ON "agent_run_decisions" AS PERMISSIVE FOR ALL TO "rocketpod_app" USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid) WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);

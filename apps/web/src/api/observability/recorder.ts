@@ -174,7 +174,7 @@ export function createTracer(options: RecorderOptions): Tracer {
               maxTokens: numberOr(g.metadata?.maxTokens),
               stopReason: stringOr(g.metadata?.stopReason),
             }),
-            'rocketflare.generation.name': g.name,
+            'rocketpod.generation.name': g.name,
           },
           input: g.input,
           root: false,
@@ -270,7 +270,7 @@ export function createTracer(options: RecorderOptions): Tracer {
         ...(root
           ? rootAttributes({ name: params.name, tags: params.tags, metadata: params.metadata })
           : metadataAttributes(params.metadata)),
-        'rocketflare.name': params.name,
+        'rocketpod.name': params.name,
       },
       input: params.input,
       root,
@@ -294,9 +294,9 @@ export function createTracer(options: RecorderOptions): Tracer {
 function metadataAttributes(metadata: Record<string, unknown> | undefined): SpanAttributes {
   const out: SpanAttributes = {}
   for (const [key, value] of Object.entries(metadata ?? {})) {
-    if (typeof value === 'string') out[`rocketflare.${key}`] = value.slice(0, 200)
+    if (typeof value === 'string') out[`rocketpod.${key}`] = value.slice(0, 200)
     else if (typeof value === 'number' || typeof value === 'boolean')
-      out[`rocketflare.${key}`] = value
+      out[`rocketpod.${key}`] = value
   }
   return out
 }

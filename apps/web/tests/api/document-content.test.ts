@@ -12,8 +12,8 @@ import {
   documentCardSchema,
   documentContentSchema,
   documentPassageSchema,
-} from '@rocketflare/shared/ai/embeddings'
-import { paginatedResponse } from '@rocketflare/shared/pagination'
+} from '@rocketpod/shared/ai/embeddings'
+import { paginatedResponse } from '@rocketpod/shared/pagination'
 import { eq } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
 import { chunks, documents } from '@/db/schema'

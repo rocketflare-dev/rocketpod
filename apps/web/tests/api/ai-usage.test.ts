@@ -3,7 +3,7 @@
  * groups per (provider, model, feature) within a range; `GET /api/ai/usage/summary` is admin+,
  * tenant-scoped, and validates the range.
  */
-import { aiUsageSummarySchema } from '@rocketflare/shared/ai/usage'
+import { aiUsageSummarySchema } from '@rocketpod/shared/ai/usage'
 import { describe, expect, it } from 'vitest'
 import { recordUsage, summarizeUsage, tapUsage } from '@/api/services/ai/usage'
 import { aiUsage } from '@/db/schema'

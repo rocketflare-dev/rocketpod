@@ -34,7 +34,7 @@ if it changed — it is not a gate check, the compile against the fresh types is
 - Strict, ES2022, bundler resolution, `noEmit` in `tsconfig.base.json`; each package extends it
   (`apps/web/tsconfig.json` covers its `src`, `tests`, `scripts`; `apps/cli`, `packages/shared` theirs).
   `pnpm typecheck` runs all three
-- Alias `@/*` → `apps/web/src/*` (web only). Shared contracts are imported as `@rocketflare/shared/<module>`
+- Alias `@/*` → `apps/web/src/*` (web only). Shared contracts are imported as `@rocketpod/shared/<module>`
   (workspace link, resolved to `packages/shared/src/<module>.ts` — TS source, no build). `packages/shared`
   imports nothing from `apps/web` or `apps/cli` — it must bundle for the browser; `apps/cli` never
   imports `apps/web`
@@ -43,7 +43,7 @@ if it changed — it is not a gate check, the compile against the fresh types is
 
 ## Contracts first
 
-New or changed API surface starts as a zod schema in `packages/shared/src/` (`@rocketflare/shared`), then
+New or changed API surface starts as a zod schema in `packages/shared/src/` (`@rocketpod/shared`), then
 server validation, then the UI and the CLI parse the response with the same schema. The error envelope is `{ error, statusCode, code?,
 details? }` (`packages/shared/src/errors.ts`) everywhere, including validation failures.
 
@@ -60,7 +60,7 @@ Changing behaviour changes the doc in the same PR:
 | a binding, a toml key, the release flow | `docs/DEPLOY.md`, both `wrangler*.toml` comments |
 | a convention in a layer | the matching `.claude/rules/*.md` and `apps/web/src/<dir>/CLAUDE.md` / `packages/shared/CLAUDE.md` |
 | a plugin slot, the plugin contract or the reference plugin (D31) | `docs/CONCEPTS.md` §16 + the matching `.claude/rules/*.md` + `apps/web/src/plugins/CLAUDE.md` |
-| a MEMBER of a declared plugin API entry — `@/plugins/api`, `@/db/schema/kit`, `@/plugins/api/ui{,-wiring}`, `@rocketflare/shared/plugins/*`, the CLI entry, `@testkit/*` (D31) | `node scripts/plugin-api-doc.mjs` and commit `docs/plugin-api.md` — the kit's published plugin API, whose freshness `kit.yml` checks (a copy publishes none, so its gate does not). There is no version to bump: the file's `## Surface ledger` block IS the contract, and a plugin naming a symbol it no longer carries fails `pnpm plugin check` by name, with its replacement import |
+| a MEMBER of a declared plugin API entry — `@/plugins/api`, `@/db/schema/kit`, `@/plugins/api/ui{,-wiring}`, `@rocketpod/shared/plugins/*`, the CLI entry, `@testkit/*` (D31) | `node scripts/plugin-api-doc.mjs` and commit `docs/plugin-api.md` — the kit's published plugin API, whose freshness `kit.yml` checks (a copy publishes none, so its gate does not). There is no version to bump: the file's `## Surface ledger` block IS the contract, and a plugin naming a symbol it no longer carries fails `pnpm plugin check` by name, with its replacement import |
 | a CLI command, flag or exit code | `docs/CONCEPTS.md` → CLI, `.claude/rules/cli.md` |
 | a rename target | `docs/ADAPTING.md` |
 
@@ -71,7 +71,7 @@ leave a stale document sitting beside a current one.
 
 - Secrets exist in `apps/web/.dev.vars` (git-ignored) locally and `wrangler secret put` in deployed envs.
   `[vars]` and `apps/web/.env.test` hold non-secrets and dummy values only. The CLI keeps its API key
-  in `~/.rocketflare/config.json` (0600) — never in the repo, never printed in full. The provisioning
+  in `~/.rocketpod/config.json` (0600) — never in the repo, never printed in full. The provisioning
   tokens (Cloudflare, Neon, Resend full-access) live in `apps/web/.provision.env` (git-ignored, 0600,
   written by `pnpm provision tokens`; an exported variable overrides it) — never in `.dev.vars`, never
   printed: `redact()` masks the exact values

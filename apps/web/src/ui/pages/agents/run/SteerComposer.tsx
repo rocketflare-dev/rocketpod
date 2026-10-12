@@ -7,7 +7,7 @@
  * rendered for one.
  */
 import { PaperAirplaneIcon } from '@heroicons/react/24/outline'
-import { STEERING_MAX_CHARS } from '@rocketflare/shared/ai/interrupts'
+import { STEERING_MAX_CHARS } from '@rocketpod/shared/ai/interrupts'
 import { type FormEvent, useState } from 'react'
 import { useSendSteering } from '@/ui/hooks/useAgents'
 

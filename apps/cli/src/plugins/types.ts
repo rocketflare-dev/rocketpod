@@ -7,7 +7,7 @@
  * prints an error: it throws `CliError`, exactly like `commands/*.ts`.
  */
 
-import type { SharedPlugin } from '@rocketflare/shared/plugins'
+import type { SharedPlugin } from '@rocketpod/shared/plugins'
 import type { Command } from 'commander'
 import type { CommandContext } from '../context'
 

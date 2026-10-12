@@ -31,19 +31,19 @@ import {
   agentToolEndEventDataSchema,
   agentToolStartEventDataSchema,
   isRunActive,
-} from '@rocketflare/shared/ai/agents'
-import type { AgentArtifact } from '@rocketflare/shared/ai/artifacts'
-import { agentArtifactEventDataSchema } from '@rocketflare/shared/ai/artifacts'
+} from '@rocketpod/shared/ai/agents'
+import type { AgentArtifact } from '@rocketpod/shared/ai/artifacts'
+import { agentArtifactEventDataSchema } from '@rocketpod/shared/ai/artifacts'
 import {
   type AgentDecisionEventData,
   agentDecisionEventDataSchema,
-} from '@rocketflare/shared/ai/decisions'
-import type { AgentRunInterrupt } from '@rocketflare/shared/ai/interrupts'
+} from '@rocketpod/shared/ai/decisions'
+import type { AgentRunInterrupt } from '@rocketpod/shared/ai/interrupts'
 import {
   agentInterruptEventDataSchema,
   agentInterruptResolvedEventDataSchema,
   steeringNoteDataSchema,
-} from '@rocketflare/shared/ai/interrupts'
+} from '@rocketpod/shared/ai/interrupts'
 
 /**
  * What the timeline needs from one durable row. `AgentRunEvent` satisfies it structurally; the

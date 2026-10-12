@@ -1,5 +1,5 @@
 import { ChevronLeftIcon, ChevronRightIcon } from '@heroicons/react/24/outline'
-import type { PaginationMeta } from '@rocketflare/shared/pagination'
+import type { PaginationMeta } from '@rocketpod/shared/pagination'
 
 interface PaginationControlsProps {
   /** `pagination` from a `paginatedResponse()` body */

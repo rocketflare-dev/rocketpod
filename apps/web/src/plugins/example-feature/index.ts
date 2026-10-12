@@ -23,7 +23,7 @@ import {
   EXAMPLE_NOTE_SUBJECT,
   EXAMPLE_PING_JOB,
   exampleFeatureShared,
-} from '@rocketflare/shared/plugins/example-feature/index'
+} from '@rocketpod/shared/plugins/example-feature/index'
 import type { ServerPlugin, Tool } from '@/plugins/api'
 import { requireFeature, toolCtx } from '@/plugins/api'
 import { onTenantCreated, seedDemo } from './api/hooks'

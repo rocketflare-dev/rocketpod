@@ -34,7 +34,7 @@
  * connection, no query and no invocation, and the page re-opens on the existing nudge when the
  * answer lands.
  */
-import type { AgentRunEvent } from '@rocketflare/shared/ai/agents'
+import type { AgentRunEvent } from '@rocketpod/shared/ai/agents'
 import {
   isRunActive,
   RUN_STREAM_HEARTBEAT_MS,
@@ -46,8 +46,8 @@ import {
   RUN_STREAM_SLOW_AFTER_TICKS,
   RUN_STREAM_SLOW_MS,
   RUN_STREAM_TAIL_LIMIT,
-} from '@rocketflare/shared/ai/agents'
-import type { KitAguiEvent } from '@rocketflare/shared/ai/agui'
+} from '@rocketpod/shared/ai/agents'
+import type { KitAguiEvent } from '@rocketpod/shared/ai/agui'
 import { and, asc, eq, gt } from 'drizzle-orm'
 import { stream } from 'hono/streaming'
 import type { Database } from '../../../db/client'

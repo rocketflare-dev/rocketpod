@@ -139,7 +139,7 @@ a fake `WebSocket` factory left set) is on you.
 
   ```ts
   const message = { id: crypto.randomUUID(), timestamp: new Date(), body, attempts: 1, ack: vi.fn(), retry: vi.fn() }
-  const batch = { queue: 'rocketflare-jobs', messages: [message], ackAll: vi.fn(), retryAll: vi.fn() } as unknown as MessageBatch<unknown>
+  const batch = { queue: 'rocketpod-jobs', messages: [message], ackAll: vi.fn(), retryAll: vi.fn() } as unknown as MessageBatch<unknown>
   await processJobsBatch(batch, { env, config: loadConfig(env), logger: fakeLogger(), createDb: () => ({ db, close }) })
   ```
 
@@ -283,15 +283,15 @@ the database up (`pnpm test:db:up`, or any earlier `pnpm test`): `pnpm web test:
 driver project alone, and single projects through the web package: `pnpm web test:api` ·
 `pnpm web test:ui` · `pnpm web test:config` ·
 `pnpm web test:kit-only` (the kit only) ·
-`pnpm test:coverage`. `REQUIRE_PROVISIONED=1 pnpm --filter @rocketflare/web test:config` is what CI runs
+`pnpm test:coverage`. `REQUIRE_PROVISIONED=1 pnpm --filter @rocketpod/web test:config` is what CI runs
 before a deploy.
 
 ## CLI tests (`apps/cli/tests`)
 
 Plain vitest, Node, no database. Test commands in-process through their exported functions with a
-`CommandContext` carrying a fake `fetch`, a no-op `open`, a memory output and a temp `ROCKETFLARE_CONFIG_DIR`;
-never touch the real `~/.rocketflare`. Assert `CliError.exitCode` and `--json` output shape (parsed with the
-`@rocketflare/shared` schema), never chalk-coloured text (`.claude/rules/cli.md`).
+`CommandContext` carrying a fake `fetch`, a no-op `open`, a memory output and a temp `ROCKETPOD_CONFIG_DIR`;
+never touch the real `~/.rocketpod`. Assert `CliError.exitCode` and `--json` output shape (parsed with the
+`@rocketpod/shared` schema), never chalk-coloured text (`.claude/rules/cli.md`).
 
 ## Plugin tests (D31)
 

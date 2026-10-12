@@ -1,7 +1,7 @@
 # Connectors — Microsoft 365 and Google Workspace (D34)
 
 This is the design for **organisation connections** to Microsoft 365 and Google Workspace:
-directory, calendars, and later mail and files, synced into a Rocketflare tenant. The design was
+directory, calendars, and later mail and files, synced into a Rocketpod tenant. The design was
 researched in September 2026 against the vendors' live docs; the URLs are in §13. The rules that
 stay true after it ships go in `docs/CONCEPTS.md` §17. Plugin mechanics are in §16 and
 `docs/plugin-api.md`.
@@ -36,7 +36,7 @@ its own pace without holding up login.
 
 Three models are supported, and every customer ends up in one of them:
 
-1. **Org-wide, app-only.** The admin consents once. Rocketflare reads every in-scope user's data
+1. **Org-wide, app-only.** The admin consents once. Rocketpod reads every in-scope user's data
    with application permissions (Graph) or domain-wide delegation (Google). No user does anything.
 2. **Admin-configured, per-user delegated.** The admin approves the app for the organisation
    (pre-consent or trust). Then each user who wants it clicks *Connect my account*, and the
@@ -124,7 +124,7 @@ colleague's email. So:
      flag is off.
 - **`connectors` base plugin.** It owns the tables in §2, the `/api/connectors` routes, the
   public callback `/api/hooks/connectors/:provider/callback`, the Settings → *Connections* tab, the
-  `connectors.sync` job, the cron, claims and cursors, the `rocketflare connectors` CLI, and the
+  `connectors.sync` job, the cron, claims and cursors, the `rocketpod connectors` CLI, and the
   `connectors` feature flag.
 - **Provider plugins** `m365` and `google-workspace`. Each declares
   `requires.plugins: ['connectors']` and contributes one entry to
@@ -143,7 +143,7 @@ colleague's email. So:
 
 ## 5. Operator setup — Microsoft 365
 
-This is done **once per Rocketflare deployment**, by whoever runs the deployment.
+This is done **once per Rocketpod deployment**, by whoever runs the deployment.
 
 1. **Register the app.** In the Entra admin centre go to *App registrations → New*. Choose
    *Accounts in any organizational directory* (multi-tenant). Use a name customers will recognise;
@@ -209,7 +209,7 @@ This is also done **once per deployment**. Create the project now: Google's quot
 
 ## 7. Customer-admin setup — Microsoft 365
 
-1. In Rocketflare, **Settings → Connections → Connect Microsoft 365**, signed in as an owner or
+1. In Rocketpod, **Settings → Connections → Connect Microsoft 365**, signed in as an owner or
    admin.
 2. Sign in to Microsoft as a Global Administrator or Privileged Role Administrator, read the
    permission list, and **Accept**. That's all.
@@ -234,12 +234,12 @@ This is also done **once per deployment**. Create the project now: Google's quot
 
 ## 8. Customer-admin setup — Google Workspace
 
-1. **Settings → Connections → Connect Google Workspace.** Rocketflare shows the service account's
+1. **Settings → Connections → Connect Google Workspace.** Rocketpod shows the service account's
    **client id** and the **exact scope list** for the enabled phases, each with a copy button.
 2. As a **super admin**, in the Admin console, go to *Security → Access and data control → API
    controls → Manage Domain Wide Delegation → Add new*. Paste both and click **Authorize**.
    Propagation can take up to 24 hours, and multi-party approval may apply.
-3. Back in Rocketflare, enter the **primary domain** and an **admin email** to impersonate for
+3. Back in Rocketpod, enter the **primary domain** and an **admin email** to impersonate for
    Directory calls, then click **Test connection**. It tries the token exchange **per scope** and
    reports each missing one (`unauthorized_client`) by name, so a partial paste is obvious.
 4. *(Phase 4, per-user mode without verification.)* Go to *Security → API controls → App access

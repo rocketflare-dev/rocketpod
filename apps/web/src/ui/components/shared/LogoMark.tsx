@@ -1,5 +1,5 @@
 /**
- * The Rocketflare mark — a rocket launching from a cloud — inlined so it needs no request and
+ * The Rocketpod mark — a rocket launching from a cloud — inlined so it needs no request and
  * scales with `className`. The fills are the brand illustration colours, fixed on purpose (the mark
  * is multi-coloured, so it does not take `currentColor` like a monochrome glyph would); the same
  * art is `public/logo.svg` and `public/favicon.svg`. Rebrand: replace the paths in all three.

@@ -17,10 +17,10 @@
  * subtly wrong, and a restated one would be a second definition to keep in step.
  */
 
-import type { PromptDefinition } from '@rocketflare/shared/ai/prompts'
-import type { JobType } from '@rocketflare/shared/jobs'
-import type { EffectiveRole } from '@rocketflare/shared/permissions'
-import type { AgentKeyOf, JobTypeOf, PromptKeyOf, SharedPlugin } from '@rocketflare/shared/plugins'
+import type { PromptDefinition } from '@rocketpod/shared/ai/prompts'
+import type { JobType } from '@rocketpod/shared/jobs'
+import type { EffectiveRole } from '@rocketpod/shared/permissions'
+import type { AgentKeyOf, JobTypeOf, PromptKeyOf, SharedPlugin } from '@rocketpod/shared/plugins'
 import type { Hono, MiddlewareHandler } from 'hono'
 import type { ComponentType, LazyExoticComponent } from 'react'
 import type { JobHandler } from '../api/queues/jobs'

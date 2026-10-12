@@ -8,11 +8,11 @@
  * - `writeKitFixture(dir, { app })` — the kit (`app` null) or a fresh copy of it (`app` = the
  *   copy's `{ slug, display, domain }`): names from the slug, every KV id a `<PLACEHOLDER>`.
  * - `provisionLikeLaunch(dir, …)` — what Launch's `write_config` step commits into a copy's two
- *   tomls (rocketflare-launch `services/launch/kits/toml.ts` `writeConfig`): every KV id real, the
+ *   tomls (rocketpod-launch `services/launch/kits/toml.ts` `writeConfig`): every KV id real, the
  *   app URL, Launch's sign-in vars under a comment, `workers_dev = false`, no `[[hyperdrive]]`
  *   HYPERDRIVE block. It writes no route (Launch owns the hostnames) and no secret.
  *
- * SHARED with the Rocketflare kit (`apps/web/tests/config/fixtures/kit-fixture.mjs` there) and the
+ * SHARED with the Rocketpod kit (`apps/web/tests/config/fixtures/kit-fixture.mjs` there) and the
  * meta-kit (`scripts/tests/fixtures/kit-fixture.mjs`): change both together. Node built-ins only.
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'

@@ -24,13 +24,13 @@ import type {
   AgentRun,
   AgentRunEvent,
   AgentRunEventType,
-} from '@rocketflare/shared/ai/agents'
+} from '@rocketpod/shared/ai/agents'
 import {
   ACTIVE_RUN_STATUSES,
   AGENT_RESUME_EVENT,
   CLAIMABLE_RUN_STATUSES,
-} from '@rocketflare/shared/ai/agents'
-import { ERROR_CODES } from '@rocketflare/shared/errors'
+} from '@rocketpod/shared/ai/agents'
+import { ERROR_CODES } from '@rocketpod/shared/errors'
 import { and, asc, eq, inArray, sql } from 'drizzle-orm'
 import { type Database, isUniqueViolation, rows } from '../../../db/client'
 import {

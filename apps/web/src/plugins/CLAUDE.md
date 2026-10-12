@@ -42,7 +42,7 @@ in the host. Each half is checked where it is written; only the merge is cast.
   `<id>.verb`, CASL subjects, prompt/agent/feature keys, query-key roots `<id>:…`, the API prefix
   `/api/<id>`, the CLI command `<id>`, AG-UI CUSTOM events `<id>.` — **never `kit.`**, which is the
   kit's namespace and may grow in a later release. The id itself is `^[a-z][a-z0-9-]*$` and never
-  contains `rocketflare`: a plugin is written in KIT vocabulary so `applyReplacements` can translate
+  contains `rocketpod`: a plugin is written in KIT vocabulary so `applyReplacements` can translate
   it into a renamed app on the way in, and an id carrying the kit's name would be rewritten with
   everything else.
 - **It has exactly four published entries** — `src/plugins/<id>/index.ts`, `<id>/ui/index.ts`,
@@ -169,7 +169,7 @@ about your own barrel shrinking. `--archive` first writes a `--custom` migration
 into schema `archive`. Orphaned tables are not a stable state.
 
 **Authoring loop.** A local PATH is read directly rather than mirrored, so
-`pnpm plugin add ../rocketflare-plugin-approvals --local --apply` installs a working copy, you edit
+`pnpm plugin add ../rocketpod-plugin-approvals --local --apply` installs a working copy, you edit
 it in place with the host's own tests running on every `pnpm test`, and `pnpm plugin export
 <id> <dir>` copies it back out with a regenerated `rocketflare-plugin.json`.
 

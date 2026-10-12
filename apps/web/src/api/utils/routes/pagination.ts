@@ -2,7 +2,7 @@
  * Page-based pagination glue (D13): `paginationQuerySchema` → `{ limit, offset }`, and
  * `paginated(items, total, query)` → `{ items, pagination }` per `src/shared/pagination.ts`.
  */
-import { type PaginationQuery, paginationMeta } from '@rocketflare/shared/pagination'
+import { type PaginationQuery, paginationMeta } from '@rocketpod/shared/pagination'
 
 export function pageWindow(query: PaginationQuery): { limit: number; offset: number } {
   return { limit: query.pageSize, offset: (query.page - 1) * query.pageSize }

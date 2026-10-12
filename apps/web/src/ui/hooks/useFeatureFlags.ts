@@ -14,8 +14,8 @@ import {
   type SetTenantOverrideRequest,
   tenantFeatureOverrideListResponseSchema,
   type UpdateFeatureFlagRequest,
-} from '@rocketflare/shared/features'
-import type { FeatureName } from '@rocketflare/shared/permissions'
+} from '@rocketpod/shared/features'
+import type { FeatureName } from '@rocketpod/shared/permissions'
 import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/ui/lib/api-client'
 import { queryKeys } from '@/ui/lib/query-keys'

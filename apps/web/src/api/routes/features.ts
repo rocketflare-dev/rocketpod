@@ -11,7 +11,7 @@
  * It answers from `auth.features`, already resolved by the auth middleware, so it costs no query
  * and cannot disagree with the gate on any other route.
  */
-import { FEATURE_FLAGS, FEATURE_KEYS } from '@rocketflare/shared/features'
+import { FEATURE_FLAGS, FEATURE_KEYS } from '@rocketpod/shared/features'
 import { withAuth } from '../utils/routes/route-helpers'
 import { createRouter } from '../utils/routes/router'
 

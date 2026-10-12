@@ -18,9 +18,9 @@ import {
   type ConversationModelUsage,
   type ConversationStats,
   type TokenUsage,
-} from '@rocketflare/shared/ai/chat'
-import type { AiProvider } from '@rocketflare/shared/ai/config'
-import { estimateCostMicrocents } from '@rocketflare/shared/ai/pricing'
+} from '@rocketpod/shared/ai/chat'
+import type { AiProvider } from '@rocketpod/shared/ai/config'
+import { estimateCostMicrocents } from '@rocketpod/shared/ai/pricing'
 import type { AppConfig } from '../../../config'
 import type { Database } from '../../../db/client'
 import type { ConversationRow, MessageRow } from '../../../db/schema'

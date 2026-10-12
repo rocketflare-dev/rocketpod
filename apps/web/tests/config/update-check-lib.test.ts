@@ -25,7 +25,7 @@ const REPO = 'https://github.com/rocketflare-dev/rocketflare.git'
 
 const copy = (over: Partial<Manifest> = {}) =>
   ({
-    kit: { name: 'rocketflare', repo: REPO, version: '0.9.0', commit: null },
+    kit: { name: 'rocketpod', repo: REPO, version: '0.9.0', commit: null },
     app: { slug: 'myapp' },
     ...over,
   }) as unknown as Manifest
@@ -51,12 +51,12 @@ describe('skipReason', () => {
         skipReason({
           source: 'startup',
           manifest: copy(),
-          env: { ROCKETFLARE_UPDATE_CHECK: value },
+          env: { ROCKETPOD_UPDATE_CHECK: value },
         })
-      ).toMatch(/ROCKETFLARE_UPDATE_CHECK/)
+      ).toMatch(/ROCKETPOD_UPDATE_CHECK/)
     }
     expect(
-      skipReason({ source: 'startup', manifest: copy(), env: { ROCKETFLARE_UPDATE_CHECK: '1' } })
+      skipReason({ source: 'startup', manifest: copy(), env: { ROCKETPOD_UPDATE_CHECK: '1' } })
     ).toBeNull()
     // A plain string: `.rocketflare.json` is a literal the rename preserves, while a regex that
     // escapes its dots is rewritten with the slug and fails in every renamed copy.
@@ -193,6 +193,6 @@ describe('updateMessage', () => {
     expect(message).toContain('…and 2 earlier release(s)')
     expect(message).toContain('ONCE')
     expect(message).toContain('/rf-upgrade')
-    expect(message).toContain('ROCKETFLARE_UPDATE_CHECK=0')
+    expect(message).toContain('ROCKETPOD_UPDATE_CHECK=0')
   })
 })

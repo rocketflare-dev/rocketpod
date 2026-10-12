@@ -20,7 +20,7 @@ importers:
 
   apps/cli:
     dependencies:
-      '@rocketflare/shared':
+      '@rocketpod/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       chalk:
@@ -54,7 +54,7 @@ importers:
 
   apps/evals:
     dependencies:
-      '@rocketflare/shared':
+      '@rocketpod/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       drizzle-orm:
@@ -115,7 +115,7 @@ importers:
       '@neondatabase/serverless':
         specifier: ^1.1.0
         version: 1.1.0
-      '@rocketflare/shared':
+      '@rocketpod/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       '@tanstack/react-query':

@@ -15,7 +15,7 @@
  * EVERY query; `documentId` narrows further. No rerank in v1 (a `RerankFn` seam is the documented
  * extension).
  */
-import type { SearchHit, SearchRequest } from '@rocketflare/shared/ai/embeddings'
+import type { SearchHit, SearchRequest } from '@rocketpod/shared/ai/embeddings'
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import type { AppConfig } from '../../../config'
 import type { Database } from '../../../db/client'
@@ -153,7 +153,7 @@ export function searchChunks(
         seq: h.seq,
         score: h.score,
       })),
-      attributes: { 'rocketflare.retrieval.hits': hits.length },
+      attributes: { 'rocketpod.retrieval.hits': hits.length },
     })
   )
 }

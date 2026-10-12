@@ -2,7 +2,7 @@
  * Column helpers shared by every table (D1, 03 §2): `timestamptz` everywhere, and one
  * definition of the tenant foreign key so `tenant_id` never drifts between tables.
  */
-import type { ResourceVisibility } from '@rocketflare/shared/groups'
+import type { ResourceVisibility } from '@rocketpod/shared/groups'
 import type { AnyPgColumn } from 'drizzle-orm/pg-core'
 import { timestamp, uuid } from 'drizzle-orm/pg-core'
 

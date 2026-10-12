@@ -3,15 +3,15 @@
  * run. The projection is pure — the event row ids ARE the AG-UI message and tool-call ids — so the
  * mapping is asserted directly and the route only has to prove the ownership rules and the shape.
  */
-import type { AgentRun, AgentRunEvent } from '@rocketflare/shared/ai/agents'
+import type { AgentRun, AgentRunEvent } from '@rocketpod/shared/ai/agents'
 import {
   agentRunAguiResponseSchema,
   KIT_CUSTOM_EVENTS,
   kitAguiEventSchema,
   parseKitCustom,
-} from '@rocketflare/shared/ai/agui'
-import type { AgentArtifact } from '@rocketflare/shared/ai/artifacts'
-import type { AgentRunInterrupt } from '@rocketflare/shared/ai/interrupts'
+} from '@rocketpod/shared/ai/agui'
+import type { AgentArtifact } from '@rocketpod/shared/ai/artifacts'
+import type { AgentRunInterrupt } from '@rocketpod/shared/ai/interrupts'
 import { describe, expect, it } from 'vitest'
 import { createRunProjector, projectRunToAgui } from '@/api/services/agents/agui-projection'
 import { agentRunEvents, agentRuns } from '@/db/schema'

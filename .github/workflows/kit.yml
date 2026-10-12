@@ -179,7 +179,7 @@ jobs:
           set -euo pipefail
           # db:generate runs `dotenv -e .dev.vars`, so the file has to exist here as it does on a
           # laptop. Git-ignored, and it holds nothing secret: a throwaway local database URL.
-          printf 'DATABASE_URL=postgresql://test:test@localhost:5433/rocketflare_test\n' > apps/web/.dev.vars
+          printf 'DATABASE_URL=postgresql://test:test@localhost:5433/rocketpod_test\n' > apps/web/.dev.vars
           node scripts/default-plugins.mjs --tsv > "$RUNNER_TEMP/default-plugins.tsv"
           while IFS=$'\t' read -r id repo ref subdir; do
             [ -n "$id" ] || continue
@@ -206,7 +206,7 @@ jobs:
           git add -A
       - name: Apply the generated migrations
         env:
-          DATABASE_URL: postgresql://test:test@localhost:5433/rocketflare_test
+          DATABASE_URL: postgresql://test:test@localhost:5433/rocketpod_test
         run: |
           docker compose -f apps/web/docker-compose.test.yml --profile neon up -d --wait
           pnpm db:migrate:ci

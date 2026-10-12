@@ -13,7 +13,7 @@
  * **Idempotent**: a second delivery lists an empty prefix and deletes nothing, and every plugin
  * hook promises the same, so a retry is free and a half-finished run resumes rather than restarts.
  */
-import type { JobOf } from '@rocketflare/shared/jobs'
+import type { JobOf } from '@rocketpod/shared/jobs'
 import { createR2Storage, purgeTenantObjects } from '../../services/storage'
 import { runTenantDeletedHooks } from '../../utils/db/tenant-helpers'
 import type { JobContext } from '../jobs'

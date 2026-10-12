@@ -18,7 +18,7 @@ import {
   type PackedRules,
   type Role,
   type Subjects,
-} from '@rocketflare/shared/permissions'
+} from '@rocketpod/shared/permissions'
 import { serverPlugins } from '../plugins/server'
 
 type Can = AbilityBuilder<AppAbility>['can']

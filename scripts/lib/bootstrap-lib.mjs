@@ -375,7 +375,7 @@ export function databaseUrlTarget(url) {
 }
 
 /**
- * The steps `ROCKETFLARE_BOOTSTRAP_SKIP` may name — the names on the `✔ n/10` lines of steps 1–8.
+ * The steps `ROCKETPOD_BOOTSTRAP_SKIP` may name — the names on the `✔ n/10` lines of steps 1–8.
  * Steps 9 and 10 (`cli`, `run`) are already optional through `--no-dev`.
  */
 export const BOOTSTRAP_SKIPPABLE_STEPS = [
@@ -390,7 +390,7 @@ export const BOOTSTRAP_SKIPPABLE_STEPS = [
 ]
 
 /**
- * `ROCKETFLARE_BOOTSTRAP_SKIP` (comma-separated step names) → the steps to leave out, in step
+ * `ROCKETPOD_BOOTSTRAP_SKIP` (comma-separated step names) → the steps to leave out, in step
  * order. For a caller that has already done that work itself (a coding sandbox that ran its own
  * `pnpm install`, made the database and knows it is migrated). An unknown name is a usage error:
  * a typo must not quietly run the step it meant to skip.
@@ -403,7 +403,7 @@ export function parseBootstrapSkip(value) {
   const unknown = names.filter(name => !BOOTSTRAP_SKIPPABLE_STEPS.includes(name))
   if (unknown.length > 0) {
     throw new BootstrapUsageError(
-      `ROCKETFLARE_BOOTSTRAP_SKIP: unknown step ${unknown.join(', ')} ` +
+      `ROCKETPOD_BOOTSTRAP_SKIP: unknown step ${unknown.join(', ')} ` +
         `(one of ${BOOTSTRAP_SKIPPABLE_STEPS.join(', ')})`
     )
   }
@@ -412,11 +412,11 @@ export function parseBootstrapSkip(value) {
 
 /**
  * `argv` (without node and the script) → the bootstrap's options. Throws `BootstrapUsageError`
- * for anything it does not understand. `env` supplies `DEV_VERBOSE`, `ROCKETFLARE_BOOTSTRAP_SKIP`
- * (→ `skip`; `--no-install` adds `install`) and `ROCKETFLARE_ALLOW_ROOT=1` (→ `allowRoot`).
+ * for anything it does not understand. `env` supplies `DEV_VERBOSE`, `ROCKETPOD_BOOTSTRAP_SKIP`
+ * (→ `skip`; `--no-install` adds `install`) and `ROCKETPOD_ALLOW_ROOT=1` (→ `allowRoot`).
  */
 export function parseBootstrapArgs(argv, env = {}) {
-  const skip = new Set(parseBootstrapSkip(env.ROCKETFLARE_BOOTSTRAP_SKIP))
+  const skip = new Set(parseBootstrapSkip(env.ROCKETPOD_BOOTSTRAP_SKIP))
   const opts = {
     yes: false,
     shareDbIgnored: false,
@@ -433,7 +433,7 @@ export function parseBootstrapArgs(argv, env = {}) {
     verbose: env.DEV_VERBOSE === '1',
     help: false,
     skip: [],
-    allowRoot: env.ROCKETFLARE_ALLOW_ROOT === '1',
+    allowRoot: env.ROCKETPOD_ALLOW_ROOT === '1',
   }
   const takeValue = (flag, i, what) => {
     const value = argv[i + 1]

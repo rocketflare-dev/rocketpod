@@ -1,5 +1,5 @@
 /**
- * One artifact, dispatched on its kind — the closed set from `@rocketflare/shared/ai/artifacts`
+ * One artifact, dispatched on its kind — the closed set from `@rocketpod/shared/ai/artifacts`
  * (decision 7), so a sixth kind is a type error here until it has a branch.
  *
  * `document` and `file` carry IDS, never content: the bytes live behind routes that enforce tenancy
@@ -7,9 +7,9 @@
  * only correct thing to do with them.
  */
 import { ArrowDownTrayIcon, DocumentMagnifyingGlassIcon } from '@heroicons/react/24/outline'
-import type { AgentArtifact } from '@rocketflare/shared/ai/artifacts'
-import { documentPath } from '@rocketflare/shared/ai/embeddings'
-import { filePath } from '@rocketflare/shared/files'
+import type { AgentArtifact } from '@rocketpod/shared/ai/artifacts'
+import { documentPath } from '@rocketpod/shared/ai/embeddings'
+import { filePath } from '@rocketpod/shared/files'
 import { Link } from 'react-router-dom'
 import { Markdown } from '@/ui/components/ai/Markdown'
 import { formatBytes } from '@/ui/lib/format'

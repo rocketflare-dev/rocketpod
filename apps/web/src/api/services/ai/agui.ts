@@ -1,6 +1,6 @@
 /**
  * The AG-UI transport, and the small pure pieces `@ag-ui/encoder` does not cover. The contract
- * itself lives in `@rocketflare/shared/ai/agui`; `@ag-ui/encoder` / `@ag-ui/proto` are dependencies
+ * itself lives in `@rocketpod/shared/ai/agui`; `@ag-ui/encoder` / `@ag-ui/proto` are dependencies
  * of `apps/web` ONLY, so protobuf never reaches the browser.
  *
  * **Content negotiation is the encoder's.** `EventEncoder.encodeBinary()` returns SSE bytes when
@@ -18,8 +18,8 @@
  */
 
 import { EventEncoder } from '@ag-ui/encoder'
-import type { KitAguiEvent, KitCustomEventName } from '@rocketflare/shared/ai/agui'
-import { AguiEventType } from '@rocketflare/shared/ai/agui'
+import type { KitAguiEvent, KitCustomEventName } from '@rocketpod/shared/ai/agui'
+import { AguiEventType } from '@rocketpod/shared/ai/agui'
 
 /** AG-UI events `@ag-ui/proto@0.0.59` has no message for; they are dropped on the protobuf wire. */
 export const PROTO_UNSUPPORTED_EVENTS: readonly KitAguiEvent['type'][] = [

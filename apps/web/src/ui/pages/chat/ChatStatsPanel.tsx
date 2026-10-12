@@ -18,7 +18,7 @@ import type {
   ConversationCompactionStats,
   ConversationContextStats,
   ConversationStats,
-} from '@rocketflare/shared/ai/chat'
+} from '@rocketpod/shared/ai/chat'
 import { formatCost, Row, Section } from '@/ui/components/ai/StatRows'
 import { SkeletonRows } from '@/ui/components/shared'
 import { useCompactConversation, useConversationStats } from '@/ui/hooks/useChat'

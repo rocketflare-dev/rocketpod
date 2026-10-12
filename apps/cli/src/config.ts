@@ -1,7 +1,7 @@
 /**
- * CLI config (D26): `~/.rocketflare/config.json` (dir 0700, file 0600) holding the server URL, API key,
- * active tenant and the signed-in user. Env overrides for CI: `ROCKETFLARE_API_KEY`, `ROCKETFLARE_URL`, and
- * `ROCKETFLARE_CONFIG_DIR` to relocate the directory. ADAPTING renames the `ROCKETFLARE_` prefix and `.rocketflare` dir
+ * CLI config (D26): `~/.rocketpod/config.json` (dir 0700, file 0600) holding the server URL, API key,
+ * active tenant and the signed-in user. Env overrides for CI: `ROCKETPOD_API_KEY`, `ROCKETPOD_URL`, and
+ * `ROCKETPOD_CONFIG_DIR` to relocate the directory. ADAPTING renames the `ROCKETPOD_` prefix and `.rocketpod` dir
  * here — these constants are the only place they live.
  */
 import { chmod, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
@@ -9,8 +9,8 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { z } from 'zod'
 
-export const ENV_PREFIX = 'ROCKETFLARE'
-export const CONFIG_DIR_NAME = '.rocketflare'
+export const ENV_PREFIX = 'ROCKETPOD'
+export const CONFIG_DIR_NAME = '.rocketpod'
 export const CONFIG_FILE_NAME = 'config.json'
 /** The kit's local `wrangler dev` port; a real app sets its production URL here. */
 export const DEFAULT_SERVER_URL = 'http://localhost:3001'
@@ -153,10 +153,10 @@ export async function fileMode(path: string): Promise<number | null> {
   }
 }
 
-/** Characters shown of a key: `rocketflare_` (12) + 4 — never the full secret. `rocketflare_ab12…` */
-export const REDACTED_KEY_CHARS = 16
+/** Characters shown of a key: `rocketpod_` (10) + 4 — never the full secret. `rocketpod_ab12…` */
+export const REDACTED_KEY_CHARS = 14
 
-/** Show only the key prefix — never the full secret. `rocketflare_ab12…` */
+/** Show only the key prefix — never the full secret. `rocketpod_ab12…` */
 export function redactKey(key: string | undefined): string {
   if (!key) return '-'
   return key.length <= REDACTED_KEY_CHARS ? '****' : `${key.slice(0, REDACTED_KEY_CHARS)}…`

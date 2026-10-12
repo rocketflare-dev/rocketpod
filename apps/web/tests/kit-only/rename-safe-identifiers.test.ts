@@ -3,12 +3,12 @@
  * (`my-app`). In prose and strings that is harmless; as an identifier it is not — `report.my-app =`
  * does not parse, and `report.my-app ?? x` parses as a subtraction and throws at run time. So no
  * kit code may use the kit's name as a property after a dot or as a declared name: use the bracket
- * form (`report['rocketflare']`), which the rename turns into a valid string key.
+ * form (`report['rocketpod']`), which the rename turns into a valid string key.
  *
  * The same trap in a string: the bare kit name becomes the HYPHENATED slug, so a literal that is
- * really a snake-case prefix (the API-key prefix, once `'rocketflare'` + `_`) silently turns into
+ * really a snake-case prefix (the API-key prefix, once `'rocketpod'` + `_`) silently turns into
  * `my-app_…` while everything else expects `my_app_…`. A literal whose `_` is part of the string
- * (`'rocketflare_'`) is renamed as the snake form; a bare one must be on the list below, where the
+ * (`'rocketpod_'`) is renamed as the snake form; a bare one must be on the list below, where the
  * slug form (`my-app`) is the right value.
  */
 import { execFileSync } from 'node:child_process'

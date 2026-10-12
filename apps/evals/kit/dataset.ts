@@ -1,13 +1,13 @@
 /**
  * Datasets are code (D33): `apps/evals/datasets/<name>.jsonl`, one `EvalCase` per line, parsed with
- * the shared schema so a promoted case (`rocketflare evals promote`) and a hand-written one are the
+ * the shared schema so a promoted case (`rocketpod evals promote`) and a hand-written one are the
  * same thing. A malformed line fails the suite at collection time with its line number — a dataset
  * that silently drops a case is a regression suite that silently stops checking it.
  */
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { type EvalCase, evalCaseSchema } from '@rocketflare/shared/ai/evals'
+import { type EvalCase, evalCaseSchema } from '@rocketpod/shared/ai/evals'
 
 export const DATASETS_DIR = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),

@@ -14,8 +14,8 @@
  * protobuf when the client negotiates it.
  */
 import { decode as decodeProto } from '@ag-ui/proto'
-import { chatRunResultSchema, KIT_CUSTOM_EVENTS } from '@rocketflare/shared/ai/agui'
-import { conversationSchema, conversationWithMessagesSchema } from '@rocketflare/shared/ai/chat'
+import { chatRunResultSchema, KIT_CUSTOM_EVENTS } from '@rocketpod/shared/ai/agui'
+import { conversationSchema, conversationWithMessagesSchema } from '@rocketpod/shared/ai/chat'
 import { and, eq } from 'drizzle-orm'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { AiError, AiNotConfiguredError } from '@/api/services/ai/errors'

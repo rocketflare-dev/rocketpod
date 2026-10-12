@@ -3,7 +3,7 @@
  * icon — no brand hex in the UI (ui.md "tokens, not raw colours").
  */
 import { KeyIcon } from '@heroicons/react/24/outline'
-import type { AuthMethods, OAuthProviderName } from '@rocketflare/shared/auth'
+import type { AuthMethods, OAuthProviderName } from '@rocketpod/shared/auth'
 import type { ComponentType } from 'react'
 
 interface IconProps {

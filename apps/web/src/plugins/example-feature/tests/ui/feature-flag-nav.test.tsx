@@ -17,7 +17,7 @@
  * (who holds `manage all`). Neither may see a surface whose flag is off.
  */
 
-import { EXAMPLE_FEATURE_FLAG } from '@rocketflare/shared/plugins/example-feature/index'
+import { EXAMPLE_FEATURE_FLAG } from '@rocketpod/shared/plugins/example-feature/index'
 import { screen } from '@testing-library/react'
 import { makeSession, makeUser, renderWithProviders, rulesFor } from '@testkit/integration'
 import { describe, expect, it } from 'vitest'

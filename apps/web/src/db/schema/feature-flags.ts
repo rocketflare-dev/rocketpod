@@ -1,6 +1,6 @@
 /**
  * Feature flags (D30) — the stored half. The KEYS live in code (`FEATURE_FLAGS` in
- * `@rocketflare/shared/features`); these two tables hold only what a global admin changes, so
+ * `@rocketpod/shared/features`); these two tables hold only what a global admin changes, so
  * adding or retiring a flag is a code edit and never a migration.
  *
  * `feature_flags` is PLATFORM-level and deliberately has no `tenant_id`: it is the rollout state of
@@ -40,7 +40,7 @@ import { tenantIsolation } from './rls'
 import { tenants } from './tenants'
 import { users } from './users'
 
-/** Mirrors `FEATURE_FLAG_STATES` in `@rocketflare/shared/features`; `pgEnum` values are append-only. */
+/** Mirrors `FEATURE_FLAG_STATES` in `@rocketpod/shared/features`; `pgEnum` values are append-only. */
 export const featureFlagStateEnum = pgEnum('feature_flag_state', ['off', 'on', 'rollout'])
 
 /** Mirrors `FEATURE_ROLLOUT_UNITS`. What a percentage counts: whole organisations, or people. */

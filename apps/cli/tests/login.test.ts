@@ -148,11 +148,11 @@ describe('loginFlow', () => {
     expect(result).toMatchObject({
       tenantId: TENANT_ID,
       tenantName: 'Acme',
-      keyPrefix: 'rocketflare_test…',
+      keyPrefix: 'rocketpod_test…',
     })
     const output = log.lines.join('\n')
     expect(output).toContain('Signed in as alice@example.com')
-    expect(output).toContain('rocketflare_test…')
+    expect(output).toContain('rocketpod_test…')
     expect(output).not.toContain(TEST_KEY)
   })
 
@@ -163,7 +163,7 @@ describe('loginFlow', () => {
       '/api/me': () =>
         jsonResponse({ error: 'Unauthorized', statusCode: 401, code: 'unauthorized' }, 401),
     })
-    const b = browser({ key: 'rocketflare_bad_key_value_here', tenant_id: TENANT_ID })
+    const b = browser({ key: 'rocketpod_bad_key_value_here', tenant_id: TENANT_ID })
     await expect(
       loginFlow({
         serverUrl: SERVER,

@@ -7,7 +7,7 @@
  * retries with backoff. A vanished row is logged and acked. A missing `FILES` binding throws —
  * the consumer must not silently drop uploads.
  */
-import type { JobOf } from '@rocketflare/shared/jobs'
+import type { JobOf } from '@rocketpod/shared/jobs'
 import { and, eq } from 'drizzle-orm'
 import { documents } from '../../../db/schema'
 import { noopTracer } from '../../observability/tracer'

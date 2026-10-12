@@ -20,7 +20,7 @@ import {
   type AgentRun,
   type AgentRunStatus,
   agentRunStatusSchema,
-} from '@rocketflare/shared/ai/agents'
+} from '@rocketpod/shared/ai/agents'
 import { useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {

@@ -11,7 +11,7 @@ import {
   type JobEnvelope,
   type JobType,
   jobEnvelopeSchema,
-} from '@rocketflare/shared/jobs'
+} from '@rocketpod/shared/jobs'
 import type { AppConfig } from '../../config'
 import { type DatabaseHandle, openDatabase } from '../../db/client'
 import { serverPlugins } from '../../plugins/server'

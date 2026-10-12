@@ -3,7 +3,7 @@
 /**
  * The Neon WebSocket path when the network misbehaves, on the REAL driver against the test
  * Postgres through a WebSocket relay (`helpers/ws-pg-relay.ts`) that refuses or drops connections
- * on cue — what a coding sandbox saw on a Neon gate branch (rocketflare-launch#7):
+ * on cue — what a coding sandbox saw on a Neon gate branch (rocketpod-launch#7):
  *
  * - `createNeonPool` (`src/db/client.ts`): a dropped connection REJECTS the query in flight and is
  *   never an uncaught exception. Without its listeners, pg-pool's `error` on the pool (an idle

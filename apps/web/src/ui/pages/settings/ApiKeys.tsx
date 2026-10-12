@@ -9,7 +9,7 @@ import {
   type ApiKeyScope,
   apiKeyScopeSchema,
   createApiKeyRequestSchema,
-} from '@rocketflare/shared/api-keys'
+} from '@rocketpod/shared/api-keys'
 import { useState } from 'react'
 import {
   ConfirmModal,

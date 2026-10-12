@@ -18,7 +18,7 @@
  * - **Rows before the park**: a row with no parked run re-asks on the next attempt; a parked run
  *   with no row hangs with nothing for anybody to answer.
  */
-import type { AgentInterruptSpec } from '@rocketflare/shared/ai/interrupts'
+import type { AgentInterruptSpec } from '@rocketpod/shared/ai/interrupts'
 import { eq } from 'drizzle-orm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'

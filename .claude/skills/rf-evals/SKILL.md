@@ -62,7 +62,7 @@ against the dataset's documents.
 3. Write `apps/evals/suites/<surface>/<name>.eval.ts` with `describeCases(...)`, copying
    `suites/chat/knowledge.eval.ts`. A new agent needs nothing else: the target resolves it from the
    registry.
-4. `pnpm --filter @rocketflare/evals test` (the dataset parses) → `pnpm eval <name>` → **Run & interpret**.
+4. `pnpm --filter @rocketpod/evals test` (the dataset parses) → `pnpm eval <name>` → **Run & interpret**.
 
 ## Run & interpret
 
@@ -78,7 +78,7 @@ just the table: `testResults[].assertionResults[].meta.eval.scores[]` gives the 
 did (which tools, what it retrieved), which judge failed and **the judge's own reasoning**. Then say
 whether the fault is the model, the prompt, the tools/retrieval, or the case itself. Offer
 `pnpm eval:view` when a visual walk through transcripts helps. It prints the score diff against the
-previous run first. Eval traces are in `ai_spans` tagged `rocketflare.eval=true`
+previous run first. Eval traces are in `ai_spans` tagged `rocketpod.eval=true`
 (`pnpm cli traces …` against the test DB is not wired, so read the run file).
 
 ## Compare (model vs model, prompt vs prompt)

@@ -3,7 +3,7 @@
  * / version parsers, `fillDevVars` (never overwrites a value a person typed), `toggleAiBlock` (the
  * `[ai]` block of BOTH real tomls round-trips byte-identically and, once off, parses with no `ai`
  * table so the parity test stays green), and the two stdout parsers (`pnpm seed`, `wrangler whoami`).
- * Plus the sandbox opt-outs (`--no-install`, `ROCKETFLARE_BOOTSTRAP_SKIP`, `ROCKETFLARE_ALLOW_ROOT`),
+ * Plus the sandbox opt-outs (`--no-install`, `ROCKETPOD_BOOTSTRAP_SKIP`, `ROCKETPOD_ALLOW_ROOT`),
  * parsed here and run once through `bootstrap.mjs` itself with every step skipped (no side effects).
  */
 import { spawnSync } from 'node:child_process'
@@ -175,7 +175,7 @@ describe('toggleAiBlock / aiBlockState', () => {
     '',
     '# Agent runs (D7).',
     '[[workflows]]',
-    'name = "rocketflare-agent-run"',
+    'name = "rocketpod-agent-run"',
     '',
   ].join('\n')
 
@@ -188,7 +188,7 @@ describe('toggleAiBlock / aiBlockState', () => {
       )
     )
     expect(aiBlockState(off)).toBe('off')
-    expect(off).toContain('\n[[workflows]]\nname = "rocketflare-agent-run"\n')
+    expect(off).toContain('\n[[workflows]]\nname = "rocketpod-agent-run"\n')
     expect(off).toContain('\n# Workers AI (D17): zero-key embeddings.\n')
   })
 
@@ -231,20 +231,20 @@ describe('extractSeedKey', () => {
     '  user    owner@example.test       owner',
     '',
     '  API key (shown ONCE — only its hash is stored):',
-    '    rocketflare_abcDEF123-_abcDEF123-_abcDEF123-_abcDEF1',
+    '    rocketpod_abcDEF123-_abcDEF123-_abcDEF123-_abcDEF1',
     '',
     'Sign in locally (APP_ENV=development) without email:',
     '  curl -sS -X POST http://localhost:3001/auth/dev-login \\',
   ].join('\n')
 
   it('captures the key printed after the one-time banner', () => {
-    expect(extractSeedKey(FRESH)).toBe('rocketflare_abcDEF123-_abcDEF123-_abcDEF123-_abcDEF1')
+    expect(extractSeedKey(FRESH)).toBe('rocketpod_abcDEF123-_abcDEF123-_abcDEF123-_abcDEF1')
   })
 
   it('is undefined for the "already exists" variant and for empty output', () => {
     const again = FRESH.replace(
       / {2}API key \(shown ONCE[^\n]*\n[^\n]*\n/,
-      '  API key rocketflare_abcD… already exists (revoke it and re-seed to mint a new one)\n'
+      '  API key rocketpod_abcD… already exists (revoke it and re-seed to mint a new one)\n'
     )
     expect(extractSeedKey(again)).toBeUndefined()
     expect(extractSeedKey('')).toBeUndefined()
@@ -330,12 +330,12 @@ describe('chooseDevDbPort', () => {
 })
 
 describe('database URL port', () => {
-  const URL_5432 = 'postgresql://rocketflare:rocketflare_pass@localhost:5432/rocketflare_dev'
+  const URL_5432 = 'postgresql://rocketpod:rocketpod_pass@localhost:5432/rocketpod_dev'
 
   it('reads and rewrites the port, leaving the rest of the URL alone', () => {
     expect(databaseUrlPort(URL_5432)).toBe(5432)
     expect(withDatabaseUrlPort(URL_5432, 5434)).toBe(
-      'postgresql://rocketflare:rocketflare_pass@localhost:5434/rocketflare_dev'
+      'postgresql://rocketpod:rocketpod_pass@localhost:5434/rocketpod_dev'
     )
   })
 
@@ -368,26 +368,26 @@ describe('upsertDevVar', () => {
 
 describe('checkoutTag', () => {
   it('is stable per path and differs between checkouts', () => {
-    const a = checkoutTag('/Users/x/work/rocketflare/apps/web')
-    expect(checkoutTag('/Users/x/work/rocketflare/apps/web')).toBe(a)
+    const a = checkoutTag('/Users/x/work/rocketpod/apps/web')
+    expect(checkoutTag('/Users/x/work/rocketpod/apps/web')).toBe(a)
     expect(checkoutTag('/Users/x/work/other/apps/web')).not.toBe(a)
     expect(a).toMatch(/^[a-z0-9]{7}$/)
   })
 })
 
 describe('planDefaultPlugins', () => {
-  const entry = { id: 'analytics', repo: 'https://example.test/rocketflare-plugin-analytics.git' }
+  const entry = { id: 'analytics', repo: 'https://example.test/rocketpod-plugin-analytics.git' }
 
   it('turns a declared entry into one `plugin add … --apply`', () => {
     const plan = planDefaultPlugins([entry], [])
     expect(plan.install).toEqual([
       {
         id: 'analytics',
-        spec: 'https://example.test/rocketflare-plugin-analytics.git',
+        spec: 'https://example.test/rocketpod-plugin-analytics.git',
         args: [
           'plugin',
           'add',
-          'https://example.test/rocketflare-plugin-analytics.git',
+          'https://example.test/rocketpod-plugin-analytics.git',
           '--apply',
           '--allow-dirty',
         ],
@@ -399,11 +399,11 @@ describe('planDefaultPlugins', () => {
 
   it('pins the ref onto the spec and passes a subdir through', () => {
     const [job] = planDefaultPlugins([{ ...entry, ref: '1.2.0', subdir: 'plugin' }], []).install
-    expect(job.spec).toBe('https://example.test/rocketflare-plugin-analytics.git@1.2.0')
+    expect(job.spec).toBe('https://example.test/rocketpod-plugin-analytics.git@1.2.0')
     expect(job.args).toEqual([
       'plugin',
       'add',
-      'https://example.test/rocketflare-plugin-analytics.git@1.2.0',
+      'https://example.test/rocketpod-plugin-analytics.git@1.2.0',
       '--subdir',
       'plugin',
       '--apply',
@@ -477,12 +477,12 @@ describe('parseBootstrapArgs', () => {
   it('--no-install skips step 2 only', () => {
     expect(parseBootstrapArgs(['--no-install']).skip).toEqual(['install'])
     expect(
-      parseBootstrapArgs(['--no-install'], { ROCKETFLARE_BOOTSTRAP_SKIP: 'install' }).skip
+      parseBootstrapArgs(['--no-install'], { ROCKETPOD_BOOTSTRAP_SKIP: 'install' }).skip
     ).toEqual(['install'])
   })
 
-  it('ROCKETFLARE_BOOTSTRAP_SKIP adds to --no-install, in step order, without duplicates', () => {
-    const env = { ROCKETFLARE_BOOTSTRAP_SKIP: 'seed, migrate,toolchain,,seed' }
+  it('ROCKETPOD_BOOTSTRAP_SKIP adds to --no-install, in step order, without duplicates', () => {
+    const env = { ROCKETPOD_BOOTSTRAP_SKIP: 'seed, migrate,toolchain,,seed' }
     expect(parseBootstrapArgs([], env).skip).toEqual(['toolchain', 'migrate', 'seed'])
     expect(parseBootstrapArgs(['--no-install'], env).skip).toEqual([
       'toolchain',
@@ -490,13 +490,13 @@ describe('parseBootstrapArgs', () => {
       'migrate',
       'seed',
     ])
-    expect(parseBootstrapArgs([], { ROCKETFLARE_BOOTSTRAP_SKIP: '' }).skip).toEqual([])
+    expect(parseBootstrapArgs([], { ROCKETPOD_BOOTSTRAP_SKIP: '' }).skip).toEqual([])
   })
 
-  it('ROCKETFLARE_ALLOW_ROOT is exactly 1, nothing looser', () => {
-    expect(parseBootstrapArgs([], { ROCKETFLARE_ALLOW_ROOT: '1' }).allowRoot).toBe(true)
-    expect(parseBootstrapArgs([], { ROCKETFLARE_ALLOW_ROOT: 'true' }).allowRoot).toBe(false)
-    expect(parseBootstrapArgs([], { ROCKETFLARE_ALLOW_ROOT: '' }).allowRoot).toBe(false)
+  it('ROCKETPOD_ALLOW_ROOT is exactly 1, nothing looser', () => {
+    expect(parseBootstrapArgs([], { ROCKETPOD_ALLOW_ROOT: '1' }).allowRoot).toBe(true)
+    expect(parseBootstrapArgs([], { ROCKETPOD_ALLOW_ROOT: 'true' }).allowRoot).toBe(false)
+    expect(parseBootstrapArgs([], { ROCKETPOD_ALLOW_ROOT: '' }).allowRoot).toBe(false)
   })
 
   it('reads --driver (D35) in both forms and refuses anything else', () => {
@@ -564,8 +564,8 @@ describe('database URL helpers', () => {
     expect(databaseUrlTarget('postgresql://u:secret@ep-x.neon.tech/neondb?sslmode=require')).toBe(
       'ep-x.neon.tech/neondb'
     )
-    expect(databaseUrlTarget('postgresql://u:p@localhost:5434/rocketflare_dev')).toBe(
-      'localhost:5434/rocketflare_dev'
+    expect(databaseUrlTarget('postgresql://u:p@localhost:5434/rocketpod_dev')).toBe(
+      'localhost:5434/rocketpod_dev'
     )
     expect(databaseUrlTarget('nope')).not.toContain('nope')
   })
@@ -573,7 +573,7 @@ describe('database URL helpers', () => {
 
 describe('bootstrapStepPlan', () => {
   const NEON = 'postgresql://u:secret@ep-x.neon.tech/neondb?sslmode=require'
-  const LOCAL = 'postgresql://rocketflare:rocketflare_pass@localhost:5432/rocketflare_dev'
+  const LOCAL = 'postgresql://rocketpod:rocketpod_pass@localhost:5432/rocketpod_dev'
   const COMPOSE = { docker: true, database: 'compose', target: null, seedEnv: {} }
 
   it('is the Docker plan by default, unchanged from before --db-url', () => {
@@ -648,8 +648,8 @@ describe('parseBootstrapSkip', () => {
   it('is a usage error for an unknown name, so a typo never runs the step it meant to skip', () => {
     expect(() => parseBootstrapSkip('migrations')).toThrow(BootstrapUsageError)
     expect(() => parseBootstrapSkip('seed,run')).toThrow(/unknown step run/)
-    expect(() => parseBootstrapArgs([], { ROCKETFLARE_BOOTSTRAP_SKIP: 'db-check' })).toThrow(
-      /ROCKETFLARE_BOOTSTRAP_SKIP/
+    expect(() => parseBootstrapArgs([], { ROCKETPOD_BOOTSTRAP_SKIP: 'db-check' })).toThrow(
+      /ROCKETPOD_BOOTSTRAP_SKIP/
     )
   })
 })
@@ -661,7 +661,7 @@ describe('bootstrap.mjs with steps skipped', () => {
   const runBootstrap = (args: string[], env: Record<string, string>, nodeArgs: string[] = []) =>
     spawnSync(process.execPath, [...nodeArgs, BOOTSTRAP, ...args], {
       encoding: 'utf8',
-      env: { ...process.env, DEV_VERBOSE: '', ROCKETFLARE_ALLOW_ROOT: '1', ...env },
+      env: { ...process.env, DEV_VERBOSE: '', ROCKETPOD_ALLOW_ROOT: '1', ...env },
       timeout: 30_000,
     })
   // Runs bootstrap.mjs as if uid 0, whoever runs the suite: `os.userInfo` reports uid 0.
@@ -676,28 +676,28 @@ describe('bootstrap.mjs with steps skipped', () => {
   it('every step skipped is a no-op run: each line says skipped, nothing is spawned or written', () => {
     const tomls = ['wrangler.toml', 'wrangler.staging.toml'].map(readWeb)
     const result = runBootstrap(ALL_SKIPPED, {
-      ROCKETFLARE_BOOTSTRAP_SKIP: BOOTSTRAP_SKIPPABLE_STEPS.join(','),
+      ROCKETPOD_BOOTSTRAP_SKIP: BOOTSTRAP_SKIPPABLE_STEPS.join(','),
     })
     expect(result.status, result.stdout + result.stderr).toBe(0)
-    expect(result.stdout).toMatch(/1\/10 toolchain\s+skipped \(ROCKETFLARE_BOOTSTRAP_SKIP\)/)
+    expect(result.stdout).toMatch(/1\/10 toolchain\s+skipped \(ROCKETPOD_BOOTSTRAP_SKIP\)/)
     expect(result.stdout).toMatch(/2\/10 install\s+skipped \(--no-install\); .*wrangler present/)
-    expect(result.stdout).toMatch(/8\/10 cloudflare\s+skipped \(ROCKETFLARE_BOOTSTRAP_SKIP\)/)
+    expect(result.stdout).toMatch(/8\/10 cloudflare\s+skipped \(ROCKETPOD_BOOTSTRAP_SKIP\)/)
     // A skipped cloudflare step leaves both tomls alone even under --offline.
     expect(['wrangler.toml', 'wrangler.staging.toml'].map(readWeb)).toEqual(tomls)
   })
 
   it('an unknown step name is exit 2 before any step runs', () => {
-    const result = runBootstrap(['--no-dev'], { ROCKETFLARE_BOOTSTRAP_SKIP: 'nope' })
+    const result = runBootstrap(['--no-dev'], { ROCKETPOD_BOOTSTRAP_SKIP: 'nope' })
     expect(result.status).toBe(2)
     expect(result.stderr).toMatch(/unknown step nope/)
     expect(result.stdout).not.toMatch(/1\/10/)
   })
 
-  it('as root it refuses before any step unless ROCKETFLARE_ALLOW_ROOT=1', () => {
-    const skip = { ROCKETFLARE_BOOTSTRAP_SKIP: BOOTSTRAP_SKIPPABLE_STEPS.join(',') }
-    const refused = runBootstrap(ALL_SKIPPED, { ...skip, ROCKETFLARE_ALLOW_ROOT: '' }, AS_ROOT)
+  it('as root it refuses before any step unless ROCKETPOD_ALLOW_ROOT=1', () => {
+    const skip = { ROCKETPOD_BOOTSTRAP_SKIP: BOOTSTRAP_SKIPPABLE_STEPS.join(',') }
+    const refused = runBootstrap(ALL_SKIPPED, { ...skip, ROCKETPOD_ALLOW_ROOT: '' }, AS_ROOT)
     expect(refused.status).toBe(3)
-    expect(refused.stderr).toMatch(/refusing to run as root .*ROCKETFLARE_ALLOW_ROOT=1/)
+    expect(refused.stderr).toMatch(/refusing to run as root .*ROCKETPOD_ALLOW_ROOT=1/)
     expect(refused.stdout).not.toMatch(/1\/10/)
 
     const allowed = runBootstrap(ALL_SKIPPED, skip, AS_ROOT)

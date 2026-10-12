@@ -3,11 +3,8 @@
  * there — the route its decisions chose and how much of the search the screen kept. The per-passage
  * probabilities are the `Relevance screen` artifact; each decision is a row in the timeline.
  */
-import {
-  type TriageResearchOutput,
-  triageResearchOutputSchema,
-} from '@rocketflare/shared/ai/agents'
-import { documentPath } from '@rocketflare/shared/ai/embeddings'
+import { type TriageResearchOutput, triageResearchOutputSchema } from '@rocketpod/shared/ai/agents'
+import { documentPath } from '@rocketpod/shared/ai/embeddings'
 import { Markdown } from '@/ui/components/ai/Markdown'
 import { DocumentLink } from '@/ui/components/shared'
 import type { AgentOutput, AgentOutputProps } from './types'

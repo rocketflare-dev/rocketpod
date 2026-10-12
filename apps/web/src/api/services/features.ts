@@ -24,8 +24,8 @@ import {
   type FeatureFlagEvaluation,
   type TenantFeatureOverride,
   type UpdateFeatureFlagRequest,
-} from '@rocketflare/shared/features'
-import type { FeatureName } from '@rocketflare/shared/permissions'
+} from '@rocketpod/shared/features'
+import type { FeatureName } from '@rocketpod/shared/permissions'
 import { and, eq, sql } from 'drizzle-orm'
 import type { AppConfig } from '../../config'
 import type { Database } from '../../db/client'

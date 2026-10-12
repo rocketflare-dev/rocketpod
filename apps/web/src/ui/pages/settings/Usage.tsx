@@ -1,15 +1,15 @@
 /**
  * Settings → Usage (D18): AI token totals for the last 7 / 30 / 90 days from
  * `GET /api/ai/usage/summary` — grand totals as cards, then one row per (provider, model,
- * feature). Cost comes from the kit's price table (`@rocketflare/shared/ai/pricing`) and is
+ * feature). Cost comes from the kit's price table (`@rocketpod/shared/ai/pricing`) and is
  * labelled an ESTIMATE, with the count of calls whose model has no price — a total that quietly
  * omits half the calls is worse than one that says so.
  * Admin+ (`manage AiConfig`); the tab is hidden otherwise.
  */
 
 import { ChartBarIcon } from '@heroicons/react/24/outline'
-import { shortModelName } from '@rocketflare/shared/ai/config'
-import { PRICES_UPDATED } from '@rocketflare/shared/ai/pricing'
+import { shortModelName } from '@rocketpod/shared/ai/config'
+import { PRICES_UPDATED } from '@rocketpod/shared/ai/pricing'
 import { useState } from 'react'
 import { EmptyState, SectionPanel, SkeletonRows } from '@/ui/components/shared'
 import {

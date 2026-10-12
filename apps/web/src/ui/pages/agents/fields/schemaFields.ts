@@ -17,8 +17,8 @@
  * Nothing zod reaches the client: the SERVER converts its zod schema once and the derived JSON
  * Schema is the contract, which is what holds the zod-3/zod-4 boundary.
  */
-import type { FormField } from '@rocketflare/shared/ai/interrupts'
-import { FORM_FIELD_MAX_LENGTH, type JsonSchema } from '@rocketflare/shared/ai/interrupts'
+import type { FormField } from '@rocketpod/shared/ai/interrupts'
+import { FORM_FIELD_MAX_LENGTH, type JsonSchema } from '@rocketpod/shared/ai/interrupts'
 
 /** A field plus the default the schema declared for it. */
 export interface FieldSpec extends FormField {

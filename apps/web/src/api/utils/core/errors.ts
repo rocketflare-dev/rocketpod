@@ -5,7 +5,7 @@
  * `src/api/utils/core/errors.ts`, trimmed to the generic classes and with `code` promoted to a
  * first-class field instead of ad-hoc `context.code`.
  */
-import { type ApiErrorBody, ERROR_CODES, type ErrorCode } from '@rocketflare/shared/errors'
+import { type ApiErrorBody, ERROR_CODES, type ErrorCode } from '@rocketpod/shared/errors'
 import { TenantScopeConflictError } from '../../../db/tenant-scope'
 
 /** A unique / primary-key violation under either driver — read at the driver seam (D35). */

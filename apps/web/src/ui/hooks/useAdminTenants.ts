@@ -8,10 +8,10 @@ import {
   adminTenantDetailSchema,
   adminTenantListItemSchema,
   type SuspendTenantRequest,
-} from '@rocketflare/shared/admin'
-import { sessionResponseSchema } from '@rocketflare/shared/auth'
-import { paginatedResponse } from '@rocketflare/shared/pagination'
-import type { TenantStatus } from '@rocketflare/shared/tenants'
+} from '@rocketpod/shared/admin'
+import { sessionResponseSchema } from '@rocketpod/shared/auth'
+import { paginatedResponse } from '@rocketpod/shared/pagination'
+import type { TenantStatus } from '@rocketpod/shared/tenants'
 import {
   keepPreviousData,
   queryOptions,

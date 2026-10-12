@@ -7,7 +7,7 @@
  * `answerable` escalates to `research-topic`. The `ctx.decide` contract itself is
  * `agent-decisions.test.ts`.
  */
-import type { DecisionAnswers, DecisionRequest } from '@rocketflare/shared/ai/decisions'
+import type { DecisionAnswers, DecisionRequest } from '@rocketpod/shared/ai/decisions'
 import { eq } from 'drizzle-orm'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { listArtifacts } from '@/api/services/agents/artifacts'

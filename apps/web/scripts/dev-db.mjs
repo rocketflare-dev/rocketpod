@@ -51,7 +51,7 @@ const PROXY_SERVICE = 'neon-proxy-dev'
 const PROXY_PORT_START = 4444
 
 /** This checkout's compose project — unique per path, so two checkouts never share containers. */
-const PROJECT = `rocketflare-dev-${checkoutTag(WEB_DIR)}`
+const PROJECT = `rocketpod-dev-${checkoutTag(WEB_DIR)}`
 
 const sh = (cmd, args, opts = {}) =>
   spawnSync(cmd, args, { encoding: 'utf8', cwd: WEB_DIR, ...opts })
@@ -63,7 +63,7 @@ function currentUrl() {
     const url = readDevVars(readFileSync(file, 'utf8')).DATABASE_URL
     if (url) return url
   }
-  return 'postgresql://rocketflare:rocketflare_pass@localhost:5432/rocketflare_dev'
+  return 'postgresql://rocketpod:rocketpod_pass@localhost:5432/rocketpod_dev'
 }
 
 /** Every port published by a container of THIS checkout's compose project. */
@@ -175,9 +175,9 @@ const composeEnv = (port, url, proxyPort = PROXY_PORT_START) => ({
   ...process.env,
   COMPOSE_PROJECT_NAME: PROJECT,
   DEV_DB_PORT: String(port),
-  DEV_DB_CONTAINER: `rocketflare-dev-postgres-${checkoutTag(WEB_DIR)}`,
+  DEV_DB_CONTAINER: `rocketpod-dev-postgres-${checkoutTag(WEB_DIR)}`,
   DEV_NEON_PROXY_PORT: String(proxyPort),
-  DEV_NEON_PROXY_CONTAINER: `rocketflare-dev-neon-proxy-${checkoutTag(WEB_DIR)}`,
+  DEV_NEON_PROXY_CONTAINER: `rocketpod-dev-neon-proxy-${checkoutTag(WEB_DIR)}`,
   DATABASE_URL: url,
   [HYPERDRIVE_ENV]: url,
 })

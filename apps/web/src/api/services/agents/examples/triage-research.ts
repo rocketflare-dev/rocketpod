@@ -27,8 +27,8 @@ import {
   type TriageResearchOutput,
   triageResearchInputSchema,
   triageResearchOutputSchema,
-} from '@rocketflare/shared/ai/agents'
-import { KNOWLEDGE_TOOLS } from '@rocketflare/shared/ai/embeddings'
+} from '@rocketpod/shared/ai/agents'
+import { KNOWLEDGE_TOOLS } from '@rocketpod/shared/ai/embeddings'
 import { z } from 'zod'
 import { callStructuredTool } from '../../ai/kit'
 import { recordUsage } from '../../ai/usage'

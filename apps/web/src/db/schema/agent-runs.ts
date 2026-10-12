@@ -9,8 +9,8 @@
  * `input`/`output` are jsonb so a retry re-reads the payload from the row, not a message, and
  * `checkpoint` is where a retried step picks the tool loop back up instead of replaying it.
  */
-import type { AgentKey, AgentRunStatus } from '@rocketflare/shared/ai/agents'
-import { ACTIVE_RUN_STATUSES } from '@rocketflare/shared/ai/agents'
+import type { AgentKey, AgentRunStatus } from '@rocketpod/shared/ai/agents'
+import { ACTIVE_RUN_STATUSES } from '@rocketpod/shared/ai/agents'
 import { relations, sql } from 'drizzle-orm'
 import {
   index,
@@ -27,7 +27,7 @@ import { tenantIsolation } from './rls'
 import { tenants } from './tenants'
 import { users } from './users'
 
-/** Mirrors `agentRunStatusSchema` in `@rocketflare/shared/ai/agents`; text so a new state is no migration. */
+/** Mirrors `agentRunStatusSchema` in `@rocketpod/shared/ai/agents`; text so a new state is no migration. */
 export const AGENT_RUN_STATUS_VALUES = [
   'queued',
   'running',
@@ -71,7 +71,7 @@ export const agentRuns = pgTable(
      * Resume point for a retried `execute` step: the tool loop's transcript, turns spent and tokens
      * billed so far (`ToolLoopCheckpoint`). Scratch space, not a record — every terminal settle
      * clears it, and a row that fails to parse on read starts the run fresh rather than failing it.
-     * Untyped on purpose: it is internal runtime state with no `@rocketflare/shared` contract, and
+     * Untyped on purpose: it is internal runtime state with no `@rocketpod/shared` contract, and
      * `db/schema` must not import from `api/services`. Validated in `services/agents/runs.ts`.
      */
     checkpoint: jsonb('checkpoint'),

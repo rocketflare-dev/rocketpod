@@ -29,7 +29,7 @@ const BARE_VERSION = /^\d+\.\d+\.\d+$/
 
 // ---------------------------------------------------------------- identity
 
-/** The same rule `@rocketflare/shared/plugins` enforces at the type level. */
+/** The same rule `@rocketpod/shared/plugins` enforces at the type level. */
 export const PLUGIN_ID_RE = /^[a-z][a-z0-9-]*$/
 
 /**
@@ -78,7 +78,7 @@ export const BARRELS = Object.freeze({
     file: 'packages/shared/src/plugins/index.ts',
     constName: 'SHARED_PLUGINS',
     suffix: 'Shared',
-    // `@rocketflare/shared`'s `./*` export maps to a FILE, so the `/index` is load-bearing.
+    // `@rocketpod/shared`'s `./*` export maps to a FILE, so the `/index` is load-bearing.
     specifier: id => `./${id}/index`,
     half: id => `packages/shared/src/plugins/${id}/index.ts`,
   },
@@ -481,11 +481,11 @@ export function undeclaredSkillDirs(id, declared, hostDirs, installedIds = []) {
 }
 
 /**
- * Built from `KIT.slug` for the reason `MANIFEST_FILE` is (see `manifest.mjs`): this is the
+ * Built from `KIT.ecosystem` for the reason `MANIFEST_FILE` is (see `manifest.mjs`): this is the
  * ECOSYSTEM's filename, the same in every plugin repository, so a renamed copy that looked for
  * `<slug>-plugin.json` could never install any plugin at all.
  */
-export const PLUGIN_MANIFEST_FILE = `${KIT.slug}-plugin.json`
+export const PLUGIN_MANIFEST_FILE = `${KIT.ecosystem}-plugin.json`
 
 const META_FILES = ['README.md', 'CHANGELOG.md', 'LICENSE', 'LICENSE.md', 'SECURITY.md']
 /**
@@ -1084,7 +1084,7 @@ export function planSteps(m, { fragments = [], clashes = [] } = {}) {
         "Create and declare this plugin's platform resources, per environment",
         'pnpm provision cloudflare staging && pnpm provision cloudflare production',
         `${platform.join(', ')} written into BOTH tomls; ids patched per environment`,
-        'REQUIRE_PROVISIONED=1 pnpm --filter @rocketflare/web test:config'
+        'REQUIRE_PROVISIONED=1 pnpm --filter @rocketpod/web test:config'
       )
     )
   }

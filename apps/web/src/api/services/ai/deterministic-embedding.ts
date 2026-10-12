@@ -19,7 +19,7 @@
  * embedding and must never be mixed with real ones — a seeded document records
  * `embeddingModel: 'seed:deterministic'` for that reason.
  */
-import { EMBEDDING_DIM } from '@rocketflare/shared/ai/config'
+import { EMBEDDING_DIM } from '@rocketpod/shared/ai/config'
 
 export const DETERMINISTIC_EMBEDDING_MODEL = 'seed:deterministic'
 

@@ -13,7 +13,7 @@
  * the input carries a key the schema never declared, which is an input the labels would silently
  * hide. A half-described input is worse than a JSON blob, because it reads as complete.
  */
-import type { JsonSchema } from '@rocketflare/shared/ai/interrupts'
+import type { JsonSchema } from '@rocketpod/shared/ai/interrupts'
 import { fieldsFromJsonSchema } from '../fields/schemaFields'
 
 /** Past this a value is clipped behind a "Show more"; `research-topic`'s question is the case. */

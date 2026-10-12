@@ -32,4 +32,4 @@ CREATE UNIQUE INDEX "ai_spans_tenant_trace_span_idx" ON "ai_spans" USING btree (
 CREATE INDEX "ai_spans_tenant_started_idx" ON "ai_spans" USING btree ("tenant_id","started_at" DESC NULLS LAST);--> statement-breakpoint
 CREATE INDEX "ai_spans_tenant_run_idx" ON "ai_spans" USING btree ("tenant_id","run_id");--> statement-breakpoint
 CREATE INDEX "ai_spans_tenant_conversation_idx" ON "ai_spans" USING btree ("tenant_id","conversation_id");--> statement-breakpoint
-CREATE POLICY "ai_spans_tenant_isolation" ON "ai_spans" AS PERMISSIVE FOR ALL TO "rocketflare_app" USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid) WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+CREATE POLICY "ai_spans_tenant_isolation" ON "ai_spans" AS PERMISSIVE FOR ALL TO "rocketpod_app" USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid) WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);

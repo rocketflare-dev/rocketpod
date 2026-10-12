@@ -27,12 +27,12 @@ import {
   type AgentRunStatus,
   isRunActive,
   RUN_STREAM_FALLBACK_ATTEMPTS,
-} from '@rocketflare/shared/ai/agents'
+} from '@rocketpod/shared/ai/agents'
 import {
   type AgentRunAguiResponse,
   agentRunAguiResponseSchema,
   type KitAguiEvent,
-} from '@rocketflare/shared/ai/agui'
+} from '@rocketpod/shared/ai/agui'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { api } from '@/ui/lib/api-client'

@@ -6,9 +6,9 @@
  * the group.
  */
 
-import { setMemberGroupsRequestSchema } from '@rocketflare/shared/groups'
-import { paginationQuerySchema } from '@rocketflare/shared/pagination'
-import { updateMemberRoleRequestSchema } from '@rocketflare/shared/tenants'
+import { setMemberGroupsRequestSchema } from '@rocketpod/shared/groups'
+import { paginationQuerySchema } from '@rocketpod/shared/pagination'
+import { updateMemberRoleRequestSchema } from '@rocketpod/shared/tenants'
 import { guardPermission } from '../middleware/permissions'
 import { recordActivity } from '../services/activity'
 import {

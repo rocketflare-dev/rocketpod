@@ -12,11 +12,7 @@
  * Overrides need more than one organisation to mean anything, so in single mode that whole section
  * is absent — matching the routes, which answer 404 `tenancy_mode_single`.
  */
-import type {
-  FeatureFlag,
-  FeatureFlagState,
-  FeatureRolloutUnit,
-} from '@rocketflare/shared/features'
+import type { FeatureFlag, FeatureFlagState, FeatureRolloutUnit } from '@rocketpod/shared/features'
 import { useState } from 'react'
 import { EmptyState, SectionPanel, SkeletonRows, showToast } from '@/ui/components/shared'
 import { useAuth } from '@/ui/hooks/useAuth'

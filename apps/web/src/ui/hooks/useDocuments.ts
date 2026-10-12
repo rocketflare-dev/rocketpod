@@ -25,9 +25,9 @@ import {
   type UploadDocumentFields,
   validateDocumentFile,
   windowStart,
-} from '@rocketflare/shared/ai/embeddings'
-import { MAX_UPLOAD_BYTES } from '@rocketflare/shared/files'
-import { type PaginationQuery, paginatedResponse } from '@rocketflare/shared/pagination'
+} from '@rocketpod/shared/ai/embeddings'
+import { MAX_UPLOAD_BYTES } from '@rocketpod/shared/files'
+import { type PaginationQuery, paginatedResponse } from '@rocketpod/shared/pagination'
 import {
   keepPreviousData,
   queryOptions,

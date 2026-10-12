@@ -100,7 +100,7 @@ const PLACEHOLDER = /^<[A-Z0-9_]+>$/
 
 /** What `wrangler dev` used before D35 — the compose Postgres on :5432. */
 export const DEFAULT_LOCAL_CONNECTION_STRING =
-  'postgresql://rocketflare:rocketflare_pass@localhost:5432/rocketflare_dev'
+  'postgresql://rocketpod:rocketpod_pass@localhost:5432/rocketpod_dev'
 
 /** `<HYPERDRIVE_ID>` / `<HYPERDRIVE_STAGING_ID>` — the id a block carries until it is provisioned. */
 export function hyperdrivePlaceholder(env: 'staging' | 'production'): string {

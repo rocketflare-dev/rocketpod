@@ -5,7 +5,7 @@
  * `expected.contains`; attaching per case keeps every average honest. Every block shares the suite
  * name, so reports and baselines still read `<suite> › <case id>`.
  */
-import type { EvalCase } from '@rocketflare/shared/ai/evals'
+import type { EvalCase } from '@rocketpod/shared/ai/evals'
 import { describeEval, type Harness, type JsonValue } from 'vitest-evals'
 import { skipEvals } from './env'
 import { judgeHarness } from './judge-harness'

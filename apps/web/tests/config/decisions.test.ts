@@ -10,7 +10,7 @@ import {
   decisionRequestSchema,
   noulConfidence,
   scoreConfidence,
-} from '@rocketflare/shared/ai/decisions'
+} from '@rocketpod/shared/ai/decisions'
 import { describe, expect, it, vi } from 'vitest'
 import { PICK_NONE, pickRequest, questionsHash, siftRequest } from '@/api/services/agents/decisions'
 import {

@@ -14,8 +14,8 @@ import {
   type FeatureDefinition,
   type FeatureFlagEvaluation,
   featureBucket,
-} from '@rocketflare/shared/features'
-import type { FeatureName } from '@rocketflare/shared/permissions'
+} from '@rocketpod/shared/features'
+import type { FeatureName } from '@rocketpod/shared/permissions'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 /**

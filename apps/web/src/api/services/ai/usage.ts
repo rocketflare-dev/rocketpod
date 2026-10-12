@@ -3,17 +3,17 @@
  * `tapUsage` wraps a `ChatClient` so every generation reports through one callback (the chat
  * route records; agents will too), and `summarizeUsage` answers `GET /api/ai/usage/summary`.
  *
- * Cost comes from ONE table, `@rocketflare/shared/ai/pricing`: `recordUsage` freezes a row's cost
+ * Cost comes from ONE table, `@rocketpod/shared/ai/pricing`: `recordUsage` freezes a row's cost
  * from it at write time (a later price edit cannot rewrite history), and the summary prices rows
  * that have no stored cost — written before the table existed, or by a caller that passed none —
  * with the same helper, so the page is not half empty. A model the table does not know stays null
  * and shows as "—"; the summary counts those calls in `unpricedCalls` so the UI can say the total
  * is partial.
  */
-import type { TokenUsage } from '@rocketflare/shared/ai/chat'
-import type { AiProvider } from '@rocketflare/shared/ai/config'
-import { estimateCostMicrocents } from '@rocketflare/shared/ai/pricing'
-import type { AiUsageRowSummary, AiUsageSummary } from '@rocketflare/shared/ai/usage'
+import type { TokenUsage } from '@rocketpod/shared/ai/chat'
+import type { AiProvider } from '@rocketpod/shared/ai/config'
+import { estimateCostMicrocents } from '@rocketpod/shared/ai/pricing'
+import type { AiUsageRowSummary, AiUsageSummary } from '@rocketpod/shared/ai/usage'
 import { and, eq, gte, lt, sql } from 'drizzle-orm'
 import type { Database } from '../../../db/client'
 import { aiUsage } from '../../../db/schema'

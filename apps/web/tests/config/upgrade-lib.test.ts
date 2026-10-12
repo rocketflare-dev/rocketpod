@@ -255,18 +255,18 @@ const PATCH = `diff --git a/apps/web/src/api/index.ts b/apps/web/src/api/index.t
 index 1234abc..5678def 100644
 --- a/apps/web/src/api/index.ts
 +++ b/apps/web/src/api/index.ts
-@@ -1,4 +1,4 @@ export function createApp(rocketflare: string) {
- import { thing } from '@rocketflare/shared/errors'
--const name = 'rocketflare-web'
-+const name = 'rocketflare-worker'
- export const ROCKETFLARE_KEY = 'rocketflare_'
+@@ -1,4 +1,4 @@ export function createApp(rocketpod: string) {
+ import { thing } from '@rocketpod/shared/errors'
+-const name = 'rocketpod-web'
++const name = 'rocketpod-worker'
+ export const ROCKETPOD_KEY = 'rocketpod_'
 diff --git a/LICENSE b/LICENSE
 index aaa..bbb 100644
 --- a/LICENSE
 +++ b/LICENSE
 @@ -1,2 +1,2 @@
--Copyright Rocketflare
-+Copyright Rocketflare Ltd
+-Copyright Rocketpod
++Copyright Rocketpod Ltd
 `
 
 describe('kit-only wiring', () => {
@@ -578,7 +578,7 @@ describe('translateBlock', () => {
     expect(t).toContain("+const name = 'acme-worker'")
     expect(t).toContain('ACME_KEY')
     expect(t).toContain("'acme_'")
-    expect(t).not.toContain('rocketflare')
+    expect(t).not.toContain('rocketpod')
   })
 
   it('leaves the hunk header counts byte-identical', () => {
@@ -595,8 +595,8 @@ describe('translateBlock', () => {
 
   it('translates the path lines even when the body is left alone', () => {
     const t = translateBlock(license, names, { translate: false })
-    expect(t).toContain('-Copyright Rocketflare')
-    expect(t).toContain('+Copyright Rocketflare Ltd')
+    expect(t).toContain('-Copyright Rocketpod')
+    expect(t).toContain('+Copyright Rocketpod Ltd')
     expect(countLines(stripIndexLines(license.raw))).toBe(countLines(t))
   })
 

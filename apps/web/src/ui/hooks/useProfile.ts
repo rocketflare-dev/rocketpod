@@ -7,18 +7,18 @@
  * `tenantUserSettingsSchema`. `GET /auth/providers` has no shared schema; it is read tolerantly as
  * `{ providers: [{ provider, createdAt? }] }` (the linked ones, mirroring `adminUserDetailSchema`).
  */
-import { userSchema } from '@rocketflare/shared/auth'
+import { userSchema } from '@rocketpod/shared/auth'
 import {
   AVATAR_MIME_TYPES,
   isAvatarMimeType,
   MAX_UPLOAD_BYTES,
   uploadResponseSchema,
-} from '@rocketflare/shared/files'
+} from '@rocketpod/shared/files'
 import {
   tenantUserSettingsSchema,
   type UpdateProfileRequest,
   type UpdateTenantUserSettingsRequest,
-} from '@rocketflare/shared/user-settings'
+} from '@rocketpod/shared/user-settings'
 import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { z } from 'zod'
 import { useAuth } from '@/ui/hooks/useAuth'

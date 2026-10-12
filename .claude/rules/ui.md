@@ -16,8 +16,8 @@ Either port moves with `DEV_UI_PORT` / `DEV_API_PORT` (`scripts/lib/dev-ports.mj
 
 ## Design tokens, not raw colours
 
-- Themes are two `@plugin "daisyui/theme"` blocks in `apps/web/src/ui/index.css` (`rocketflare-light` default,
-  `rocketflare-dark` prefersdark). The brand variables at the top of that file are the ONLY place a hex
+- Themes are two `@plugin "daisyui/theme"` blocks in `apps/web/src/ui/index.css` (`rocketpod-light` default,
+  `rocketpod-dark` prefersdark). The brand variables at the top of that file are the ONLY place a hex
   appears. Components use DaisyUI semantic classes (`bg-base-200`, `text-primary`) or the kit's
   surface/border/text tokens (`--surface-panel`, `--border-subtle`, `.text-muted`); **never
   `bg-blue-50`-style palette utilities**
@@ -50,11 +50,11 @@ Either port moves with `DEV_UI_PORT` / `DEV_API_PORT` (`scripts/lib/dev-ports.mj
 
 - All HTTP via `lib/api-client.ts` (`api.get/post/patch/delete/upload`): `credentials: 'include'`, typed
   `ApiError` from the shared envelope, `schema` option zod-parses the response with the same
-  `@rocketflare/shared/<module>` schema the server validates with (import from `@rocketflare/shared/...`, never a
+  `@rocketpod/shared/<module>` schema the server validates with (import from `@rocketpod/shared/...`, never a
   relative path into `packages/`). No `hono/client` RPC (D13)
 - Files (D23): `api.upload(url, formData, { schema })` posts multipart **without** a JSON
   `Content-Type` (the browser sets the boundary). Check `isAvatarMimeType` / `MAX_UPLOAD_BYTES` from
-  `@rocketflare/shared/files` client-side first (`validateAvatarFile` in `hooks/useProfile.ts`) so the
+  `@rocketpod/shared/files` client-side first (`validateAvatarFile` in `hooks/useProfile.ts`) so the
   server's 413/415 are a backstop, not the UX; `useUploadAvatar()` → `POST /api/files?scope=avatars`
   then invalidates `me` + `auth` and refreshes the session. Render `<img src={user.avatarUrl}>` with
   an `onError` fallback to initials — the object is tenant-scoped, the URL is not
@@ -90,7 +90,7 @@ Vite proxy forwards it in dev); reconnects with exponential backoff (base `min(1
 30 s)`, jittered in `[base/2, base]`), and a close with code 1001/1012 or reason "upgraded"/"new
 version" (Worker redeployed) reconnects in 100 ms without counting as a failure; sends
 `{"type":"ping"}` every 30 s. Events are parsed with `realtimeEventSchema`; the event type → query-key
-root map is **`REALTIME_INVALIDATIONS` / `invalidationsFor()` in `@rocketflare/shared/realtime`**, not in
+root map is **`REALTIME_INVALIDATIONS` / `invalidationsFor()` in `@rocketpod/shared/realtime`**, not in
 the UI — a new server event type adds its roots there, and `tests/ui` asserts every root is a real
 `queryKeys` family (`['invitations']`, `['pending-invitations']`, `['members']`, `['tenant']`…).
 **Convention: the `entity` string of an `entity.changed { entity, id }` nudge IS the query-key family
@@ -141,13 +141,13 @@ Components subscribe to query state, never to the socket; `WebSocketStatus` (hea
   and `TOOL_CALL_START → ARGS → END → RESULT` → `CUSTOM kit.usage` → `RUN_FINISHED`. Tool calls
   render as one-liners through `toolLabel(name)`. A new event is an AG-UI type added to
   `kitAguiEventSchema`, or a member of the kit's CUSTOM namespace, in
-  `@rocketflare/shared/ai/agui` first — an APP adds its own CUSTOM events under its own prefix,
+  `@rocketpod/shared/ai/agui` first — an APP adds its own CUSTOM events under its own prefix,
   never `kit.`
 - Guards: `/chat/:conversationId?` is `read Conversation` (every role; ownership is server-side);
   `/settings` (`?tab=ai|prompts|agent-models|usage`) is `guard="admin"`, the last two additionally
   `manage AiConfig`. Agent runs (`/agents`, `/agents/runs/:runId`, `AgentRun`), documents
   (`/documents`, `Document`) and the agent-models tab follow the same contracts
-  (`@rocketflare/shared/ai/{agents,embeddings,agent-models,interrupts,artifacts}`). Documents
+  (`@rocketpod/shared/ai/{agents,embeddings,agent-models,interrupts,artifacts}`). Documents
   poll/nudge; **a run STREAMS** (below) and `entity.changed { entity: 'agent-run' }` invalidates the
   run query — but never `['agent-run-agui']`. Page specifics: `apps/web/src/ui/CLAUDE.md`
 
@@ -223,7 +223,7 @@ Components subscribe to query state, never to the socket; `WebSocketStatus` (hea
 - **Dashboards** (the analytics plugin's, D31): edit mode autosaves the whole config (debounced 1.5 s PATCH); there is no router-level
   unsaved-changes blocker — `beforeunload` while dirty plus a flush when leaving edit mode/unmount.
   `useFactTableStatus({ enabled })` MUST be gated on `manage Dashboard` (admin-only endpoint).
-  `syncDarkClass` mirrors `data-theme="rocketflare-dark"` into a `dark` class only while an analytics surface is
+  `syncDarkClass` mirrors `data-theme="rocketpod-dark"` into a `dark` class only while an analytics surface is
   mounted (drizzle-cube detects `.dark`); kit CSS never reads `.dark`. `@nivo/heatmap` is aliased in
   `vite.config.ts` to a stub the PLUGIN ships — one of the two core lines its install prints, since
   a plugin edits no core file — see `docs/ADAPTING.md` §3b to enable heat maps.
@@ -244,7 +244,7 @@ Components subscribe to query state, never to the socket; `WebSocketStatus` (hea
   (the kit ships none there now; that file exports only `featureGuard`), and beside the route and
   nav item it gates for a plugin's (D31). All of it is cosmetic: the gated code still ships in the
   bundle, and the server is the protection
-- Forms validate with the `@rocketflare/shared` schema the server uses; show `FieldError` per field
+- Forms validate with the `@rocketpod/shared` schema the server uses; show `FieldError` per field
 - Icons: `@heroicons/react`. No new UI library without a stated reason in the PR
 - `EnvironmentBadge` + `useEnvironmentTitle` read `APP_ENV`/`RELEASE_VERSION` from `/auth/session`;
   staging must look different from production
@@ -268,7 +268,7 @@ the eager shell sees. The rules follow from that one fact:
   `public`) and every `Component` is `lazy(() => import('./pages/X'))`. A statically imported page
   puts the plugin in the main bundle for readers who never open it; `tests/config/plugins.test.ts`
   reads the SOURCE of the UI entry and enforces both halves — an import allowlist (`react`, the
-  heroicons set, `@rocketflare/shared/*`, `@/plugins/types`, `@/plugins/api/ui-wiring`,
+  heroicons set, `@rocketpod/shared/*`, `@/plugins/types`, `@/plugins/api/ui-wiring`,
   `@/ui/components/SideNav`,
   `@/ui/hooks/useNavGuard`, `@/ui/lib/feature-guards`; type-only imports are unrestricted because
   they are erased) and "every dynamic `import()` is inside `lazy(() => …)`"

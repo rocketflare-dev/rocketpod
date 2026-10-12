@@ -52,7 +52,7 @@ describe('launch.kit.json (the shape Launch parses)', () => {
     expect(manifest?.declaredConfig.plain).toEqual(['A_URL'])
   })
 
-  it("defaults launchProvides.oidc's callbackPath and signedOutPath to Rocketflare's", () => {
+  it("defaults launchProvides.oidc's callbackPath and signedOutPath to Rocketpod's", () => {
     const { problems: found, manifest } = validateManifest(own())
     expect(found).toEqual([])
     expect(manifest?.launchProvides.oidc.callbackPath).toBe('/auth/oidc/callback')

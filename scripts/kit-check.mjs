@@ -399,7 +399,7 @@ export function checkKit(dir, { provisioned = false, exec = false } = {}) {
   if (exists(manifest.scaffold.appManifest)) {
     try {
       const app = JSON.parse(read(manifest.scaffold.appManifest))
-      // A kit may keep its provenance file in the kit itself with `"app": null` (Rocketflare's
+      // A kit may keep its provenance file in the kit itself with `"app": null` (Rocketpod's
       // `.rocketflare.json`): that is the kit, not a copy, so only the `kit` block is checked.
       isCopy = app.app !== null
       if (isCopy)

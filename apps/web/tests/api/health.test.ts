@@ -1,4 +1,4 @@
-import { ERROR_CODES } from '@rocketflare/shared/errors'
+import { ERROR_CODES } from '@rocketpod/shared/errors'
 import { describe, expect, it } from 'vitest'
 import { allowedOrigins, DEV_ORIGINS } from '@/api/middleware/cors'
 import { SESSION_COOKIE_NAME } from '@/api/middleware/csrf'

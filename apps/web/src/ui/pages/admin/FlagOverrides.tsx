@@ -7,7 +7,7 @@
  * row — means "follow the platform state". A checkbox cannot say the third thing.
  */
 import { TrashIcon } from '@heroicons/react/24/outline'
-import type { FeatureFlag } from '@rocketflare/shared/features'
+import type { FeatureFlag } from '@rocketpod/shared/features'
 import { useState } from 'react'
 import { showToast } from '@/ui/components/shared'
 import { useAdminTenants } from '@/ui/hooks/useAdminTenants'

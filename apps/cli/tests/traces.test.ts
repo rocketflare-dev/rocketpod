@@ -1,5 +1,5 @@
 /** `traces list|show` (D32): table vs `--json`, the span tree with tool I/O, 403 → exit 3. */
-import { traceDetailSchema } from '@rocketflare/shared/ai/traces'
+import { traceDetailSchema } from '@rocketpod/shared/ai/traces'
 import { afterEach, describe, expect, it } from 'vitest'
 import { formatDuration, runTracesList, runTracesShow } from '../src/commands/traces'
 import { EXIT_FORBIDDEN, exitCodeFor } from '../src/errors'

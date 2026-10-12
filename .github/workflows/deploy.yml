@@ -14,7 +14,7 @@ name: Deploy
 # Workspace note: this is a pnpm workspace. The tag must equal the version in the ROOT package.json
 # (one tag ships apps/web and apps/cli together; the apps/* versions are informational). Only
 # apps/web is deployed — the CLI is private and not published from here. Steps run at the repo
-# root and reach the web package with the root scripts or `pnpm --filter @rocketflare/web …`; `wrangler
+# root and reach the web package with the root scripts or `pnpm --filter @rocketpod/web …`; `wrangler
 # deploy` is executed INSIDE apps/web (via `--filter … exec`) so `wrangler.toml` and its
 # `[assets] directory = "./dist/ui"` resolve.
 #
@@ -46,7 +46,7 @@ name: Deploy
 #   CLOUDFLARE_API_TOKEN   scoped token (docs/DEPLOY.md → Token scopes); may be shared
 #   CLOUDFLARE_ACCOUNT_ID
 # Runtime Worker secrets (OAUTH_ENCRYPTION_KEY, RESEND_API_KEY, …) are NOT
-# managed here: `pnpm --filter @rocketflare/web exec wrangler secret put <NAME> [-c wrangler.staging.toml]`
+# managed here: `pnpm --filter @rocketpod/web exec wrangler secret put <NAME> [-c wrangler.staging.toml]`
 # once per worker.
 #
 # Deploying through an external deployer (docs/DEPLOYER.md, off by default): set the repository
@@ -228,7 +228,7 @@ jobs:
       # ONLY the parity test: the whole config project also reads git history
       # (upgrade-lib's mirror tests), which this job's depth-1 checkout does not have.
       - name: Wrangler parity (provisioned)
-        run: pnpm --filter @rocketflare/web test:config tests/config/wrangler-parity.test.ts
+        run: pnpm --filter @rocketpod/web test:config tests/config/wrangler-parity.test.ts
         env:
           REQUIRE_PROVISIONED: "1"
 
@@ -248,11 +248,11 @@ jobs:
       # Both paths. It must precede the dry run below: wrangler refuses a missing `[assets]
       # directory`, and the upload sends what it built.
       - name: Build UI
-        run: pnpm --filter @rocketflare/web build:ui
+        run: pnpm --filter @rocketpod/web build:ui
 
       - name: Build the Worker (dry run, no credentials)
         if: vars.DEPLOYER_URL != ''
-        run: pnpm --filter @rocketflare/web exec wrangler deploy --dry-run --outdir dist/deploy -c wrangler.staging.toml
+        run: pnpm --filter @rocketpod/web exec wrangler deploy --dry-run --outdir dist/deploy -c wrangler.staging.toml
 
       # Build once: the exact outdir and dist/ui the upload below sends, packed with a manifest
       # binding them to this tag, commit and tree. Only on a tag — a branch dispatch has no release.
@@ -296,7 +296,7 @@ jobs:
       # `[assets] directory = "./dist/ui"` live.
       - name: Deploy with wrangler (no deployer)
         if: vars.DEPLOYER_URL == ''
-        run: pnpm --filter @rocketflare/web exec wrangler deploy -c wrangler.staging.toml --var "RELEASE_VERSION:${{ steps.version.outputs.version }}"
+        run: pnpm --filter @rocketpod/web exec wrangler deploy -c wrangler.staging.toml --var "RELEASE_VERSION:${{ steps.version.outputs.version }}"
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -431,7 +431,7 @@ jobs:
       # ONLY the parity test: the whole config project also reads git history
       # (upgrade-lib's mirror tests), which this job's depth-1 checkout does not have.
       - name: Wrangler parity (provisioned)
-        run: pnpm --filter @rocketflare/web test:config tests/config/wrangler-parity.test.ts
+        run: pnpm --filter @rocketpod/web test:config tests/config/wrangler-parity.test.ts
         env:
           REQUIRE_PROVISIONED: "1"
 
@@ -447,11 +447,11 @@ jobs:
 
       - name: Build UI
         if: vars.DEPLOYER_URL == '' || steps.bundle.outputs.source != 'bundle'
-        run: pnpm --filter @rocketflare/web build:ui
+        run: pnpm --filter @rocketpod/web build:ui
 
       - name: Build the Worker (dry run, no credentials)
         if: vars.DEPLOYER_URL != '' && steps.bundle.outputs.source != 'bundle'
-        run: pnpm --filter @rocketflare/web exec wrangler deploy --dry-run --outdir dist/deploy
+        run: pnpm --filter @rocketpod/web exec wrangler deploy --dry-run --outdir dist/deploy
 
       # `DEPLOYER_SOURCE=bundle` tells the deployer these are staging's bytes, so it may refuse a
       # digest that differs from the staging deploy's (Launch: 409); `build` is only warned about.
@@ -474,7 +474,7 @@ jobs:
 
       - name: Deploy with wrangler (no deployer)
         if: vars.DEPLOYER_URL == ''
-        run: pnpm --filter @rocketflare/web exec wrangler deploy --var "RELEASE_VERSION:${{ steps.version.outputs.version }}"
+        run: pnpm --filter @rocketpod/web exec wrangler deploy --var "RELEASE_VERSION:${{ steps.version.outputs.version }}"
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

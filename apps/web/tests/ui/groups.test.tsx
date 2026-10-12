@@ -3,7 +3,7 @@
  * creates a type and a group, and the warning `AccessPicker` shows for an EMPTY selection — the
  * state that is legal, meaningful ("only me and admins") and easy to reach by accident.
  */
-import type { GroupRef } from '@rocketflare/shared/groups'
+import type { GroupRef } from '@rocketpod/shared/groups'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { useState } from 'react'
 import { describe, expect, it } from 'vitest'

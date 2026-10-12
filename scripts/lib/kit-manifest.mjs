@@ -30,7 +30,7 @@ const TITLE_SUFFIX = /^[a-z0-9][a-z0-9-]*$/
 /** A path on the app's own origin: one leading `/`, no scheme, no host, no whitespace, no `#`. */
 const RP_PATH = /^\/(?!\/)[^\s#]*$/
 
-/** Rocketflare's relying-party paths, the contract's defaults (`launchProvides.oidc`). */
+/** Rocketpod's relying-party paths, the contract's defaults (`launchProvides.oidc`). */
 export const KIT_OIDC_CALLBACK_PATH = '/auth/oidc/callback'
 export const KIT_OIDC_SIGNED_OUT_PATH = '/login?signedOut=1'
 
@@ -185,7 +185,7 @@ export function validateManifest(input) {
       for (const key of ['only', 'label'])
         field(oidc, key, 'launchProvides.oidc', envName, { optional: true })
       // Where sign-in returns and a sign-out lands: Launch registers `{env url}{path}` with the
-      // app's OIDC client. Absent: Rocketflare's.
+      // app's OIDC client. Absent: Rocketpod's.
       const rpPath = v =>
         str(0, 300)(v) ?? (RP_PATH.test(v) ? null : 'must be a path on the app, starting with /')
       field(oidc, 'callbackPath', 'launchProvides.oidc', rpPath, { def: KIT_OIDC_CALLBACK_PATH })

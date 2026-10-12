@@ -20,12 +20,12 @@ import {
   CLAIMABLE_RUN_STATUSES,
   isRunActive,
   WORKFLOW_EVENT_TYPE_PATTERN,
-} from '@rocketflare/shared/ai/agents'
+} from '@rocketpod/shared/ai/agents'
 import {
   ARTIFACT_JSON_MAX_CHARS,
   ARTIFACT_TABLE_MAX_ROWS,
   agentArtifactSchema,
-} from '@rocketflare/shared/ai/artifacts'
+} from '@rocketpod/shared/ai/artifacts'
 import {
   AGENT_INTERRUPT_KINDS,
   type AgentInterruptSpec,
@@ -34,7 +34,7 @@ import {
   INTERRUPT_REJECTION,
   interruptPayloadSchema,
   rejectionFor,
-} from '@rocketflare/shared/ai/interrupts'
+} from '@rocketpod/shared/ai/interrupts'
 import { describe, expect, it } from 'vitest'
 
 const RUN = '11111111-1111-4111-8111-111111111111'

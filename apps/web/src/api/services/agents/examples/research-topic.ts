@@ -41,9 +41,9 @@ import {
   type ResearchTopicOutput,
   researchTopicInputSchema,
   researchTopicOutputSchema,
-} from '@rocketflare/shared/ai/agents'
-import type { TokenUsage } from '@rocketflare/shared/ai/chat'
-import { choicePayloadSchema } from '@rocketflare/shared/ai/interrupts'
+} from '@rocketpod/shared/ai/agents'
+import type { TokenUsage } from '@rocketpod/shared/ai/chat'
+import { choicePayloadSchema } from '@rocketpod/shared/ai/interrupts'
 import { z } from 'zod'
 import { ingestText } from '../../ai/ingest'
 import { callStructuredTool, runToolLoop, type Tool } from '../../ai/kit'

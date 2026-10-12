@@ -438,7 +438,7 @@ function walk(root, prefix = '') {
  * `{ files(), read(rel), repo, ref, commit }` with `read` answering BYTES.
  *
  * A local path is read directly and never mirrored — that is the authoring loop
- * (`pnpm plugin add ../rocketflare-plugin-approvals --local`, edit in place, `plugin export`), and
+ * (`pnpm plugin add ../rocketpod-plugin-approvals --local`, edit in place, `plugin export`), and
  * a mirror there would serve the last commit rather than the edit being tested.
  */
 function openSource(spec, args) {
@@ -772,7 +772,7 @@ function auditAfterApply(args) {
  * Biome over what was just written, and this is not tidiness.
  *
  * A plugin is authored in the KIT's vocabulary and translated on the way in, so its import
- * specifiers change length AND sort order: `@heroicons/react` sorts BEFORE `@rocketflare/shared`
+ * specifiers change length AND sort order: `@heroicons/react` sorts BEFORE `@rocketpod/shared`
  * and AFTER `@acme/shared`. The kit's own file is correctly sorted; the same file translated into
  * an app whose scope sorts the other way is not, and `pnpm lint` — the first line of the gate the
  * plan tells you to run next — fails on a file the tool wrote. `rename.mjs` solves the identical
@@ -1037,7 +1037,7 @@ function cmdUpgrade(args, host) {
       const translated = blocks
         .map(b => {
           // The kit itself (no `app`) has no names to translate into: null leaves every line as
-          // the plugin wrote it. `deriveNames('rocketflare')` used to stand in here and threw
+          // the plugin wrote it. `deriveNames('rocketpod')` used to stand in here and threw
           // ("the kit's own name"), so every patched file became a warning and nothing applied.
           const t = translateBlock(b, host.names, { translate: Boolean(host.names) })
           if (countLines(stripIndexLines(b.raw)) !== countLines(t)) {

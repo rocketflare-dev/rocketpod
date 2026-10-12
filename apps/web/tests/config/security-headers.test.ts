@@ -7,7 +7,7 @@
  * and this is the test that says so — they must differ in `frame-ancestors` and in nothing else.
  */
 
-import { EMBEDDABLE_MIME_TYPES, INLINE_MIME_TYPES } from '@rocketflare/shared/files'
+import { EMBEDDABLE_MIME_TYPES, INLINE_MIME_TYPES } from '@rocketpod/shared/files'
 import { describe, expect, it } from 'vitest'
 import {
   CONTENT_SECURITY_POLICY,

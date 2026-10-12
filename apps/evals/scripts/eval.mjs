@@ -32,7 +32,7 @@ import {
 
 // The report's run-header key. A string, not `report.<name>`: scripts/rename.mjs turns it into the
 // app's slug, and a hyphenated slug (`my-app`) is not a valid property name after a dot.
-const HEADER_KEY = 'rocketflare'
+const HEADER_KEY = 'rocketpod'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const WEB = path.resolve(ROOT, '../web')

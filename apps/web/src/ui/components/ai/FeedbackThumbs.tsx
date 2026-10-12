@@ -2,7 +2,7 @@
  * Thumbs up/down on an AI answer (D33) — an assistant message in chat, or a finished agent run's
  * output. Pressing a thumb votes; pressing the same thumb again withdraws the vote. The vote is
  * stored in `ai_feedback` and recorded in the answer's trace, and a thumbs-down is where
- * `rocketflare feedback list --rating down` → `rocketflare evals promote` starts.
+ * `rocketpod feedback list --rating down` → `rocketpod evals promote` starts.
  *
  * The state comes from the parent (one `useMyFeedback` query per page of answers, not one per
  * bubble); this component only renders it and fires the mutation.
@@ -12,7 +12,7 @@ import {
   HandThumbDownIcon as HandThumbDownSolid,
   HandThumbUpIcon as HandThumbUpSolid,
 } from '@heroicons/react/24/solid'
-import type { FeedbackRating, FeedbackTarget } from '@rocketflare/shared/ai/evals'
+import type { FeedbackRating, FeedbackTarget } from '@rocketpod/shared/ai/evals'
 import { useRateAnswer } from '@/ui/hooks/useFeedback'
 
 export interface FeedbackThumbsProps {

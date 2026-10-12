@@ -11,7 +11,7 @@
  * **Everything it keys carries the plugin's id**, which is the rule that lets two plugins live in
  * one app: the table is `example_notes`, the job type `example-feature.ping`, the API prefix
  * `/api/example-feature`, the query-key roots `example-feature:…`, the CLI command
- * `rocketflare example-feature`. The flag key is the bare `example-feature` because the flag IS the
+ * `rocketpod example-feature`. The flag key is the bare `example-feature` because the flag IS the
  * plugin — there is nothing to distinguish it from.
  *
  * **This module never imports a composer at runtime** (`permissions.ts`, `features.ts`, `jobs.ts`,

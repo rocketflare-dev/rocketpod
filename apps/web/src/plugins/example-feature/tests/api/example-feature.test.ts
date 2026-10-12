@@ -30,7 +30,7 @@
  * to it — but it is written `off`, which evaluates identically to no row at all for every tenant
  * that has no override. That is the whole of this file's global footprint.
  */
-import { EXAMPLE_FEATURE_FLAG } from '@rocketflare/shared/plugins/example-feature/index'
+import { EXAMPLE_FEATURE_FLAG } from '@rocketpod/shared/plugins/example-feature/index'
 import {
   createTestEnv,
   createTestSession,

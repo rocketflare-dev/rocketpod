@@ -16,15 +16,15 @@ import {
   agentRunWithEventsSchema,
   type CreateAgentRunRequest,
   createAgentRunResponseSchema,
-} from '@rocketflare/shared/ai/agents'
+} from '@rocketpod/shared/ai/agents'
 import {
   type AgentRunInterrupt,
   agentRunInterruptSchema,
   interruptInboxItemSchema,
   type ResolveInterruptRequest,
-} from '@rocketflare/shared/ai/interrupts'
-import { ERROR_CODES } from '@rocketflare/shared/errors'
-import { paginatedResponse } from '@rocketflare/shared/pagination'
+} from '@rocketpod/shared/ai/interrupts'
+import { ERROR_CODES } from '@rocketpod/shared/errors'
+import { paginatedResponse } from '@rocketpod/shared/pagination'
 import {
   keepPreviousData,
   queryOptions,

@@ -41,8 +41,8 @@ import {
   type KitAguiEvent,
   kitRunAgentInputSchema,
   readRunAgentTail,
-} from '@rocketflare/shared/ai/agui'
-import { ERROR_CODES } from '@rocketflare/shared/errors'
+} from '@rocketpod/shared/ai/agui'
+import { ERROR_CODES } from '@rocketpod/shared/errors'
 import { and, desc, eq } from 'drizzle-orm'
 import type { Database } from '../../db/client'
 import { type ConversationRow, conversations, type MessageRow, messages } from '../../db/schema'

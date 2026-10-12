@@ -12,7 +12,7 @@ import { tenantIsolation } from './rls'
 import { tenants } from './tenants'
 import { users } from './users'
 
-/** Mirrors `FILE_SCOPES` in `@rocketflare/shared/files` — the DB enum and the contract must agree. */
+/** Mirrors `FILE_SCOPES` in `@rocketpod/shared/files` — the DB enum and the contract must agree. */
 export const FILE_SCOPES = ['avatars', 'uploads', 'documents'] as const
 export type FileScope = (typeof FILE_SCOPES)[number]
 

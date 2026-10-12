@@ -7,13 +7,7 @@
  * are validated against the tenant before they are stored anywhere — `assertGroupsInTenant` is the
  * one place that happens, so a grant can never point at another organisation's group.
  */
-import type {
-  Group,
-  GroupDetail,
-  GroupMember,
-  GroupRef,
-  GroupType,
-} from '@rocketflare/shared/groups'
+import type { Group, GroupDetail, GroupMember, GroupRef, GroupType } from '@rocketpod/shared/groups'
 import { and, asc, count, eq, inArray, sql } from 'drizzle-orm'
 import type { Database } from '../../db/client'
 import { groupMembers, groups, groupTypes, tenantUsers, users } from '../../db/schema'

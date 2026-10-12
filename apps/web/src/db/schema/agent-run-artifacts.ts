@@ -12,13 +12,13 @@
  * `kind` is a real column as well as `data`'s discriminant so `(tenant_id, kind)` can index it;
  * `agentArtifactSchema`'s refinement is what stops the two drifting.
  *
- * Size caps live in the contract (`@rocketflare/shared/ai/artifacts`), not here: an artifact bigger
+ * Size caps live in the contract (`@rocketpod/shared/ai/artifacts`), not here: an artifact bigger
  * than they allow belongs in R2 as a `file` artifact, and `document` / `file` kinds carry **ids,
  * never content**, because those bytes already sit behind routes that enforce tenancy and, for a
  * document, group visibility (D29).
  */
-import type { AgentArtifactData } from '@rocketflare/shared/ai/artifacts'
-import { AGENT_ARTIFACT_KINDS } from '@rocketflare/shared/ai/artifacts'
+import type { AgentArtifactData } from '@rocketpod/shared/ai/artifacts'
+import { AGENT_ARTIFACT_KINDS } from '@rocketpod/shared/ai/artifacts'
 import { relations } from 'drizzle-orm'
 import { index, jsonb, pgTable, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
 import { tenantRef, timestamps } from './_helpers'
@@ -37,7 +37,7 @@ export const agentRunArtifacts = pgTable(
     /** The agent's own name for this artifact: the UPSERT key, so a redraft replaces itself. */
     key: text('key').notNull(),
     /**
-     * The closed set from `@rocketflare/shared/ai/artifacts`, used DIRECTLY rather than mirrored
+     * The closed set from `@rocketpod/shared/ai/artifacts`, used DIRECTLY rather than mirrored
      * into a local `*_VALUES` const so the column and the contract cannot drift. Text, so a sixth
      * kind is a contract change and not a migration.
      */

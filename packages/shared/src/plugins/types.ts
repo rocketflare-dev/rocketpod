@@ -31,14 +31,14 @@ import type { TypeOf, ZodDiscriminatedUnionOption, ZodRawShape } from 'zod'
 import type { FeatureDefinition } from '../features'
 
 /**
- * `^[a-z][a-z0-9-]*$` and never containing `rocketflare`: a plugin is written in the kit's
+ * `^[a-z][a-z0-9-]*$` and never containing `rocketpod`: a plugin is written in the kit's
  * vocabulary so `scripts/rename.mjs` can translate it into a renamed app on the way in, and an id
  * carrying the kit's name would be rewritten with everything else.
  */
 export const PLUGIN_ID_RE = /^[a-z][a-z0-9-]*$/
 
 export function isPluginId(value: string): boolean {
-  return PLUGIN_ID_RE.test(value) && !value.includes('rocketflare')
+  return PLUGIN_ID_RE.test(value) && !value.includes('rocketpod')
 }
 
 /** `<id>:` — the prefix every query-key root and demo-seed id a plugin owns must carry. */

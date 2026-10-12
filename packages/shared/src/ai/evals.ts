@@ -4,7 +4,7 @@
  * - **`EvalCase`** — one line of a dataset (`apps/evals/datasets/<name>.jsonl`): the input a target
  *   is driven with, the context it may retrieve, and what "good" means (an expected output, a
  *   rubric, the tools it should call). Suites parse every line with it; `GET /api/evals/export`
- *   answers with one; `rocketflare evals promote` appends one.
+ *   answers with one; `rocketpod evals promote` appends one.
  * - **Feedback** — a person's thumbs up/down on an assistant message or an agent run's output
  *   (`POST /api/feedback`, `ai_feedback`), which is where promotion candidates come from.
  * - **The export query** — which real message or run to turn into a draft case.
@@ -44,7 +44,7 @@ export const feedbackSchema = z.object({
   rating: feedbackRatingSchema,
   comment: z.string().nullable(),
   userId: z.string().uuid().nullable(),
-  /** The trace the rated answer recorded (D32), so `rocketflare traces show` can open it. */
+  /** The trace the rated answer recorded (D32), so `rocketpod traces show` can open it. */
   traceId: z.string().nullable(),
   createdAt: z.coerce.date(),
   updatedAt: z.coerce.date(),

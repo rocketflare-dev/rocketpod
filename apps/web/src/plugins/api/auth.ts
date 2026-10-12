@@ -15,14 +15,14 @@
  *    saying yes while the array said no — is a real incident, recorded in `docs/CONCEPTS.md` §15.
  */
 
-import type { Actions, Subjects } from '@rocketflare/shared/permissions'
-import type { MembershipRole } from '@rocketflare/shared/tenants'
+import type { Actions, Subjects } from '@rocketpod/shared/permissions'
+import type { MembershipRole } from '@rocketpod/shared/tenants'
 import { requireFeature } from '../../api/middleware/feature'
 import { isAdminLevel, isGlobalAdmin, isOwnerLevel } from '../../api/middleware/permissions'
 import type { User } from '../../db/schema'
 
-export type { Actions, Subjects } from '@rocketflare/shared/permissions'
-export type { MembershipRole } from '@rocketflare/shared/tenants'
+export type { Actions, Subjects } from '@rocketpod/shared/permissions'
+export type { MembershipRole } from '@rocketpod/shared/tenants'
 export type { User } from '../../db/schema'
 /**
  * The gate a plugin puts on its MOUNT, never on each route (D30).

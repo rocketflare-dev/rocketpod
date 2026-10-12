@@ -3,7 +3,7 @@
  * whole set (`PUT /api/members/:userId/groups`). Editing from the person rather than from the
  * group is what makes "this new starter belongs in Finance and EMEA" one dialog.
  */
-import type { Member } from '@rocketflare/shared/tenants'
+import type { Member } from '@rocketpod/shared/tenants'
 import { useEffect, useState } from 'react'
 import { EmptyState, Modal, SkeletonRows, showToast } from '@/ui/components/shared'
 import { useGroups, useSetMemberGroups } from '@/ui/hooks/useGroups'

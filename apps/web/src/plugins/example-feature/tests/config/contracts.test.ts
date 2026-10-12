@@ -8,11 +8,11 @@
  * proves this one's.
  */
 
-import { FEATURE_FLAGS, FEATURE_KEYS } from '@rocketflare/shared/features'
-import type { CoreJobType, JobOf, JobType } from '@rocketflare/shared/jobs'
-import { JOB_TYPES, jobInputSchema } from '@rocketflare/shared/jobs'
-import type { Subjects } from '@rocketflare/shared/permissions'
-import { pluginNamespace } from '@rocketflare/shared/plugins'
+import { FEATURE_FLAGS, FEATURE_KEYS } from '@rocketpod/shared/features'
+import type { CoreJobType, JobOf, JobType } from '@rocketpod/shared/jobs'
+import { JOB_TYPES, jobInputSchema } from '@rocketpod/shared/jobs'
+import type { Subjects } from '@rocketpod/shared/permissions'
+import { pluginNamespace } from '@rocketpod/shared/plugins'
 import {
   createExampleNoteRequestSchema,
   EXAMPLE_FEATURE_FLAG,
@@ -23,7 +23,7 @@ import {
   EXAMPLE_PING_JOB,
   exampleFeatureShared,
   updateExampleNoteRequestSchema,
-} from '@rocketflare/shared/plugins/example-feature/index'
+} from '@rocketpod/shared/plugins/example-feature/index'
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import { exampleFeatureServer } from '../..'
 import { EXAMPLE_NOTES_ENTITY } from '../../shared'

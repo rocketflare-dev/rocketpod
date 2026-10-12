@@ -44,7 +44,7 @@
         imports in main.tsx if self-hosting).
      6. `<meta name="theme-color">` in index.html and the paths in shared/LogoMark.tsx, public/logo.svg +
         public/favicon.svg.
-   Theme NAMES (`rocketflare-light` / `rocketflare-dark`) appear in index.html, ThemeToggle.tsx and tests — a
+   Theme NAMES (`rocketpod-light` / `rocketpod-dark`) appear in index.html, ThemeToggle.tsx and tests — a
    single find/replace if you rename them.
 
    Contrast floors (WCAG AA): text ≥ 4.5:1 on its surface, `--border-control` ≥ 3:1 on the
@@ -61,7 +61,7 @@
 
 /* ------------------------------------------------------------------ Light */
 @plugin "daisyui/theme" {
-  name: "rocketflare-light";
+  name: "rocketpod-light";
   default: true;
   color-scheme: light;
 
@@ -101,7 +101,7 @@
 
 /* ------------------------------------------------------------------- Dark */
 @plugin "daisyui/theme" {
-  name: "rocketflare-dark";
+  name: "rocketpod-dark";
   prefersdark: true;
   color-scheme: dark;
 
@@ -138,7 +138,7 @@
 }
 
 /* ------------------------------------------------ Semantic surface tokens */
-[data-theme="rocketflare-light"] {
+[data-theme="rocketpod-light"] {
   /* White chrome (nav + header) framing a light grey canvas, white content cards.
      Structure comes from hairline borders, not shadow. */
   --surface-app: #f4f4f5; /* zinc-100 — canvas */
@@ -181,7 +181,7 @@
   --tone-error-border: #fca5a5; /* red-300 */
 }
 
-[data-theme="rocketflare-dark"] {
+[data-theme="rocketpod-dark"] {
   /* Same STRUCTURE as light: the canvas is the darkest plane, chrome and cards lift above it,
      nothing approaches #000 (a near-black canvas makes cards indistinguishable from it). */
   --surface-app: #131316; /* canvas */

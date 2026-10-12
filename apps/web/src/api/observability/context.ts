@@ -24,7 +24,7 @@ export function withActiveSpan<T>(span: TraceHandle, fn: () => T): T {
 }
 
 /**
- * Run `fn` as an EVALUATION (D33): every trace started inside it is marked `rocketflare.eval=true`,
+ * Run `fn` as an EVALUATION (D33): every trace started inside it is marked `rocketpod.eval=true`,
  * so a backend — and `ai_spans` — can tell an eval run from production traffic. The eval targets
  * (`apps/evals/kit`) drive the real chat route and the real agent runtime in-process, so a scope is
  * the only way to say so without a flag threaded through every signature, or one a request could

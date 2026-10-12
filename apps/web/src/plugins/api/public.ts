@@ -22,7 +22,7 @@
  * 202, with the real work in a job. That is the kit's own rule — routes enqueue, never run.
  */
 
-import { ERROR_CODES } from '@rocketflare/shared/errors'
+import { ERROR_CODES } from '@rocketpod/shared/errors'
 import type { AppContext } from '../../api/types'
 import {
   BadRequestError,

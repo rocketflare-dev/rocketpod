@@ -7,27 +7,33 @@
  * Every token the kit ships under its own name is one of nine classes, applied per file in the
  * order below — longest / most specific first — so a partial form can never win over a longer one:
  *
- *   scope    `@rocketflare/`             → `@<slug>/`        package scope + every import specifier
- *   env      `ROCKETFLARE` (any)         → `<UPPER>`         CLI env prefix, incl. the bare `ENV_PREFIX`
- *   domain   `rocketflare.dev|.local`    → `<domain>`        `noreply@`, `app.`, `staging.` prefixes kept
- *   cfgdir   `.rocketflare` (config dir) → `.<slug>`         `~/.rocketflare`, `CONFIG_DIR_NAME`
- *   dbuser   `postgresql://rocketflare:` → `<snake>`         the Postgres OWNER must stay a plain
- *            `POSTGRES_USER: rocketflare`, `-U rocketflare`  identifier (db-roles.ts refuses `my-app`)
- *   snake    `rocketflare_`              → `<snake>_`        db names, RLS role, password, key prefix
- *   kebab    `rocketflare-`              → `<slug>-`         worker, queue, workflow, bucket, themes
- *   display  `Rocketflare`               → display name      APP_NAME, titles, prose
- *   bare     `rocketflare` (word)        → `<slug>`          bin, `cfld.name`, root package, containers
+ *   scope    `@rocketpod/`             → `@<slug>/`        package scope + every import specifier
+ *   env      `ROCKETPOD` (any)         → `<UPPER>`         CLI env prefix, incl. the bare `ENV_PREFIX`
+ *   domain   `rocketpod.example.com|.local`    → `<domain>`        `noreply@`, `app.`, `staging.` prefixes kept
+ *   cfgdir   `.rocketpod` (config dir) → `.<slug>`         `~/.rocketpod`, `CONFIG_DIR_NAME`
+ *   dbuser   `postgresql://rocketpod:` → `<snake>`         the Postgres OWNER must stay a plain
+ *            `POSTGRES_USER: rocketpod`, `-U rocketpod`  identifier (db-roles.ts refuses `my-app`)
+ *   snake    `rocketpod_`              → `<snake>_`        db names, RLS role, password, key prefix
+ *   kebab    `rocketpod-`              → `<slug>-`         worker, queue, workflow, bucket, themes
+ *   display  `Rocketpod`               → display name      APP_NAME, titles, prose
+ *   bare     `rocketpod` (word)        → `<slug>`          bin, `cfld.name`, root package, containers
  *
- * `domain` runs before `cfgdir` because `app.rocketflare.dev` contains `.rocketflare`; `dbuser`
+ * `domain` runs before `cfgdir` because `app.rocketpod.example.com` contains `.rocketpod`; `dbuser`
  * runs before `bare` for the identifier reason above. Case-sensitive throughout.
  */
 
 /** What the kit calls itself today — the left-hand side of every replacement. */
 export const KIT = Object.freeze({
-  slug: 'rocketflare',
-  upper: 'ROCKETFLARE',
-  display: 'Rocketflare',
-  domains: ['rocketflare.dev', 'rocketflare.local'],
+  slug: 'rocketpod',
+  upper: 'ROCKETPOD',
+  display: 'Rocketpod',
+  domains: ['rocketpod.example.com', 'rocketpod.local'],
+  /**
+   * The plugin ECOSYSTEM's name, which is not the kit's: Rocketpod forked from Rocketflare and keeps
+   * its fixed filenames (`.rocketflare.json`, its sidecar, `rocketflare-plugin.json`) so a plugin that
+   * uses only the neutral context installs in either kit (`docs/FORK.md`). Never renamed.
+   */
+  ecosystem: 'rocketflare',
   /**
    * Upstream references restored after the pass: anything in the `rocketflare-dev` GitHub org —
    * the org alone, or `rocketflare-dev/<repo>` (the kit, its plugins, the mirrored neon-proxy
@@ -123,7 +129,10 @@ export function buildReplacements(names) {
     {
       id: 'domain',
       label: KIT.domains.join(' | '),
-      pattern: new RegExp(`${kit}\\.(?:dev|local)\\b`, 'g'),
+      pattern: new RegExp(
+        `(?:${KIT.domains.map(d => d.replaceAll('.', '\\.')).join('|')})\\b`,
+        'g'
+      ),
       replacement: names.domain,
     },
     {
@@ -277,8 +286,8 @@ export function isBinary(buffer) {
 // ---------------------------------------------------------------- careful rows
 
 /** Margins the kit's two display-handle constants keep beyond the `<prefix>_` (hash.ts, config.ts). */
-export const API_KEY_HANDLE_MARGIN = 8 // `rocketflare_` (12) + 8 = 20, the server's `keyPrefix`
-export const REDACTED_KEY_MARGIN = 4 // `rocketflare_` (12) + 4 = 16, the CLI's masked form
+export const API_KEY_HANDLE_MARGIN = 8 // `rocketpod_` (10) + 8 = 18, the server's `keyPrefix`
+export const REDACTED_KEY_MARGIN = 4 // `rocketpod_` (10) + 4 = 14, the CLI's masked form
 
 /**
  * Row (a): the two handle lengths as they must read for the new prefix. The CLI tests assume
@@ -435,7 +444,7 @@ export function topLevelObjectSpan(text, key) {
 /**
  * `launch.kit.json` through the token map, EXCEPT its `kit` block. A copy keeps the manifest —
  * Launch reads the app's own for its sessions, gate and releases — so every command and env name
- * follows the rename like the files they point at (`ROCKETFLARE_BOOTSTRAP_SKIP` is read by a
+ * follows the rename like the files they point at (`ROCKETPOD_BOOTSTRAP_SKIP` is read by a
  * bootstrap the pass renames too). The `kit` block names the KIT the app came from (`kit.id`,
  * `kit.name`, `kit.repo`), as `.rocketflare.json` `kit` does, so it is left byte for byte.
  * Same result shape as `applyReplacements`.
@@ -492,7 +501,7 @@ export const USAGE = `usage: node scripts/rename.mjs [--dry-run] [--force] [--sk
 
   <slug>            lowercase, digits, hyphens (my-app); becomes @<slug>/*, the worker, bin, themes
   "Display Name"    what people see (APP_NAME, titles); default: Title Case of the slug
-  --domain <apex>   replaces rocketflare.dev / rocketflare.local; default <slug>.example.com
+  --domain <apex>   replaces rocketpod.example.com / rocketpod.local; default <slug>.example.com
   --colour <#hex>   the primary brand colour (light theme); then run: pnpm web test:ui
   --dry-run         print the table of replacements per file and change nothing
   --force           run on a dirty git tree (commit or stash first, normally)

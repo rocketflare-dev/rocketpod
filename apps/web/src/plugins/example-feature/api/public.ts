@@ -19,7 +19,7 @@
 import {
   EXAMPLE_FEATURE_FLAG,
   EXAMPLE_PING_JOB,
-} from '@rocketflare/shared/plugins/example-feature/index'
+} from '@rocketpod/shared/plugins/example-feature/index'
 import { z } from 'zod'
 import type { PublicCtx } from '@/plugins/api'
 import { createRouter, publicCtx, verifyState } from '@/plugins/api'

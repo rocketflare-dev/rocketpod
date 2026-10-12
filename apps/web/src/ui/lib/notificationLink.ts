@@ -10,7 +10,7 @@
  * honest answer for `access_request_decided`: the decision IS the notification, and the requester
  * has no page to open.
  */
-import type { Notification } from '@rocketflare/shared/notifications'
+import type { Notification } from '@rocketpod/shared/notifications'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 

@@ -1,5 +1,5 @@
 {
-  "name": "@rocketflare/evals",
+  "name": "@rocketpod/evals",
   "version": "0.1.0",
   "private": true,
   "license": "MIT",
@@ -13,7 +13,7 @@
     "test": "vitest run --config vitest.unit.config.ts"
   },
   "dependencies": {
-    "@rocketflare/shared": "workspace:*",
+    "@rocketpod/shared": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "zod": "^3.25.76"
   },

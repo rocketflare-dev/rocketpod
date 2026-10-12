@@ -10,8 +10,8 @@
  * compare-and-set that makes two concurrent runs safe, the min-chars floor that stops a model call
  * per turn, and that a tenant with no provider degrades to "forgets" rather than a failing job.
  */
-import { KIT_CUSTOM_EVENTS } from '@rocketflare/shared/ai/agui'
-import { CHAT_COMPACTION_MIN_CHARS } from '@rocketflare/shared/ai/chat'
+import { KIT_CUSTOM_EVENTS } from '@rocketpod/shared/ai/agui'
+import { CHAT_COMPACTION_MIN_CHARS } from '@rocketpod/shared/ai/chat'
 import { eq } from 'drizzle-orm'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { handleChatCompact } from '@/api/queues/handlers/chat-compact'

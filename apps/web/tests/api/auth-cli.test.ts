@@ -30,7 +30,7 @@ describe('validateCliRedirectUri', () => {
     ['http://127.0.0.1:1/callback?x=1', false],
     ['http://evil.example/callback', false],
     ['http://127.0.0.1.evil.example/callback', false],
-    ['rocketflare://callback', false],
+    ['rocketpod://callback', false],
     ['not a url', false],
     ['', false],
   ])('%s → %s', (uri, ok) => {
@@ -84,7 +84,7 @@ describe('GET /auth/cli', () => {
     const target = new URL(res.headers.get('location') as string)
     expect(`${target.origin}${target.pathname}`).toBe(GOOD)
     const key = target.searchParams.get('key') as string
-    expect(key).toMatch(/^rocketflare_/)
+    expect(key).toMatch(/^rocketpod_/)
     expect(target.searchParams.get('tenant_id')).toBe(seed.tenant.id)
     expect(target.searchParams.get('tenant_name')).toBe(seed.tenant.name)
 

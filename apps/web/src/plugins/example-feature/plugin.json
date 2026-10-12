@@ -2,10 +2,10 @@
   "id": "example-feature",
   "label": "Example feature",
   "version": "0.1.0",
-  "repo": "https://github.com/rocketflare-dev/rocketflare.git",
+  "repo": "https://github.com/rocketflare-dev/rocketpod.git",
   "subdir": "",
   "anchor": "apps/web/src/plugins/example-feature/plugin.json",
-  "minKit": "0.8.0",
+  "minKit": "0.1.0",
   "uses": {
     "@/plugins/api": [
       "createRouter",
@@ -67,16 +67,16 @@
       "stubs"
     ],
     "@testkit/unit": ["makeCronCtx", "makeJobCtx", "makeToolCtx"],
-    "@rocketflare/shared/features": ["FEATURE_FLAGS", "FEATURE_KEYS", "FeatureDefinition"],
-    "@rocketflare/shared/jobs": ["CoreJobType", "JOB_TYPES", "jobInputSchema", "JobOf", "JobType"],
-    "@rocketflare/shared/pagination": [
+    "@rocketpod/shared/features": ["FEATURE_FLAGS", "FEATURE_KEYS", "FeatureDefinition"],
+    "@rocketpod/shared/jobs": ["CoreJobType", "JOB_TYPES", "jobInputSchema", "JobOf", "JobType"],
+    "@rocketpod/shared/pagination": [
       "paginatedResponse",
       "PaginationQuery",
       "paginationQuerySchema"
     ],
-    "@rocketflare/shared/permissions": ["Subjects"],
-    "@rocketflare/shared/plugins": ["pluginNamespace"],
-    "@rocketflare/shared/plugins/types": ["SharedPlugin"]
+    "@rocketpod/shared/permissions": ["Subjects"],
+    "@rocketpod/shared/plugins": ["pluginNamespace"],
+    "@rocketpod/shared/plugins/types": ["SharedPlugin"]
   },
   "paths": [
     "apps/web/src/plugins/example-feature/**",

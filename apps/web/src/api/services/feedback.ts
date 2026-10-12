@@ -9,7 +9,7 @@
  * id is a 404, never a 403, so an id cannot be probed.
  *
  * Every vote also lands in the rated answer's TRACE (D32) as a zero-length `feedback` span under the
- * trace's root, with `rocketflare.feedback.rating` on it — `rocketflare traces show <id>` prints
+ * trace's root, with `rocketpod.feedback.rating` on it — `rocketpod traces show <id>` prints
  * it, and a backend can join thumbs to the generation they judged. A span rather than an OTLP span
  * event because the local store has no events column and the recorder no events API; a finished
  * child span carries the same facts and every backend renders it. No root recorded (pruned, or
@@ -21,8 +21,8 @@ import type {
   FeedbackListQuery,
   FeedbackListResponse,
   FeedbackTarget,
-} from '@rocketflare/shared/ai/evals'
-import { paginationMeta } from '@rocketflare/shared/pagination'
+} from '@rocketpod/shared/ai/evals'
+import { paginationMeta } from '@rocketpod/shared/pagination'
 import { and, count, desc, eq, inArray, isNull, type SQL } from 'drizzle-orm'
 import type { Database } from '../../db/client'
 import {

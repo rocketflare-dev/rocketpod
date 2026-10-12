@@ -5,7 +5,7 @@
  * against the issuer's JWKS. A fetch stub plays the issuer (discovery, token, JWKS, userinfo) and
  * signs real id_tokens with a jose key pair, so every check `jwtVerify` makes is exercised for real.
  */
-import { logoutResponseSchema } from '@rocketflare/shared/auth'
+import { logoutResponseSchema } from '@rocketpod/shared/auth'
 import { eq } from 'drizzle-orm'
 import { exportJWK, generateKeyPair, type JWTPayload, SignJWT } from 'jose'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -26,7 +26,7 @@ import { createTestEnv } from '../mocks/bindings'
 const db = setupTestDatabase()
 
 const ISSUER = 'https://idp.test/realms/acme'
-const CLIENT_ID = 'rocketflare-test'
+const CLIENT_ID = 'rocketpod-test'
 
 function oidcEnv(overrides: Record<string, unknown> = {}) {
   return createTestEnv({

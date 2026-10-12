@@ -16,7 +16,7 @@ import {
   documentPath,
   KNOWLEDGE_TOOLS,
   windowStart,
-} from '@rocketflare/shared/ai/embeddings'
+} from '@rocketpod/shared/ai/embeddings'
 import { describe, expect, it } from 'vitest'
 import { highlightMatches } from '@/ui/lib/highlight'
 

@@ -8,7 +8,7 @@
  * instruction that stands in for `tool_choice`, and the non-streamed replay when tools are present).
  */
 
-import { priceFor } from '@rocketflare/shared/ai/pricing'
+import { priceFor } from '@rocketpod/shared/ai/pricing'
 import { describe, expect, it } from 'vitest'
 import {
   createChatClient,

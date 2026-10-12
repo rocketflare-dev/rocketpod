@@ -8,6 +8,8 @@ export interface KitNames {
   readonly upper: string
   readonly display: string
   readonly domains: readonly string[]
+  /** The plugin ecosystem's name in the fixed filenames (`.rocketflare.json`) — never renamed. */
+  readonly ecosystem: string
   /** Global: `rocketflare-dev` or `rocketflare-dev/<repo>` — upstream, never renamed. */
   readonly preservedPattern: RegExp
   readonly preserved: readonly string[]

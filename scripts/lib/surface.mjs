@@ -67,7 +67,7 @@ export const LEDGER_ENTRIES = [
   { import: '@/plugins/api/ui', file: 'apps/web/src/plugins/api/ui.ts' },
   { import: '@/plugins/types', file: 'apps/web/src/plugins/types.ts' },
   { import: '@/db/schema/kit', file: 'apps/web/src/db/schema/kit.ts' },
-  { import: '@rocketflare/shared/plugins/api', file: 'packages/shared/src/plugins/api.ts' },
+  { import: '@rocketpod/shared/plugins/api', file: 'packages/shared/src/plugins/api.ts' },
   { import: "'../api' (apps/cli/src/plugins/api.ts)", file: 'apps/cli/src/plugins/api.ts' },
   { import: "'./types' (apps/cli/src/plugins/types.ts)", file: 'apps/cli/src/plugins/types.ts' },
   { import: '@testkit/integration', file: 'apps/web/tests/kit/integration.ts' },
@@ -83,7 +83,7 @@ export const PLUGIN_ROOTS = [
 
 /**
  * Where a plugin may import the host from. Resolved repo paths, so `@/x`, `../../x` and
- * `@rocketflare/shared/x` all land in the same vocabulary.
+ * `@rocketpod/shared/x` all land in the same vocabulary.
  *
  * Wider than `LEDGER_ENTRIES` on purpose: the whole of `packages/shared/src` is importable by a
  * plugin's contract module, while only two of its files are LEDGERED. That gap is the honest
@@ -149,7 +149,7 @@ export function pluginIdOfPath(repoPath) {
 }
 
 /**
- * `@/x` → `apps/web/src/x`; `@rocketflare/shared/x` → `packages/shared/src/x`;
+ * `@/x` → `apps/web/src/x`; `@rocketpod/shared/x` → `packages/shared/src/x`;
  * `@testkit/x` → `apps/web/tests/kit/x`; else relative. A bare third-party specifier is null.
  *
  * `@testkit` is resolved rather than left as an unknown bare specifier, which would be allowed by
@@ -160,8 +160,8 @@ export function resolveSpecifier(importer, specifier) {
   if (specifier.startsWith('@testkit/'))
     return `apps/web/tests/kit/${specifier.slice('@testkit/'.length)}`
   if (specifier.startsWith('@/')) return `apps/web/src/${specifier.slice(2)}`
-  if (specifier.startsWith('@rocketflare/shared/'))
-    return `packages/shared/src/${specifier.slice('@rocketflare/shared/'.length)}`
+  if (specifier.startsWith('@rocketpod/shared/'))
+    return `packages/shared/src/${specifier.slice('@rocketpod/shared/'.length)}`
   if (specifier.startsWith('.'))
     return path.posix.normalize(path.posix.join(path.posix.dirname(importer), specifier))
   return null
@@ -479,7 +479,7 @@ export function canonicalSpecifier(modulePath) {
     return `@testkit/${p.slice('apps/web/tests/kit/'.length)}`
   if (p.startsWith('apps/web/src/')) return `@/${p.slice('apps/web/src/'.length)}`
   if (p.startsWith('packages/shared/src/'))
-    return `@rocketflare/shared/${p.slice('packages/shared/src/'.length)}`
+    return `@rocketpod/shared/${p.slice('packages/shared/src/'.length)}`
   return p === '' ? null : p
 }
 
@@ -493,7 +493,7 @@ export function canonicalSpecifier(modulePath) {
  *
  * **It records every import of a DECLARED entry, ledgered or not, and the difference from what it
  * used to do is the whole point.** Keyed by ledger entry alone, a plugin importing
- * `@rocketflare/shared/pagination` measured as using *nothing*: the whole of `packages/shared/src`
+ * `@rocketpod/shared/pagination` measured as using *nothing*: the whole of `packages/shared/src`
  * is a declared entry while only one of its files is ledgered, so the import was dropped in the
  * WALK and no later reader could tell it apart from a plugin that imports nothing at all. Silently
  * losing the measurement is exactly what this machinery exists to stop, so the data is kept here

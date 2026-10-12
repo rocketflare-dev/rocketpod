@@ -26,7 +26,7 @@ import {
   DocumentTextIcon,
   ListBulletIcon,
 } from '@heroicons/react/24/outline'
-import { EMBEDDING_DIM } from '@rocketflare/shared/ai/config'
+import { EMBEDDING_DIM } from '@rocketpod/shared/ai/config'
 import {
   DOCUMENT_UPLOAD_TYPES,
   DOCUMENT_WINDOW_CHARS,
@@ -35,8 +35,8 @@ import {
   documentTypeLabel,
   isDocumentUploadMimeType,
   windowStart,
-} from '@rocketflare/shared/ai/embeddings'
-import { filePath, isEmbeddableMimeType } from '@rocketflare/shared/files'
+} from '@rocketpod/shared/ai/embeddings'
+import { filePath, isEmbeddableMimeType } from '@rocketpod/shared/files'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { Markdown } from '@/ui/components/ai/Markdown'

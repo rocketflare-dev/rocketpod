@@ -1,12 +1,12 @@
 <p align="center">
-  <img src="apps/web/src/ui/public/logo.svg" alt="Rocketflare" width="160" />
+  <img src="apps/web/src/ui/public/logo.svg" alt="Rocketpod" width="160" />
 </p>
 
-<h1 align="center">Rocketflare</h1>
+<h1 align="center">Rocketpod</h1>
 
 <p align="center"><strong>A multi-tenant SaaS starter kit for Cloudflare Workers — copy it, rename it, ship an internal tool or a B2B product.</strong></p>
 
-Rocketflare is one repository that already solves the platform work every internal or B2B product
+Rocketpod is one repository that already solves the platform work every internal or B2B product
 needs before its first real feature: tenancy, sign-in, roles and permissions, background jobs,
 realtime, file storage, analytics dashboards, an AI layer (chat, agents, retrieval) and a CLI —
 running as a single Cloudflare Worker over Postgres, with a React UI and a shared contract package
@@ -33,14 +33,14 @@ app, with the plan shown before anything is written. Later, when the kit has mov
 **One command.** Read [`scripts/install.sh`](scripts/install.sh) first — it is short — then:
 
 ```bash
-curl -fsSL https://rocketflare.dev/install.sh | bash -s -- myapp   # clone → detach → bash scripts/bootstrap.sh
+curl -fsSL https://rocketpod.example.com/install.sh | bash -s -- myapp   # clone → detach → bash scripts/bootstrap.sh
 ```
 
 **By hand**, if you would rather see each step (macOS or Linux; Windows through WSL2):
 
 ```bash
-git clone https://github.com/rocketflare-dev/rocketflare.git myapp && cd myapp
-rm -rf .git && git init && git add -A && git commit -m "Start from Rocketflare"   # your history starts here
+git clone https://github.com/rocketflare-dev/rocketpod.git myapp && cd myapp
+rm -rf .git && git init && git add -A && git commit -m "Start from Rocketpod"   # your history starts here
 git remote add origin git@github.com:<you>/myapp.git                              # your own repo, when ready
 
 bash scripts/bootstrap.sh          # checks Node 24 / pnpm 10 / Docker, generates the local secret, starts
@@ -114,18 +114,18 @@ you removed. [`CHANGELOG.md`](CHANGELOG.md) is what you would be catching up on.
 - **Agents on Workflows** — `POST /api/agents/runs` enqueues and answers 202; runs are exclusive per tenant and agent via a partial unique index, emit a durable event timeline, cancel cooperatively, and reconcile against the Workflow engine on read. The `summarize-text` example shows structured output through a forced tool call; an Agents page shows live timelines.
 - **Retrieval** — ingest text into `documents`/`chunks` (paragraph-aware chunking, inline or queued indexing), `vector(1024)` embeddings with an HNSW index, and **hybrid search**: dense cosine + lexical `tsvector`, fused with Reciprocal Rank Fusion. Vectors are ordinary tenant-scoped rows.
 - **Document uploads** — PDF, Word, Excel, OpenDocument, HTML and XML are stored in R2 and converted to Markdown by Workers AI (`env.AI.toMarkdown`, free for documents) in a `document.convert` job, then indexed like pasted text; the original stays downloadable. Agents read the same knowledge base through built-in `search_knowledge` / `get_document` / `list_documents` tools.
-- **Usage ledger and tracing** — one `ai_usage` row per model call with token counts and a usage summary endpoint; vendor-neutral OTLP traces with GenAI conventions (agent → model calls, tools, retrieval, embeddings) exported to Langfuse, Phoenix or any OTLP backend from `waitUntil`, and always recorded locally so `rocketflare traces show <runId>` works with zero config — no OpenTelemetry dependency.
-- **Evals and feedback** — `pnpm eval` runs vitest-evals suites against the real chat route and agent runtime in-process, with deterministic judges (tool trajectory, schema, contains, budget) and LLM judges (rubric, faithfulness to what was retrieved, reference answer) that go through the kit's own model resolver; runs are JSON with committed baselines and `--compare` regression checks, plus a local report UI. Thumbs on chat replies and run output feed `rocketflare evals promote`, which turns a bad real answer into a draft case. The `/rf-evals` skill drives all of it.
+- **Usage ledger and tracing** — one `ai_usage` row per model call with token counts and a usage summary endpoint; vendor-neutral OTLP traces with GenAI conventions (agent → model calls, tools, retrieval, embeddings) exported to Langfuse, Phoenix or any OTLP backend from `waitUntil`, and always recorded locally so `rocketpod traces show <runId>` works with zero config — no OpenTelemetry dependency.
+- **Evals and feedback** — `pnpm eval` runs vitest-evals suites against the real chat route and agent runtime in-process, with deterministic judges (tool trajectory, schema, contains, budget) and LLM judges (rubric, faithfulness to what was retrieved, reference answer) that go through the kit's own model resolver; runs are JSON with committed baselines and `--compare` regression checks, plus a local report UI. Thumbs on chat replies and run output feed `rocketpod evals promote`, which turns a bad real answer into a draft case. The `/rf-evals` skill drives all of it.
 
 ### Analytics
 - **Semantic layer** — drizzle-cube mounted at `/cubejs-api` and `/mcp` behind the app's auth; every cube scopes its SQL to the current tenant, and a mandatory isolation test queries every cube as two tenants and asserts disjoint rows.
-- **Fact tables** — plain tables rebuilt per tenant in one transaction by the hourly cron, with a freshness endpoint and `rocketflare analytics check-facts` for ops.
+- **Fact tables** — plain tables rebuilt per tenant in one transaction by the hourly cron, with a freshness endpoint and `rocketpod analytics check-facts` for ops.
 - **Dashboards** — TypeScript templates copied into each tenant's `analytics_pages` (seeded on tenant creation and lazily on first read), editable in the UI with autosave, reset-to-template and recreate; an explore/query-builder page; a shipped "Organisation Overview" dashboard.
 - **MCP** — the same semantic layer is an MCP endpoint, so an AI client can query a tenant's analytics with a tenant API key.
 
 ### CLI
-- `rocketflare login` opens the browser, completes sign-in and tenant selection in the app, and receives a tenant API key on a loopback callback — stored `0600` in `~/.rocketflare/config.json`, never printed in full.
-- `whoami`, `status`, `members list`, `keys list`, `activity list`, `traces list|show` (the AI span tree of a run or chat turn, admin+), `feedback list` and `evals promote` (turn a thumbs-down into an eval case, admin+), `config`; `--json` prints only the parsed response so output pipes into `jq`; `ROCKETFLARE_API_KEY` / `ROCKETFLARE_URL` replace the config file in CI.
+- `rocketpod login` opens the browser, completes sign-in and tenant selection in the app, and receives a tenant API key on a loopback callback — stored `0600` in `~/.rocketpod/config.json`, never printed in full.
+- `whoami`, `status`, `members list`, `keys list`, `activity list`, `traces list|show` (the AI span tree of a run or chat turn, admin+), `feedback list` and `evals promote` (turn a thumbs-down into an eval case, admin+), `config`; `--json` prints only the parsed response so output pipes into `jq`; `ROCKETPOD_API_KEY` / `ROCKETPOD_URL` replace the config file in CI.
 - Every response is parsed with the same zod schema the server validated with; exit codes distinguish "not logged in" (2) and "forbidden" (3) from other errors (1).
 
 ### Developer experience
@@ -140,12 +140,12 @@ you removed. [`CHANGELOG.md`](CHANGELOG.md) is what you would be catching up on.
 ## Layout
 
 ```
-rocketflare/          workspace root: package.json (scripts delegate via pnpm -r / --filter),
+rocketpod/          workspace root: package.json (scripts delegate via pnpm -r / --filter),
 │                     pnpm-workspace.yaml, biome.json, tsconfig.base.json, CLAUDE.md, docs/, .github/
-├── apps/web/         @rocketflare/web — Worker (Hono API) + React UI; wrangler*.toml, migrations/, scripts/, tests/
-├── apps/cli/         @rocketflare/cli — `rocketflare` CLI: login, logout, whoami, status, members/keys/activity list, traces list|show, feedback list, evals promote, config
-├── apps/evals/       @rocketflare/evals — developer-run eval suites (vitest-evals): `pnpm eval`, never part of the gate
-└── packages/shared/  @rocketflare/shared — PRIVATE zod contracts, error envelope, pagination, permission types;
+├── apps/web/         @rocketpod/web — Worker (Hono API) + React UI; wrangler*.toml, migrations/, scripts/, tests/
+├── apps/cli/         @rocketpod/cli — `rocketpod` CLI: login, logout, whoami, status, members/keys/activity list, traces list|show, feedback list, evals promote, config
+├── apps/evals/       @rocketpod/evals — developer-run eval suites (vitest-evals): `pnpm eval`, never part of the gate
+└── packages/shared/  @rocketpod/shared — PRIVATE zod contracts, error envelope, pagination, permission types;
                       consumed as TypeScript source through the workspace link (no build step)
 ```
 
@@ -156,7 +156,7 @@ exist; `--offline` / `--online` toggle the `[ai]` block), `pnpm preflight` (the 
 then `pnpm provision all` (the deploy orchestrator: Neon, Cloudflare, GitHub, secrets, Resend —
 `pnpm provision --help` lists the phases;
 `pnpm web provision:cloudflare <env> --apply` is its Cloudflare-resources half). `wrangler` is a
-devDependency of `apps/web`, so it is `pnpm --filter @rocketflare/web exec wrangler …`, never `pnpm exec
+devDependency of `apps/web`, so it is `pnpm --filter @rocketpod/web exec wrangler …`, never `pnpm exec
 wrangler` at the root. Root `scripts/` holds the first-run tooling: `bootstrap.sh` / `bootstrap.mjs`,
 `install.sh`, `rename.mjs` (`docs/ADAPTING.md` §1 as one command) and their `lib/`.
 

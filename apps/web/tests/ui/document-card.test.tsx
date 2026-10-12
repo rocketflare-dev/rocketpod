@@ -4,7 +4,7 @@
  * `indexed`). The constraint that lets it live in the EAGER `components/shared` barrel while
  * `Markdown` may not — no markdown import — is asserted in `tests/config/ui-bundle.test.ts`.
  */
-import type { DocumentCard as DocumentCardData } from '@rocketflare/shared/ai/embeddings'
+import type { DocumentCard as DocumentCardData } from '@rocketpod/shared/ai/embeddings'
 import { screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { DocumentCard } from '@/ui/components/shared'

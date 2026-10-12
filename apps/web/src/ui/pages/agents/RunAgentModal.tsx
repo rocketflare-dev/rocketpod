@@ -7,7 +7,7 @@
  */
 
 import { CpuChipIcon, PlayIcon } from '@heroicons/react/24/outline'
-import type { AgentInfo, CreateAgentRunResponse } from '@rocketflare/shared/ai/agents'
+import type { AgentInfo, CreateAgentRunResponse } from '@rocketpod/shared/ai/agents'
 import { type FormEvent, useState } from 'react'
 import { EmptyState, Modal } from '@/ui/components/shared'
 import { isAgentRunsNotConfigured, useCreateAgentRun } from '@/ui/hooks/useAgents'

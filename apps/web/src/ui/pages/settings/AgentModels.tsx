@@ -12,8 +12,8 @@ import {
   type AgentModelEntry,
   type AgentModelSource,
   upsertAgentModelRequestSchema,
-} from '@rocketflare/shared/ai/agent-models'
-import { type AiConfig, shortModelName } from '@rocketflare/shared/ai/config'
+} from '@rocketpod/shared/ai/agent-models'
+import { type AiConfig, shortModelName } from '@rocketpod/shared/ai/config'
 import { type FormEvent, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {

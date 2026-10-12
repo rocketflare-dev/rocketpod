@@ -2,7 +2,7 @@
  * Development seed (D9, D25) — idempotent, run as `pnpm seed` (loads .dev.vars). Multi-tenant:
  * tenant `Acme` (`acme`) with owner/admin/member `*@example.test` (verified), a pending invitation
  * for `invited@example.test`, one API key printed ONCE (only its hash is stored) and a global
- * admin `admin@rocketflare.local`. `TENANCY_MODE=single`: the single tenant is named after `APP_NAME`
+ * admin `admin@rocketpod.example.com`. `TENANCY_MODE=single`: the single tenant is named after `APP_NAME`
  * with slug `default` instead. Node-only script; the Worker never imports it.
  *
  * `pnpm seed --demo` (or `SEED_DEMO=1`) additionally fills the workspace with a realistic picture
@@ -27,10 +27,10 @@ import {
   SUMMARIZE_TEXT_MAX_CHARS,
   summarizeTextInputSchema,
   summarizeTextOutputSchema,
-} from '@rocketflare/shared/ai/agents'
-import { type TokenUsage, tokenUsageSchema } from '@rocketflare/shared/ai/chat'
-import { type AiProvider, WORKERS_AI_CHAT_MODEL } from '@rocketflare/shared/ai/config'
-import { estimateCostMicrocents } from '@rocketflare/shared/ai/pricing'
+} from '@rocketpod/shared/ai/agents'
+import { type TokenUsage, tokenUsageSchema } from '@rocketpod/shared/ai/chat'
+import { type AiProvider, WORKERS_AI_CHAT_MODEL } from '@rocketpod/shared/ai/config'
+import { estimateCostMicrocents } from '@rocketpod/shared/ai/pricing'
 import { and, count, eq, gt, isNull, sql } from 'drizzle-orm'
 import { databaseUrlTarget } from '../../../scripts/lib/bootstrap-lib.mjs'
 import { devPorts } from '../../../scripts/lib/dev-ports.mjs'
@@ -67,7 +67,7 @@ import { serverPlugins } from '../src/plugins/server'
 
 const DATABASE_URL = process.env.DATABASE_URL
 const TENANCY_MODE = process.env.TENANCY_MODE === 'single' ? 'single' : 'multi'
-const APP_NAME = process.env.APP_NAME || 'Rocketflare'
+const APP_NAME = process.env.APP_NAME || 'Rocketpod'
 const DEV_PORTS = devPorts()
 const APP_URL = process.env.APP_URL || `http://localhost:${DEV_PORTS.ui}`
 /** `wrangler dev`'s origin: APP_URL with the UI port swapped for the API's (a tunnel URL stays). */
@@ -83,7 +83,7 @@ const SEED_USERS = [
   { email: 'admin@example.test', name: 'Adam Admin', role: 'admin' },
   { email: 'member@example.test', name: 'Mia Member', role: 'member' },
 ] as const
-const GLOBAL_ADMIN = { email: 'admin@rocketflare.local', name: 'Platform Admin' }
+const GLOBAL_ADMIN = { email: 'admin@rocketpod.example.com', name: 'Platform Admin' }
 const INVITED_EMAIL = 'invited@example.test'
 const SEED_KEY_NAME = 'Seed key'
 
@@ -246,7 +246,7 @@ const ago = (d: number, h = 0, m = 0) => new Date(NOW - d * DAY - h * HOUR - m *
  * RFC 4122 variant bits set, so `z.string().uuid()` (which every API contract uses) accepts it.
  */
 function demoId(key: string): string {
-  const hex = createHash('sha1').update(`rocketflare-demo:${key}`).digest('hex').slice(0, 32)
+  const hex = createHash('sha1').update(`rocketpod-demo:${key}`).digest('hex').slice(0, 32)
   const variant = ['8', '9', 'a', 'b'][Number.parseInt(hex[16] ?? '0', 16) % 4]
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-${variant}${hex.slice(17, 20)}-${hex.slice(20, 32)}`
 }

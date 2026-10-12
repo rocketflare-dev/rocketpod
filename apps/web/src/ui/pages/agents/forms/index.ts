@@ -12,7 +12,7 @@
  * 3. **`jsonForm`** — a JSON textarea whose only client-side check is "parses". The route validates
  *    with the agent's `inputSchema` and answers 400 with field issues either way.
  */
-import type { AgentInfo, AgentKey } from '@rocketflare/shared/ai/agents'
+import type { AgentInfo, AgentKey } from '@rocketpod/shared/ai/agents'
 import { z } from 'zod'
 import { uiPlugins } from '@/plugins/ui'
 import { JsonForm } from './JsonForm'

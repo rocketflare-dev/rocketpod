@@ -7,7 +7,7 @@
  * `c.env`. Nothing in `src/` reads `process.env` — the validation style is the Node reference app's
  * `src/config.ts`, the source is the env object Cloudflare hands us.
  */
-import { sharedPlugins } from '@rocketflare/shared/plugins'
+import { sharedPlugins } from '@rocketpod/shared/plugins'
 import { z } from 'zod'
 
 /** `wrangler dev` passes `KEY=` lines from .dev.vars as empty strings; treat those as unset. */
@@ -78,11 +78,11 @@ const coreConfigSchema = z.object({
   APP_ENV: z.enum(['development', 'staging', 'production']).default('development'),
   /** Public origin; derives OAuth redirect URIs, magic-link URLs, CSRF/CORS allow-lists. */
   APP_URL: z.string().url(),
-  APP_NAME: z.string().min(1).default('Rocketflare'),
+  APP_NAME: z.string().min(1).default('Rocketpod'),
   /** Overridden at deploy time by CI (`wrangler deploy --var RELEASE_VERSION:<tag>`). */
   RELEASE_VERSION: z.string().min(1).default('dev'),
   LOG_LEVEL: z.enum(LOG_LEVELS).default('info'),
-  EMAIL_FROM: z.string().min(1).default('Rocketflare <noreply@example.com>'),
+  EMAIL_FROM: z.string().min(1).default('Rocketpod <noreply@example.com>'),
   /** D25: schema is identical in both modes; `single` disables the multi-org surface. */
   TENANCY_MODE: z.enum(['multi', 'single']).default('multi'),
   /** D9: who may create an account. */

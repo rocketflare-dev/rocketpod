@@ -1,4 +1,4 @@
-# Rocketflare
+# Rocketpod
 
 Multi-tenant SaaS starter for internal tools and B2B products, a **pnpm workspace**: Hono API + React UI in one
 Cloudflare Worker (`apps/web`), a CLI (`apps/cli`), private zod contracts
@@ -27,7 +27,7 @@ Cloudflare Worker (`apps/web`), a CLI (`apps/cli`), private zod contracts
 
 - **Runtime**: Cloudflare Workers (`nodejs_compat`); one Worker exports `fetch`+`queue`+`scheduled`
   + DO/Workflow classes (`src/worker.ts`). Node 24, pnpm 10
-- **API**: Hono 4, zod contracts from `@rocketflare/shared`, CASL. **DB**: Postgres 17 + pgvector —
+- **API**: Hono 4, zod contracts from `@rocketpod/shared`, CASL. **DB**: Postgres 17 + pgvector —
   Docker locally; deployed, `DATABASE_DRIVER` (D35) picks Drizzle over the Neon serverless driver
   (`neon`, HTTP + a WS pool for transactions — the kit's tomls) or `postgres.js` via Hyperdrive
   (`postgres`, any Postgres — a missing var, and local/`.dev.vars`); `openDatabase(env)`, 1 client/request;
@@ -40,13 +40,13 @@ Cloudflare Worker (`apps/web`), a CLI (`apps/cli`), private zod contracts
   the knowledge tools, agents on `AGENT_RUN_WORKFLOW` (projected to AG-UI on read) with typed
   decisions (`ctx.decide`, D37: TypeSafe's Jev as the `decisions` scope, else the chat model),
   Workers AI → pgvector (uploads: R2 → `AI.toMarkdown` → pgvector), OTLP tracing (D32: GenAI
-  spans → Langfuse/Phoenix/any backend, always also `ai_spans` → `rocketflare traces`); evals (D33:
+  spans → Langfuse/Phoenix/any backend, always also `ai_spans` → `rocketpod traces`); evals (D33:
   `apps/evals`, vitest-evals on vitest 4, `pnpm eval`, never in the gate) + thumbs feedback →
-  `rocketflare evals promote`
+  `rocketpod evals promote`
 - **Analytics**: not core — the `analytics` PLUGIN (D31, the one `defaultPlugins` entry, installed
   by the bootstrap): drizzle-cube at `/cubejs-api`+`/mcp`, fact tables on the `:15` cron, dashboards
 - **UI**: React 18 + Vite, DaisyUI 5 / Tailwind v4, React Router 6, TanStack Query 5; served as `ASSETS`
-- **CLI**: commander + chalk + open; `tsx` in dev, `tsc` → `dist/cli.js` (bin `rocketflare`)
+- **CLI**: commander + chalk + open; `tsx` in dev, `tsc` → `dist/cli.js` (bin `rocketpod`)
 - **Tests**: vitest projects `api` · `api-isolated` · `driver` · `ui` · `config` · `kit-only` (the kit's own
   tests, `apps/web/tests/kit-only/`, deleted by the rename — never in a copy) (Postgres :5433; the
   suite under `postgres`, then `driver` — the seam's conformance suite — under `neon` through the
@@ -61,7 +61,7 @@ pnpm bootstrap · pnpm preflight  # first run in one go (--offline/--online togg
 pnpm dev:db:up && pnpm db:migrate  # Postgres on the first free port from :5432 → DATABASE_URL; role → migrations → grants
 pnpm seed [--demo] && pnpm dev  # tenant/users/key (+ populated workspace); wrangler :3001 + vite :3000 (strict ports)
 pnpm dev:stop · pnpm dev:status · pnpm dev:db:status  # kill this repo's dev tree / port holders / every dev database
-pnpm cli login --server http://localhost:3001  # browser → ~/.rocketflare/config.json, then whoami
+pnpm cli login --server http://localhost:3001  # browser → ~/.rocketpod/config.json, then whoami
 pnpm gate [step…] · pnpm gate --list [--json]  # THE gate: lint → typecheck → test → build (CI's one job, Launch's ship gate)
 pnpm test  # every package; starts the test DB + Neon proxy; suite under postgres, then driver under neon
 TEST_DATABASE_BRANCH=gate-… pnpm test  # a sandbox gate: no Docker, the whole suite on a Neon gate branch (CONCEPTS §4)
@@ -73,13 +73,13 @@ pnpm db:generate · pnpm db:studio · pnpm deploy[:staging] · pnpm provision al
 pnpm kit:upgrade [--to X.Y.Z] [--apply] · pnpm kit:release X.Y.Z  # port a kit release into a copy / cut one
 ```
 
-`wrangler` lives in `apps/web`: `pnpm --filter @rocketflare/web exec wrangler …`, never at the root. No
+`wrangler` lives in `apps/web`: `pnpm --filter @rocketpod/web exec wrangler …`, never at the root. No
 `RESEND_API_KEY` → magic-link URLs are logged; no AI key → chat/agents 503; zero creds locally.
 
 ## Architecture
 
 ```
-apps/web/          @rocketflare/web — wrangler*.toml, worker-configuration.d.ts, .dev.vars(.example), .env.test,
+apps/web/          @rocketpod/web — wrangler*.toml, worker-configuration.d.ts, .dev.vars(.example), .env.test,
 │                  drizzle.config.ts, migrations/, scripts/, tests/
 │  src/worker.ts   export default { fetch, queue, scheduled }; export { NotificationsHub, AgentRunWorkflow }
 │  src/config.ts   loadConfig(env): zod over Cloudflare.Env; routes read c.get('config')
@@ -93,16 +93,15 @@ apps/web/          @rocketflare/web — wrangler*.toml, worker-configuration.d.t
 │                  + each plugin's tree — `example-feature/` vendored as the reference one, and
 │                  `analytics/` (cubes, dashboards, fact tables) once the default set is installed
 │                  (per-dir CLAUDE.md: permissions, db/schema, api/*, ui, plugins, plugins/<id>)
-apps/cli/          @rocketflare/cli — src/cli.ts, commands/*, api.ts (only fetch site), config.ts, login.ts,
+apps/cli/          @rocketpod/cli — src/cli.ts, commands/*, api.ts (only fetch site), config.ts, login.ts,
                    plugins/ (CLI_PLUGINS barrel + each plugin's commands)
-apps/evals/        @rocketflare/evals — vitest-evals suites over apps/web in-process: kit/ (targets, judges),
+apps/evals/        @rocketpod/evals — vitest-evals suites over apps/web in-process: kit/ (targets, judges),
                    suites/, datasets/*.jsonl, baselines/; `pnpm eval` only, never the gate (docs/EVALS.md)
-packages/shared/   @rocketflare/shared — src/*.ts zod contracts, errors, pagination, permissions,
+packages/shared/   @rocketpod/shared — src/*.ts zod contracts, errors, pagination, permissions,
                    plugins/ (SharedPlugin + the SHARED_PLUGINS barrel + each plugin's contracts) (CLAUDE.md)
 scripts/           bootstrap.sh → bootstrap.mjs (9 steps), install.sh (curl one-liner), rename.mjs,
-                   upgrade.mjs (port a kit release into a copy), release{,-check}.mjs, changelog-nudge.mjs +
-                   release-site-nudge.mjs (PreToolUse on a commit: missing porting note / version
-                   bump → update rocketflare-www),
+                   upgrade.mjs (port a kit release into a copy), release{,-check}.mjs, changelog-nudge.mjs
+                   (PreToolUse on a commit: missing porting note),
                    kit-update-check.mjs (SessionStart: tells a copy about a newer kit release),
                    kit-check.mjs (the Launch kit conformance check, shared with the meta-kit), lib/
 .rocketflare.json  kit version + commit, the app's names, the replaceable-surface manifest
@@ -116,7 +115,7 @@ docs/upgrades/     one porting note per kit release (+ unreleased.md) — CHANGE
                    rf-evals (+ reference.md — author, run, compare, harvest, baseline, improve; D33)
 ```
 
-**`packages/shared`.** Private, no build: `@rocketflare/shared/<module>` → `./src/<module>.ts` (incl. `ai/*`,
+**`packages/shared`.** Private, no build: `@rocketpod/shared/<module>` → `./src/<module>.ts` (incl. `ai/*`,
 `plugins/<id>`). Imports only `zod`, siblings, type-only `@casl/ability`, and `@ag-ui/core` (pinned,
 zod-only, no platform APIs) in `src/ai/agui.ts` alone — the AG-UI wire format is validated by the
 protocol's own schemas on both sides, which a mirror cannot give. A fifth dependency needs the same
@@ -124,7 +123,7 @@ written justification, and `apps/web/tests/config/shared-imports.test.ts` enforc
 
 **`apps/cli`.** `login` opens `GET /auth/cli?redirect_uri=http://127.0.0.1:<port>/callback`; the server
 mints a tenant API key `cli:<host>` → `?key=&tenant_id=&tenant_name=`; stored `0600` in
-`~/.rocketflare/config.json` (`ROCKETFLARE_API_KEY`/`ROCKETFLARE_URL` for CI). Also `logout|whoami|status|config`,
+`~/.rocketpod/config.json` (`ROCKETPOD_API_KEY`/`ROCKETPOD_URL` for CI). Also `logout|whoami|status|config`,
 `members|keys|activity list --json` (`.claude/rules/cli.md`)
 
 ## Config model

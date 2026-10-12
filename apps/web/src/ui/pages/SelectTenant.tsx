@@ -8,7 +8,7 @@ import {
   type CreateTenantRequest,
   createTenantRequestSchema,
   slugify,
-} from '@rocketflare/shared/tenants'
+} from '@rocketpod/shared/tenants'
 import { useState } from 'react'
 import { Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { AuthCard, SignedInAs } from '@/ui/components/AuthCard'

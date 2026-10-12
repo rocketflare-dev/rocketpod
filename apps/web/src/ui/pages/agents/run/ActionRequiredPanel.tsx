@@ -26,7 +26,7 @@ import {
   INTERRUPT_NOTE_MAX_CHARS,
   interruptPayloadSchema,
   rejectionFor,
-} from '@rocketflare/shared/ai/interrupts'
+} from '@rocketpod/shared/ai/interrupts'
 import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { isInterruptNotPending, useResolveInterrupt } from '@/ui/hooks/useAgents'
 import { type Issue, issuesFrom } from '../issues'

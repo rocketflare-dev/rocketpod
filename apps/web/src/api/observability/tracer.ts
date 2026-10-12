@@ -10,7 +10,7 @@
  * retrieval it runs. Every handle carries a stable OTLP `traceId` (32 hex) and `spanId` (16 hex).
  * `id` is the trace id, kept for the plugins that read it before nesting existed.
  */
-import type { TokenUsage } from '@rocketflare/shared/ai/chat'
+import type { TokenUsage } from '@rocketpod/shared/ai/chat'
 
 /** What a span IS — it picks the GenAI operation name and the backend's observation type. */
 export type SpanKind = 'agent' | 'llm' | 'tool' | 'retrieval' | 'embedding' | 'job' | 'span'
@@ -25,14 +25,14 @@ export interface TraceParams {
   userId?: string
   /** Groups related traces; defaults to `conversationId ?? runId`. */
   sessionId?: string
-  /** The agent run this trace belongs to — `rocketflare.run_id`, and the `ai_spans.run_id` column. */
+  /** The agent run this trace belongs to — `rocketpod.run_id`, and the `ai_spans.run_id` column. */
   runId?: string
-  /** The chat thread this trace belongs to — `rocketflare.conversation_id`. */
+  /** The chat thread this trace belongs to — `rocketpod.conversation_id`. */
   conversationId?: string
   tags?: string[]
   metadata?: Record<string, string | number | boolean | undefined>
   input?: unknown
-  /** An evaluation run (`rocketflare.eval=true`), so a backend can filter it out of production views. */
+  /** An evaluation run (`rocketpod.eval=true`), so a backend can filter it out of production views. */
   eval?: boolean
   /** Join an existing trace instead of starting one — how every Workflow step lands in ONE trace. */
   traceId?: string

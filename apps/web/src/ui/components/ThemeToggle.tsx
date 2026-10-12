@@ -1,7 +1,7 @@
 import { MoonIcon, SunIcon } from '@heroicons/react/24/outline'
 import { useEffect, useState } from 'react'
 
-export const THEMES = ['rocketflare-light', 'rocketflare-dark'] as const
+export const THEMES = ['rocketpod-light', 'rocketpod-dark'] as const
 export type Theme = (typeof THEMES)[number]
 
 /**
@@ -10,10 +10,10 @@ export type Theme = (typeof THEMES)[number]
  */
 export function getInitialTheme(): Theme {
   const saved = localStorage.getItem('theme')
-  if (saved === 'rocketflare-dark' || saved === 'rocketflare-light') return saved
+  if (saved === 'rocketpod-dark' || saved === 'rocketpod-light') return saved
   return window.matchMedia?.('(prefers-color-scheme: dark)').matches
-    ? 'rocketflare-dark'
-    : 'rocketflare-light'
+    ? 'rocketpod-dark'
+    : 'rocketpod-light'
 }
 
 /** Light/dark switch. The `data-theme` attribute IS the state; localStorage remembers it. */
@@ -25,12 +25,12 @@ export default function ThemeToggle() {
     localStorage.setItem('theme', theme)
   }, [theme])
 
-  const isLight = theme === 'rocketflare-light'
+  const isLight = theme === 'rocketpod-light'
 
   return (
     <button
       type="button"
-      onClick={() => setTheme(isLight ? 'rocketflare-dark' : 'rocketflare-light')}
+      onClick={() => setTheme(isLight ? 'rocketpod-dark' : 'rocketpod-light')}
       className="btn btn-ghost btn-sm btn-circle"
       title={`Switch to ${isLight ? 'dark' : 'light'} mode`}
       aria-label={`Switch to ${isLight ? 'dark' : 'light'} mode`}

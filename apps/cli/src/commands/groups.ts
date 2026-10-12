@@ -1,11 +1,11 @@
 /**
- * `rocketflare groups list` / `groups members <id>` (D29) — `GET /api/groups` and
+ * `rocketpod groups list` / `groups members <id>` (D29) — `GET /api/groups` and
  * `GET /api/groups/:id`, both `manage Group` (admin+), parsed with the shared schemas.
  *
  * Read-only on purpose: creating a group is a decision about who sees what, and the confirmation
  * the web UI gives before a delete narrows access has no honest one-line equivalent here.
  */
-import { groupDetailSchema, groupListResponseSchema } from '@rocketflare/shared/groups'
+import { groupDetailSchema, groupListResponseSchema } from '@rocketpod/shared/groups'
 import { type CommandContext, requireClient } from '../context'
 import { formatDate, renderTable } from '../utils/output'
 

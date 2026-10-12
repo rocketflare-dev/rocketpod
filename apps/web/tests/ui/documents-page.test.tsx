@@ -7,8 +7,8 @@
  * and only offers delete on own rows
  * (any row for admin+). Search lives on `/search` (`search-page.test.tsx`).
  */
-import { DOCUMENT_UPLOAD_ACCEPT, INGEST_TEXT_MAX_CHARS } from '@rocketflare/shared/ai/embeddings'
-import { MAX_UPLOAD_BYTES } from '@rocketflare/shared/files'
+import { DOCUMENT_UPLOAD_ACCEPT, INGEST_TEXT_MAX_CHARS } from '@rocketpod/shared/ai/embeddings'
+import { MAX_UPLOAD_BYTES } from '@rocketpod/shared/files'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useToastStore } from '@/ui/components/shared/Toast'

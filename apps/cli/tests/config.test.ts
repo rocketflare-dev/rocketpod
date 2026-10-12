@@ -18,11 +18,11 @@ afterEach(async () => {
 })
 
 describe('resolveConfigDir', () => {
-  it('uses $HOME/.rocketflare by default and honours ROCKETFLARE_CONFIG_DIR', () => {
-    expect(resolveConfigDir({ HOME: '/home/alice' })).toBe('/home/alice/.rocketflare')
-    expect(
-      resolveConfigDir({ HOME: '/home/alice', ROCKETFLARE_CONFIG_DIR: '/etc/rocketflare' })
-    ).toBe('/etc/rocketflare')
+  it('uses $HOME/.rocketpod by default and honours ROCKETPOD_CONFIG_DIR', () => {
+    expect(resolveConfigDir({ HOME: '/home/alice' })).toBe('/home/alice/.rocketpod')
+    expect(resolveConfigDir({ HOME: '/home/alice', ROCKETPOD_CONFIG_DIR: '/etc/rocketpod' })).toBe(
+      '/etc/rocketpod'
+    )
   })
 })
 
@@ -89,7 +89,7 @@ describe('config store', () => {
 })
 
 describe('resolve precedence', () => {
-  it('flag > ROCKETFLARE_URL > config > default; ROCKETFLARE_API_KEY > config', async () => {
+  it('flag > ROCKETPOD_URL > config > default; ROCKETPOD_API_KEY > config', async () => {
     const t = await tempStore()
     cleanups.push(t.cleanup)
     const base = await t.store.resolve()
@@ -110,7 +110,7 @@ describe('resolve precedence', () => {
 
     const withEnv = createConfigStore({
       dir: t.store.dir,
-      env: { ROCKETFLARE_URL: 'http://from-env', ROCKETFLARE_API_KEY: 'env-key' },
+      env: { ROCKETPOD_URL: 'http://from-env', ROCKETPOD_API_KEY: 'env-key' },
     })
     expect(await withEnv.resolve()).toMatchObject({
       serverUrl: 'http://from-env',
@@ -127,11 +127,11 @@ describe('resolve precedence', () => {
 
 describe('redaction', () => {
   it('shows only a prefix', () => {
-    expect(redactKey(TEST_KEY)).toBe('rocketflare_test…')
+    expect(redactKey(TEST_KEY)).toBe('rocketpod_test…')
     expect(redactKey('short')).toBe('****')
     expect(redactKey(undefined)).toBe('-')
     expect(redactConfig({ apiKey: TEST_KEY, tenantId: 't' })).toEqual({
-      apiKey: 'rocketflare_test…',
+      apiKey: 'rocketpod_test…',
       tenantId: 't',
     })
     expect(JSON.stringify(redactConfig({ apiKey: TEST_KEY }))).not.toContain(TEST_KEY)

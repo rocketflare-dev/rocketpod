@@ -6,7 +6,7 @@
  * It renders a field; it does not own the draft, validate, or decide what a missing value means.
  * All three belong to the caller, which holds the shared zod schema the server will apply.
  */
-import type { FormField } from '@rocketflare/shared/ai/interrupts'
+import type { FormField } from '@rocketpod/shared/ai/interrupts'
 import { FieldError } from '@/ui/components/shared'
 
 export interface FieldInputProps {

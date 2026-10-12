@@ -6,7 +6,7 @@
  * generic JSON-Schema form generator (decision 7). It renders inputs and reports a draft; the
  * validating, the posting and the buttons belong to `ActionRequiredPanel`.
  */
-import type { AgentInterruptSpec, ApprovalTool } from '@rocketflare/shared/ai/interrupts'
+import type { AgentInterruptSpec, ApprovalTool } from '@rocketpod/shared/ai/interrupts'
 import { FieldError } from '@/ui/components/shared'
 import { FieldSet } from '../../fields/FieldSet'
 import type { Issue } from '../../issues'

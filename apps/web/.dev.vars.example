@@ -23,7 +23,7 @@ DATABASE_DRIVER=postgres
 # Owner connection string for local Postgres (docker-compose.dev.yml). Deployed, the Worker reads
 # the DATABASE_URL secret (neon) or the HYPERDRIVE binding (postgres); this is the local one, and
 # what scripts/migrate.ts, db-roles.ts, seed.ts and drizzle-kit use.
-DATABASE_URL=postgresql://rocketflare:rocketflare_pass@localhost:5432/rocketflare_dev
+DATABASE_URL=postgresql://rocketpod:rocketpod_pass@localhost:5432/rocketpod_dev
 # The local Neon proxy (only with DATABASE_DRIVER=neon; written by `pnpm dev:db:up --neon`).
 NEON_LOCAL_PROXY=
 # AES-GCM key for OAuth tokens stored at rest. Generate: openssl rand -hex 32

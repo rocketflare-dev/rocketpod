@@ -27,7 +27,7 @@
  * `get_document` (`get-document.ts`) reads what search found; `buildAgentTools` in `index.ts` is
  * what the runtime puts on `ctx.tools`.
  */
-import { KNOWLEDGE_TOOLS, SEARCH_MAX_LIMIT } from '@rocketflare/shared/ai/embeddings'
+import { KNOWLEDGE_TOOLS, SEARCH_MAX_LIMIT } from '@rocketpod/shared/ai/embeddings'
 import { z } from 'zod'
 import type { AppConfig } from '../../../../config'
 import type { Database } from '../../../../db/client'

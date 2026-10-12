@@ -10,14 +10,14 @@
  * - the vote lands in the answer's trace as a `feedback` span under the recorded root;
  * - `GET /api/evals/export` builds a valid `EvalCase` from a message (question, history, retrieved
  *   context, tools, observed answer, feedback) and from a run — admin+ only;
- * - spans recorded inside `withEvalScope` carry `rocketflare.eval=true`, and only those.
+ * - spans recorded inside `withEvalScope` carry `rocketpod.eval=true`, and only those.
  */
 import {
   evalExportResponseSchema,
   feedbackListResponseSchema,
   feedbackMineResponseSchema,
   feedbackSchema,
-} from '@rocketflare/shared/ai/evals'
+} from '@rocketpod/shared/ai/evals'
 import { and, eq } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
 import { withEvalScope } from '@/api/observability/context'
@@ -270,8 +270,8 @@ describe('POST /api/feedback', () => {
     const vote = spans.find(s => s.name === 'feedback')
     expect(vote?.parentSpanId).toBe(root?.spanId)
     expect(vote?.attributes).toMatchObject({
-      'rocketflare.feedback.rating': -1,
-      'rocketflare.feedback.target': 'message',
+      'rocketpod.feedback.rating': -1,
+      'rocketpod.feedback.target': 'message',
     })
 
     // A run's root is derived, so its vote needs no recorded root to find its parent.
@@ -362,7 +362,7 @@ describe('GET /api/evals/export', () => {
 })
 
 describe('eval scope', () => {
-  it('marks traces started inside withEvalScope as rocketflare.eval=true, and no others', async () => {
+  it('marks traces started inside withEvalScope as rocketpod.eval=true, and no others', async () => {
     const a = await actor()
     const tracer = tracerFor(cfg, { store: databaseSpanStore(db) })
     const ids: Record<string, string> = {}
@@ -377,7 +377,7 @@ describe('eval scope', () => {
     await tracer.flush()
     const spans = await db.select().from(aiSpans).where(eq(aiSpans.tenantId, a.tenant.id))
     const byTrace = (id: string | undefined) => spans.find(s => s.traceId === id)?.attributes ?? {}
-    expect(byTrace(ids.inside)['rocketflare.eval']).toBe(true)
-    expect(byTrace(ids.outside)['rocketflare.eval']).toBeUndefined()
+    expect(byTrace(ids.inside)['rocketpod.eval']).toBe(true)
+    expect(byTrace(ids.outside)['rocketpod.eval']).toBeUndefined()
   })
 })

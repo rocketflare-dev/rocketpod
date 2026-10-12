@@ -2,7 +2,7 @@
  * Tenant lifecycle (D9, D10, D25): create (owner + selected), read/patch (admin+ name, owner-only
  * slug), delete with slug confirmation (owner), settings, `GET /api/tenants`, single-mode 404s.
  */
-import { slugify } from '@rocketflare/shared/tenants'
+import { slugify } from '@rocketpod/shared/tenants'
 import { eq } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
 import { activityEvents, tenantSettings, tenants, tenantUsers } from '@/db/schema'

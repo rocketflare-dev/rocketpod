@@ -8,7 +8,7 @@
  * `chunkCount` and the `embeddingModel` that produced the vectors) or `→ failed` with a redacted
  * `error`. Chunks cascade from here; the file row is deleted by the document route.
  */
-import type { DocumentStatus } from '@rocketflare/shared/ai/embeddings'
+import type { DocumentStatus } from '@rocketpod/shared/ai/embeddings'
 import { relations, sql } from 'drizzle-orm'
 import { index, integer, pgTable, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
 import { RESOURCE_VISIBILITY_VALUES, tenantRef, timestamps } from './_helpers'

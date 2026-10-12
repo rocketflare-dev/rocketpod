@@ -14,8 +14,8 @@
  * must be DISTINCT per round — the platform treats a step name as its identity and replays a
  * repeated one's earlier result, which would read as "the agent ignored my approval".
  */
-import { AGENT_RESUME_EVENT, MAX_INTERRUPT_ROUNDS } from '@rocketflare/shared/ai/agents'
-import type { AgentInterruptSpec } from '@rocketflare/shared/ai/interrupts'
+import { AGENT_RESUME_EVENT, MAX_INTERRUPT_ROUNDS } from '@rocketpod/shared/ai/agents'
+import type { AgentInterruptSpec } from '@rocketpod/shared/ai/interrupts'
 import { and, eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
@@ -120,7 +120,7 @@ async function drive(
       payload: { runId, tenantId },
       timestamp: new Date(),
       instanceId: runId,
-      workflowName: 'rocketflare-agent-run',
+      workflowName: 'rocketpod-agent-run',
     },
     step as unknown as Parameters<AgentRunWorkflow['run']>[1]
   )

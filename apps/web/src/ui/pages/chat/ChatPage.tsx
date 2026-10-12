@@ -16,10 +16,10 @@ import {
   StopIcon,
   TrashIcon,
 } from '@heroicons/react/24/outline'
-import type { KitNoticeCode } from '@rocketflare/shared/ai/agui'
-import type { Conversation } from '@rocketflare/shared/ai/chat'
-import { shortModelName } from '@rocketflare/shared/ai/config'
-import { documentCardsFromToolCalls } from '@rocketflare/shared/ai/embeddings'
+import type { KitNoticeCode } from '@rocketpod/shared/ai/agui'
+import type { Conversation } from '@rocketpod/shared/ai/chat'
+import { shortModelName } from '@rocketpod/shared/ai/config'
+import { documentCardsFromToolCalls } from '@rocketpod/shared/ai/embeddings'
 import { type FormEvent, type KeyboardEvent, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ChatBubble } from '@/ui/components/ai/ChatBubble'

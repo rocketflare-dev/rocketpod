@@ -16,9 +16,9 @@
  * the sake of third-party `EventSource` clients and a stale browser value must never win.
  *
  * `@ag-ui/core` reaches the browser only through this module's import of
- * `@rocketflare/shared/ai/agui` — it must stay out of the eager shell (`.claude/rules/ui.md`).
+ * `@rocketpod/shared/ai/agui` — it must stay out of the eager shell (`.claude/rules/ui.md`).
  */
-import { AguiEventType, type KitAguiEvent, kitAguiEventSchema } from '@rocketflare/shared/ai/agui'
+import { AguiEventType, type KitAguiEvent, kitAguiEventSchema } from '@rocketpod/shared/ai/agui'
 import { ApiError, notifyUnauthorized, parseErrorBody } from './api-client'
 import { isAbortError, readSse } from './sse'
 

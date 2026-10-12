@@ -4,7 +4,7 @@
  * carries only ids. A provider failure marks the row `failed` and throws, so the consumer retries
  * with backoff; a missing row (deleted meanwhile) is logged and acked.
  */
-import type { JobOf } from '@rocketflare/shared/jobs'
+import type { JobOf } from '@rocketpod/shared/jobs'
 import { and, eq } from 'drizzle-orm'
 import { documents } from '../../../db/schema'
 import { noopTracer } from '../../observability/tracer'

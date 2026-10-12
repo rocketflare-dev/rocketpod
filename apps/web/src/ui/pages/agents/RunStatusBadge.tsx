@@ -14,7 +14,7 @@
  * has to be spelled.
  */
 import { PauseCircleIcon } from '@heroicons/react/24/outline'
-import type { AgentRunStatus } from '@rocketflare/shared/ai/agents'
+import type { AgentRunStatus } from '@rocketpod/shared/ai/agents'
 import { runOwesAnswer } from '@/ui/hooks/useAgents'
 
 export const STATUS_LABELS: Record<AgentRunStatus, string> = {

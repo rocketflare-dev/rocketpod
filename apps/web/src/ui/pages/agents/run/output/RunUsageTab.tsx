@@ -12,7 +12,7 @@
  * four rows of chrome in the header above the fold; this panel is already the answer to "what did
  * this run actually do", so they belong in the same list rather than in a second one nobody reads.
  */
-import type { AgentRun } from '@rocketflare/shared/ai/agents'
+import type { AgentRun } from '@rocketpod/shared/ai/agents'
 import { Link } from 'react-router-dom'
 import { Row, Section } from '@/ui/components/ai/StatRows'
 import { formatDateTime, formatDuration, runDuration } from '@/ui/lib/format'

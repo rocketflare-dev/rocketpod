@@ -1,12 +1,12 @@
 {
-  "name": "@rocketflare/web",
+  "name": "@rocketpod/web",
   "version": "0.1.0",
   "private": true,
   "license": "MIT",
-  "description": "Rocketflare kit web app: Hono API + React UI on Cloudflare Workers, Postgres (Neon serverless or Hyperdrive) + Drizzle",
+  "description": "Rocketpod kit web app: Hono API + React UI on Cloudflare Workers, Postgres (Neon serverless or Hyperdrive) + Drizzle",
   "type": "module",
   "cfld": {
-    "name": "rocketflare",
+    "name": "rocketpod",
     "port": 3000
   },
   "scripts": {
@@ -64,7 +64,7 @@
     "@heroicons/react": "^2.2.0",
     "@hono/zod-validator": "^0.7.6",
     "@neondatabase/serverless": "^1.1.0",
-    "@rocketflare/shared": "workspace:*",
+    "@rocketpod/shared": "workspace:*",
     "@tanstack/react-query": "^5.102.8",
     "arctic": "^3.7.0",
     "date-fns": "^4.4.0",

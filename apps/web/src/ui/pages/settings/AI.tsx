@@ -13,7 +13,7 @@ import {
   type AiScopeReadiness,
   shortModelName,
   type TestAiConfigResponse,
-} from '@rocketflare/shared/ai/config'
+} from '@rocketpod/shared/ai/config'
 import { useState } from 'react'
 import {
   ConfirmModal,

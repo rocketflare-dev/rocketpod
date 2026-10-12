@@ -1,5 +1,5 @@
 /** AG-UI events and run events → transcripts (D33): output, tool calls and what retrieval returned. */
-import type { KitAguiEvent } from '@rocketflare/shared/ai/agui'
+import type { KitAguiEvent } from '@rocketpod/shared/ai/agui'
 import { describe, expect, it } from 'vitest'
 import { parseJudgeJson } from '../kit/judge-harness'
 import { transcriptFromAgui, transcriptFromRunEvents } from '../kit/transcript'

@@ -25,17 +25,17 @@ import {
   agentRunListQuerySchema,
   createAgentRunRequestSchema,
   isRunActive,
-} from '@rocketflare/shared/ai/agents'
-import type { AgentRunAguiResponse } from '@rocketflare/shared/ai/agui'
-import type { AgentApprovers, InterruptInboxItem } from '@rocketflare/shared/ai/interrupts'
+} from '@rocketpod/shared/ai/agents'
+import type { AgentRunAguiResponse } from '@rocketpod/shared/ai/agui'
+import type { AgentApprovers, InterruptInboxItem } from '@rocketpod/shared/ai/interrupts'
 import {
   createSteeringNoteRequestSchema,
   interruptInboxQuerySchema,
   interruptPayloadSchema,
   interruptRejectionPayloadSchema,
   resolveInterruptRequestSchema,
-} from '@rocketflare/shared/ai/interrupts'
-import { ERROR_CODES } from '@rocketflare/shared/errors'
+} from '@rocketpod/shared/ai/interrupts'
+import { ERROR_CODES } from '@rocketpod/shared/errors'
 import { and, count, desc, eq, inArray } from 'drizzle-orm'
 import { type AgentRunRow, agentRunInterrupts, agentRuns } from '../../db/schema'
 import { guardPermission, isAdminLevel } from '../middleware/permissions'

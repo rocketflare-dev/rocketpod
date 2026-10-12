@@ -10,7 +10,7 @@ import {
   agentModelAssignmentSchema,
   agentModelsListResponseSchema,
   type UpsertAgentModelRequest,
-} from '@rocketflare/shared/ai/agent-models'
+} from '@rocketpod/shared/ai/agent-models'
 import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/ui/lib/api-client'
 import { queryKeys } from '@/ui/lib/query-keys'

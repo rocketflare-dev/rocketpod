@@ -4,7 +4,7 @@
  */
 
 import { BuildingOffice2Icon, ChevronRightIcon } from '@heroicons/react/24/outline'
-import type { TenantStatus } from '@rocketflare/shared/tenants'
+import type { TenantStatus } from '@rocketpod/shared/tenants'
 import { useState } from 'react'
 import { Link, Navigate } from 'react-router-dom'
 import {

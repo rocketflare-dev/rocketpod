@@ -20,10 +20,10 @@
  * - **`editedInput` is not taken on trust.** Without `allowEdits` it is a 400; with it, the edit is
  *   re-checked against the tool's stored schema.
  */
-import { agentRunSchema, agentRunWithEventsSchema } from '@rocketflare/shared/ai/agents'
-import type { AgentInterruptSpec } from '@rocketflare/shared/ai/interrupts'
-import { interruptInboxItemSchema } from '@rocketflare/shared/ai/interrupts'
-import { paginatedResponse } from '@rocketflare/shared/pagination'
+import { agentRunSchema, agentRunWithEventsSchema } from '@rocketpod/shared/ai/agents'
+import type { AgentInterruptSpec } from '@rocketpod/shared/ai/interrupts'
+import { interruptInboxItemSchema } from '@rocketpod/shared/ai/interrupts'
+import { paginatedResponse } from '@rocketpod/shared/pagination'
 import { eq } from 'drizzle-orm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
@@ -421,7 +421,7 @@ describe('the restart fallback, end to end (T4/T5)', () => {
         payload: { runId: run.id, tenantId: a.tenant.id },
         timestamp: new Date(),
         instanceId: `${run.id}-r1`,
-        workflowName: 'rocketflare-agent-run',
+        workflowName: 'rocketpod-agent-run',
       },
       step as unknown as Parameters<AgentRunWorkflow['run']>[1]
     )

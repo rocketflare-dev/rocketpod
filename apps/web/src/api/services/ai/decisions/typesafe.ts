@@ -18,8 +18,8 @@ import type {
   DecisionAnswer,
   DecisionAnswers,
   DecisionRequest,
-} from '@rocketflare/shared/ai/decisions'
-import { choiceConfidence, noulConfidence, scoreConfidence } from '@rocketflare/shared/ai/decisions'
+} from '@rocketpod/shared/ai/decisions'
+import { choiceConfidence, noulConfidence, scoreConfidence } from '@rocketpod/shared/ai/decisions'
 import { z } from 'zod'
 import type { FetchLike } from '../client'
 import { AiError, codeForStatus, normalizeAiError, redactSecrets } from '../errors'

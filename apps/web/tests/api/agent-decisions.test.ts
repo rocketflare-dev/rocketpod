@@ -10,8 +10,8 @@
 
  * `triage-research`, the example built on it, is `agent-triage-research.test.ts`.
  */
-import { kitAguiEventSchema } from '@rocketflare/shared/ai/agui'
-import type { DecisionAnswers, DecisionRequest } from '@rocketflare/shared/ai/decisions'
+import { kitAguiEventSchema } from '@rocketpod/shared/ai/agui'
+import type { DecisionAnswers, DecisionRequest } from '@rocketpod/shared/ai/decisions'
 import { and, eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'

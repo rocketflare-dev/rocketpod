@@ -3,14 +3,14 @@
  * (`?runId|conversationId|since|agent|status`, paginated), `GET /:id` returns one trace's spans,
  * where `:id` is a trace id, an agent run id or an assistant message id. Admin+ (`read Trace`): a
  * span carries other people's prompts and tool results, so this is not a member surface even for
- * their own runs. The CLI's `rocketflare traces list|show` is the main reader.
+ * their own runs. The CLI's `rocketpod traces list|show` is the main reader.
  */
 import {
   traceDetailSchema,
   traceListQuerySchema,
   traceListResponseSchema,
   traceLookupParamSchema,
-} from '@rocketflare/shared/ai/traces'
+} from '@rocketpod/shared/ai/traces'
 import { guardPermission } from '../middleware/permissions'
 import { getTrace, listTraces } from '../services/traces'
 import { withAuthAndDb } from '../utils/routes/route-helpers'

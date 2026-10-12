@@ -4,7 +4,7 @@
  * filters the CLI uses; `GET /api/traces/:id` returns a trace's spans by trace id, run id or message
  * id, and another tenant's id is a 404 exactly like an unknown one; anonymous 401, members 403.
  */
-import { traceDetailSchema, traceListResponseSchema } from '@rocketflare/shared/ai/traces'
+import { traceDetailSchema, traceListResponseSchema } from '@rocketpod/shared/ai/traces'
 import { describe, expect, it } from 'vitest'
 import { databaseSpanStore } from '@/api/observability/span-store'
 import { rootSpanIdForRun, traceIdForRun } from '@/api/observability/trace-ids'

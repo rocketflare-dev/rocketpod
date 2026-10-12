@@ -79,7 +79,7 @@ invoke_agent research-topic   ERROR …            ← root: the run / turn / jo
 down, `pnpm cli feedback list --rating down` finds it, and `pnpm cli evals promote <messageId|runId>
 --dataset <name>` drafts the case, with the retrieved passages and tool calls included. It's tenant
 data, so say so. Then hand over to `rf-evals` to write the expectation and run it. Traces from eval
-runs are tagged `rocketflare.eval=true`, and a thumbs vote shows in `traces show` as a `feedback`
+runs are tagged `rocketpod.eval=true`, and a thumbs vote shows in `traces show` as a `feedback`
 span under the root.
 
 ## 4. Coaching: where traces go

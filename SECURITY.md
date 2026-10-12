@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Rocketflare is a starter kit: you copy it and the copy becomes your application. Security fixes land
+Rocketpod is a starter kit: you copy it and the copy becomes your application. Security fixes land
 on `main`; there are no maintained release lines. Apps built from the kit should track `main` for
 fixes and re-apply the ones that matter to them (`docs/ADAPTING.md` §0).
 

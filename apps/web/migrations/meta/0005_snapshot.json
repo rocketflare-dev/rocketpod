@@ -294,7 +294,7 @@
           "as": "PERMISSIVE",
           "for": "ALL",
           "to": [
-            "rocketflare_app"
+            "rocketpod_app"
           ],
           "using": "tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid",
           "withCheck": "tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid"
@@ -391,7 +391,7 @@
           "as": "PERMISSIVE",
           "for": "ALL",
           "to": [
-            "rocketflare_app"
+            "rocketpod_app"
           ],
           "using": "tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid",
           "withCheck": "tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid"
@@ -529,7 +529,7 @@
           "as": "PERMISSIVE",
           "for": "ALL",
           "to": [
-            "rocketflare_app"
+            "rocketpod_app"
           ],
           "using": "tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid",
           "withCheck": "tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid"
@@ -754,7 +754,7 @@
           "as": "PERMISSIVE",
           "for": "ALL",
           "to": [
-            "rocketflare_app"
+            "rocketpod_app"
           ],
           "using": "tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid",
           "withCheck": "tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid"
@@ -930,7 +930,7 @@
           "as": "PERMISSIVE",
           "for": "ALL",
           "to": [
-            "rocketflare_app"
+            "rocketpod_app"
           ],
           "using": "tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid",
           "withCheck": "tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid"
@@ -1081,7 +1081,7 @@
           "as": "PERMISSIVE",
           "for": "ALL",
           "to": [
-            "rocketflare_app"
+            "rocketpod_app"
           ],
           "using": "tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid",
           "withCheck": "tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid"
@@ -1252,7 +1252,7 @@
           "as": "PERMISSIVE",
           "for": "ALL",
           "to": [
-            "rocketflare_app"
+            "rocketpod_app"
           ],
           "using": "tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid",
           "withCheck": "tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid"
@@ -1402,7 +1402,7 @@
           "as": "PERMISSIVE",
           "for": "ALL",
           "to": [
-            "rocketflare_app"
+            "rocketpod_app"
           ],
           "using": "tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid",
           "withCheck": "tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid"
@@ -1570,7 +1570,7 @@
           "as": "PERMISSIVE",
           "for": "ALL",
           "to": [
-            "rocketflare_app"
+            "rocketpod_app"
           ],
           "using": "tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid",
           "withCheck": "tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid"
@@ -1707,7 +1707,7 @@
           "as": "PERMISSIVE",
           "for": "ALL",
           "to": [
-            "rocketflare_app"
+            "rocketpod_app"
           ],
           "using": "tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid",
           "withCheck": "tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid"
@@ -1911,7 +1911,7 @@
           "as": "PERMISSIVE",
           "for": "ALL",
           "to": [
-            "rocketflare_app"
+            "rocketpod_app"
           ],
           "using": "tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid",
           "withCheck": "tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid"
@@ -2030,7 +2030,7 @@
           "as": "PERMISSIVE",
           "for": "ALL",
           "to": [
-            "rocketflare_app"
+            "rocketpod_app"
           ],
           "using": "tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid",
           "withCheck": "tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid"
@@ -2167,7 +2167,7 @@
           "as": "PERMISSIVE",
           "for": "ALL",
           "to": [
-            "rocketflare_app"
+            "rocketpod_app"
           ],
           "using": "tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid",
           "withCheck": "tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid"
@@ -2392,7 +2392,7 @@
           "as": "PERMISSIVE",
           "for": "ALL",
           "to": [
-            "rocketflare_app"
+            "rocketpod_app"
           ],
           "using": "tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid",
           "withCheck": "tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid"
@@ -2528,7 +2528,7 @@
           "as": "PERMISSIVE",
           "for": "ALL",
           "to": [
-            "rocketflare_app"
+            "rocketpod_app"
           ],
           "using": "tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid",
           "withCheck": "tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid"
@@ -2746,7 +2746,7 @@
           "as": "PERMISSIVE",
           "for": "ALL",
           "to": [
-            "rocketflare_app"
+            "rocketpod_app"
           ],
           "using": "tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid",
           "withCheck": "tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid"
@@ -2906,7 +2906,7 @@
           "as": "PERMISSIVE",
           "for": "ALL",
           "to": [
-            "rocketflare_app"
+            "rocketpod_app"
           ],
           "using": "tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid",
           "withCheck": "tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid"
@@ -2985,7 +2985,7 @@
           "as": "PERMISSIVE",
           "for": "ALL",
           "to": [
-            "rocketflare_app"
+            "rocketpod_app"
           ],
           "using": "tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid",
           "withCheck": "tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid"
@@ -3093,7 +3093,7 @@
           "as": "PERMISSIVE",
           "for": "ALL",
           "to": [
-            "rocketflare_app"
+            "rocketpod_app"
           ],
           "using": "tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid",
           "withCheck": "tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid"
@@ -3240,7 +3240,7 @@
           "as": "PERMISSIVE",
           "for": "ALL",
           "to": [
-            "rocketflare_app"
+            "rocketpod_app"
           ],
           "using": "tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid",
           "withCheck": "tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid"
@@ -3326,7 +3326,7 @@
           "as": "PERMISSIVE",
           "for": "ALL",
           "to": [
-            "rocketflare_app"
+            "rocketpod_app"
           ],
           "using": "id = nullif(current_setting('app.tenant_id', true), '')::uuid",
           "withCheck": "id = nullif(current_setting('app.tenant_id', true), '')::uuid"
@@ -3572,7 +3572,7 @@
           "as": "PERMISSIVE",
           "for": "ALL",
           "to": [
-            "rocketflare_app"
+            "rocketpod_app"
           ],
           "using": "id in (select user_id from tenant_users where tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)",
           "withCheck": "id in (select user_id from tenant_users where tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)"

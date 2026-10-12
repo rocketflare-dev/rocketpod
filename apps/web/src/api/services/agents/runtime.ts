@@ -24,9 +24,9 @@
  * agent ledgers anything — so those tokens were never recorded, and resuming recovers spend the
  * kit used to lose rather than counting it twice.
  */
-import type { AgentRunStatus } from '@rocketflare/shared/ai/agents'
-import type { AgentSteeringNote } from '@rocketflare/shared/ai/interrupts'
-import { rejectionFor, steeringNoteDataSchema } from '@rocketflare/shared/ai/interrupts'
+import type { AgentRunStatus } from '@rocketpod/shared/ai/agents'
+import type { AgentSteeringNote } from '@rocketpod/shared/ai/interrupts'
+import { rejectionFor, steeringNoteDataSchema } from '@rocketpod/shared/ai/interrupts'
 import { and, asc, eq, sql } from 'drizzle-orm'
 import type { AppConfig } from '../../../config'
 import type { Database } from '../../../db/client'

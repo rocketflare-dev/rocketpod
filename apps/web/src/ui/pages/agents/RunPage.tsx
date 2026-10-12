@@ -28,8 +28,8 @@
  * a second fetch.
  */
 import { ChevronLeftIcon, ChevronRightIcon, CpuChipIcon } from '@heroicons/react/24/outline'
-import type { AgentInfo, AgentRunWithEvents } from '@rocketflare/shared/ai/agents'
-import { isRunActive } from '@rocketflare/shared/ai/agents'
+import type { AgentInfo, AgentRunWithEvents } from '@rocketpod/shared/ai/agents'
+import { isRunActive } from '@rocketpod/shared/ai/agents'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { EmptyState, PageHeader, SectionPanel, SkeletonRows, URLTabs } from '@/ui/components/shared'

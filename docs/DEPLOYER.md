@@ -133,7 +133,7 @@ step runs `pnpm db:migrate:ci` with (`db-roles --phase=role` → migrations → 
 --phase=grants`), so the role must be able to:
 
 - own the schema: create and alter every table (it is the tables' owner, or the role that created them);
-- `CREATE ROLE rocketflare_app` and `ALTER ROLE` it (`CREATEROLE`);
+- `CREATE ROLE rocketpod_app` and `ALTER ROLE` it (`CREATEROLE`);
 - `ALTER DEFAULT PRIVILEGES FOR ROLE <its own username>` — `db-roles.ts` names the URL's user as the
   owner, so that user must be the one the tables are created by.
 

@@ -10,7 +10,7 @@
  * `expected.output`). The pure scoring lives in `scoring.ts`; `reference.md` in the `rf-evals`
  * skill is the catalogue a person reads.
  */
-import type { EvalCase, EvalContextDoc } from '@rocketflare/shared/ai/evals'
+import type { EvalCase, EvalContextDoc } from '@rocketpod/shared/ai/evals'
 import {
   FactualityJudge,
   type JsonValue,

@@ -20,7 +20,7 @@ import {
   documentPath,
   type SearchHit,
   searchRequestSchema,
-} from '@rocketflare/shared/ai/embeddings'
+} from '@rocketpod/shared/ai/embeddings'
 import { type FormEvent, useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import {

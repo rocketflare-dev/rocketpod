@@ -7,7 +7,7 @@
  *
  * Rows are left in the test database, as the test suites leave theirs (`.claude/rules/testing.md`).
  */
-import type { EvalCase } from '@rocketflare/shared/ai/evals'
+import type { EvalCase } from '@rocketpod/shared/ai/evals'
 import { ingestText } from '@/api/services/ai/ingest'
 import { agentModels, messages } from '@/db/schema'
 import {

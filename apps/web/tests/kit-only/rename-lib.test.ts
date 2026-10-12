@@ -87,17 +87,17 @@ describe('validateSlug', () => {
 
 /** One paragraph with every token class the kit ships. */
 const SAMPLE = [
-  'import { x } from "@rocketflare/shared/ai/config" // @rocketflare/web',
-  "ROCKETFLARE_API_KEY=… ROCKETFLARE_URL=… ENV_PREFIX = 'ROCKETFLARE'",
-  "~/.rocketflare/config.json and CONFIG_DIR_NAME = '.rocketflare' and $HOME/.rocketflare",
-  'noreply@rocketflare.dev app.rocketflare.dev staging.rocketflare.dev admin@rocketflare.local',
-  'postgresql://rocketflare:rocketflare_pass@localhost:5432/rocketflare_dev',
-  'POSTGRES_USER: rocketflare',
-  'pg_isready -U rocketflare -d rocketflare_dev',
-  'rocketflare_app rocketflare_test rocketflare_ab12cd34',
-  'rocketflare-agent-run-staging rocketflare-jobs rocketflare-files-staging rocketflare-light',
-  'APP_NAME=Rocketflare Test <title>Rocketflare</title>',
-  'name = "rocketflare" bin rocketflare, cfld.name rocketflare; container rocketflare-dev-postgres',
+  'import { x } from "@rocketpod/shared/ai/config" // @rocketpod/web',
+  "ROCKETPOD_API_KEY=… ROCKETPOD_URL=… ENV_PREFIX = 'ROCKETPOD'",
+  "~/.rocketpod/config.json and CONFIG_DIR_NAME = '.rocketpod' and $HOME/.rocketpod",
+  'noreply@rocketpod.example.com app.rocketpod.example.com staging.rocketpod.example.com admin@rocketpod.example.com',
+  'postgresql://rocketpod:rocketpod_pass@localhost:5432/rocketpod_dev',
+  'POSTGRES_USER: rocketpod',
+  'pg_isready -U rocketpod -d rocketpod_dev',
+  'rocketpod_app rocketpod_test rocketpod_ab12cd34',
+  'rocketpod-agent-run-staging rocketpod-jobs rocketpod-files-staging rocketpod-light',
+  'APP_NAME=Rocketpod Test <title>Rocketpod</title>',
+  'name = "rocketpod" bin rocketpod, cfld.name rocketpod; container rocketpod-dev-postgres',
   'https://github.com/rocketflare-dev/rocketflare.git stays',
 ].join('\n')
 
@@ -165,13 +165,13 @@ describe('applyReplacements', () => {
       'see rocketflare-dev/rocketflare-plugin-analytics.git@1.0.2',
       'mirrored to `ghcr.io/rocketflare-dev` and rebuilt',
       'https://raw.githubusercontent.com/rocketflare-dev/rocketflare/0.10.0/CHANGELOG.md',
-      'container_name: rocketflare-dev-postgres, volume rocketflare-dev-data',
+      'container_name: rocketpod-dev-postgres, volume rocketpod-dev-data',
     ].join('\n')
     const { text, preserved } = applyReplacements(input, deriveNames('acme'))
     expect(text).toBe(
       input
-        .replace('rocketflare-dev-postgres', 'acme-dev-postgres')
-        .replace('rocketflare-dev-data', 'acme-dev-data')
+        .replace('rocketpod-dev-postgres', 'acme-dev-postgres')
+        .replace('rocketpod-dev-data', 'acme-dev-data')
     )
     expect(preserved).toBe(6)
   })
@@ -211,7 +211,7 @@ describe('applyReplacements', () => {
       'node_modules/', // its neighbour, untouched either way
       "export const MANIFEST_FILE = '.rocketflare.json'", // a JS string
       "if (!source.has('rocketflare-plugin.json')) stop(5)", // and the plugin manifest
-      'but rocketflare-web and @rocketflare/shared still move', // …while everything else does
+      'but rocketpod-web and @rocketpod/shared still move', // …while everything else does
     ].join('\n')
     const { text, preserved } = applyReplacements(input, names)
     expect(text).toContain('`.rocketflare.json`')
@@ -224,14 +224,17 @@ describe('applyReplacements', () => {
   })
 
   it('applies the classes longest-first: the env class takes the bare ENV_PREFIX too', () => {
-    const { text, counts } = applyReplacements("'ROCKETFLARE' ROCKETFLARE_X", deriveNames('a-b'))
+    const { text, counts } = applyReplacements("'ROCKETPOD' ROCKETPOD_X", deriveNames('a-b'))
     expect(text).toBe("'A_B' A_B_X")
     expect(counts.env).toBe(2)
     expect(counts.bare).toBe(0)
   })
 
-  it('keeps the domain ahead of the config-dir class (app.rocketflare.dev is not a config dir)', () => {
-    const { text, counts } = applyReplacements('https://app.rocketflare.dev', deriveNames('a-b'))
+  it('keeps the domain ahead of the config-dir class (app.rocketpod.example.com is not a config dir)', () => {
+    const { text, counts } = applyReplacements(
+      'https://app.rocketpod.example.com',
+      deriveNames('a-b')
+    )
     expect(text).toBe('https://app.a-b.example.com')
     expect(counts.cfgdir).toBe(0)
   })
@@ -388,7 +391,7 @@ describe('parseArgs', () => {
     expect(parseArgs([])).toEqual({ error: 'a slug is required' })
     expect(parseArgs(['--bogus', 'acme'])).toEqual({ error: 'unknown option --bogus' })
     expect(parseArgs(['--domain'])).toEqual({ error: '--domain needs a value' })
-    expect(parseArgs(['rocketflare'])).toMatchObject({ error: expect.stringMatching(/kit's own/) })
+    expect(parseArgs(['rocketpod'])).toMatchObject({ error: expect.stringMatching(/kit's own/) })
     expect(parseArgs(['acme', 'A', 'extra'])).toMatchObject({
       error: expect.stringMatching(/extra/),
     })
@@ -477,7 +480,7 @@ describe('renameKitManifest (launch.kit.json, kept by every copy)', () => {
   })
 
   it('is the identity when nothing outside the kit block names the kit', () => {
-    const plain = '{\n  "kit": { "id": "rocketflare", "name": "Rocketflare" },\n  "x": 1\n}\n'
+    const plain = '{\n  "kit": { "id": "rocketpod", "name": "Rocketpod" },\n  "x": 1\n}\n'
     const out = renameKitManifest(plain, names)
     expect(out.total).toBe(0)
     expect(out.text).toBe(plain)

@@ -4,8 +4,8 @@
  * `ReadableStream`, optionally split at arbitrary byte offsets to exercise reassembly.
  */
 
-import { AguiEventType, KIT_CUSTOM_EVENTS, type KitAguiEvent } from '@rocketflare/shared/ai/agui'
-import { documentCardsFromToolResult } from '@rocketflare/shared/ai/embeddings'
+import { AguiEventType, KIT_CUSTOM_EVENTS, type KitAguiEvent } from '@rocketpod/shared/ai/agui'
+import { documentCardsFromToolResult } from '@rocketpod/shared/ai/embeddings'
 
 export function encodeSseFrame(event: KitAguiEvent): string {
   return `data: ${JSON.stringify(event)}\n\n`

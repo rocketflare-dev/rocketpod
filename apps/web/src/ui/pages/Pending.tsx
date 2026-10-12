@@ -5,7 +5,7 @@
  */
 
 import { ClockIcon, NoSymbolIcon, PaperAirplaneIcon } from '@heroicons/react/24/outline'
-import { createAccessRequestSchema } from '@rocketflare/shared/access-requests'
+import { createAccessRequestSchema } from '@rocketpod/shared/access-requests'
 import { useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import { AdminAreaLink, AuthCard, SignedInAs } from '@/ui/components/AuthCard'

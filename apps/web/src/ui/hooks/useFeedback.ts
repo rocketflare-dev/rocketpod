@@ -3,14 +3,14 @@
  * answers (`GET /api/feedback/mine`) so the thumbs draw their state; `useRateAnswer()` sets a vote
  * (`POST /api/feedback`) or withdraws it (`DELETE /api/feedback/:target/:targetId`) when the same
  * thumb is pressed twice. Every member may rate an answer they can read; reading everyone's votes
- * is admin-only and lives in the CLI (`rocketflare feedback list`), not here.
+ * is admin-only and lives in the CLI (`rocketpod feedback list`), not here.
  */
 import {
   type FeedbackRating,
   type FeedbackTarget,
   feedbackMineResponseSchema,
   feedbackSchema,
-} from '@rocketflare/shared/ai/evals'
+} from '@rocketpod/shared/ai/evals'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/ui/lib/api-client'
 import { queryKeys } from '@/ui/lib/query-keys'

@@ -14,7 +14,7 @@ import {
   EVAL_TRAJECTORY_MODES,
   type EvalExpectedTool,
   type EvalTrajectoryMode,
-} from '@rocketflare/shared/ai/evals'
+} from '@rocketpod/shared/ai/evals'
 import type { ZodTypeAny } from 'zod'
 
 export interface Score {

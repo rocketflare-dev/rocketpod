@@ -22,8 +22,8 @@ import {
   documentExcerpt,
   documentPath,
   documentTypeLabel,
-} from '@rocketflare/shared/ai/embeddings'
-import type { PaginationQuery } from '@rocketflare/shared/pagination'
+} from '@rocketpod/shared/ai/embeddings'
+import type { PaginationQuery } from '@rocketpod/shared/pagination'
 import { and, asc, count, eq, sql } from 'drizzle-orm'
 import type { Database } from '../../../db/client'
 import { chunks, documents } from '../../../db/schema'

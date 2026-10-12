@@ -6,7 +6,7 @@
  * `frame-ancestors 'self'`, on the 304 as well), an avatar is inline but never framable, and
  * nothing else on this origin is either.
  */
-import { uploadResponseSchema } from '@rocketflare/shared/files'
+import { uploadResponseSchema } from '@rocketpod/shared/files'
 import { and, eq } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
 import { activityEvents, files, users } from '@/db/schema'

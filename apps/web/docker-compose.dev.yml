@@ -14,17 +14,17 @@
 services:
   postgres-dev:
     image: pgvector/pgvector:pg17
-    container_name: ${DEV_DB_CONTAINER:-rocketflare-dev-postgres}
+    container_name: ${DEV_DB_CONTAINER:-rocketpod-dev-postgres}
     environment:
-      POSTGRES_DB: rocketflare_dev
-      POSTGRES_USER: rocketflare
-      POSTGRES_PASSWORD: rocketflare_pass
+      POSTGRES_DB: rocketpod_dev
+      POSTGRES_USER: rocketpod
+      POSTGRES_PASSWORD: rocketpod_pass
     ports:
       - "${DEV_DB_PORT:-5432}:5432"
     volumes:
-      - rocketflare-dev-data:/var/lib/postgresql/data
+      - rocketpod-dev-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U rocketflare -d rocketflare_dev"]
+      test: ["CMD-SHELL", "pg_isready -U rocketpod -d rocketpod_dev"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -32,23 +32,23 @@ services:
   neon-proxy-dev:
     profiles: ["neon"]
     image: ghcr.io/rocketflare-dev/local-neon-proxy@sha256:fbc2c4dd398d7f8b530bc11e0dbc7e24176d4db7bca2f4d88f21b5b4e50580f8
-    container_name: ${DEV_NEON_PROXY_CONTAINER:-rocketflare-dev-neon-proxy}
+    container_name: ${DEV_NEON_PROXY_CONTAINER:-rocketpod-dev-neon-proxy}
     # Our image (docker/Dockerfile.neon-proxy): the mirrored proxy with docker/neon-proxy-start.sh
     # baked in as the entrypoint, ~10x faster locally than the image's own script. Baked, not
     # mounted: Colima and remote Docker contexts cannot see a checkout outside $HOME.
     environment:
-      PG_CONNECTION_STRING: postgres://rocketflare:rocketflare_pass@postgres-dev:5432/rocketflare_dev
-      PROXY_ROLE_PASSWORD: rocketflare_pass
+      PG_CONNECTION_STRING: postgres://rocketpod:rocketpod_pass@postgres-dev:5432/rocketpod_dev
+      PROXY_ROLE_PASSWORD: rocketpod_pass
     ports:
       - "${DEV_NEON_PROXY_PORT:-4444}:4444"
     depends_on:
       postgres-dev:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf -X POST http://localhost:4444/sql -H 'Neon-Connection-String: postgresql://rocketflare:rocketflare_pass@localhost/rocketflare_dev' -d '{\"query\":\"select 1\",\"params\":[]}' >/dev/null"]
+      test: ["CMD-SHELL", "curl -sf -X POST http://localhost:4444/sql -H 'Neon-Connection-String: postgresql://rocketpod:rocketpod_pass@localhost/rocketpod_dev' -d '{\"query\":\"select 1\",\"params\":[]}' >/dev/null"]
       interval: 2s
       timeout: 5s
       retries: 15
 
 volumes:
-  rocketflare-dev-data:
+  rocketpod-dev-data:

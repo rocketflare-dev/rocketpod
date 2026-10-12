@@ -8,8 +8,8 @@
  * is read from the tool RESULTS, never from the dataset's `context` — the model can only be faithful
  * to what it was actually shown.
  */
-import type { KitAguiEvent } from '@rocketflare/shared/ai/agui'
-import type { EvalContextDoc } from '@rocketflare/shared/ai/evals'
+import type { KitAguiEvent } from '@rocketpod/shared/ai/agui'
+import type { EvalContextDoc } from '@rocketpod/shared/ai/evals'
 import type { JsonValue, TranscriptEvent } from 'vitest-evals'
 import { contextFromSearchResult } from '@/api/services/evals'
 

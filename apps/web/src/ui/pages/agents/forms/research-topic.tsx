@@ -3,7 +3,7 @@
  * `RESEARCH_TOPIC_MAX_CHARS`. The agent decides how many searches it needs, so there is nothing
  * else to set; validated with the SAME `researchTopicInputSchema` the route and the runtime apply.
  */
-import { RESEARCH_TOPIC_MAX_CHARS, researchTopicInputSchema } from '@rocketflare/shared/ai/agents'
+import { RESEARCH_TOPIC_MAX_CHARS, researchTopicInputSchema } from '@rocketpod/shared/ai/agents'
 import { FieldError, fieldErrorFor } from '@/ui/components/shared'
 import type { AgentForm, AgentFormProps } from './types'
 

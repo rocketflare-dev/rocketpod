@@ -8,7 +8,7 @@
  * called `ctx.artifact()` (both shipped ones do).
  */
 import { PaperClipIcon } from '@heroicons/react/24/outline'
-import type { AgentArtifact } from '@rocketflare/shared/ai/artifacts'
+import type { AgentArtifact } from '@rocketpod/shared/ai/artifacts'
 import { EmptyState } from '@/ui/components/shared'
 import { ArtifactView } from './ArtifactView'
 

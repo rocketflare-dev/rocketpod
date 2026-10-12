@@ -10,7 +10,7 @@ React 18 + Vite + React Router 6 + TanStack Query 5 + zustand; DaisyUI 5 on Tail
   table in three tiers: public (`/login`, `/magic-link/sent`, `/magic-link/confirm`,
   `/invite/:token`), signed-in-without-tenant (`/select-tenant`, `/pending`, `/no-access` —
   `ProtectedRoute requireTenant={false}`), and the shell (`/*` — `ProtectedRoute`, `Layout` mounted ONCE, nested `<Routes>` beneath it).
-- `index.css` — the design system: themes `rocketflare-light`/`rocketflare-dark`, semantic tokens (`--surface-*`,
+- `index.css` — the design system: themes `rocketpod-light`/`rocketpod-dark`, semantic tokens (`--surface-*`,
   `--border-*`, `--text-*`, `--tone-*`), primitives (`.surface-panel`, `.data-table`,
   `.status-badge`, `.nav-item`). Rebrand instructions are in its header comment.
 - `components/` — shell: `Layout` (slots `headerStart`=`OrgSwitcher`, `headerEnd`=`NotificationsBell`
@@ -62,7 +62,7 @@ React 18 + Vite + React Router 6 + TanStack Query 5 + zustand; DaisyUI 5 on Tail
   multipart — no JSON content-type), `queryClient` (module-level, 401 → handler), `query-keys`
   (factory + `cleanFilters`/`toSearchParams`; the family roots — `['invitations']`,
   `['pending-invitations']`, `['members']`, `['tenant']`… — are what `REALTIME_INVALIDATIONS` in
-  `@rocketflare/shared/realtime` names; `agentRuns.all` is `['agent-run']` because that is the `entity`
+  `@rocketpod/shared/realtime` names; `agentRuns.all` is `['agent-run']` because that is the `entity`
   the server's `entity.changed` nudge carries — see "Agents" below), `websocketClient`
   (singleton: `/ws?tenantId=`, jittered backoff 1 s → 30 s, 100 ms fast path on close 1001/1012
   or an "upgraded" reason, 30 s ping;
@@ -100,24 +100,24 @@ React 18 + Vite + React Router 6 + TanStack Query 5 + zustand; DaisyUI 5 on Tail
   barrel, so their dependencies ship only in the plugin's lazy chunk. The plugin's `ui/index.ts` is
   the exception that proves it — that file IS in the main bundle, which is why every page in it is
   `lazy(() => import(...))` and `tests/config/plugins.test.ts` reads its source to check.
-- Imports: `@/ui/...` and `@rocketflare/shared/...`; never import from `src/api`, `src/db` or
+- Imports: `@/ui/...` and `@rocketpod/shared/...`; never import from `src/api`, `src/db` or
   `src/permissions` (the ability MATRIX is server code; the UI only unpacks rules).
 - Server data lives ONLY in the query cache: `useQuery` + a key from `query-keys.ts` + a
-  `@rocketflare/shared` zod `schema` on `api.get`. Mutations live in the resource hook, `invalidateQueries`
+  `@rocketpod/shared` zod `schema` on `api.get`. Mutations live in the resource hook, `invalidateQueries`
   through `queryKeys`, and toast via `showSuccessToast`/`successMessage`.
 - zustand is for UI state only (toasts, connection state, tab-lifetime flags). Realtime events
   never become state: the provider invalidates query roots and the hooks re-fetch ("DB is the
   truth, WebSocket is a nudge"). A new server event type gets its roots in
   `packages/shared/src/realtime.ts`, not in a component.
 - Uploads: `api.upload('/api/files?scope=…', formData, { schema: uploadResponseSchema })`; check
-  type/size with `@rocketflare/shared/files` before sending; `<img>` avatars need an `onError` fallback
+  type/size with `@rocketpod/shared/files` before sending; `<img>` avatars need an `onError` fallback
   (the object is tenant-scoped, `avatarUrl` is not).
 - Tokens, not raw colours: `text-muted`, `surface-panel`, `badge-warning` — never `bg-blue-50`.
   Classes built from props are safelisted with `@source inline(...)` in `index.css`; classes
   built from data are forbidden. Heroicons only (provider marks in `components/icons` are
   `currentColor`); `<details>/<summary>` dropdowns; `<dialog>` `Modal` (column layout, `max-h-[85vh]`: the BODY
   scrolls, title and actions stay — never let a modal grow past the viewport).
-- Forms: controlled inputs + the same `@rocketflare/shared` schema the server validates with; `FieldError`.
+- Forms: controlled inputs + the same `@rocketpod/shared` schema the server validates with; `FieldError`.
   Every list renders `PaginationControls` (it hides itself at one page).
 - Tests in `tests/ui/` (jsdom + Testing Library, `fetch` via `stubFetch()` route tables, no MSW);
   wrap with `renderWithProviders(ui, { session })` — `makeSession()` builds a post-parse session
@@ -175,7 +175,7 @@ A `CUSTOM kit.notice` renders
 - Settings → AI: the providers catalog (`GET /api/ai/config/providers`) has NO shared schema (it
   is `services/ai/providers.ts` data), so `useAiConfig.ts` carries a permissive `passthrough`
   one. `PROVIDER_PRESETS`/`presetsFor`, `DEFAULT_MODELS`, `THINKING_*` come from
-  `@rocketflare/shared/ai/config`. The label is the upsert key `(tenant, scope, label)` — read-only on
+  `@rocketpod/shared/ai/config`. The label is the upsert key `(tenant, scope, label)` — read-only on
   edit (renaming would create a second row). `apiKey` is write-only: blank on edit keeps the stored
   key (`hasCredential`); switching provider on edit requires a new key. `serviceTier: ''` clears.
   "Set default" re-posts the row with `isDefault: true` and no `apiKey`.
@@ -239,7 +239,7 @@ A `CUSTOM kit.notice` renders
   further every time the gap widens. The minor column stays narrow but readable, never
   collapsed to a rail — a settled run's timeline is where you check HOW it got there.
 - **Do not write tool-result parsers.** `documentCardsFromToolResult(name, result)` in
-  `@rocketflare/shared/ai/embeddings` is the one mapper (four callers: the chat stream, the AG-UI
+  `@rocketpod/shared/ai/embeddings` is the one mapper (four callers: the chat stream, the AG-UI
   projection, a persisted message and now `run/timeline/toolResults.tsx`) — the rendering is a
   `DocumentLink` ONE-LINER there, not a card strip: in a timeline row four cards bury the stage that
   comes next. Every other tool keeps
@@ -449,7 +449,7 @@ A `CUSTOM kit.notice` renders
   barrel lines, and reversible by deleting a directory.
 - **The UI entry ships in the MAIN bundle**, because the shell imports the barrel that imports it.
   So it wires and nothing else: pages are `lazy(() => import(...))`, and its runtime imports are
-  limited to `react`, `@heroicons/react/24/outline`, `@rocketflare/shared/*`, `@/plugins/types`,
+  limited to `react`, `@heroicons/react/24/outline`, `@rocketpod/shared/*`, `@/plugins/types`,
   `@/plugins/api/ui-wiring` (the WIRING half of the UI kit — its COMPONENTS half,
   `@/plugins/api/ui`, is for a lazy PAGE and is deliberately absent from this list),
   `@/ui/components/SideNav`, `@/ui/hooks/useNavGuard` and `@/ui/lib/feature-guards` (type-only

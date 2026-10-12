@@ -6,7 +6,7 @@
  * `retry({ delaySeconds })`; converted text over the cap → `failed` + ack; a vanished row → warn +
  * ack; a vanished object → `failed` + ack.
  */
-import { INGEST_TEXT_MAX_CHARS } from '@rocketflare/shared/ai/embeddings'
+import { INGEST_TEXT_MAX_CHARS } from '@rocketpod/shared/ai/embeddings'
 import { and, eq } from 'drizzle-orm'
 import { describe, expect, it, vi } from 'vitest'
 import { backoffSeconds, processJobsBatch } from '@/api/queues/jobs'
@@ -39,7 +39,7 @@ function message(body: unknown, attempts = 1) {
 
 function batch(messages: ReturnType<typeof message>[]) {
   return {
-    queue: 'rocketflare-jobs',
+    queue: 'rocketpod-jobs',
     messages,
     ackAll: vi.fn(),
     retryAll: vi.fn(),

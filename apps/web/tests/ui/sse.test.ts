@@ -12,7 +12,7 @@ import {
   KIT_CUSTOM_EVENTS,
   type KitAguiEvent,
   kitAguiEventSchema,
-} from '@rocketflare/shared/ai/agui'
+} from '@rocketpod/shared/ai/agui'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AiNotConfiguredError, isAiNotConfigured, runChatTurn } from '@/ui/lib/aguiStream'
 import { parseSseFrame, readSse, SseFrameBuffer, type SseFrameParser } from '@/ui/lib/sse'

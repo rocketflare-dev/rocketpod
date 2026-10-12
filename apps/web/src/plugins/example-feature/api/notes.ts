@@ -8,8 +8,8 @@
  * includes this file, so a query that forgot one fails the host's suite like a kit one.
  */
 
-import type { PaginationQuery } from '@rocketflare/shared/pagination'
-import type { CreateExampleNoteRequest } from '@rocketflare/shared/plugins/example-feature/index'
+import type { PaginationQuery } from '@rocketpod/shared/pagination'
+import type { CreateExampleNoteRequest } from '@rocketpod/shared/plugins/example-feature/index'
 import { and, desc, eq } from 'drizzle-orm'
 // `Database` is one of the handful of types a plugin NAMES rather than receives: this module is the
 // kit's service shape — a plain `(db, tenantId, …)` function one plugin calls from a route, a job,

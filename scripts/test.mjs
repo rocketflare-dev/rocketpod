@@ -42,16 +42,15 @@ if (plan.compose) {
   if (run(['docker', 'info'], { quiet: true }) !== 0) {
     fail(`Docker is not running, and a local target needs it. ${TARGET_HINT}`)
   }
-  // `--wait` blocks until both health checks pass; a no-op when they are already up. Never torn
+  // `--wait` blocks until the health check passes; a no-op when it is already up. Never torn
   // down: the next run reuses it, and `pnpm test:db:down` is there for whoever wants it gone.
-  const up = run(
-    ['docker', 'compose', '-f', COMPOSE_FILE, '--profile', 'neon', 'up', '-d', '--wait'],
-    { quiet: false }
-  )
+  const up = run(['docker', 'compose', '-f', COMPOSE_FILE, 'up', '-d', '--wait'], {
+    quiet: false,
+  })
   if (up !== 0) {
     fail(
       'the test database did not start (docker compose up failed above). Another checkout holding ' +
-        ':5433 or :4433 is the usual cause: `pnpm dev:db:status` lists them.'
+        ':5433 is the usual cause: `pnpm dev:db:status` lists them.'
     )
   }
 }

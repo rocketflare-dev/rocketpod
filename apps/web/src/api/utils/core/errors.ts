@@ -153,34 +153,21 @@ function errorCode(error: unknown): string | undefined {
 /**
  * The error plus its `cause` chain, bounded. drizzle wraps EVERY driver failure in a
  * `DrizzleQueryError`, so a `42501` or our own scope errors never arrive as the top-level throw.
- * Neon's `NeonDbError` hangs the transport failure on `sourceError` rather than `cause` (D35).
+ * A refused TCP connect to `localhost` is an `AggregateError` (one attempt per address), whose
+ * inner errors carry the `ECONNREFUSED` — they are walked too.
  */
 function errorChain(error: unknown): unknown[] {
   const chain: unknown[] = []
-  let current = error
-  for (let depth = 0; current !== null && current !== undefined && depth < 6; depth++) {
+  const queue: unknown[] = [error]
+  while (queue.length > 0 && chain.length < 12) {
+    const current = queue.shift()
+    if (current === null || current === undefined) continue
     chain.push(current)
-    const link = current as { cause?: unknown; sourceError?: unknown }
-    current = link.cause ?? link.sourceError
+    const link = current as { cause?: unknown }
+    if (link.cause !== undefined) queue.push(link.cause)
+    if (current instanceof AggregateError) queue.push(...current.errors)
   }
   return chain
-}
-
-/**
- * Neon's "never reached Postgres" shapes (D35), which carry no code a Worker can rely on: the
- * HTTP driver's `NeonDbError` whose fetch failed, and the WebSocket pool's bare `ErrorEvent` when
- * the socket a transaction needs cannot open.
- */
-function isNeonConnectionFailure(link: unknown): boolean {
-  if (typeof link !== 'object' || link === null) return false
-  const name = (link as { constructor?: { name?: string } }).constructor?.name
-  if (name === 'ErrorEvent') return true
-  const message = (link as { message?: unknown }).message
-  return (
-    name === 'NeonDbError' &&
-    typeof message === 'string' &&
-    message.startsWith('Error connecting to database')
-  )
 }
 
 export type InfrastructureFault =
@@ -195,7 +182,6 @@ export function classifyInfrastructureError(error: unknown): InfrastructureFault
     const code = errorCode(link)
     if (code === PG_INSUFFICIENT_PRIVILEGE) return 'tenant_isolation_violation'
     if (code && PG_CONNECTION_CODES.has(code)) return 'database_unavailable'
-    if (isNeonConnectionFailure(link)) return 'database_unavailable'
     if (link instanceof TenantScopeConflictError) return 'tenant_scope_conflict'
   }
   return null

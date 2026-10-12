@@ -1,8 +1,7 @@
 /**
  * `.github/workflows/kit.yml` — the kit's OWN checks, which no copy carries (`kitOnly`). What it
  * promises lives only in YAML, so it is pinned here: the renamed copy and the default plugins are
- * gated with the same `pnpm gate` a copy runs (the plugins pass with the whole suite under neon —
- * the driver seam's backstop), and the checks that are only the kit's business (the published
+ * gated with the same `pnpm gate` a copy runs, and the checks that are only the kit's business (the published
  * plugin API, the vendored plugin's audit, the porting note, `defaultPlugins`) run beside them.
  */
 import { readFileSync } from 'node:fs'
@@ -58,10 +57,11 @@ describe('kit.yml', () => {
     expect(renamed).toMatch(/- run: pnpm gate\s*$/)
   })
 
-  it('plugins: installs the defaults, then the whole suite under neon', () => {
+  it('plugins: installs the defaults, then the whole gate', () => {
     const plugins = job('plugins')
     expect(plugins).toContain("needs.kit-checks.outputs.count != '0'")
-    expect(plugins).toMatch(/- run: pnpm gate\n\s+env:\n\s+GATE_SUITE_DRIVER: neon/)
+    expect(plugins).toMatch(/- run: pnpm gate\s*$/)
+    expect(plugins).not.toMatch(/GATE_SUITE_DRIVER/)
   })
 
   it('never skips a gate step', () => {

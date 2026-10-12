@@ -24,11 +24,10 @@ run, not per project.
 **`pnpm test` is the one full test run** (`scripts/test.mjs`, the plan in
 `scripts/lib/test-plan.mjs`, unit-tested in `tests/config/gate.test.ts`), and the `test` step of
 `pnpm gate`. It prints its target first. On a **local** target (the default) it starts the compose
-test Postgres and Neon proxy itself, runs every package's tests with the web suite under
-`postgres`, then the `driver` project again under `neon` through the proxy. On a **remote** target
-(`TEST_DATABASE_BRANCH` set — see below) it runs the whole web suite under `neon` on that branch,
-with no Docker, and says the postgres conformance half was skipped. `GATE_SUITE_DRIVER=neon` runs
-the local suite under `neon` instead (kit.yml's backstop; a way to chase a seam hole).
+test Postgres itself and runs every package's tests and the web suite (the `driver` conformance
+project included). On a **remote** target (`TEST_DATABASE_BRANCH` set — see below) it runs the
+same suite against that branch over TCP, with no Docker. One driver, postgres.js:
+`GATE_SUITE_DRIVER` is refused.
 
 **Kit-only tests** (`docs/CONCEPTS.md` §13) live in `apps/web/tests/kit-only/` and nowhere else: a
 test belongs there when it is true of the kit repository and of nothing made from it — the porting
@@ -55,10 +54,8 @@ tests), and put the claim about THIS checkout in `kit-only`.
   a `RecordingWorkflow` as `AGENT_RUN_WORKFLOW` (records `create({ id, params })` and `sendEvent`,
   `setStatus(id, …)` drives `instance.status()`, `terminated[]` records a forced cancel, `get()` of
   an unknown id throws `instance.not_found`, and `failSendEvent` simulates the instance a park
-  outlived — retention expired, or `wrangler dev` restarted), and the database for the driver
-  `.env.test` selects — under `postgres` (the default) a `HYPERDRIVE` stub whose `connectionString`
-  is the test URL, under `neon` NO `HYPERDRIVE` (a deployed `neon` Worker has none) plus
-  `DATABASE_DRIVER` / `NEON_LOCAL_PROXY`; `ctx = createExecutionContext()` collects `waitUntil`
+  outlived — retention expired, or `wrangler dev` restarted), and the database — a `HYPERDRIVE`
+  stub whose `connectionString` is the test URL; `ctx = createExecutionContext()` collects `waitUntil`
   promises so a test can `await waitOnExecutionContext(ctx)` before asserting side effects
 - Reach the stubs through **`stubs(env)`** → `{ kv, queue, files, hub, ai, workflow }`: `queue.messages`
   (what a route enqueued — `[{ body, options }]`), `files.objects` (key → stored bytes/metadata),
@@ -90,27 +87,27 @@ tests), and put the claim about THIS checkout in `kit-only`.
 - Tests never truncate per file. Create what you need with unique data and let it stay; the schema
   is designed for parallel files. If a test genuinely needs an empty table, it is `// @vitest-isolate`
 - `apps/web/tests/helpers/db.ts` `safetyCheck()` refuses to run unless `NODE_ENV=test` and `DATABASE_URL`'s
-  HOST is local. Never point tests at Neon — except `pnpm test` on a throwaway gate branch, which
+  HOST is local. Never point tests at a hosted database — except `pnpm test` on a throwaway gate branch, which
   needs `TEST_DATABASE_BRANCH=gate-<short>-<attempt>` and `TEST_DATABASE_ENDPOINT` = the URL's
   `ep-…` id (rules and reasons: `tests/helpers/db-safety.ts`, unit-tested in
   `tests/config/db-safety.test.ts`). The runner sets `TEST_DATABASE_EPHEMERAL=1` for that target;
   it runs 2 forks, and a test needing TCP or a superuser skips itself with
   `isEphemeralTestRun(process.env)` and a stated reason (`db-roles.test.ts`)
 - **Time limits scale with the target, never per test.** `vitest.config.ts` multiplies the test,
-  hook and teardown limits by one latency factor (`tests/helpers/latency.ts`): 1 locally under
-  `postgres` (vitest's 5 s stays the tripwire for a genuinely slow test), 4 under `neon` through
-  the proxy, 12 on a real Neon branch. `TEST_LATENCY_FACTOR` raises it (never lowers it) on a slow
+  hook and teardown limits by one latency factor (`tests/helpers/latency.ts`): 1 locally
+  (vitest's 5 s stays the tripwire for a genuinely slow test), 12 on a remote gate branch. `TEST_LATENCY_FACTOR` raises it (never lowers it) on a slow
   machine — a coding sandbox running a test by hand; anything but a positive number throws. No test carries a numeric budget of its own: a test that is slow only on a slow link is
   walking to a limit query by query, so it LOWERS that limit — `runStreamBody`'s injectable
   `maxMs`, `AgentRunWorkflow.maxInterruptRounds` — and asserts the behaviour at it
 - Per-file `apps/web/tests/api-setup.ts` closes clients after each file (connection budget: forks × pools)
-- **Both drivers (D35), one seam.** `.env.test` sets `DATABASE_DRIVER=postgres`, so the narrow
-  scripts and the suite run postgres.js; `pnpm test` then runs the `driver` project under `neon`
-  through the proxy on :4433 (compose profile `neon`). App code does not branch on the driver, so
-  the conformance pass is what proves the deployed path (`apps/web/src/db/CLAUDE.md`). Fixture
-  handles (`setupTestDatabase` → `getScriptDatabase(url, process.env)`) follow the same var and
-  use the WebSocket pool under `neon`; the request path is neon-http, as deployed. A raw result is
-  read with `rows()` / `affected()` in tests too
+- **One driver (D35), one seam.** `.env.test` sets `DATABASE_DRIVER=postgres`; the `driver`
+  project proves the seam through a per-request client and through a view of the Node process
+  pool (`apps/web/src/db/CLAUDE.md`). Fixture handles (`setupTestDatabase` →
+  `getScriptDatabase(url, process.env)`) are pooled postgres.js clients. A raw result is read with
+  `rows()` / `affected()` in tests too
+- **The Node entry** is tested in-process (`tests/api/node-server.test.ts`, `// @vitest-isolate`
+  because it installs the process pool): `startServer({ env, mode, port: 0, uiDir })`, then real
+  `fetch`es and `stop()`
 
 ## The `// @vitest-isolate` marker
 

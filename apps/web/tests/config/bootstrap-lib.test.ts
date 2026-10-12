@@ -499,17 +499,16 @@ describe('parseBootstrapArgs', () => {
     expect(parseBootstrapArgs([], { ROCKETPOD_ALLOW_ROOT: '' }).allowRoot).toBe(false)
   })
 
-  it('reads --driver (D35) in both forms and refuses anything else', () => {
-    expect(parseBootstrapArgs(['--driver', 'neon']).driver).toBe('neon')
+  it('reads --driver (D35) in both forms: postgres only, neon refused with the fix', () => {
+    expect(parseBootstrapArgs(['--driver', 'postgres']).driver).toBe('postgres')
     expect(parseBootstrapArgs(['--driver=postgres']).driver).toBe('postgres')
-    expect(() => parseBootstrapArgs(['--driver', 'pg'])).toThrow(/neon or postgres/)
+    expect(() => parseBootstrapArgs(['--driver', 'pg'])).toThrow(/must be postgres/)
     expect(() => parseBootstrapArgs(['--driver'])).toThrow(BootstrapUsageError)
-    expect(() => parseBootstrapArgs(['--driver', 'neon', '--check'])).toThrow(/exclude/)
-    // The neon driver reaches Neon or the local proxy, never another external Postgres.
-    expect(() =>
-      parseBootstrapArgs(['--driver', 'neon', '--db-url', 'postgres://u:pw@rds.example.com/db'])
-    ).toThrow(/needs a Neon --db-url/)
-    expect(parseBootstrapArgs(['--driver', 'neon', '--db-url', NEON]).driver).toBe('neon')
+    expect(() => parseBootstrapArgs(['--driver', 'postgres', '--check'])).toThrow(/exclude/)
+    expect(() => parseBootstrapArgs(['--driver', 'neon', '--db-url', NEON])).toThrow(
+      /neon was removed/
+    )
+    expect(parseBootstrapArgs(['--driver', 'postgres', '--db-url', NEON]).driver).toBe('postgres')
   })
 
   it('reads --db-url as a separate value and in = form', () => {
@@ -606,20 +605,10 @@ describe('bootstrapStepPlan', () => {
 
 describe('localDriverFor (D35)', () => {
   const NEON = 'postgresql://u:pw@ep-x-123-pooler.eu-central-1.aws.neon.tech/neondb?sslmode=require'
-  it('defaults to postgres — the Docker database over TCP, no proxy', () => {
+  it('is always postgres — any database over TCP; a stale neon is rewritten', () => {
     expect(localDriverFor({})).toBe('postgres')
-  })
-  it('keeps what .dev.vars says, so dev:db:up --neon survives a re-run', () => {
-    expect(localDriverFor({ existing: 'neon' })).toBe('neon')
-    expect(localDriverFor({ existing: 'bogus' })).toBe('postgres')
-  })
-  it('a Neon --db-url selects neon (a sandbox has no TCP out); any other URL postgres', () => {
-    expect(localDriverFor({ dbUrl: NEON, existing: 'postgres' })).toBe('neon')
-    expect(localDriverFor({ dbUrl: 'postgres://u:pw@db.example.com/x', existing: 'neon' })).toBe(
-      'postgres'
-    )
-  })
-  it('--driver wins over everything', () => {
+    expect(localDriverFor({ existing: 'neon' })).toBe('postgres')
+    expect(localDriverFor({ dbUrl: NEON, existing: 'postgres' })).toBe('postgres')
     expect(localDriverFor({ flag: 'postgres', dbUrl: NEON, existing: 'neon' })).toBe('postgres')
   })
   it('isNeonDatabaseUrl reads the host, not a substring', () => {

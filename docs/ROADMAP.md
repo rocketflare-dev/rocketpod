@@ -63,17 +63,21 @@ The detailed adapter design already exists in `docs/SELF-HOSTED.md` (untracked i
 - Plugin context (`src/plugins/api/{http,jobs,events,workflow}.ts`): replace `durableObject(...)` and
   Cloudflare step types with neutral calls.
 
-### M2. Node entry and the database (2 d)
-- `src/server.ts` reads `loadConfig(process.env)` and has two modes, `web` and `worker` (or `all` for dev):
-  - `@hono/node-server` with `serveStatic(dist/ui)` and an SPA fallback for non-API GETs (`isApiPath`)
-  - `/healthz`
-  - SIGTERM drains the `defer` set and in-flight jobs, then closes the pool
-- `openDatabase` keeps its signature over **one postgres.js pool per process**:
-  - delete the neon branch, `HYPERDRIVE`, `NEON_LOCAL_PROXY` and the neon proxy compose profile
-  - simplify the `driver` project and `driver-results.test.ts` to one driver
-- Client IP: read `x-forwarded-for` with `TRUSTED_PROXY_HOPS` instead of `cf-connecting-ip`, in
-  `rate-limit.ts` and `routes/auth/helpers.ts`.
-- Delete `worker.ts`, the wrangler tomls, `worker-configuration.d.ts`, `.dev.vars*` and the `cloudflare:workers` mock.
+### M2. Node entry and the database (2 d) — done
+- `src/node/server.ts` reads `loadConfig(process.env)` and has three modes, `web`, `worker` and `all` (dev):
+  - `@hono/node-server`, the SPA's files served first (`src/node/assets.ts`) and an `index.html`
+    fallback through the app's `ASSETS` catch-all (`isApiPath` paths stay JSON 404s)
+  - `/healthz` (liveness) and `/readyz` (pool ping; 503 while draining)
+  - SIGTERM drains the tracked `waitUntil` set (`src/node/defer.ts`) and the worker loop, then closes the pool
+- `openDatabase` keeps its signature; `installProcessPool` gives **one postgres.js pool per process**
+  and `openDatabase` hands out views of it. The neon driver, `NEON_LOCAL_PROXY`, the neon proxy
+  image and compose profiles and the driver project's second pass are deleted; `driver-results.test.ts`
+  is simplified to one driver.
+- Client IP: `clientIpOf(c)` — the socket peer, or `X-Forwarded-For` behind `TRUSTED_PROXY_HOPS`.
+- `dist/server.js` (`scripts/build-server.mjs`); `pnpm web dev:node`.
+- **Sequencing (decided):** the Cloudflare entry (`worker.ts`, the tomls, the DO, the workflow shim,
+  `src/platform/cloudflare/`, `HYPERDRIVE`) is NOT deleted here. It stays green beside the Node
+  runtime until **M6b**, so every commit's gate passes on both.
 
 ### M3. Jobs and cron on pg-boss (2–3 d)
 - The producer maps `delaySeconds` to `startAfter`.
@@ -167,6 +171,13 @@ version, and keep the adapter thin enough that either the engine or the fallback
   - Add platform `AI_BASE_URL/AI_API_KEY/AI_MODEL` (OpenAI-compatible) next to `ANTHROPIC_API_KEY`.
   - Add `EMBEDDINGS_BASE_URL/MODEL`, still 1024 dims.
   - No key still gives 503. Tests use the recorded fakes.
+
+### M6b. Delete the Cloudflare path (1–2 d)
+- Delete `src/worker.ts`, `src/platform/cloudflare/`, the `NotificationsHub` DO, the
+  `AgentRunWorkflow` shim, both wrangler tomls, `worker-configuration.d.ts`, `.dev.vars*`, the
+  `cloudflare:workers` mock, `HYPERDRIVE` in `db/client.ts`, `build:api`, and the Cloudflare-config
+  tests (`wrangler-parity`, `patch-toml`, `plugin-resources`, `provision-*`, `deployer`).
+- Test fakes become native in-memory `Platform` implementations (no Worker-shaped env).
 
 ### M7. Packaging: Docker, Compose, Helm (3–4 d)
 - Multi-stage `Dockerfile`: `vite build` + a `tsup` server bundle, then a non-root slim Node 24 image.

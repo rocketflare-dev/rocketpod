@@ -11,6 +11,7 @@ import { setSessionCookie } from '../../auth/cookies'
 import { createSession } from '../../auth/sessions'
 import { defaultTenantFor } from '../../services/auth'
 import type { AppContext } from '../../types'
+import { clientIpOf } from '../../utils/routes/client-ip'
 
 export type LoginErrorCode =
   | 'invalid_token'
@@ -36,13 +37,7 @@ export function loginErrorRedirect(c: AppContext, code: LoginErrorCode): Respons
   return c.redirect(`/login?error=${code}`, 302)
 }
 
-export function clientIpOf(c: AppContext): string | null {
-  return (
-    c.req.header('cf-connecting-ip') ??
-    c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ??
-    null
-  )
-}
+export { clientIpOf }
 
 /** Session for the user's oldest membership (or none), cookie set. Returns the session id. */
 export async function completeLogin(

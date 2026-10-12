@@ -21,10 +21,10 @@ workspace root) or through the root scripts (`pnpm deploy[:staging]`, `pnpm prov
 
 - Typed by `pnpm types` → `apps/web/worker-configuration.d.ts` (`Cloudflare.Env`), committed. After editing a
   toml, run `pnpm types` and commit the result
-- Baseline: `ASSETS`, `RATE_LIMIT_KV`, and `HYPERDRIVE` **only under `DATABASE_DRIVER = "postgres"`**
-  (D35): the kit's tomls say `neon` and carry no `[[hyperdrive]]` block, so `wrangler types` omits
-  it and `AppBindings` (`api/types.ts`) adds it back as optional — `Cloudflare.Env & { HYPERDRIVE?:
-  Hyperdrive }`. The parity test wants the block in both tomls or neither, and none in a `neon` file.
+- Baseline: `ASSETS`, `RATE_LIMIT_KV`, and `HYPERDRIVE` **only when provisioned** (D35): the
+  kit's tomls carry no `[[hyperdrive]]` block (the Worker then reads the `DATABASE_URL` secret), so
+  `wrangler types` omits it and `AppBindings` (`api/types.ts`) adds it back as optional. The
+  parity test wants the block in both tomls or neither.
   Phase 2: `JOBS_QUEUE`, `NOTIFICATIONS_HUB`,
   `FILES`. Phase 3 (built): `AGENT_RUN_WORKFLOW` (`[[workflows]]`, class `AgentRunWorkflow`) and `AI`
   (`[ai] binding = "AI"`, Workers AI embeddings). The analytics PLUGIN (D19, D31) adds **no binding**:
@@ -136,7 +136,7 @@ turn was investigated and rejected (`docs/CONCEPTS.md` §9 Known gaps): steps do
   `step.do('execute#N', { retries, timeout })` → `step.do('finish')`, with a round loop in between
   (below); each step wraps its body in
   `withStepDatabase(env, cfg, db => …)` — ONE DB client per step, `close()` awaited in `finally`
-  (Hyperdrive or Neon is the pool). Bodies are plain functions in `services/agents/runtime.ts`; step return
+  (Hyperdrive is the pool on the Worker; on Node it is a view of the process pool). Bodies are plain functions in `services/agents/runtime.ts`; step return
   values are small serialisable objects (`{ runId, status }`), never rows. Steps are idempotent because
   the `agent_runs` row is the claim (`UPDATE … WHERE status IN (queued,running) RETURNING`; a retry
   re-claims). Cancellation is cooperative, escalating to `instance.terminate()` on a second request.
@@ -257,9 +257,9 @@ the check `tsc` cannot do — run it before pushing a new dependency.
 ## Local testing of the non-HTTP entry points
 
 `wrangler dev` (`pnpm dev:api`, :3001) emulates KV, Queues, DO, R2 and Workflows locally and reads
-the database from `.dev.vars` (`DATABASE_DRIVER=postgres` + `DATABASE_URL`, or `neon` +
-`NEON_LOCAL_PROXY` after `pnpm dev:db:up --neon`; a copy with a `[[hyperdrive]]` block also gets its
-`localConnectionString`). **Start and stop the stack through the scripts, never by
+the database from `.dev.vars` (`DATABASE_DRIVER=postgres` + `DATABASE_URL`; a copy with a
+`[[hyperdrive]]` block also gets its `localConnectionString`). The Node entry is `pnpm web
+dev:node` (`src/node/server.ts`, `docs/CONCEPTS.md` §3). **Start and stop the stack through the scripts, never by
 killing a pid**: `pnpm dev` runs `scripts/dev-server.mjs --preflight` first (clears this repo's
 leftovers, then refuses to start — exit 1, naming the pid — if anything else holds :3000/:3001,
 or `DEV_UI_PORT`/`DEV_API_PORT` when set in the shell or `.dev.vars` — `scripts/lib/dev-ports.mjs`

@@ -38,7 +38,7 @@ export interface ApplyDbRolesOptions {
   appDatabaseUrl?: string
   phase?: DbRolesPhase
   quiet?: boolean
-  /** Where `DATABASE_DRIVER` / `NEON_LOCAL_PROXY` are read from. Default `process.env`. */
+  /** Where `DATABASE_DRIVER` is read from (it must be `postgres` or unset). Default `process.env`. */
   env?: { readonly [key: string]: string | undefined }
   /**
    * `waitForDatabase`'s budget (1 s apart) before the first statement. This is often the FIRST

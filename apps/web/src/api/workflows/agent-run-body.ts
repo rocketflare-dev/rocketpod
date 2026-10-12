@@ -26,7 +26,7 @@
  * per step excludes I/O and goes to 300 s via `[limits] cpu_ms`, and resuming a retry at turn N is
  * what `agent_runs.checkpoint` already does.
  * Each step opens its OWN DB client (`openDatabase`, either driver — D35) and closes it in
- * `finally`; Hyperdrive or Neon is the pool.
+ * `finally`; the pool (Node's process pool, Hyperdrive) holds the connections.
  */
 
 import { AGENT_RESUME_EVENT, MAX_INTERRUPT_ROUNDS } from '@rocketpod/shared/ai/agents'

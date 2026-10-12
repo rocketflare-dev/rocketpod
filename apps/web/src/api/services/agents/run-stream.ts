@@ -183,8 +183,7 @@ export async function runStreamBody(
   while (true) {
     if (sink.aborted) return 'aborted'
 
-    // Two statements, concurrently (postgres.js pipelines them on one connection; neon-http sends
-    // two requests — D35). The run
+    // Two statements, concurrently (postgres.js pipelines them on one connection). The run
     // row is how a settle or a park is noticed: a finished run stops writing events, so waiting
     // for a row that will never come is waiting forever.
     const [rows, latest] = await Promise.all([

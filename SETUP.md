@@ -102,14 +102,10 @@ and `wrangler dev` from `.dev.vars` too (a copy whose toml has a `[[hyperdrive]]
 through `CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE`, which `pnpm dev` sets).
 `pnpm dev:db:down` stops this checkout's database and never another's.
 
-**The local driver is `postgres`, whatever you deploy.** The tomls' `DATABASE_DRIVER` is the
-DEPLOYED driver (`neon` in a fresh copy, D35); `.dev.vars` overrides it locally, and the bootstrap
-writes `DATABASE_DRIVER=postgres` there — postgres.js over TCP to the compose database, nothing else
-running. To run the deployed Neon driver against the same local database, `pnpm dev:db:up --neon`
-also starts a Neon proxy in front of it (per-checkout port from :4444) and writes
-`DATABASE_DRIVER=neon` + `NEON_LOCAL_PROXY`; `pnpm dev:db:up --postgres` switches back and stops the
-proxy. `pnpm bootstrap --driver neon|postgres` sets the same thing. Verify: `pnpm db:check` prints
-`Connected to … (neon driver)` or `(postgres driver)`.
+**One driver: `postgres`.** postgres.js over TCP, locally and deployed (D35; Rocketflare's `neon`
+driver was removed, and `DATABASE_DRIVER=neon` is refused). The bootstrap writes
+`DATABASE_DRIVER=postgres` to `.dev.vars`. Verify: `pnpm db:check` prints `Connected to …
+(postgres driver)`.
 
 Why three steps: a policy's `TO rocketpod_app` needs the role
 before migrations; the `REVOKE`s need the tables after. With `APP_DATABASE_URL` unset the role is
@@ -121,9 +117,7 @@ Neon branch, a shared dev server), point the bootstrap at the database you alrea
 bash scripts/bootstrap.sh --no-dev --db-url "postgresql://user:pass@ep-x.neon.tech/neondb?sslmode=require"
 ```
 It still runs ten steps. `1/10 toolchain` skips the Docker checks, and `3/10 secrets` writes the URL
-to `DATABASE_URL` in `apps/web/.dev.vars` — and, for a `*.neon.tech` URL, `DATABASE_DRIVER=neon`,
-which reaches Neon over HTTPS and WebSocket only (what a sandbox with no TCP out allows); any other
-URL gets `postgres`, and `--driver` overrides either. `4/10 database` doesn't start a container; it waits for
+to `DATABASE_URL` in `apps/web/.dev.vars` (reached over TCP, `postgres`). `4/10 database` doesn't start a container; it waits for
 `db:check` to answer (`external <host>/<db> · Connected to …`). `7/10 seed` runs with
 `SEED_ALLOW_REMOTE=1`, because the seed refuses a non-local host otherwise. The seed always prints
 `seeding <host>/<db>`, never the credentials. The database needs the pgvector extension available
@@ -276,12 +270,11 @@ scripts, `ROCKETPOD_API_KEY` + `ROCKETPOD_URL` in the environment replace the co
 
 ### 1.8 Tests
 ```bash
-pnpm test             # starts Postgres on :5433 + the Neon proxy on :4433 (apps/web/docker-compose.test.yml),
-                      # then every package: web api + api-isolated + driver (real DB), ui (jsdom), config (no DB);
-                      # cli — and the driver project again under the neon driver (the seam's conformance pass)
-# No Docker (a coding sandbox's gate): the same command against a throwaway Neon GATE branch —
-# DATABASE_URL + TEST_DATABASE_BRANCH=gate-<short>-<n> + TEST_DATABASE_ENDPOINT=ep-… (docs/CONCEPTS.md
-# §4) — runs the whole suite under neon. It refuses any other remote database.
+pnpm test             # starts Postgres on :5433 (apps/web/docker-compose.test.yml), then every package:
+                      # web api + api-isolated + driver (real DB), ui (jsdom), config (no DB); cli
+# No Docker (a coding sandbox's gate): the same command against a throwaway Neon GATE branch over
+# TCP — DATABASE_URL + TEST_DATABASE_BRANCH=gate-<short>-<n> + TEST_DATABASE_ENDPOINT=ep-…
+# (docs/CONCEPTS.md §4). It refuses any other remote database.
 ```
 Verify: all projects green — including every installed plugin's own tests, which run in the host's
 projects (`src/plugins/*/tests/{api,ui,config}`). The analytics plugin's `cube-isolation.test.ts`
@@ -632,11 +625,9 @@ the file (that is how CI runs it); never paste a token into a chat, and never pu
 `.dev.vars` (`wrangler dev` would load them into the Worker, and its `RESEND_API_KEY` is the app's
 sending key, not this full-access one).
 
-**The deployed driver** comes from the tomls' `DATABASE_DRIVER` — `neon` in a fresh copy: no
-Hyperdrive, and the Worker holds the pooled Neon URI as its `DATABASE_URL` secret. Pass
-`--driver postgres` to `pnpm provision cloudflare <env>` (or `all`) for Hyperdrive instead — any
-Postgres, a read cache, one Hyperdrive config per environment. Either writes BOTH tomls.
-`docs/DEPLOY.md` § Database driver has the table and the switch:
+**The deployed driver** is `postgres` (the only one): the Worker reads the `DATABASE_URL` secret,
+or Hyperdrive when `pnpm provision cloudflare <env> --driver postgres` (or `all`) has written the
+`[[hyperdrive]]` block into BOTH tomls. `docs/DEPLOY.md` § Database driver:
 
 | Variable | Mint at | Scope |
 |---|---|---|
@@ -734,11 +725,10 @@ deploys `wrangler.staging.toml` from inside `apps/web`. Runtime 500s are expecte
 Verify: the run is green; `pnpm web exec wrangler deployments list -c wrangler.staging.toml` shows it.
 
 ### 3.5 Worker secrets
-**Under `neon`, first** put the Worker's database connection — the branch's **pooled** URI:
-`printf '%s' "$POOLED_URL" | pnpm web exec wrangler secret put DATABASE_URL -c wrangler.staging.toml`
-(`pnpm provision secrets <env>` does it from the Neon API). Then, for every other non-`[vars]` name
-in `apps/web/.dev.vars.example` (skip `DATABASE_DRIVER` and `NEON_LOCAL_PROXY` — local only —
-`DATABASE_URL` under `postgres`, which uses Hyperdrive, and `APP_DATABASE_URL` unless enabling RLS; the `OIDC_*` names other than
+**Without a `[[hyperdrive]]` block, first** put the Worker's database connection:
+`printf '%s' "$DATABASE_URL" | pnpm web exec wrangler secret put DATABASE_URL -c wrangler.staging.toml`.
+Then, for every other non-`[vars]` name in `apps/web/.dev.vars.example` (skip `DATABASE_DRIVER` —
+local only — `DATABASE_URL` when the toml has Hyperdrive, and `APP_DATABASE_URL` unless enabling RLS; the `OIDC_*` names other than
 `OIDC_CLIENT_SECRET`, and `AUTH_OIDC_ONLY`, are `[vars]` — Part 2.3b):
 ```bash
 # one per name: OAUTH_ENCRYPTION_KEY RESEND_API_KEY BOOTSTRAP_ADMIN_EMAILS GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET

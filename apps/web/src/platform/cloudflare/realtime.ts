@@ -4,8 +4,8 @@
  * `X-*` headers, which the DO trusts because it is reachable solely through the binding.
  */
 import type { NotificationsHub } from '../../api/durable-objects/notifications-hub'
-import { HUB_HEADERS } from '../../api/durable-objects/notifications-hub'
 import type { RealtimeHub } from '../types'
+import { HUB_HEADERS } from './hub-headers'
 
 export function createDurableObjectHub(
   namespace: DurableObjectNamespace<NotificationsHub>

@@ -15,7 +15,7 @@ const DIRECT =
 const gate = {
   NODE_ENV: 'test',
   DATABASE_URL: POOLED,
-  DATABASE_DRIVER: 'neon',
+  DATABASE_DRIVER: 'postgres',
   TEST_DATABASE_EPHEMERAL: '1',
   TEST_DATABASE_BRANCH: 'gate-51db60f0-1',
   TEST_DATABASE_ENDPOINT: 'ep-cool-darkness-123456',
@@ -71,11 +71,6 @@ describe('safetyCheck: the ephemeral gate branch', () => {
   it('refuses a remote database without the ephemeral profile, whatever else is set', () => {
     refuses({ ...gate, TEST_DATABASE_EPHEMERAL: undefined }, /must be local Postgres/)
     refuses({ ...gate, TEST_DATABASE_EPHEMERAL: 'true' }, /must be local Postgres/)
-  })
-
-  it('refuses the postgres driver (a sandbox has no TCP out)', () => {
-    refuses({ ...gate, DATABASE_DRIVER: 'postgres' }, /needs DATABASE_DRIVER=neon/)
-    refuses({ ...gate, DATABASE_DRIVER: undefined }, /needs DATABASE_DRIVER=neon/)
   })
 
   it('refuses any remote host that is not a Neon endpoint', () => {

@@ -29,8 +29,8 @@ package is private by default (`"private": true`, like `packages/shared`, which 
    bindings:  RATE_LIMIT_KV  [JOBS_QUEUE  FILES  AGENT_RUN_WORKFLOW  AI]  ASSETS  (+ HYPERDRIVE under postgres)
    crons:     0 4 * * * (prune)  + every installed plugin's       routes: /api /auth /ws + plugins'
                       │                      │
-   neon:      DATABASE_URL secret        DATABASE_URL secret              (pooled Neon host, HTTPS + WS)
-   postgres:  Hyperdrive <app>-staging   Hyperdrive <app>-production      (direct host, any Postgres)
+   postgres:  Hyperdrive <app>-staging   Hyperdrive <app>-production      (direct host, any Postgres;
+              (else DATABASE_URL secret)  (else DATABASE_URL secret)        else the DATABASE_URL secret)
                       │                      │
               Neon branch `staging`      Neon branch `production` (main)  one project, role per branch
 ```
@@ -46,48 +46,22 @@ near Neon rather than near the user, which is what makes sequential queries chea
 
 ## Database driver (D35)
 
-`[vars] DATABASE_DRIVER` in each toml picks how the Worker reaches Postgres. **A toml with no
-`DATABASE_DRIVER` means `postgres`** — every copy from before 0.15.0 — and the kit's own tomls say
-`"neon"`, so a fresh copy deploys on Neon. Locally `apps/web/.dev.vars` overrides it (the bootstrap
-writes `DATABASE_DRIVER=postgres`), so development never needs the deployed driver.
+**Rocketpod has one driver: postgres.js.** Rocketflare's `neon` driver (neon-http + a WebSocket
+pool) was removed (`docs/FORK.md`); `DATABASE_DRIVER` accepts only `postgres`, and `loadConfig`
+refuses `neon` with the fix. The Worker (this runbook, until M6b deletes it — `docs/ROADMAP.md`)
+reaches Postgres through the `[[hyperdrive]]` binding when the toml has one (direct host), else
+over the `DATABASE_URL` secret; the Node server (`src/node/server.ts`) holds one pool per process
+on `DATABASE_URL`. Neon remains a perfectly good Postgres host for either — point at its DIRECT
+host for DDL (`migrate.ts` strips `-pooler`).
 
-| | `neon` | `postgres` |
-|---|---|---|
-| Driver | Neon serverless: neon-http per query, a WebSocket `Pool` per transaction | postgres.js |
-| Reaches | Neon only, over HTTPS / WebSocket | any Postgres, through Hyperdrive |
-| Worker holds | the `DATABASE_URL` secret — the **pooled** Neon URI | the `[[hyperdrive]]` binding (direct host) |
-| `[[hyperdrive]]` block | **absent** — wrangler refuses a deploy naming an id that does not exist | present in BOTH tomls |
-| Read cache | none | Hyperdrive's (60 s default) |
-| Hyperdrive configs used (25 per account) | none | one per environment |
+`pnpm provision cloudflare <env> --driver postgres` creates the Hyperdrive config and writes the
+block into both tomls (the parity test wants it in both or neither). Its `--driver neon` path is
+not removed yet and must not be used — the Worker would refuse to start (provisioning is replaced
+by the Compose/Helm deploy in M7–M8).
 
-**Choosing.** Neon, and especially many apps in one account (a fleet) or a sandbox with no TCP out →
-`neon`. Any other Postgres (RDS, Supabase, Crunchy, self-hosted), or one app that wants Hyperdrive's
-read cache → `postgres`. `pnpm provision` reads the toml and `--driver neon|postgres` switches:
-`pnpm provision cloudflare <env> --driver <d>` rewrites BOTH tomls (the var, and the
-`[[hyperdrive]]` block added or removed), because the parity test wants the block in both or neither.
-
-**Three `DATABASE_URL`s, one name.** The Worker secret (`neon` only: the pooled URI, written by
-`pnpm provision secrets|deploy <env>`), the GitHub Environment secret (the DIRECT host, for
-`db:migrate:ci` — any driver) and `.dev.vars` (the local database). Same name, different stores;
-none of them is ever the other.
-
-**Switching a live deployment `postgres` → `neon`**, one environment at a time, staging first:
-
-1. `NEON_API_KEY=… pnpm provision secrets <env> --driver neon` (or `wrangler secret put
-   DATABASE_URL` with the pooled URI). A `postgres` Worker ignores the secret, so this is safe first.
-2. `pnpm provision cloudflare <env> --driver neon` — `DATABASE_DRIVER = "neon"` and no
-   `[[hyperdrive]]` block, in both tomls. Commit.
-3. Run the whole suite under `neon` once — `GATE_SUITE_DRIVER=neon pnpm gate test` (every gate
-   already runs the `driver` conformance project under both drivers; this runs the rest too) —
-   then deploy staging, check `/api/ready`, compare p95 with the Hyperdrive baseline, then
-   production.
-4. **Keep the Hyperdrive configs for about a week**: `wrangler rollback` to a `postgres` version
-   restores its `HYPERDRIVE` binding and needs the config to still exist. Deleting them is a
-   separate cleanup, never part of the switch.
-
-`neon` → `postgres` is `pnpm provision cloudflare <env> --driver postgres` (creates the Hyperdrive
-config, writes the block and the var into both tomls), commit, deploy. The Worker's `DATABASE_URL`
-secret can stay; `postgres` reads it only when there is no binding.
+**Three `DATABASE_URL`s, one name.** The Worker secret (the no-Hyperdrive fallback), the GitHub
+Environment secret (the DIRECT host, for `db:migrate:ci`) and `.dev.vars` (the local database).
+Same name, different stores; none of them is ever the other.
 
 ## Wrangler anatomy — two files, one shape (D6)
 

@@ -21,7 +21,7 @@ export class AgentRunWorkflow extends WorkflowEntrypoint<CloudflareBindings, Age
   /**
    * The runaway guard's round count. An instance field so the test can lower it: the behaviour
    * under test is what happens AT the cap, and 32 rounds of real queries is latency-bound on a slow
-   * link (30 s on a real Neon branch). Nothing else sets it.
+   * link (30 s on a remote gate branch). Nothing else sets it.
    */
   maxInterruptRounds: number = MAX_INTERRUPT_ROUNDS
 

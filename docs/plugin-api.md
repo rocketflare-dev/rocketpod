@@ -91,7 +91,7 @@ The server surface: the context family, and the types a plugin must be able to n
 - `type Actions = (typeof ACTIONS)[number]`
 - `interface ActivityInput`
 - `function affected(result: unknown): number`
-  The number of rows an `insert` / `update` / `delete` without `.returning()` touched: postgres.js reports `.count`, Neon `.rowCount`.
+  The number of rows an `insert` / `update` / `delete` without `.returning()` touched: postgres.js reports `.count` (a `.rowCount` is accepted too).
 - `function agentCtx<Input>(ctx: AgentContext<Input>): AgentCtx<Input>`
   Adapt the runtime's `AgentContext`.
 - `interface AgentCtx<Input = unknown>`
@@ -182,7 +182,7 @@ The server surface: the context family, and the types a plugin must be able to n
 - `function isOwnerLevel(session: RoleView): boolean`
   Irreversible tenant actions: explicit `owner` (or global admin), NOT `manage Tenant`.
 - `function isUniqueViolation(err: unknown): boolean`
-  A unique / primary-key violation (`23505`), under either driver.
+  A unique / primary-key violation (`23505`).
 - `function jobCtx(ctx: JobContext): JobCtx`
   Adapt the kit's `JobContext`. The only place a plugin's job half names a kit internal.
 - `interface JobCtx extends PluginContext, BackgroundMethods`
@@ -213,7 +213,7 @@ The server surface: the context family, and the types a plugin must be able to n
   Decrypt what `sealSecret` produced. Throws on a value sealed under another key.
 - `function pageWindow(query: PaginationQuery): { limit: number; offset: number }`
 - `function pgErrorCode(err: unknown): string \| undefined`
-  The Postgres SQLSTATE (`23505`, `40001`…) of a driver error, wherever it hangs: both drivers put `code` on their own error (postgres.js, Neon's `NeonDbError`) and drizzle wraps…
+  The Postgres SQLSTATE (`23505`, `40001`…) of a driver error, wherever it hangs: postgres.js puts `code` on its own error and drizzle wraps that, so the `cause` chain is walked.…
 - `interface PickOptions<T>`
 - `interface PickResult<T>`
 - `type PluginAgent = AgentDefinition<Input, Output>`
@@ -352,7 +352,7 @@ The server surface: the context family, and the types a plugin must be able to n
 - `interface ResourceGrantRow`
   One row of `grantsForResources`, before it is grouped by resource.
 - `function rows<T = Record<string, unknown>>(result: unknown): T[]`
-  The rows of a raw `db.execute(sql…)`, whichever driver ran it: postgres.js returns the array itself, Neon a `{ rows }` object. The only way code outside this file reads one (the…
+  The rows of a raw `db.execute(sql…)`: postgres.js returns the array itself; a `{ rows }` object (another driver's shape) is accepted too. The only way code outside this file reads…
 - `interface ScheduledTask`
 - `async function sealSecret(config: PluginConfig, plaintext: string): Promise<string>`
   Encrypt a credential for storage. The output is opaque base64; keep it in a `*_enc` column.

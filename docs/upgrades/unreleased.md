@@ -4,7 +4,7 @@ previous: 0.1.0
 date: null
 breaking: true
 migrations: []
-areas: [api, config, docs]
+areas: [api, db, config, docs]
 touches_surfaces: []
 requires_surfaces: []
 manual: false
@@ -12,7 +12,7 @@ manual: false
 
 ## What changed
 
-Every runtime capability is now a neutral `Platform` (`src/platform/types.ts`) read through `c.get('platform')`, with Cloudflare's adapters confined to `src/platform/cloudflare/` and a guard test keeping them there.
+Every runtime capability is now a neutral `Platform`, a Node entry (`src/node/server.ts`) serves the app with one Postgres pool per process, and the Neon serverless driver is removed.
 
 - `src/platform/types.ts`: neutral `JobsQueue`/`JobBatch`, `StorageService`, `RealtimeHub`, `RunEngine` + `Step`, `RateLimiter`, `Locks`, `PlatformAi`, `DocumentConverter`, `Defer`, and the `Platform` bundle.
 - `src/platform/cloudflare/`: R2 storage, KV rate limiter and locks, the Durable Object hub, the Workflow step adapter and `createCloudflarePlatform(env)`; `createR2Storage` and `checkRateLimit` moved here.
@@ -23,6 +23,16 @@ Every runtime capability is now a neutral `Platform` (`src/platform/types.ts`) r
 - Plugin API: `PluginContext.platform` added; `ToolCtx`/`AgentCtx` carry `platform` instead of `env`; `durableObject` removed from `RequestCtx`, `BackgroundMethods` and `@/plugins/api`; `workflowCtx(step, env, config, logger, platform)` takes the neutral `Step`.
 - `GET /ws` answers 503 `realtime_not_configured` when the platform has no hub (it threw a 500 before).
 - `tests/config/platform-seam.test.ts` fails on any Cloudflare type, binding name or `cloudflare:` import outside the adapters, `src/worker.ts` and the two Worker classes.
+- Node entry (M2): `src/node/server.ts` runs the Hono app on `@hono/node-server` in `web`, `worker` or `all` mode (`SERVER_MODE` or the first argument), with `/healthz`, `/readyz` (503 while draining), static files plus an SPA fallback, a tracked `waitUntil` set and a SIGTERM drain; the `worker` mode is a placeholder loop until pg-boss (M3).
+- `pnpm build` adds `build:server` (`scripts/build-server.mjs`, esbuild) → `dist/server.js`, one file with no `node_modules` at runtime; `pnpm web dev:node` runs the entry under `tsx watch`.
+- The Node platform (`src/node/platform.ts`) has every member null for now: uploads, agent runs, `/ws` and rate limits answer "not configured", and a route that must enqueue (invitations, tenant delete, chat compaction) fails with a 500 naming the missing queue.
+- `installProcessPool(env, { max, prepare })` in `db/client.ts`: ONE postgres.js pool per process; `openDatabase` for the same URL returns a view whose `close()` is a no-op. New config: `DATABASE_POOL_MAX` (10), `TRUSTED_PROXY_HOPS` (0).
+- The Neon serverless driver is gone: `@neondatabase/serverless`, `createNeonDatabase`/`createNeonPool`/`routeNeonThroughProxy`, `NEON_LOCAL_PROXY`, the neon-proxy image and compose profiles, `pnpm dev:db:up --neon`, `test:db:up:neon`, `GATE_SUITE_DRIVER`, the driver project's second pass, `docs/NEON-DRIVER.md`, `ws-pg-relay`. `DATABASE_DRIVER` accepts only `postgres`; `neon` fails config validation (and `bootstrap --driver neon`) naming the fix; both tomls and `launch.kit.json` say `postgres`.
+- Raw arrays are parsed by the kit's own `parseArrayLiteral` (`ARRAY_PARSERS`), no longer by Neon's parsers; the conformance suite adds quoting, NULL, nesting and `bytea[]` cases and a process-pool case.
+- `clientIpOf(c)` (`api/utils/routes/client-ip.ts`) is the one client-IP rule: on Node the socket peer, or the Nth `X-Forwarded-For` entry from the right behind `TRUSTED_PROXY_HOPS = N`; on the Worker `cf-connecting-ip`. `clientIp(headers)` in `rate-limit.ts` is removed.
+- `HUB_HEADERS` moved to `src/platform/cloudflare/hub-headers.ts` (re-exported by the DO module) so the Node bundle never pulls `cloudflare:workers` in.
+- `platform-seam.test.ts` also keeps `process`, Node server modules and `@hono/node-server` inside `src/node/`, and bans importing `src/node/` from anywhere else; `driver-results.test.ts` exempts `src/node/` and drops its Neon rules.
+- A refused `localhost` connect (`AggregateError`) is classified `database_unavailable`, and `waitForDatabase` prints its inner causes.
 
 ## How to apply
 
@@ -31,11 +41,17 @@ Every runtime capability is now a neutral `Platform` (`src/platform/types.ts`) r
 3. In every job handler and cron task of your own, read capabilities from `ctx.platform` instead of `ctx.env.<BINDING>`.
 4. In every plugin tool or agent of your own, replace `ctx.env` with `ctx.platform`, and replace a `durableObject(...)` call with a capability on `ctx.platform`.
 5. Copy `apps/web/tests/config/platform-seam.test.ts` and add any Worker class of your own to its `ALLOWED` list.
+6. Copy `apps/web/src/node/`, `apps/web/scripts/build-server.mjs` and `apps/web/src/api/utils/routes/client-ip.ts`; add `@hono/node-server` and `esbuild` to `apps/web/package.json` and the `build:server` and `dev:node` scripts; make `build` run `build:server` last.
+7. Replace `apps/web/src/db/client.ts` with the kit's (one driver, `installProcessPool`, `parseArrayLiteral`), remove `@neondatabase/serverless` from `apps/web` and `apps/evals`, and set `DATABASE_DRIVER = "postgres"` in both tomls and `.dev.vars`; delete `NEON_LOCAL_PROXY` everywhere.
+8. Replace any `clientIp(…)` / hand-read `cf-connecting-ip` of your own with `clientIpOf(c)`.
+9. Remove the `neon` profile from `apps/web/docker-compose.{dev,test}.yml` and `--profile neon` / `GATE_SUITE_DRIVER` from your workflows.
 
 ## Conflicts to expect
 
 - `apps/web/src/api/types.ts` → `AppBindings` is no longer `Cloudflare.Env` → keep the neutral shape and read bindings through the platform.
 - `apps/web/tests/mocks/bindings.ts` → `TestEnv` gained the `Platform` view → keep yours alongside.
+- `apps/web/src/db/client.ts` → the neon half is gone → take the kit's file whole; a copy never edits it.
+- `scripts/lib/test-plan.mjs` / `apps/web/tests/config/gate.test.ts` → one driver, no conformance second pass → take the kit's.
 
 ## Verify
 
@@ -43,3 +59,4 @@ Every runtime capability is now a neutral `Platform` (`src/platform/types.ts`) r
 2. `pnpm web test:config` passes, including `tests/config/platform-seam.test.ts`.
 3. `pnpm test` passes.
 4. `node scripts/plugin-api-doc.mjs --check` passes.
+5. `pnpm --filter @rocketpod/web build` writes `apps/web/dist/server.js`; `node apps/web/dist/server.js all` with `DATABASE_URL` set answers `GET /healthz` and `GET /readyz` with 200.

@@ -75,9 +75,8 @@ export const pruneExpired: ScheduledTask = {
  * that a cross-tenant cutoff would read the whole table; it does not — Postgres answers
  * `started_at < $1` from the `(tenant_id, started_at)` index with a bitmap scan when the cutoff is
  * selective, and a sequential scan only when most rows are going anyway. Per tenant it cost
- * `tenants / 10` round trips, each its own HTTP request under `neon` (D35): minutes for a large
- * fleet, and in the neon test run, where every api file's tenants share one database, a cron test
- * whose time grew with the size of the suite until it timed out.
+ * `tenants / 10` round trips: minutes for a large fleet over a slow link, and a cron test whose
+ * time grew with the size of the suite until it timed out.
  */
 export async function runPruneAiSpans(db: Database, retentionDays: number, now = new Date()) {
   const cutoff = new Date(now.getTime() - retentionDays * 24 * 60 * 60 * 1000)

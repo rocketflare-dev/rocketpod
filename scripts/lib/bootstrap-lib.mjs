@@ -491,7 +491,7 @@ export function parseBootstrapArgs(argv, env = {}) {
         i += 1
         break
       case '--driver':
-        opts.driver = takeValue('--driver', i, 'neon or postgres')
+        opts.driver = takeValue('--driver', i, 'postgres')
         i += 1
         break
       default:
@@ -514,17 +514,16 @@ export function parseBootstrapArgs(argv, env = {}) {
   if (opts.offline && opts.online) {
     throw new BootstrapUsageError('--offline and --online exclude each other')
   }
+  if (opts.driver === 'neon') {
+    throw new BootstrapUsageError(
+      '--driver neon was removed in Rocketpod: postgres.js reaches any Postgres, Neon included — use --driver postgres or leave it out'
+    )
+  }
   if (opts.driver !== null && !DATABASE_DRIVERS.includes(opts.driver)) {
-    throw new BootstrapUsageError('--driver must be neon or postgres')
+    throw new BootstrapUsageError('--driver must be postgres')
   }
   if (opts.driver !== null && opts.check) {
     throw new BootstrapUsageError('--driver and --check exclude each other (preflight only reads)')
-  }
-  if (opts.driver === 'neon' && opts.dbUrl !== null && !isNeonDatabaseUrl(opts.dbUrl)) {
-    throw new BootstrapUsageError(
-      '--driver neon needs a Neon --db-url (*.neon.tech): the neon driver speaks only to Neon, ' +
-        'or to the local proxy in front of the Docker database. Use --driver postgres for this URL.'
-    )
   }
   if (opts.dbUrl !== null) {
     // Never echo the value: it carries a password.
@@ -541,10 +540,10 @@ export function parseBootstrapArgs(argv, env = {}) {
   return opts
 }
 
-/** D35: the two values `DATABASE_DRIVER` takes (apps/web/src/db/client.ts). */
-export const DATABASE_DRIVERS = ['neon', 'postgres']
+/** D35, narrowed in Rocketpod: the one value `DATABASE_DRIVER` takes (apps/web/src/db/client.ts). */
+export const DATABASE_DRIVERS = ['postgres']
 
-/** A Neon host — the only external database the `neon` driver can reach. */
+/** A Neon host (a hosted Postgres; DDL goes to its direct host, never `-pooler`). */
 export function isNeonDatabaseUrl(url) {
   try {
     return new URL(url).hostname.endsWith('.neon.tech')
@@ -554,18 +553,11 @@ export function isNeonDatabaseUrl(url) {
 }
 
 /**
- * The LOCAL driver the bootstrap writes to `.dev.vars` (D35) — the toml's value is the DEPLOYED
- * one, and `.dev.vars` overrides it for wrangler dev, the scripts and the tests.
- *
- * `--driver` wins. Then `--db-url`: a Neon branch gets `neon`, because a coding sandbox has no TCP
- * out and postgres.js could not reach it at all; any other URL gets `postgres`. Then whatever
- * `.dev.vars` already says (a developer's `dev:db:up --neon` survives a re-run). Else `postgres`:
- * the compose database over TCP, no proxy — the default local setup.
+ * The LOCAL driver the bootstrap writes to `.dev.vars` (D35). Rocketpod has one — postgres.js
+ * over TCP, whatever the database (the compose one, a `--db-url`, a Neon branch) — so this is
+ * always `postgres`; a stale `neon` from a Rocketflare-era `.dev.vars` is rewritten.
  */
-export function localDriverFor({ flag = null, dbUrl = null, existing = '' } = {}) {
-  if (flag) return flag
-  if (dbUrl) return isNeonDatabaseUrl(dbUrl) ? 'neon' : 'postgres'
-  if (DATABASE_DRIVERS.includes(existing)) return existing
+export function localDriverFor(_input = {}) {
   return 'postgres'
 }
 

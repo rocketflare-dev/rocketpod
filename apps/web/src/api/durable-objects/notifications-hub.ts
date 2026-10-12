@@ -14,6 +14,7 @@
 import { DurableObject } from 'cloudflare:workers'
 import type { RealtimeEvent } from '@rocketpod/shared/realtime'
 import type { CloudflareBindings } from '../../platform/cloudflare'
+import { HUB_HEADERS } from '../../platform/cloudflare/hub-headers'
 import type { BroadcastResult } from '../../platform/types'
 
 /** Survives hibernation via `serializeAttachment`; the tags carry tenant and user. */
@@ -25,11 +26,7 @@ export interface HubAttachment {
 
 export type { BroadcastResult }
 
-export const HUB_HEADERS = {
-  tenantId: 'X-Tenant-Id',
-  userId: 'X-User-Id',
-  sessionId: 'X-Session-Id',
-} as const
+export { HUB_HEADERS }
 
 const PING = JSON.stringify({ type: 'ping' })
 const PONG = JSON.stringify({ type: 'pong' })

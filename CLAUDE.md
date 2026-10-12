@@ -25,13 +25,14 @@ Cloudflare Worker (`apps/web`), a CLI (`apps/cli`), private zod contracts
 
 ## Stack
 
-- **Runtime**: Cloudflare Workers (`nodejs_compat`); one Worker exports `fetch`+`queue`+`scheduled`
-  + DO/Workflow classes (`src/worker.ts`). Node 24, pnpm 10
+- **Runtime**: Node 24 — `src/node/server.ts` serves the Hono app on `@hono/node-server`
+  (`SERVER_MODE` `web|worker|all`; `/healthz`, `/readyz`; one Postgres pool per process; SIGTERM
+  drains), bundled to `dist/server.js`. The Cloudflare Worker (`src/worker.ts`: `fetch`+`queue`+
+  `scheduled` + DO/Workflow classes) still builds until M6b deletes it (`docs/ROADMAP.md`). pnpm 10
 - **API**: Hono 4, zod contracts from `@rocketpod/shared`, CASL. **DB**: Postgres 17 + pgvector —
-  Docker locally; deployed, `DATABASE_DRIVER` (D35) picks Drizzle over the Neon serverless driver
-  (`neon`, HTTP + a WS pool for transactions — the kit's tomls) or `postgres.js` via Hyperdrive
-  (`postgres`, any Postgres — a missing var, and local/`.dev.vars`); `openDatabase(env)`, 1 client/request;
-  raw results only through `rows()`/`affected()`
+  Docker locally; Drizzle over postgres.js, the ONE driver (D35, narrowed — Neon's serverless
+  driver is gone); `openDatabase(env)` = a view of the Node process pool (Hyperdrive client on the
+  Worker); raw results only through `rows()`/`affected()`
 - **Auth**: arctic (Google, Microsoft, any OIDC issuer — jose-verified `id_token`, off by default) + magic link + dev-login; `__Host-session`; API keys; KV rate limit
 - **Async / realtime**: Queues (`JOBS_QUEUE`), `NotificationsHub` DO `/ws`, R2 (`FILES`), cron, Workflows
 - **AI**: `services/ai/resolve` (`agent_models` → tenant `ai_configs` → platform key → Workers AI via
@@ -48,9 +49,8 @@ Cloudflare Worker (`apps/web`), a CLI (`apps/cli`), private zod contracts
 - **UI**: React 18 + Vite, DaisyUI 5 / Tailwind v4, React Router 6, TanStack Query 5; served as `ASSETS`
 - **CLI**: commander + chalk + open; `tsx` in dev, `tsc` → `dist/cli.js` (bin `rocketpod`)
 - **Tests**: vitest projects `api` · `api-isolated` · `driver` · `ui` · `config` · `kit-only` (the kit's own
-  tests, `apps/web/tests/kit-only/`, deleted by the rename — never in a copy) (Postgres :5433; the
-  suite under `postgres`, then `driver` — the seam's conformance suite — under `neon` through the
-  local proxy); cli; the eval kit's unit tests (`apps/evals/tests`). Evals themselves are
+  tests, `apps/web/tests/kit-only/`, deleted by the rename — never in a copy) (Postgres :5433;
+  `driver` is the seam's conformance suite); cli; the eval kit's unit tests (`apps/evals/tests`). Evals themselves are
   `pnpm eval`, outside the gate
 - **Lint**: Biome 2 at the root (single quotes, `asNeeded` semicolons, 100 cols)
 
@@ -60,12 +60,12 @@ Cloudflare Worker (`apps/web`), a CLI (`apps/cli`), private zod contracts
 pnpm bootstrap · pnpm preflight  # first run in one go (--offline/--online toggle [ai]) / read-only check
 pnpm dev:db:up && pnpm db:migrate  # Postgres on the first free port from :5432 → DATABASE_URL; role → migrations → grants
 pnpm seed [--demo] && pnpm dev  # tenant/users/key (+ populated workspace); wrangler :3001 + vite :3000 (strict ports)
+pnpm web dev:node  # the Node entry under tsx watch (mode all, PORT 3001) — M7 makes it `pnpm dev`
 pnpm dev:stop · pnpm dev:status · pnpm dev:db:status  # kill this repo's dev tree / port holders / every dev database
 pnpm cli login --server http://localhost:3001  # browser → ~/.rocketpod/config.json, then whoami
 pnpm gate [step…] · pnpm gate --list [--json]  # THE gate: lint → typecheck → test → build (CI's one job, Launch's ship gate)
-pnpm test  # every package; starts the test DB + Neon proxy; suite under postgres, then driver under neon
-TEST_DATABASE_BRANCH=gate-… pnpm test  # a sandbox gate: no Docker, the whole suite on a Neon gate branch (CONCEPTS §4)
-pnpm dev:db:up --neon|--postgres  # D35: local dev on either driver
+pnpm test  # every package; starts the test DB; the whole suite, driver conformance included
+TEST_DATABASE_BRANCH=gate-… pnpm test  # a sandbox gate: no Docker, the whole suite on a gate branch over TCP (CONCEPTS §4)
 pnpm eval [suite] [--model x] [--compare] · pnpm eval:baseline · pnpm eval:view  # real-model evals (D33, docs/EVALS.md)
 pnpm lint · pnpm typecheck · pnpm build  # workspace-wide
 pnpm web <script>  # any apps/web script (test:api, db:check…)
@@ -81,7 +81,10 @@ pnpm kit:upgrade [--to X.Y.Z] [--apply] · pnpm kit:release X.Y.Z  # port a kit 
 ```
 apps/web/          @rocketpod/web — wrangler*.toml, worker-configuration.d.ts, .dev.vars(.example), .env.test,
 │                  drizzle.config.ts, migrations/, scripts/, tests/
+│  src/node/       the Node entry (M2): server.ts (modes, probes, shutdown) · platform.ts · assets.ts
+│                  (static + SPA fallback) · defer.ts (waitUntil) · worker-loop.ts — `dist/server.js`
 │  src/worker.ts   export default { fetch, queue, scheduled }; export { NotificationsHub, AgentRunWorkflow }
+│                  (the Cloudflare entry, until M6b)
 │  src/config.ts   loadConfig(env): zod over Cloudflare.Env; routes read c.get('config')
 │  src/permissions/  CASL owner/admin/member/support + isGlobalAdmin   src/db/  client, tenant-scope, schema/
 │  src/api/        index.ts (Hono app, middleware order, ASSETS catch-all) · queue.ts · scheduled.ts ·
@@ -131,8 +134,9 @@ mints a tenant API key `cli:<host>` → `?key=&tenant_id=&tenant_name=`; stored 
 `[vars]` in both tomls, read via `loadConfig(env)`: `APP_ENV` (`development|staging|production`) ·
 `TENANCY_MODE` (`multi|single` — same schema; single auto-joins the one tenant) ·
 `SIGNUP_MODE` (`open|invite_only|approval`; `BOOTSTRAP_ADMIN_EMAILS` seeds the first admin) ·
-`TENANT_SCOPE_MODE` (`off|enforce`, `docs/RLS.md`) · `DATABASE_DRIVER` (`neon|postgres`, D35; missing =
-`postgres`, `neon` needs the `DATABASE_URL` secret; `.dev.vars` overrides locally, with `NEON_LOCAL_PROXY`) · `AGENT_MAX_OUTPUT_TOKENS` · `AGENT_MAX_TURNS` ·
+`TENANT_SCOPE_MODE` (`off|enforce`, `docs/RLS.md`) · `DATABASE_DRIVER` (`postgres` only, D35; missing =
+`postgres`; `neon` is refused) · `DATABASE_POOL_MAX` (Node pool size, 10) · `TRUSTED_PROXY_HOPS`
+(proxies appending `X-Forwarded-For` in front of the Node server, 0) · `AGENT_MAX_OUTPUT_TOKENS` · `AGENT_MAX_TURNS` ·
 `CHAT_KNOWLEDGE_TOOLS` (`true|false` — chat may call the knowledge tools) ·
 `CHAT_HISTORY_MAX_CHARS` (history a turn replays; older turns are summarised by `chat.compact`) ·
 `FEATURES_ENABLED` (D30 — comma-separated feature keys this deployment ships at all; fail-closed,
@@ -148,10 +152,9 @@ code-quality.md · cloudflare.md. Runbooks: `docs/DEPLOY.md` · `docs/RLS.md`
 
 - **Gate**: `pnpm gate` (lint → typecheck → test → build) passes before every commit — the same
   command a copy's CI job and Launch's ship gate run
-- **Driver seam**: app code is driver-agnostic; `apps/web/src/db/client.ts` is the only place
-  `postgres` and `neon` differ, the guard in `driver-results.test.ts` bans the rest, and
-  `tests/driver/` proves it under both drivers and is never skipped per driver
-  (`apps/web/src/db/CLAUDE.md`)
+- **Driver seam**: app code never names the driver; `apps/web/src/db/client.ts` is the only place
+  it is, the guard in `driver-results.test.ts` bans the rest, and `tests/driver/` proves it (a
+  per-request client and the Node process pool) and is never skipped (`apps/web/src/db/CLAUDE.md`)
 - **Tenant isolation**: every domain query filters by `tenantId` from the auth context; every tenant
   table calls `tenantIsolation()` (RLS inert; `rls-coverage.test.ts` enforces), a plugin's tables
   included — and a plugin adding a query surface of its own (the analytics plugin's cubes) owns the
@@ -165,7 +168,9 @@ code-quality.md · cloudflare.md. Runbooks: `docs/DEPLOY.md` · `docs/RLS.md`
   `apps/web/wrangler{,.staging}.toml`; account-scoped names differ (parity test)
 - **Secrets** never in a toml, git or a response (`hasCredential`); `.dev.vars` comments hold no other
   credentials; the CLI never prints a full key; `gitleaks` in CI
-- **No `process.env` / Node-only APIs in `apps/web/src/`** (`pg`, `ws`, `node:fs`…); `build:api` catches it
+- **`process` and Node server APIs only in `apps/web/src/node/`** (`node:fs`, `node:http`,
+  `@hono/node-server`…), and nothing else imports `src/node/` — `platform-seam.test.ts` fails it, so
+  the Worker bundle (`build:api`) never pulls the Node entry in. Never add `pg`
 - **Release = root version**: git tag == root `package.json` `version` (ships web + cli)
 - **Docs in sync**: a behaviour change updates CONCEPTS / SETUP / DEPLOY / rules in the same PR,
   **and adds an entry to `docs/upgrades/unreleased.md`** — copies of the kit absorb changes by

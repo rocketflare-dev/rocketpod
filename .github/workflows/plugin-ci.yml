@@ -301,11 +301,10 @@ jobs:
 
       # The test database from the CLONED kit's own compose file — every kit a plugin can name as
       # its floor ships one (with `max_connections=300`) — so there is no `services:` block to keep
-      # in step with it and no restart hack. The neon profile is started too: a kit with
-      # `pnpm gate` runs its driver conformance pass through the proxy; an older one ignores it.
+      # in step with it and no restart hack.
       - name: Start the test database
         working-directory: kit
-        run: docker compose -f apps/web/docker-compose.test.yml --profile neon up -d --wait
+        run: docker compose -f apps/web/docker-compose.test.yml up -d --wait
 
       # The host — never the plugin — numbers the DDL in its own journal (§16), which is why this is
       # `plugin add` then `db:generate` rather than anything the plugin ships. Installing from a

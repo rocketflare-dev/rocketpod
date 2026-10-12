@@ -7,17 +7,16 @@ import { describe, expect, it } from 'vitest'
 import { latencyFactor } from '../helpers/latency'
 
 describe('latencyFactor: the one scale on every vitest time limit', () => {
-  it('follows the target: 1 under postgres, 4 under neon, 12 on a gate branch', () => {
+  it('follows the target: 1 locally, 12 on a gate branch', () => {
     expect(latencyFactor({})).toBe(1)
     expect(latencyFactor({ DATABASE_DRIVER: 'postgres' })).toBe(1)
-    expect(latencyFactor({ DATABASE_DRIVER: 'neon' })).toBe(4)
-    expect(latencyFactor({ TEST_DATABASE_EPHEMERAL: '1', DATABASE_DRIVER: 'neon' })).toBe(12)
+    expect(latencyFactor({ TEST_DATABASE_EPHEMERAL: '1' })).toBe(12)
   })
 
   it('TEST_LATENCY_FACTOR raises it on a slow machine', () => {
     expect(latencyFactor({ TEST_LATENCY_FACTOR: '4' })).toBe(4)
     expect(latencyFactor({ TEST_LATENCY_FACTOR: '2.5', DATABASE_DRIVER: 'postgres' })).toBe(2.5)
-    expect(latencyFactor({ TEST_LATENCY_FACTOR: '6', DATABASE_DRIVER: 'neon' })).toBe(6)
+    expect(latencyFactor({ TEST_LATENCY_FACTOR: '6' })).toBe(6)
   })
 
   it('never lowers it: a sandbox setting it keeps the gate branch at 12', () => {

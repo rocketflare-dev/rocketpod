@@ -1,16 +1,15 @@
 /**
  * The conformance suite stays a conformance suite (D35, tests/driver/CLAUDE.md).
  *
- * `tests/driver/` proves the driver seam: each test states one equivalence and passes UNCHANGED
- * under `postgres` and `neon`. The easy wrong fix for a test that fails under one driver is to
- * skip it there, or to branch its expectation on the driver — both of which turn a seam bug into
- * a green gate. So, over every file in the directory:
+ * `tests/driver/` proves the driver seam: each test states one fact about what app code sees
+ * through `src/db/client.ts`. The easy wrong fix for a failing one is to skip it, or to branch its
+ * expectation on the driver — both of which turn a seam bug into a green gate. So, over every file
+ * in the directory:
  *
  * 1. no `.skip`, `.skipIf`, `.runIf`, `.todo` or `.only` on `describe` / `it` / `test`;
  * 2. no conditional on the driver (`if`, `?:`, `&&`, `||`, `??`, `switch` naming `driver`,
  *    `DATABASE_DRIVER` or `databaseDriver(…)`) INSIDE a test. Module-level setup may still pick
- *    what to dial per driver (unreachable.test.ts points the proxy at the dead port), because that
- *    is setup, not an expectation.
+ *    what to dial, because that is setup, not an expectation.
  *
  * And the suite ships to every copy: no `kitOnly` glob in `.rocketflare.json` may reach it.
  */
@@ -101,7 +100,7 @@ function driverFiles(dir: string): string[] {
 }
 
 describe('the driver conformance suite (tests/driver/)', () => {
-  it('skips nothing and expects the same under both drivers', () => {
+  it('skips nothing and never branches an expectation on the driver', () => {
     const files = driverFiles(DRIVER_DIR)
     expect(files.length).toBeGreaterThan(0)
     const violations = files.flatMap(f => findConformanceViolations(f, readFileSync(f, 'utf8')))

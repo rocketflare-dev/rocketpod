@@ -1,7 +1,7 @@
 /**
  * How much every vitest time limit scales on this target (`vitest.config.ts` — the ONE place
- * timeouts scale). Computed from the target: 1 locally under `postgres`, 4 under `neon` through
- * the local proxy, 12 on a real Neon gate branch (`TEST_DATABASE_EPHEMERAL=1`).
+ * timeouts scale). Computed from the target: 1 locally, 12 on a remote gate branch
+ * (`TEST_DATABASE_EPHEMERAL=1`).
  *
  * `TEST_LATENCY_FACTOR` raises it for a slow MACHINE rather than a slow link — a coding sandbox
  * whose agent runs one test by hand, outside the gate, on a fraction of a laptop's CPU. It never
@@ -10,7 +10,7 @@
  * slow machine on the 5 s limit. Pure.
  */
 export function latencyFactor(env: Record<string, string | undefined>): number {
-  const computed = env.TEST_DATABASE_EPHEMERAL === '1' ? 12 : env.DATABASE_DRIVER === 'neon' ? 4 : 1
+  const computed = env.TEST_DATABASE_EPHEMERAL === '1' ? 12 : 1
   const raw = env.TEST_LATENCY_FACTOR?.trim()
   if (!raw) return computed
   const override = Number(raw)

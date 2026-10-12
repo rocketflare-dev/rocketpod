@@ -1,8 +1,7 @@
 /**
  * `pnpm gate` and `pnpm test` (docs/CONCEPTS.md §4): the step list is the contract Launch reads,
- * and the test plan is what makes the driver seam hold in every copy — the `driver` project runs
- * under BOTH drivers on a local target, and the remote target is decided by an explicit variable,
- * never by the shape of a URL.
+ * and the test plan runs every project — the `driver` conformance project included — on the
+ * target an explicit variable picks, never the shape of a URL.
  */
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
@@ -10,7 +9,7 @@ import { gateListSchema } from '@rocketpod/shared/gate'
 import { describe, expect, it } from 'vitest'
 import { GATE_STEPS, gateList, parseGateArgs } from '../../../../scripts/lib/gate-lib.mjs'
 import type { TestPlan } from '../../../../scripts/lib/test-plan.d.mts'
-import { PROXY_URL, planTests, resolveTarget } from '../../../../scripts/lib/test-plan.mjs'
+import { planTests, resolveTarget } from '../../../../scripts/lib/test-plan.mjs'
 
 const REPO = path.resolve(__dirname, '../../../..')
 const GATE_BRANCH = {
@@ -25,7 +24,7 @@ function plan(env: Record<string, string | undefined>, kitOnly = false): TestPla
   return p
 }
 
-/** The web vitest steps as `projects @ driver`, the shape the seam depends on. */
+/** The web vitest steps as `projects @ driver`. */
 function webRuns(p: TestPlan): string[] {
   return p.steps
     .filter(s => s.command.includes('vitest'))
@@ -94,70 +93,43 @@ describe('pnpm gate', () => {
 
 describe('pnpm test: the target', () => {
   it('is local by default, remote only when TEST_DATABASE_BRANCH names a branch', () => {
-    expect(resolveTarget({})).toEqual({ target: 'local', suiteDriver: 'postgres' })
-    expect(resolveTarget(GATE_BRANCH)).toEqual({ target: 'remote', suiteDriver: 'neon' })
+    expect(resolveTarget({})).toEqual({ target: 'local' })
+    expect(resolveTarget(GATE_BRANCH)).toEqual({ target: 'remote' })
     // A remote-looking URL alone is NOT a remote target: the local guard refuses it instead.
-    expect(resolveTarget({ DATABASE_URL: GATE_BRANCH.DATABASE_URL })).toMatchObject({
-      target: 'local',
-    })
+    expect(resolveTarget({ DATABASE_URL: GATE_BRANCH.DATABASE_URL })).toEqual({ target: 'local' })
   })
 
-  it('refuses conflicting signals rather than guessing', () => {
+  it('refuses conflicting or retired signals rather than guessing', () => {
     expect(resolveTarget({ TEST_DATABASE_EPHEMERAL: '1' })).toMatchObject({
       error: expect.stringMatching(/without TEST_DATABASE_BRANCH/),
     })
-    expect(resolveTarget({ ...GATE_BRANCH, GATE_SUITE_DRIVER: 'postgres' })).toMatchObject({
-      error: expect.stringMatching(/cannot run on a remote target/),
-    })
-    expect(resolveTarget({ GATE_SUITE_DRIVER: 'mysql' })).toMatchObject({
-      error: expect.stringMatching(/neon or postgres/),
+    expect(resolveTarget({ GATE_SUITE_DRIVER: 'neon' })).toMatchObject({
+      error: expect.stringMatching(/one driver/),
     })
   })
 })
 
 describe('pnpm test: the plan', () => {
-  it('local: the suite under postgres, then the driver project under neon through the proxy', () => {
+  it('local: every package, then the web suite under postgres (driver conformance included)', () => {
     const p = plan({})
     expect(p.compose).toBe(true)
     expect(p.steps[0]?.command).toEqual(['pnpm', '-r', '--filter', '!./apps/web', 'test'])
-    expect(webRuns(p)).toEqual([
-      'api @ postgres',
-      'api-isolated+driver+ui+config @ postgres',
-      'driver @ neon',
-    ])
-    expect(p.steps.at(-1)?.env.NEON_LOCAL_PROXY).toBe(PROXY_URL)
+    expect(webRuns(p)).toEqual(['api @ postgres', 'api-isolated+driver+ui+config @ postgres'])
     expect(p.steps[1]?.command).toContain('--no-isolate')
+    for (const step of p.steps) expect(step.env.NEON_LOCAL_PROXY).toBeUndefined()
   })
 
-  it('the conformance pass is pinned: the driver project runs under BOTH drivers locally', () => {
-    for (const env of [{}, { GATE_SUITE_DRIVER: 'neon' }, { GATE_SUITE_DRIVER: 'postgres' }]) {
-      const drivers = webRuns(plan(env))
-        .filter(r => r.split(' @ ')[0]?.split('+').includes('driver'))
-        .map(r => r.split(' @ ')[1])
-      expect(new Set(drivers)).toEqual(new Set(['postgres', 'neon']))
-    }
-  })
-
-  it('GATE_SUITE_DRIVER=neon: the suite under neon, the conformance pass under postgres', () => {
-    expect(webRuns(plan({ GATE_SUITE_DRIVER: 'neon' }))).toEqual([
-      'api @ neon',
-      'api-isolated+driver+ui+config @ neon',
-      'driver @ postgres',
-    ])
-  })
-
-  it('remote: no Docker, the whole suite under neon, and the skipped half said out loud', () => {
+  it('remote: no Docker, the whole suite under postgres against the branch', () => {
     const p = plan(GATE_BRANCH)
     expect(p.compose).toBe(false)
     expect(p.banner).toMatch(/gate-ab12cd-1/)
-    expect(webRuns(p)).toEqual(['api @ neon', 'api-isolated+driver+ui+config @ neon'])
+    expect(webRuns(p)).toEqual(['api @ postgres', 'api-isolated+driver+ui+config @ postgres'])
     for (const step of p.steps.filter(s => s.command.includes('vitest'))) {
       expect(step.env).toMatchObject({ TEST_DATABASE_EPHEMERAL: '1', APP_DATABASE_URL: '' })
-      expect(step.env.NEON_LOCAL_PROXY).toBeUndefined()
       // The branch's own DATABASE_URL stands: the plan never sets one.
       expect(step.env.DATABASE_URL).toBeUndefined()
     }
-    expect(p.notes.join('\n')).toMatch(/skipped — remote target, no TCP/)
+    expect(p.notes).toEqual([])
   })
 
   it('names the kit-only project only when the checkout carries it', () => {

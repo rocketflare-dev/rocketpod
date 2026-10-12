@@ -1,31 +1,22 @@
 /**
- * Drizzle over one of two drivers (D35), picked by `DATABASE_DRIVER`:
+ * Drizzle over postgres.js — the one driver (Rocketpod M2; Rocketflare's Neon serverless driver is
+ * gone, `docs/FORK.md`). Two ways to hold a connection:
  *
- * - `postgres` (a missing var means this): postgres.js. In the Worker, Hyperdrive is the real pool,
- *   so `max: 1` and `prepare: false` (transaction-mode pooler). Locally, TCP to the compose Postgres.
- * - `neon`: the Neon serverless driver. Queries go over HTTP (one round trip each); `transaction`
- *   opens a WebSocket `Pool` on first use, because neon-http cannot run interactive transactions.
- *   `NEON_LOCAL_PROXY` points both at a local proxy in front of the compose Postgres.
+ * - **Per request** (`openDatabase` with no process pool installed): a client per request or
+ *   invocation, closed with the handle (middleware/database.ts). The Worker path: Hyperdrive is
+ *   the real pool, so `max: 1` and `prepare: false` (transaction-mode pooler).
+ * - **Per process** (`installProcessPool`, the Node entry `src/node/server.ts`): ONE postgres.js
+ *   pool shared by every request in the process. `openDatabase` then hands out a view of it whose
+ *   `close()` is a no-op; the pool is ended once, on shutdown.
  *
- * A client is created per request/invocation and closed with the handle (middleware/database.ts).
- * Code outside this file sees `Database` — the base both drivers share — and reads raw `execute()`
- * results through `rows()` / `affected()`, never a driver's own shape.
+ * Code outside this file sees `Database` and reads raw `execute()` results through `rows()` /
+ * `affected()`, never the driver's own shape — so the driver stays swappable behind this file.
  *
- * **This file is the driver seam** (src/db/CLAUDE.md, "The driver seam"): the ONLY place the two
- * drivers differ. Every divergence is either normalised here — a raw result's shape (`rows()`,
- * `affected()`), a raw array's value (`ARRAY_PARSERS`), a driver error's code (`pgErrorCode()`) —
- * or banned outside it by `tests/config/driver-results.test.ts`, and `tests/driver/` proves the
- * result under both drivers in every gate.
+ * **This file is the driver seam** (src/db/CLAUDE.md, "The driver seam"): every driver detail is
+ * either normalised here — a raw result's shape (`rows()`, `affected()`), a raw array's value
+ * (`ARRAY_PARSERS`), a driver error's code (`pgErrorCode()`) — or banned outside it by
+ * `tests/config/driver-results.test.ts`, and `tests/driver/` proves the result in every gate.
  */
-import {
-  Pool as NeonPool,
-  neon,
-  neonConfig,
-  types as neonTypes,
-  type PoolClient,
-} from '@neondatabase/serverless'
-import { drizzle as drizzleNeonHttp } from 'drizzle-orm/neon-http'
-import { drizzle as drizzleNeonPool } from 'drizzle-orm/neon-serverless'
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core'
 import { drizzle as drizzlePostgres } from 'drizzle-orm/postgres-js'
 import postgres from 'postgres'
@@ -33,18 +24,23 @@ import * as schema from './schema'
 
 export type Database = PgDatabase<PgQueryResultHKT, typeof schema>
 
-export type DatabaseDriver = 'neon' | 'postgres'
-export const DATABASE_DRIVERS = ['neon', 'postgres'] as const
+export type DatabaseDriver = 'postgres'
+export const DATABASE_DRIVERS = ['postgres'] as const
 
 export interface DatabaseHandle {
   db: Database
-  /** Ends the underlying client (and, under `neon`, the transaction pool). Idempotent. */
+  /** Ends the underlying client. Idempotent; a no-op on a view of the process pool. */
   close(): Promise<void>
 }
 
 export interface CreateDatabaseOptions {
-  /** Connections per client. 1 in the Worker (Hyperdrive / Neon pool), 5 for scripts/tests. */
+  /** Connections per client. 1 in the Worker (Hyperdrive), 5 for scripts/tests, more for a pool. */
   max?: number
+  /**
+   * Named prepared statements. Off by default: Hyperdrive and other transaction-mode poolers do not
+   * support them across queries. A process pool connected straight to Postgres may turn them on.
+   */
+  prepare?: boolean
 }
 
 /**
@@ -52,56 +48,88 @@ export interface CreateDatabaseOptions {
  * `process.env` and a test's plain object all fit.
  */
 export interface DatabaseEnv {
-  /** `neon | postgres`; missing or empty means `postgres`, so a copy that never set it is unchanged. */
+  /** Only `postgres` remains; missing or empty means `postgres`. */
   DATABASE_DRIVER?: string
   HYPERDRIVE?: { connectionString: string }
   PREVIEW_DATABASE_URL?: string
   DATABASE_URL?: string
-  /** Local only: the Neon proxy in front of the compose Postgres (`http://localhost:4444`). */
-  NEON_LOCAL_PROXY?: string
 }
 
-/** The driver `env` selects. Throws on a value that is neither, rather than guessing. */
+/** The driver `env` selects. Throws on anything but `postgres`, rather than guessing. */
 export function databaseDriver(env: Pick<DatabaseEnv, 'DATABASE_DRIVER'>): DatabaseDriver {
   const value = env.DATABASE_DRIVER?.trim()
-  if (!value) return 'postgres'
-  if (value === 'neon' || value === 'postgres') return value
-  throw new Error(`DATABASE_DRIVER must be neon or postgres, got "${value}"`)
+  if (!value || value === 'postgres') return 'postgres'
+  if (value === 'neon') {
+    throw new Error(
+      'DATABASE_DRIVER=neon was removed in Rocketpod: postgres.js reaches any Postgres (Neon included) over TCP — set DATABASE_DRIVER=postgres or unset it'
+    )
+  }
+  throw new Error(`DATABASE_DRIVER must be postgres, got "${value}"`)
 }
 
 /**
- * The connection string for the selected driver:
- *
- * - `postgres`: `PREVIEW_DATABASE_URL ?? HYPERDRIVE.connectionString ?? DATABASE_URL`. Preview
- *   deployments (a per-PR Neon branch) bypass the shared Hyperdrive binding; `wrangler dev`
- *   supplies Hyperdrive's `localConnectionString` when the toml has the block.
- * - `neon`: `PREVIEW_DATABASE_URL ?? DATABASE_URL` (the pooled Neon URI). `HYPERDRIVE` is ignored.
+ * The connection string: `PREVIEW_DATABASE_URL ?? HYPERDRIVE.connectionString ?? DATABASE_URL`.
+ * Preview deployments bypass the shared Hyperdrive binding; `wrangler dev` supplies Hyperdrive's
+ * `localConnectionString` when the toml has the block; the Node entry reads `DATABASE_URL`.
  */
 export function resolveDatabaseUrl(env: DatabaseEnv): string {
-  const driver = databaseDriver(env)
-  const url =
-    driver === 'neon'
-      ? env.PREVIEW_DATABASE_URL || env.DATABASE_URL
-      : env.PREVIEW_DATABASE_URL || env.HYPERDRIVE?.connectionString || env.DATABASE_URL
+  databaseDriver(env)
+  const url = env.PREVIEW_DATABASE_URL || env.HYPERDRIVE?.connectionString || env.DATABASE_URL
   if (!url) {
     throw new Error(
-      driver === 'neon'
-        ? 'No database connection available: DATABASE_DRIVER=neon needs the DATABASE_URL secret'
-        : 'No database connection available: set the HYPERDRIVE binding or DATABASE_URL secret'
+      'No database connection available: set DATABASE_URL (or the HYPERDRIVE binding on the Worker)'
     )
   }
   return url
 }
 
-/** Open a handle for one request/invocation with the driver and URL `env` selects. */
+// ---- The process pool (Node) ----------------------------------------------------------------
+
+interface ProcessPool {
+  url: string
+  handle: DatabaseHandle
+}
+
+let processPool: ProcessPool | undefined
+
+/**
+ * Install ONE pool for this process: from now on `openDatabase` for the same URL returns a view of
+ * it whose `close()` does nothing. The returned handle's `close()` uninstalls the pool and ends it
+ * — the Node entry calls it once, after draining, on shutdown. Installing twice is an error: two
+ * pools in one process is exactly what this exists to prevent.
+ */
+export function installProcessPool(
+  env: DatabaseEnv,
+  options: CreateDatabaseOptions = {}
+): DatabaseHandle {
+  if (processPool) throw new Error('installProcessPool: a process pool is already installed')
+  const url = resolveDatabaseUrl(env)
+  const pooled = createDatabase(url, { max: options.max ?? 10, prepare: options.prepare })
+  const installed: ProcessPool = { url, handle: pooled }
+  processPool = installed
+  let closed: Promise<void> | undefined
+  return {
+    db: pooled.db,
+    close: () => {
+      closed ??= (async () => {
+        if (processPool === installed) processPool = undefined
+        await pooled.close()
+      })()
+      return closed
+    },
+  }
+}
+
+/** Open a handle for one request/invocation — a view of the process pool when one is installed. */
 export function openDatabase(
   env: DatabaseEnv,
-  options: Omit<CreateNeonDatabaseOptions, 'localProxy'> = {}
+  options: CreateDatabaseOptions = {}
 ): DatabaseHandle {
   const url = resolveDatabaseUrl(env)
-  return databaseDriver(env) === 'neon'
-    ? createNeonDatabase(url, { ...options, localProxy: env.NEON_LOCAL_PROXY })
-    : createDatabase(url, options)
+  if (processPool && processPool.url === url) {
+    return { db: processPool.handle.db, close: () => Promise.resolve() }
+  }
+  return createDatabase(url, options)
 }
 
 /**
@@ -112,8 +140,8 @@ export function createDatabase(url: string, options: CreateDatabaseOptions = {})
   const client = postgres(url, {
     max: options.max ?? 1,
     // Hyperdrive and other transaction-mode poolers do not support named prepared
-    // statements across queries; unnamed (per-query) is the only safe mode.
-    prepare: false,
+    // statements across queries; unnamed (per-query) is the safe default.
+    prepare: options.prepare ?? false,
     // Skips the startup round-trip that lists custom types; the kit only uses builtins
     // (pgvector's `vector` is sent/received as text by drizzle).
     fetch_types: false,
@@ -132,111 +160,103 @@ export function createDatabase(url: string, options: CreateDatabaseOptions = {})
   }
 }
 
+// ---- Raw arrays -----------------------------------------------------------------------------
+
 /**
- * Raw Postgres arrays, parsed the way the Neon driver parses them — with Neon's OWN parsers, so the
- * two cannot drift. postgres.js runs with `fetch_types: false` (no startup round trip per
- * request), which skips its array-type lookup, so without this a raw `text[]` arrived as the
- * literal `"{x,y}"` under `postgres` and as `['x','y']` under `neon`. The date and interval arrays
- * (1115, 1182, 1185, 1187) and `numeric[]` (1231) are absent on purpose: drizzle keeps those as
- * strings under BOTH drivers, and its column mappers expect that.
+ * Raw Postgres arrays, parsed into JS arrays. postgres.js runs with `fetch_types: false` (no
+ * startup round trip per client), which skips its array-type lookup, so without these a raw
+ * `text[]` arrives as the literal `"{x,y}"`. Elements parse like the scalar would: integers and
+ * floats to numbers, `int8` to a string (never rounded), booleans, JSON, `bytea` to a `Buffer`,
+ * everything else as text. The date and interval arrays (1115, 1182, 1185, 1187) and `numeric[]`
+ * (1231) are absent on purpose: drizzle keeps those as strings, and its column mappers expect that.
  */
-const ARRAY_OIDS = [
-  199, // json[]
-  1000, // bool[]
-  1001, // bytea[]
-  1005, // int2[]
-  1007, // int4[]
-  1009, // text[]
-  1014, // bpchar[]
-  1015, // varchar[]
-  1016, // int8[] (strings, like a scalar bigint)
-  1021, // float4[]
-  1022, // float8[]
-  1028, // oid[]
-  1040, // macaddr[]
-  1041, // inet[]
-  1183, // time[]
-  1270, // timetz[]
-  2951, // uuid[]
-  3807, // jsonb[]
-] as const
+type ElementParser = (value: string) => unknown
+
+const asText: ElementParser = value => value
+const asInt: ElementParser = value => Number.parseInt(value, 10)
+const asFloat: ElementParser = value => Number.parseFloat(value)
+const asBool: ElementParser = value => value === 't' || value === 'true'
+const asJson: ElementParser = value => JSON.parse(value)
+const asBytea: ElementParser = value =>
+  value.startsWith('\\x') ? Buffer.from(value.slice(2), 'hex') : Buffer.from(value, 'binary')
+
+const ARRAY_ELEMENTS: Record<number, ElementParser> = {
+  199: asJson, // json[]
+  1000: asBool, // bool[]
+  1001: asBytea, // bytea[]
+  1005: asInt, // int2[]
+  1007: asInt, // int4[]
+  1009: asText, // text[]
+  1014: asText, // bpchar[]
+  1015: asText, // varchar[]
+  1016: asText, // int8[] (strings, like a scalar bigint)
+  1021: asFloat, // float4[]
+  1022: asFloat, // float8[]
+  1028: asInt, // oid[]
+  1040: asText, // macaddr[]
+  1041: asText, // inet[]
+  1183: asText, // time[]
+  1270: asText, // timetz[]
+  2951: asText, // uuid[]
+  3807: asJson, // jsonb[]
+}
+
 const ARRAY_PARSERS: Record<number, (value: string) => unknown> = Object.fromEntries(
-  ARRAY_OIDS.map(oid => [oid, neonTypes.getTypeParser(oid, 'text')])
+  Object.entries(ARRAY_ELEMENTS).map(([oid, element]) => [
+    Number(oid),
+    (value: string) => parseArrayLiteral(value, element),
+  ])
 )
 
-export interface CreateNeonDatabaseOptions extends CreateDatabaseOptions {
-  /** `NEON_LOCAL_PROXY`: route HTTP and WebSocket through a local proxy instead of Neon. */
-  localProxy?: string
-  /**
-   * Every query over the WebSocket pool, none over HTTP. For long-lived Node handles (scripts,
-   * test fixtures) that run thousands of queries: one held connection beats a connection per
-   * query, which the local proxy pays in full (~75 ms each). The Worker never sets it.
-   */
-  poolOnly?: boolean
-}
-
 /**
- * A Neon WebSocket `Pool` whose dropped connections cannot crash the process. pg-pool emits
- * `error` on the POOL when an IDLE client's connection drops, and a CHECKED-OUT client (an
- * interactive transaction's) emits `error` on ITSELF; with no listener either is an uncaught
- * exception — the process dies under Node (a script, or a whole vitest run on a Neon gate branch,
- * where `getScriptDatabase` runs every query over this pool), an uncaught error in the isolate
- * under workerd. The query in flight still REJECTS, so nothing is swallowed: the listeners only
- * stop the second, unhandled copy of the same error. Every Neon pool in the kit is made here.
+ * A Postgres array literal (`{a,"b c",NULL,{1,2}}`) → nested JS arrays. Quoted elements may hold
+ * backslash escapes; an unquoted `NULL` is `null`; a leading dimension decoration
+ * (`[0:1]={…}`) is skipped.
  */
-export function createNeonPool(url: string, max = 1): NeonPool {
-  const pool = new NeonPool({ connectionString: url, max })
-  pool.on('error', () => {})
-  pool.on('connect', (client: PoolClient) => {
-    client.on('error', () => {})
-  })
-  return pool
-}
-
-/**
- * A Neon handle: neon-http for every query, and a WebSocket `Pool` for `transaction`, created on
- * first use and ended by `close()`. The HTTP side holds no connection, so an idle handle costs
- * nothing.
- */
-export function createNeonDatabase(
-  url: string,
-  options: CreateNeonDatabaseOptions = {}
-): DatabaseHandle {
-  if (options.localProxy) routeNeonThroughProxy(options.localProxy)
-  let pool: NeonPool | undefined
-  let poolDb: Database | undefined
-  const transactional = (): Database => {
-    if (!poolDb) {
-      pool = createNeonPool(url, options.max ?? 1)
-      poolDb = drizzleNeonPool(pool, { schema }) as unknown as Database
+export function parseArrayLiteral(literal: string, element: ElementParser = asText): unknown[] {
+  let i = 0
+  if (literal[0] === '[') {
+    const eq = literal.indexOf('=')
+    if (eq !== -1) i = eq + 1
+  }
+  const parse = (): unknown[] => {
+    const out: unknown[] = []
+    i += 1 // `{`
+    while (i < literal.length) {
+      const ch = literal[i]
+      if (ch === '}') {
+        i += 1
+        return out
+      }
+      if (ch === ',') {
+        i += 1
+        continue
+      }
+      if (ch === '{') {
+        out.push(parse())
+        continue
+      }
+      if (ch === '"') {
+        let value = ''
+        i += 1
+        while (i < literal.length && literal[i] !== '"') {
+          if (literal[i] === '\\') i += 1
+          value += literal[i]
+          i += 1
+        }
+        i += 1 // closing quote
+        out.push(element(value))
+        continue
+      }
+      let end = i
+      while (end < literal.length && literal[end] !== ',' && literal[end] !== '}') end += 1
+      const raw = literal.slice(i, end)
+      out.push(raw === 'NULL' ? null : element(raw))
+      i = end
     }
-    return poolDb
+    return out
   }
-  let closed: Promise<void> | undefined
-  const close = () => {
-    closed ??= pool ? pool.end().catch(() => {}) : Promise.resolve()
-    return closed
-  }
-  if (options.poolOnly) return { db: transactional(), close }
-
-  const db = drizzleNeonHttp(neon(url), { schema }) as unknown as Database
-  // neon-http's own `transaction` throws; the pool's is a real interactive transaction.
-  db.transaction = ((...args: Parameters<Database['transaction']>) =>
-    transactional().transaction(...args)) as Database['transaction']
-  return { db, close }
-}
-
-/**
- * Point the Neon driver at a local proxy (`http://localhost:4444`): HTTP queries to `/sql`,
- * WebSockets to `/v2`, both unencrypted. `neonConfig` is per-isolate, and the proxy is one value
- * per process, so setting it globally is safe.
- */
-export function routeNeonThroughProxy(proxy: string): void {
-  const target = new URL(proxy)
-  neonConfig.fetchEndpoint = `${target.origin}/sql`
-  neonConfig.wsProxy = () => `${target.host}/v2`
-  neonConfig.useSecureWebSocket = target.protocol === 'https:'
-  neonConfig.pipelineConnect = false
+  return parse()
 }
 
 // ---- Reading raw results -------------------------------------------------------------------
@@ -244,9 +264,9 @@ export function routeNeonThroughProxy(proxy: string): void {
 type QueryResultLike = { rows?: unknown; rowCount?: unknown; count?: unknown }
 
 /**
- * The rows of a raw `db.execute(sql…)`, whichever driver ran it: postgres.js returns the array
- * itself, Neon a `{ rows }` object. The only way code outside this file reads one (the config
- * guard `driver-results.test.ts` enforces it).
+ * The rows of a raw `db.execute(sql…)`: postgres.js returns the array itself; a `{ rows }`
+ * object (another driver's shape) is accepted too. The only way code outside this file reads one
+ * (the config guard `driver-results.test.ts` enforces it).
  */
 export function rows<T = Record<string, unknown>>(result: unknown): T[] {
   if (Array.isArray(result)) return result as T[]
@@ -257,7 +277,7 @@ export function rows<T = Record<string, unknown>>(result: unknown): T[] {
 
 /**
  * The number of rows an `insert` / `update` / `delete` without `.returning()` touched: postgres.js
- * reports `.count`, Neon `.rowCount`.
+ * reports `.count` (a `.rowCount` is accepted too).
  */
 export function affected(result: unknown): number {
   const r = (result ?? {}) as QueryResultLike
@@ -268,9 +288,8 @@ export function affected(result: unknown): number {
 // ---- Reading driver errors -----------------------------------------------------------------
 
 /**
- * The Postgres SQLSTATE (`23505`, `40001`…) of a driver error, wherever it hangs: both drivers put
- * `code` on their own error (postgres.js, Neon's `NeonDbError`) and drizzle wraps that, so the
- * `cause` chain is walked. The only way code outside this file reads one (the config guard
+ * The Postgres SQLSTATE (`23505`, `40001`…) of a driver error, wherever it hangs: postgres.js puts
+ * `code` on its own error and drizzle wraps that, so the `cause` chain is walked. The only way code outside this file reads one (the config guard
  * `driver-results.test.ts` enforces it).
  */
 export function pgErrorCode(err: unknown): string | undefined {
@@ -283,7 +302,7 @@ export function pgErrorCode(err: unknown): string | undefined {
   return undefined
 }
 
-/** A unique / primary-key violation (`23505`), under either driver. */
+/** A unique / primary-key violation (`23505`). */
 export function isUniqueViolation(err: unknown): boolean {
   return pgErrorCode(err) === '23505'
 }
@@ -304,15 +323,11 @@ export function getScriptDatabase(
   env: { readonly [key: string]: string | undefined } = {},
   max = 5
 ): Database {
-  const scoped: DatabaseEnv = {
-    DATABASE_DRIVER: env.DATABASE_DRIVER,
-    NEON_LOCAL_PROXY: env.NEON_LOCAL_PROXY,
-    DATABASE_URL: url,
-  }
+  const scoped: DatabaseEnv = { DATABASE_DRIVER: env.DATABASE_DRIVER, DATABASE_URL: url }
   const key = `${databaseDriver(scoped)} ${url}`
   let handle = scriptHandles.get(key)
   if (!handle) {
-    handle = openDatabase(scoped, { max, poolOnly: true })
+    handle = createDatabase(resolveDatabaseUrl(scoped), { max })
     scriptHandles.set(key, handle)
   }
   return handle.db

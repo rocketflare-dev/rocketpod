@@ -16,13 +16,13 @@ import type { Tenant } from '../../db/schema'
 import type { PluginContext } from './types'
 
 /**
- * The driver seam, for a plugin (D35, `apps/web/src/db/CLAUDE.md`). The kit runs on two drivers
- * whose raw results and errors differ — postgres.js returns the rows array, Neon a `{ rows,
- * rowCount }` object; drizzle wraps each driver's error differently — so a plugin never casts or
- * indexes a raw result or reads `err.code` by hand: `rows<T>(result)` for the rows,
+ * The driver seam, for a plugin (D35, `apps/web/src/db/CLAUDE.md`). Only `db/client.ts` knows
+ * the driver — postgres.js returns the rows array itself, other drivers a `{ rows, rowCount }`
+ * object, and drizzle wraps the driver's error — so a plugin never casts or indexes a raw result
+ * or reads `err.code` by hand: `rows<T>(result)` for the rows,
  * `affected(result)` for the count of an insert / update / delete without `.returning()`,
  * `isUniqueViolation(err)` / `pgErrorCode(err)` for a Postgres SQLSTATE. Raw values (arrays,
- * bigint, timestamps as text) already read the same under both. The host's `driver-results`
+ * bigint, timestamps as text) already arrive normalised. The host's `driver-results`
  * config test fails on anything else — including session state (`SET`, `set_config(…, false)`,
  * session advisory locks) outside `transaction()`.
  */
@@ -70,8 +70,8 @@ export interface SeedCtx extends Pick<PluginContext, 'db'> {
 /**
  * Run several writes as one transaction.
  *
- * Keep it SHORT. Both drivers hold a real connection for its whole life — Hyperdrive a pooled one
- * it cannot reuse mid transaction, Neon a WebSocket opened for it (D35). It is also why there is
+ * Keep it SHORT. A transaction holds a real pooled connection for its whole life — one the pool
+ * cannot hand to another request until it commits (D35). It is also why there is
  * no nudge or enqueue inside: those go after the commit, or a listener re-queries for a row that
  * is not there yet.
  */

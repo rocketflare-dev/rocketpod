@@ -99,13 +99,11 @@ Take a fresh clone to a running, signed-in dev stack in one command. Re-runnable
   --db-url <url>
                 use this Postgres (e.g. a Neon branch) instead of the Docker one: no Docker
                 checks, DATABASE_URL written to apps/web/.dev.vars, step 4 only waits for it,
-                the seed may write to it (SEED_ALLOW_REMOTE=1). A Neon URL selects the neon
-                driver (HTTPS/WebSocket — works with no TCP out). Also --db-url=<url>;
+                the seed may write to it (SEED_ALLOW_REMOTE=1). Also --db-url=<url>;
                 not with --check
-  --driver neon|postgres
-                the LOCAL database driver, written to apps/web/.dev.vars (D35). Default: what
-                .dev.vars already says, else neon for a Neon --db-url, else postgres (TCP to the
-                Docker database). neon with the Docker database also starts the Neon proxy
+  --driver postgres
+                the LOCAL database driver, written to apps/web/.dev.vars (D35). postgres is the
+                only one (Rocketpod removed neon); accepted for Launch's bootstrap command
   --check      read-only preflight (= pnpm preflight): toolchain, secrets, database, Cloudflare,
                 dev status; exit 3 when anything is missing
   --verbose     stream every child's output (also DEV_VERBOSE=1)
@@ -325,8 +323,6 @@ function stepSecrets({ write, dbUrl = null, driver = null }) {
       text = upsertDevVar(text, 'DATABASE_DRIVER', local)
       notes.push(`DATABASE_DRIVER=${local} (local driver)`)
     }
-    // An external database is reached directly, never through the local proxy.
-    if (dbUrl && current.NEON_LOCAL_PROXY) text = upsertDevVar(text, 'NEON_LOCAL_PROXY', '')
     if (existing === null || text !== existing) writeFileSync(DEV_VARS, text)
     if (existing === null) notes.push('created apps/web/.dev.vars from .dev.vars.example')
     if (result.filled.length > 0) notes.push(`generated ${result.filled.join(', ')}`)
@@ -437,7 +433,6 @@ async function stepDatabase(opts, plan) {
     )
   }
   if (chosen?.wroteDevVars) notes.push('apps/web/.dev.vars updated to match (DATABASE_URL, driver)')
-  if (chosen?.driver === 'neon') notes.push(`local driver neon: Neon proxy at ${chosen.proxy}`)
   const orphan = await legacyVolume()
   if (orphan) {
     notes.push(

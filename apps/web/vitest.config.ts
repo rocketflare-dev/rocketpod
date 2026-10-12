@@ -22,9 +22,9 @@ const alias = {
 
 /**
  * A remote target (`pnpm test` with `TEST_DATABASE_BRANCH` set, which sets
- * TEST_DATABASE_EPHEMERAL=1): the suite in a coding sandbox against a throwaway Neon gate branch
- * over the network (tests/helpers/db-safety.ts). Fewer forks, because the local sizing below
- * assumes the compose Postgres's max_connections=300 and a small Neon compute allows ~100.
+ * TEST_DATABASE_EPHEMERAL=1): the suite in a coding sandbox against a throwaway gate branch over
+ * the network (tests/helpers/db-safety.ts). Fewer forks, because the local sizing below assumes
+ * the compose Postgres's max_connections=300 and a small hosted compute allows ~100.
  * `TEST_MAX_WORKERS` tunes the fork count; `TEST_LATENCY_FACTOR` raises every time limit on a slow
  * machine (a coding sandbox running a test by hand — `tests/helpers/latency.ts`).
  */
@@ -32,13 +32,12 @@ const EPHEMERAL = process.env.TEST_DATABASE_EPHEMERAL === '1'
 
 /**
  * How much slower a query is on this target than on the local Postgres, and so how much every
- * time limit scales: 1 locally under `postgres`, 4 under `neon` through the local proxy (an HTTP
- * request and a fresh backend per query, 2-3x worse again on a 2-vCPU runner), 12 on a real Neon
- * branch (real network round trips, and a compute that may cold-start). ONE factor for the test,
+ * time limit scales: 1 locally, 12 on a remote gate branch (real network round trips, and a
+ * compute that may cold-start). ONE factor for the test,
  * hook and teardown limits, so no test carries a budget of its own: a test that is slow only on a
  * slow link is walking to a limit query by query, and it lowers that limit (the duration cap in
  * `agent-run-stream.test.ts`, the round cap in `agent-run-workflow.test.ts`) instead. The local
- * `postgres` run keeps vitest's 5 s, so it is still the tripwire for a test that is genuinely slow.
+ * run keeps vitest's 5 s, so it is still the tripwire for a test that is genuinely slow.
  * `TEST_LATENCY_FACTOR` raises it (never lowers it) for a slow machine; `tests/helpers/latency.ts`.
  */
 const LATENCY_FACTOR = latencyFactor(process.env)
@@ -149,8 +148,7 @@ export default defineConfig({
         resolve: { alias },
       },
       {
-        // D35: the driver seam's conformance suite, against a real database under whichever
-        // driver the environment selects — `pnpm test` runs it under both (tests/driver/CLAUDE.md).
+        // D35: the driver seam's conformance suite, against a real database (tests/driver/CLAUDE.md).
         extends: true,
         test: {
           name: 'driver',

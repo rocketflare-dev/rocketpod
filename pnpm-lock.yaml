@@ -64,9 +64,6 @@ importers:
         specifier: ^3.25.76
         version: 3.25.76
     devDependencies:
-      '@neondatabase/serverless':
-        specifier: ^1.1.0
-        version: 1.1.0
       '@types/node':
         specifier: ^24.0.0
         version: 24.13.3
@@ -109,12 +106,12 @@ importers:
       '@heroicons/react':
         specifier: ^2.2.0
         version: 2.2.0(react@18.3.1)
+      '@hono/node-server':
+        specifier: ^2.1.4
+        version: 2.1.4(hono@4.13.5)
       '@hono/zod-validator':
         specifier: ^0.7.6
         version: 0.7.6(hono@4.13.5)(zod@3.25.76)
-      '@neondatabase/serverless':
-        specifier: ^1.1.0
-        version: 1.1.0
       '@rocketpod/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -224,6 +221,9 @@ importers:
       drizzle-kit:
         specifier: ^0.31.10
         version: 0.31.10
+      esbuild:
+        specifier: ^0.25.12
+        version: 0.25.12
       jsdom:
         specifier: ^26.1.0
         version: 26.1.0
@@ -1168,6 +1168,12 @@ packages:
     resolution: {integrity: sha512-LMcepvRaS9LYHJGsF0zzmgKCUim/X3N/DQKc4jepAXJ7l8QxJ1PmxJzqplF2Z3FE4PqBAIGyJAQ/w4B5dsqbtQ==}
     peerDependencies:
       react: '>= 16 || ^19.0.0-rc'
+
+  '@hono/node-server@2.1.4':
+    resolution: {integrity: sha512-2g1qeHl4BduwDn6L8nkAvDrPUWPMlkQ//a5NhP/zIyaXKMjZNRV+cG9Csu+BiJFf6+68pqzjf4Hi5sJGKHuS1g==}
+    engines: {node: '>=20'}
+    peerDependencies:
+      hono: ^4 || ^5.0.0-0
 
   '@hono/zod-validator@0.7.6':
     resolution: {integrity: sha512-Io1B6d011Gj1KknV4rXYz4le5+5EubcWEU/speUjuw9XMMIaP3n78yXLhjd2A3PXaXaUwEAluOiAyLqhBEJgsw==}
@@ -4197,6 +4203,10 @@ snapshots:
     dependencies:
       react: 18.3.1
 
+  '@hono/node-server@2.1.4(hono@4.13.5)':
+    dependencies:
+      hono: 4.13.5
+
   '@hono/zod-validator@0.7.6(hono@4.13.5)(zod@3.25.76)':
     dependencies:
       hono: 4.13.5
@@ -4348,7 +4358,8 @@ snapshots:
   '@napi-rs/lzma-linux-x64-gnu@1.5.1':
     optional: true
 
-  '@neondatabase/serverless@1.1.0': {}
+  '@neondatabase/serverless@1.1.0':
+    optional: true
 
   '@oslojs/asn1@1.0.0':
     dependencies:

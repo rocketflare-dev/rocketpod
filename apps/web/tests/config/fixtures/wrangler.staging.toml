@@ -29,9 +29,8 @@ EMAIL_FROM = "Rocketpod <noreply@rocketpod.example.com>"
 TENANCY_MODE = "multi"                 # multi | single   (docs/CONCEPTS.md → Tenancy)
 SIGNUP_MODE = "invite_only"            # open | invite_only | approval
 TENANT_SCOPE_MODE = "off"              # off | enforce    (docs/RLS.md — enforce needs an app-role connection)
-DATABASE_DRIVER = "neon"               # neon | postgres (D35, docs/DEPLOY.md § Database driver). Missing = postgres.
-                                       # neon: the DATABASE_URL Worker secret (pooled Neon URI), no Hyperdrive.
-                                       # postgres: the [[hyperdrive]] block below, any Postgres. Locally .dev.vars wins.
+DATABASE_DRIVER = "postgres"           # postgres, the only driver (D35, docs/DEPLOY.md § Database driver).
+                                       # The [[hyperdrive]] block below if present, else the DATABASE_URL secret.
 AGENT_MAX_OUTPUT_TOKENS = "16384"      # AI (D17): per-call max_tokens when a tenant config sets none
 AGENT_MAX_TURNS = "30"                 # AI (D17): turn cap for every tool loop
 CHAT_KNOWLEDGE_TOOLS = "true"          # AI (D18): chat may call the knowledge tools ("false" = tool-free chat)
@@ -56,7 +55,7 @@ OBSERVABILITY_SPAN_RETENTION_DAYS = "14"   # Tracing (D32): days of ai_spans the
 # Secrets are NOT here: `wrangler secret put <NAME>` for every non-var in .dev.vars.example
 
 [placement]
-mode = "smart"                          # run near the database (Neon region), not the user
+mode = "smart"                          # run near the database, not the user
 
 # [limits]
 # cpu_ms = 30000   # Default. NOTE: Workflows bound CPU *per step* by this value too; if you
@@ -92,10 +91,9 @@ run_worker_first = [
   # <env>` writes it. The parity test reads `API_PREFIXES`, so a forgotten one fails the gate.
 ]
 
-# Postgres (D35). Under DATABASE_DRIVER = "neon" there is NO [[hyperdrive]] block — wrangler refuses
-# to deploy one whose id does not exist — and the Worker reads the DATABASE_URL secret instead.
-# `pnpm provision cloudflare staging --driver postgres` switches: it creates the Hyperdrive config, adds
-# the block below to BOTH files and sets DATABASE_DRIVER = "postgres". The block it writes:
+# Postgres (D35). Without a [[hyperdrive]] block — wrangler refuses to deploy one whose id does not
+# exist — the Worker reads the DATABASE_URL secret. `pnpm provision cloudflare staging --driver
+# postgres` creates the Hyperdrive config and adds the block below to BOTH files. The block it writes:
 #   [[hyperdrive]]
 #   binding = "HYPERDRIVE"
 #   id = "<id>"

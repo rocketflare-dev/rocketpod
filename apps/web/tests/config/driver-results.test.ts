@@ -1,36 +1,30 @@
 /**
- * D35: `apps/web/src` runs on two drivers, and the one place they differ is the shape of a raw
- * result. postgres.js returns the rows array itself (with `.count`); Neon returns `{ rows,
- * rowCount }`. `Database` is the base both share, so `db.execute()` is typed `unknown` and most
- * wrong reads are type errors already. What still compiles is a CAST — `(await db.execute(…)) as
- * unknown as Row[]`, `(result as unknown as { count })` — and that passes every test on one driver
- * and breaks on the other. The gate runs `postgres`, so without this scan a postgres.js-only read
- * would first fail on a fresh copy's `neon` deployment.
+ * D35, narrowed to one driver in Rocketpod: `src/db/client.ts` is the only file that knows the
+ * driver (postgres.js), so the driver stays swappable and the request path stays honest about
+ * pooled connections. `Database` types `db.execute()` as `unknown`, so most wrong reads are type
+ * errors already; what still compiles is a CAST, and that is what this scan refuses.
  *
  * The rules, over every `.ts`/`.tsx` under `src/` (installed plugins included) except
- * `db/client.ts`, which is where the two shapes are read:
+ * `db/client.ts`, which is where the driver's shapes are read:
  * 1. an `execute(…)` result is never cast, indexed or read for `.rows` / `.rowCount` / `.count` /
  *    `.length` — pass it to `rows()` or `affected()` from `@/db/client` instead;
  * 2. no cast to a type literal that gives a `count`, `rowCount` or `rows` member a CONCRETE type
  *    (`as { count?: number }` — a result read by hand, trusting one driver's shape) — `affected()`.
- *    A member typed `unknown` is allowed: the code then has to check it at runtime, which is what
- *    a reader of BOTH shapes looks like (the analytics plugin's own `rowsOf` / `affectedRows`,
- *    which it keeps because it supports kits from before `rows()` existed);
- * 3. no driver import (`postgres`, `@neondatabase/serverless`, `drizzle-orm/postgres-js`,
- *    `drizzle-orm/neon-*`) — `openDatabase` picks the driver;
+ *    A member typed `unknown` is allowed: the code then has to check it at runtime (the analytics
+ *    plugin's own `rowsOf` / `affectedRows`, kept for kits from before `rows()` existed);
+ * 3. no driver import (`postgres`, `drizzle-orm/postgres-js`) — `openDatabase` opens the database;
  * 4. no SQLSTATE read by hand (`err.code === '23505'`, `case '40001':` on a `.code`) — drizzle
- *    wraps each driver's error differently, so `pgErrorCode()` / `isUniqueViolation()` from
- *    `@/db/client` walk the chain;
- * 5. no session state outside a transaction. neon-http runs every query on a FRESH connection, so
- *    a statement-level `SET`, `set_config(…, false)`, a session advisory lock
- *    (`pg_advisory_lock`, not `pg_advisory_xact_lock`) or a `CREATE TEMP TABLE` works under
- *    postgres.js and is silently gone by the next query under `neon`. Inside a callback passed to
- *    `.transaction(…)`, `transaction(…)` or `withTenantScope(…)` both drivers hold one connection,
- *    so it is allowed there. `LISTEN` / `UNLISTEN` are refused everywhere: neon-http has no
- *    notifications at all.
+ *    wraps the driver's error, so `pgErrorCode()` / `isUniqueViolation()` walk the chain;
+ * 5. no session state outside a transaction. A request's connection is POOLED — a view of the
+ *    Node process pool, or Hyperdrive on the Worker — so a statement-level `SET`,
+ *    `set_config(…, false)`, a session advisory lock (`pg_advisory_lock`, not
+ *    `pg_advisory_xact_lock`) or a `CREATE TEMP TABLE` leaks into whichever request gets that
+ *    connection next. Inside a callback passed to `.transaction(…)`, `transaction(…)` or
+ *    `withTenantScope(…)` the connection is held, so it is allowed there. `LISTEN` / `UNLISTEN`
+ *    are refused on the request path too: a notification needs a DEDICATED connection, which
+ *    only the Node entry's realtime adapter holds (`src/node/`, exempt).
  *
  * This file is half of the driver seam (src/db/CLAUDE.md); `tests/driver/` is the other half.
- * A new divergence gets a rule here or a normalisation in `db/client.ts` — never a skipped test.
  */
 import { readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
@@ -39,16 +33,13 @@ import { describe, expect, it } from 'vitest'
 
 const SRC = path.resolve(__dirname, '../../src')
 const EXEMPT = new Set([path.join(SRC, 'db/client.ts')])
-const DRIVER_MODULES = [
-  /^postgres$/,
-  /^@neondatabase\/serverless$/,
-  /^drizzle-orm\/postgres-js(\/|$)/,
-  /^drizzle-orm\/neon-/,
-]
+/** The Node entry holds connections of its own (the LISTEN connection, M5). */
+const EXEMPT_DIRS = [path.join(SRC, 'node') + path.sep]
+const DRIVER_MODULES = [/^postgres$/, /^drizzle-orm\/postgres-js(\/|$)/]
 const RESULT_MEMBERS = new Set(['rows', 'rowCount', 'count', 'length'])
 /** A Postgres SQLSTATE: five characters, a digit class first (`23505`, `40001`, `42P01`). */
 const SQLSTATE = /^[0-9][0-9A-Z]{4}$/
-/** Session-level state: fine on one held connection, gone by the next neon-http query. */
+/** Session-level state: fine on one held connection, leaked into the next request on a pooled one. */
 const SESSION_STATE: Array<[RegExp, string]> = [
   [/^\s*set\s+(?!local\b)/i, 'SET'],
   [/set_config\s*\([^;]*?,\s*false\s*\)/i, 'set_config(…, false)'],
@@ -191,15 +182,15 @@ function findViolations(file: string, text: string): string[] {
       if (NO_NOTIFICATIONS.test(text)) {
         at(
           node,
-          'LISTEN / UNLISTEN — neon-http has no notifications; use a queue or the realtime DO'
+          'LISTEN / UNLISTEN on a pooled connection — use a queue or the realtime platform member'
         )
       }
       const session = SESSION_STATE.find(([re]) => re.test(text))
       if (session && !insideTransaction(node)) {
         at(
           node,
-          `${session[1]} outside a transaction — neon-http runs each query on a fresh ` +
-            'connection; run it inside db.transaction()'
+          `${session[1]} outside a transaction — the connection is pooled, so it leaks into ` +
+            'the next request; run it inside db.transaction()'
         )
       }
     }
@@ -212,7 +203,7 @@ function findViolations(file: string, text: string): string[] {
 describe('driver-specific code (D35, the driver seam)', () => {
   it('src/ reads raw results, error codes and session state only in driver-agnostic ways', () => {
     const violations = sourceFiles(SRC)
-      .filter(file => !EXEMPT.has(file))
+      .filter(file => !EXEMPT.has(file) && !EXEMPT_DIRS.some(dir => file.startsWith(dir)))
       .flatMap(file => findViolations(file, readFileSync(file, 'utf8')))
     expect(violations).toEqual([])
   })

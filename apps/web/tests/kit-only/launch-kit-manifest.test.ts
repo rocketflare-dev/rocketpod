@@ -108,7 +108,7 @@ describe('launch.kit.json says what this kit really does', () => {
     })
     expect(opts).toMatchObject({
       dbUrl: 'postgresql://u:p@ep-x.us-east-2.aws.neon.tech/app',
-      driver: 'neon',
+      driver: 'postgres',
       offline: true,
       dev: false,
       plugins: false,

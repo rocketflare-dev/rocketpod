@@ -1,21 +1,12 @@
 /**
- * Raw SQL for the Node scripts (migrate, db-roles, db:check, provision), over the driver
- * `DATABASE_DRIVER` selects (D35) — the same var the Worker reads, which `.dev.vars` sets locally.
+ * Raw SQL for the Node scripts (migrate, db-roles, db:check, provision): postgres.js over TCP.
+ * `DATABASE_DRIVER` is still read (and must be `postgres` or unset — `databaseDriver()` refuses
+ * the removed `neon` with the fix), so a stale `.dev.vars` fails loudly rather than silently.
  *
- * - `postgres` (missing means this): postgres.js over TCP.
- * - `neon`: a Neon serverless `Pool`, which needs only a WebSocket, so a coding sandbox with no
- *   TCP out can still migrate and seed a Neon branch. `NEON_LOCAL_PROXY` routes it through the
- *   local proxy.
- *
- * Queries are text + `$n` parameters, identical on both drivers.
+ * Queries are text + `$n` parameters.
  */
 import postgres from 'postgres'
-import {
-  createNeonPool,
-  type DatabaseDriver,
-  databaseDriver,
-  routeNeonThroughProxy,
-} from '../../src/db/client'
+import { type DatabaseDriver, databaseDriver } from '../../src/db/client'
 
 export type Query = <T = Record<string, unknown>>(text: string, params?: unknown[]) => Promise<T[]>
 
@@ -44,7 +35,8 @@ export function openScriptSql(
   env: DriverEnv = process.env,
   options: ScriptSqlOptions = {}
 ): ScriptSql {
-  return scriptDriver(env) === 'neon' ? neonSql(url, env) : postgresSql(url, options)
+  scriptDriver(env)
+  return postgresSql(url, options)
 }
 
 function postgresSql(url: string, options: ScriptSqlOptions): ScriptSql {
@@ -66,30 +58,6 @@ function postgresSql(url: string, options: ScriptSqlOptions): ScriptSql {
       })
     },
     end: () => sql.end({ timeout: 5 }).catch(() => {}),
-  }
-}
-
-function neonSql(url: string, env: DriverEnv): ScriptSql {
-  if (env.NEON_LOCAL_PROXY) routeNeonThroughProxy(env.NEON_LOCAL_PROXY)
-  // A dropped connection rejects its query; it never crashes the script (`createNeonPool`).
-  const pool = createNeonPool(url, 1)
-  return {
-    driver: 'neon',
-    query: async (text, params = []) => (await pool.query(text, params)).rows as never,
-    transaction: async fn => {
-      const client = await pool.connect()
-      try {
-        await client.query('BEGIN')
-        await fn(async (text, params = []) => (await client.query(text, params)).rows as never)
-        await client.query('COMMIT')
-      } catch (error) {
-        await client.query('ROLLBACK').catch(() => {})
-        throw error
-      } finally {
-        client.release()
-      }
-    },
-    end: () => pool.end().catch(() => {}),
   }
 }
 
@@ -122,11 +90,13 @@ export async function waitForDatabase(
   }
 }
 
-/** An error as one line — including the neon driver's message-less WebSocket `ErrorEvent`. */
+/**
+ * An error as one line. A refused TCP connect to `localhost` arrives as an `AggregateError` (one
+ * attempt per resolved address) whose own message is empty — print the inner causes instead.
+ */
 function describeError(error: unknown): string {
-  const event = error as { type?: unknown; message?: unknown } | null
-  if (event && event.type === 'error' && !event.message) {
-    return 'the WebSocket failed before Postgres answered (the driver gives no detail)'
+  if (error instanceof AggregateError && error.errors.length > 0) {
+    return error.errors.map(inner => String((inner as Error)?.message ?? inner)).join('; ')
   }
   return String(error)
 }

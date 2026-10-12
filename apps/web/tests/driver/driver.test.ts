@@ -1,14 +1,13 @@
 /**
  * The CONFORMANCE suite for the driver seam (D35, tests/driver/CLAUDE.md): every test states one
- * equivalence between `postgres` and `neon` and passes UNCHANGED under both. `pnpm test` runs this
- * project twice on a local target — under `postgres`, then under `neon` through the local proxy —
- * and once, under `neon`, on a real Neon gate branch. A test that fails under one driver is a hole
- * in `src/db/client.ts` or the guard (`tests/config/driver-results.test.ts`): fix it THERE, never
- * by skipping or weakening the test (`tests/config/driver-conformance.test.ts` fails a skip or a
- * per-driver expectation).
+ * fact about what app code sees through `src/db/client.ts` — a raw result's shape, a raw array's
+ * value, a driver error's code — and the seam must keep it true whatever the driver underneath.
+ * A failure is a hole in `client.ts` or the guard (`tests/config/driver-results.test.ts`): fix it
+ * THERE, never by skipping or weakening the test (`tests/config/driver-conformance.test.ts` fails
+ * a skip).
  *
- * Everything here goes through `openDatabase`, the Worker's own path (neon-http for queries, the
- * WebSocket pool for transactions), NOT the pool-only handle scripts and fixtures get.
+ * Everything here goes through `openDatabase`, the request path — a per-request client, and (last
+ * block) a view of the Node entry's process pool — NOT the handle scripts and fixtures get.
  */
 import { and, eq, sql } from 'drizzle-orm'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -19,6 +18,7 @@ import {
   type DatabaseEnv,
   type DatabaseHandle,
   databaseDriver,
+  installProcessPool,
   isUniqueViolation,
   openDatabase,
   pgErrorCode,
@@ -32,7 +32,6 @@ import { setupTestDatabase, testDatabaseUrl } from '../helpers/db'
 
 const env: DatabaseEnv = {
   DATABASE_DRIVER: process.env.DATABASE_DRIVER,
-  NEON_LOCAL_PROXY: process.env.NEON_LOCAL_PROXY,
   DATABASE_URL: testDatabaseUrl(),
 }
 const driver = databaseDriver(env)
@@ -48,14 +47,8 @@ afterAll(async () => {
   await Promise.all(handles.map(h => h.close()))
 })
 
-describe(`database driver: ${driver}`, () => {
-  it('runs under the driver the environment selects', () => {
-    expect(DATABASE_DRIVERS).toContain(driver)
-  })
-
-  // One probe, read over HTTP (a plain query) and over the WebSocket pool (inside a transaction),
-  // because under `neon` those are two different clients with their own type handling.
-  const PROBE = sql`
+// One probe, read as a plain query and inside a transaction.
+const PROBE = sql`
     SELECT 1::int AS n, 9007199254740993::bigint AS big, 1.5::numeric AS num, 1.5::float8 AS f,
            true AS b, '{"a":1}'::jsonb AS j, to_jsonb(ARRAY['x','y']) AS json_arr,
            ARRAY['x','y']::text[] AS text_arr, ARRAY[1,2]::int[] AS int_arr,
@@ -66,34 +59,39 @@ describe(`database driver: ${driver}`, () => {
            '2026-01-02 03:04:05.678'::timestamp AS ts, '2026-01-02'::date AS d,
            ARRAY['2026-01-02 03:04:05+00'::timestamptz] AS tstz_arr, '1 day'::interval AS iv,
            NULL AS nothing`
-  const EXPECTED = {
-    n: 1,
-    // bigint and numeric stay strings — never silently rounded through a JS number.
-    big: '9007199254740993',
-    num: '1.5',
-    f: 1.5,
-    b: true,
-    j: { a: 1 },
-    json_arr: ['x', 'y'],
-    // Raw arrays parse to arrays under both (client.ts `ARRAY_PARSERS`).
-    text_arr: ['x', 'y'],
-    int_arr: [1, 2],
-    big_arr: ['3'],
-    bool_arr: [true, false],
-    uuid_arr: ['00000000-0000-4000-8000-000000000001'],
-    jsonb_arr: [{ a: 1 }],
-    v: '[1,2,3]',
-    // Raw date/time values are Postgres's text under both (drizzle keeps them unparsed so its
-    // column mappers can): code reading one from raw SQL parses it itself.
-    tstz: '2026-01-02 03:04:05.678+00',
-    ts: '2026-01-02 03:04:05.678',
-    d: '2026-01-02',
-    tstz_arr: '{"2026-01-02 03:04:05+00"}',
-    iv: '1 day',
-    nothing: null,
-  }
+const EXPECTED = {
+  n: 1,
+  // bigint and numeric stay strings — never silently rounded through a JS number.
+  big: '9007199254740993',
+  num: '1.5',
+  f: 1.5,
+  b: true,
+  j: { a: 1 },
+  json_arr: ['x', 'y'],
+  // Raw arrays parse to arrays (client.ts `ARRAY_PARSERS`).
+  text_arr: ['x', 'y'],
+  int_arr: [1, 2],
+  big_arr: ['3'],
+  bool_arr: [true, false],
+  uuid_arr: ['00000000-0000-4000-8000-000000000001'],
+  jsonb_arr: [{ a: 1 }],
+  v: '[1,2,3]',
+  // Raw date/time values are Postgres's text (drizzle keeps them unparsed so its
+  // column mappers can): code reading one from raw SQL parses it itself.
+  tstz: '2026-01-02 03:04:05.678+00',
+  ts: '2026-01-02 03:04:05.678',
+  d: '2026-01-02',
+  tstz_arr: '{"2026-01-02 03:04:05+00"}',
+  iv: '1 day',
+  nothing: null,
+}
 
-  it('rows() reads a raw result: every type parses the same way under both drivers', async () => {
+describe(`database driver: ${driver}`, () => {
+  it('runs under the driver the environment selects', () => {
+    expect(DATABASE_DRIVERS).toContain(driver)
+  })
+
+  it('rows() reads a raw result: every type parses to the documented value', async () => {
     const { db } = open()
     expect(rows(await db.execute(PROBE))[0]).toEqual(EXPECTED)
     expect(rows(await db.execute(sql`SELECT 1 WHERE false`))).toEqual([])
@@ -145,7 +143,7 @@ describe(`database driver: ${driver}`, () => {
     expect(affected(await db.delete(aiSpans).where(eq(aiSpans.tenantId, tenant.id)))).toBe(0)
   })
 
-  it('the query builder maps rows (timestamps as Date) the same under both', async () => {
+  it('the query builder maps rows (timestamps as Date)', async () => {
     const { db } = open()
     const { tenant } = await createTestTenantWithUser(fixtures)
     const [first] = await db
@@ -223,7 +221,54 @@ describe(`database driver: ${driver}`, () => {
     await handle.close()
   })
 
+  it('raw arrays survive quoting, escapes, NULLs, nesting and bytea', async () => {
+    const { db } = open()
+    const [row] = rows<Record<string, unknown>>(
+      await db.execute(sql`
+        SELECT ARRAY['a,b', 'q"x', NULL, 'back\\slash', '', 'NULL']::text[] AS tricky,
+               ARRAY[ARRAY[1,2],ARRAY[3,4]]::int[] AS nested,
+               ARRAY[1.5, NULL]::float8[] AS floats,
+               ARRAY['\\x0102'::bytea] AS bytes,
+               '{}'::text[] AS empty`)
+    )
+    expect(row?.tricky).toEqual(['a,b', 'q"x', null, 'back\\slash', '', 'NULL'])
+    expect(row?.nested).toEqual([
+      [1, 2],
+      [3, 4],
+    ])
+    expect(row?.floats).toEqual([1.5, null])
+    expect(row?.bytes).toEqual([Buffer.from([1, 2])])
+    expect(row?.empty).toEqual([])
+  })
+
   it('the migrator re-runs cleanly (already applied) over this driver', async () => {
     await runMigrations(testDatabaseUrl(), { quiet: true, maxAttempts: 5, env: process.env })
+  })
+})
+
+describe('the process pool (the Node entry)', () => {
+  it('openDatabase hands out views of ONE pool whose close() is a no-op, until it is uninstalled', async () => {
+    const pool = installProcessPool(env, { max: 2, prepare: true })
+    try {
+      expect(() => installProcessPool(env)).toThrow(/already installed/)
+      const a = openDatabase(env)
+      const b = openDatabase(env)
+      expect(a.db).toBe(pool.db)
+      expect(b.db).toBe(pool.db)
+      await a.close()
+      // Still usable after a view's close: the pool, not the request, owns the connection.
+      expect(rows(await b.db.execute(PROBE))[0]).toEqual(EXPECTED)
+      const inside = await b.db.transaction(async tx => rows(await tx.execute(PROBE))[0])
+      expect(inside).toEqual(EXPECTED)
+      // A different URL is not the pool's: it gets a client of its own.
+      const other = openDatabase({ ...env, DATABASE_URL: `${env.DATABASE_URL}?application_name=x` })
+      expect(other.db).not.toBe(pool.db)
+      await other.close()
+    } finally {
+      await pool.close()
+    }
+    const after = openDatabase(env)
+    expect(after.db).not.toBe(pool.db)
+    await after.close()
   })
 })

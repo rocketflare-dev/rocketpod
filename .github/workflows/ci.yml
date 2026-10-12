@@ -5,11 +5,10 @@ name: CI
 # (docs/CONCEPTS.md §4). The workflow adds no check of its own beyond gitleaks, so what passes
 # here is exactly what passes on a laptop; `tests/config/ci-workflows.test.ts` holds it to that.
 #
-# `pnpm test` (the gate's `test` step) starts the test Postgres and the Neon proxy from
-# `apps/web/docker-compose.test.yml` itself, runs the suite under `postgres`, then the `driver`
-# project under `neon` — the conformance pass that proves the driver seam this app deploys on
-# (apps/web/src/db/CLAUDE.md). No `services:` block, no restart hack: the compose file is the one
-# definition of the test database.
+# `pnpm test` (the gate's `test` step) starts the test Postgres from
+# `apps/web/docker-compose.test.yml` itself and runs every suite, the `driver` conformance project
+# included (apps/web/src/db/CLAUDE.md). No `services:` block, no restart hack: the compose file is
+# the one definition of the test database.
 #
 # deploy.yml calls this same file (`workflow_call`) before deploying a tag whose commit has no
 # green CI run yet, so a commit is gated once and the gate never drifts between main and deploy.
@@ -66,12 +65,12 @@ jobs:
           LAUNCH_GATE_APP_ID: ${{ vars.LAUNCH_GATE_APP_ID }}
           GITHUB_TOKEN: ${{ github.token }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-      # The two test images, pulled in the background while pnpm installs (~15-20 s a run). Whatever
-      # has not arrived by the time `pnpm test` runs `docker compose up`, that pulls itself.
+      # The test image, pulled in the background while pnpm installs (~15-20 s a run). If it has
+      # not arrived by the time `pnpm test` runs `docker compose up`, that pulls it itself.
       - name: Pre-pull the test database images
         if: steps.verified.outputs.verified != 'true'
         run: |
-          nohup docker compose -f apps/web/docker-compose.test.yml --profile neon pull --quiet \
+          nohup docker compose -f apps/web/docker-compose.test.yml pull --quiet \
             > "$RUNNER_TEMP/pull.log" 2>&1 &
       # pnpm version comes from `packageManager` in the root package.json. Must precede setup-node
       # so `cache: pnpm` can find the store.

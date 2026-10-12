@@ -10,9 +10,9 @@ paths:
 
 # Database Patterns
 
-Drizzle ORM over PostgreSQL (Neon or any Postgres deployed, Docker locally). **Two drivers (D35):**
-the Neon serverless driver (`DATABASE_DRIVER=neon`) or `postgres.js` (`postgres`, through
-Hyperdrive), chosen per deployment. Never add `pg`. **No driver import outside
+Drizzle ORM over PostgreSQL (any Postgres deployed, Docker locally). **One driver (D35, narrowed in
+Rocketpod): `postgres.js`** — the Node entry's process pool, or Hyperdrive on the Worker until
+M6b. Never add `pg`. **No driver import outside
 `apps/web/src/db/client.ts` and `apps/web/scripts/lib/sql.ts`** (+ `migrate.ts`'s migrators) —
 `tests/config/driver-results.test.ts` fails one in `src/`. All domain data is tenant-scoped.
 
@@ -40,9 +40,9 @@ true), '')::uuid`. `apps/web/scripts/db-roles.ts` creates `rocketpod_app` `NOLOG
 `neon_superuser`), so policies resolve while nothing can connect as the role.
 
 `TENANT_SCOPE_MODE`: `off` (default — `withTenantScope(db, tenantId, fn)` is `fn(db)`) · `enforce`
-(`db.transaction` + `set_config('app.tenant_id', $1, true)` — over the WebSocket pool under `neon`
-— on an app-role connection that is not wired yet: `HYPERDRIVE_APP` under `postgres`,
-`APP_DATABASE_URL` under `neon`; needs the spike in docs/RLS.md to pass first). Threat model stated honestly: RLS catches a **forgotten
+(`db.transaction` + `set_config('app.tenant_id', $1, true)` on an app-role connection that is not
+wired yet — `APP_DATABASE_URL` for the Node pool, `HYPERDRIVE_APP` on the Worker; needs the spike
+in docs/RLS.md to pass first). Threat model stated honestly: RLS catches a **forgotten
 predicate**, not SQL injection — the app role can `set_config` itself.
 
 ## Schema conventions
@@ -130,62 +130,44 @@ predicate**, not SQL injection — the app role can `set_config` itself.
 
 ## Connection
 
-- `apps/web/src/db/client.ts`: `openDatabase(env) → { db, close }` — the ONLY way the Worker opens a
+- `apps/web/src/db/client.ts`: `openDatabase(env) → { db, close }` — the ONLY way app code opens a
   database (middleware, `streamDatabase`, queue consumer, cron, workflow steps, the span store).
   `env` is `{ ...config, HYPERDRIVE }`. `Database = PgDatabase<PgQueryResultHKT, typeof schema>`,
-  the base both drivers share, and a transaction `tx` IS a `Database` — no cast
-- Driver: `DATABASE_DRIVER` (`neon | postgres`, missing = `postgres`; `loadConfig` refuses `neon`
-  without `DATABASE_URL`). URL: `neon` → `PREVIEW_DATABASE_URL ?? DATABASE_URL` (the pooled Neon URI);
-  `postgres` → `PREVIEW_DATABASE_URL ?? HYPERDRIVE.connectionString ?? DATABASE_URL`
-- `neon` handle: every query over neon-http (one round trip each, no connection held); the first
-  `db.transaction` opens a WebSocket `Pool` (max 1) that `close()` ends. `NEON_LOCAL_PROXY` (local
-  only) routes both through the proxy in front of the compose Postgres
-- `postgres` handle: postgres.js `max: 1`, `prepare: false`, `fetch_types: false` — Hyperdrive is the pool
-- One client per request/invocation, built in `databaseMiddleware` (or at the top of a queue
-  consumer / workflow step / cron task), closed in `waitUntil` or `finally`. Don't carry
-  pool-budget arithmetic into this repo — it is meaningless here
+  and a transaction `tx` IS a `Database` — no cast
+- Driver: `DATABASE_DRIVER` (`postgres`, missing = `postgres`; `loadConfig` refuses the removed
+  `neon` with the fix). URL: `PREVIEW_DATABASE_URL ?? HYPERDRIVE.connectionString ?? DATABASE_URL`
+- **Node** (`src/node/server.ts`): `installProcessPool(config, { max: DATABASE_POOL_MAX, prepare:
+  true })` once per process; every `openDatabase` for that URL is then a VIEW of the pool whose
+  `close()` is a no-op. The pool closes once, on shutdown, after the defer set drains
+- **Worker** (until M6b): postgres.js `max: 1`, `prepare: false`, `fetch_types: false` per
+  request/invocation — Hyperdrive is the pool — closed in `waitUntil` or `finally`
 - `db.transaction(tx => …)` for multi-table writes (invite accept, tenant create). Keep them short:
-  under `neon` each one costs a WebSocket handshake, under `postgres` Hyperdrive cannot reuse a
-  connection mid-transaction
-- No `LISTEN/NOTIFY`, advisory locks or `PREPARE` on the request path — neither Hyperdrive nor
-  Neon's pooler supports them. Realtime goes through the DO hub; locks go through `RATE_LIMIT_KV`
-  `operationLock`
-- **The driver seam** (`apps/web/src/db/CLAUDE.md`): app code is driver-agnostic, `db/client.ts`
-  is the only place `postgres` and `neon` differ, `tests/config/driver-results.test.ts` bans the
-  rest, and `tests/driver/` proves it under both drivers in every `pnpm test`. A test that fails
-  under one driver is a seam bug — fix `client.ts` or the guard, never skip the test
+  a transaction holds a pooled connection nobody else can use until it commits
+- No `LISTEN/NOTIFY`, session advisory locks or session `SET` on the request path — the connection
+  is pooled. Realtime goes through `platform.realtime`; locks through `platform.locks`
+  (`operationLock`)
+- **The driver seam** (`apps/web/src/db/CLAUDE.md`): app code never names the driver,
+  `db/client.ts` is the only place it is, `tests/config/driver-results.test.ts` bans the rest, and
+  `tests/driver/` proves it in every `pnpm test`. A failing conformance test is a seam bug — fix
+  `client.ts` or the guard, never skip the test
 - **Raw results go through `rows()` / `affected()`** (`@/db/client`, and `@/plugins/api` for a
-  plugin). `db.execute(sql\`…\`)` is typed `unknown`: postgres.js returns the rows array (with
-  `.count`), Neon `{ rows, rowCount }`. `rows<T>(await db.execute(…))` for the rows,
+  plugin). `db.execute(sql\`…\`)` is typed `unknown`. `rows<T>(await db.execute(…))` for the rows,
   `affected(await db.delete(…).where(…))` for an unreturned write's count. Never cast, index or read
   `.rows`/`.count` off a raw result — the guard fails it
-- **Raw values read the same under both drivers**: a raw array parses to an array (`client.ts`
-  applies Neon's own array parsers to postgres.js), bigint and numeric are strings, and a raw
-  timestamp / date / interval is Postgres's TEXT under both (drizzle keeps them unparsed for its
-  column mappers) — parse it where you read it (`asDate` in `sessions.ts` / `traces.ts`). The
-  query builder returns `Date`s under both
+- **Raw values arrive normalised**: a raw array parses to an array (`client.ts` `ARRAY_PARSERS`),
+  bigint and numeric are strings, and a raw timestamp / date / interval is Postgres's TEXT (drizzle
+  keeps them unparsed for its column mappers) — parse it where you read it (`asDate` in
+  `sessions.ts` / `traces.ts`). The query builder returns `Date`s
 - **Driver errors through `pgErrorCode()` / `isUniqueViolation()`** (`@/db/client`): never
-  `err.code === '23505'` — drizzle wraps each driver's error differently. The guard fails it
-- **Session state only inside a transaction**: neon-http runs each query on a fresh connection, so
-  a statement `SET`, `set_config(…, false)`, `pg_advisory_lock` or `CREATE TEMP TABLE` outside
-  `db.transaction(…)` / `withTenantScope(…)` works locally and is gone by the next query deployed.
-  Use the transaction-scoped form (`SET LOCAL`, `set_config(…, true)`, `pg_advisory_xact_lock`).
-  The guard fails it
+  `err.code === '23505'` — drizzle wraps the driver's error. The guard fails it
+- **Session state only inside a transaction**: a statement `SET`, `set_config(…, false)`,
+  `pg_advisory_lock` or `CREATE TEMP TABLE` outside `db.transaction(…)` / `withTenantScope(…)`
+  stays on the pooled connection and leaks into whichever request gets it next. Use the
+  transaction-scoped form (`SET LOCAL`, `set_config(…, true)`, `pg_advisory_xact_lock`). The guard
+  fails it
 - Scripts (`apps/web/scripts/lib/sql.ts` `openScriptSql`) and test fixtures (`getScriptDatabase(url,
   process.env)`) read `DATABASE_DRIVER` from the ENVIRONMENT only (`.dev.vars` via dotenv, never the
-  toml); under `neon` they use the WebSocket pool for everything (`poolOnly`) — one held connection
-  instead of an HTTP round trip per query. `db:migrate:ci` is `postgres` unless CI sets the var
-- **The local Neon proxy** (compose profile `neon`, `pnpm dev:db:up --neon`, `pnpm web test:db:up:neon`)
-  is OUR image `ghcr.io/rocketflare-dev/local-neon-proxy:rf-<n>` (`apps/web/docker/Dockerfile.neon-proxy`):
-  our byte-identical mirror of the community `ghcr.io/timowilhelm/local-neon-http-proxy` (Neon's
-  open-source proxy + Caddy, CC0) with `apps/web/docker/neon-proxy-start.sh` BAKED IN as the
-  entrypoint (one SCRAM round for the local role, no endpoint rate limit, pooled HTTP: ~8 ms a
-  query instead of ~70). **Pinned by digest** in BOTH compose files, bumped together, never to a
-  tag. Editing the script = rebuild and push (command in the Dockerfile header), then re-pin. Never
-  bind-mount it: Colima and remote Docker contexts cannot see a checkout outside `$HOME`, and a
-  missing source mounts as an empty directory. It creates a
-  `neon_control_plane` schema, which nothing reads. If the image goes, build one from Neon's
-  `proxy` crate; Neon's own "Neon Local" needs a cloud account
+  toml) and refuse anything but `postgres`
 
 ## Migrations
 
@@ -200,9 +182,8 @@ DDL never hits a pooled backend.
 Never hand-edit an applied migration or `apps/web/migrations/meta/`. Custom SQL (an extension, a fact table)
 is a generated file edited before it is applied, journal intact.
 
-Tests migrate a throwaway database on 5433 from `apps/web/tests/setup.ts` — never Neon (the
-conformance pass under `neon` goes through the local proxy on :4433, still that database). The
-one exception is `pnpm test` with `TEST_DATABASE_BRANCH` set: a throwaway Neon GATE branch a
+Tests migrate a throwaway database on 5433 from `apps/web/tests/setup.ts` — never a hosted one.
+The one exception is `pnpm test` with `TEST_DATABASE_BRANCH` set: a throwaway Neon GATE branch a
 sandbox orchestrator names and binds to the URL (`docs/CONCEPTS.md` §4, "Ephemeral test database").
 
 ## Plugins (D31) — a plugin's tables

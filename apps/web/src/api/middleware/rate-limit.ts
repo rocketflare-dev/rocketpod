@@ -1,14 +1,15 @@
 /**
  * Sliding-window rate limiting + per-tenant operation lock (D14), over the platform's
  * `rateLimiter` and `locks` (`src/platform/types.ts`; the Worker's are KV-backed and approximate —
- * right for login throttling, not for billing). Keyed by client IP (`cf-connecting-ip`, falling
- * back to `x-forwarded-for`) and route name; a no-op when the platform has no rate limiter.
+ * right for login throttling, not for billing). Keyed by client IP (`clientIpOf`,
+ * `utils/routes/client-ip.ts`) and route name; a no-op when the platform has no rate limiter.
  * Applied PER MOUNT in `index.ts` / `routes/auth/index.ts`, never inside a handler.
  */
 import { createMiddleware } from 'hono/factory'
 import type { Locks, RateLimitDecision } from '../../platform/types'
 import type { AppEnv } from '../types'
 import { ConflictError, RateLimitedError } from '../utils/core/errors'
+import { clientIpOf } from '../utils/routes/client-ip'
 
 export type { RateLimitDecision }
 
@@ -19,19 +20,11 @@ export interface RateLimitOptions {
   windowSeconds: number
 }
 
-export function clientIp(headers: { get(name: string): string | null | undefined }): string {
-  return (
-    headers.get('cf-connecting-ip') ??
-    headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
-    'unknown'
-  )
-}
-
 export function rateLimit(options: RateLimitOptions) {
   return createMiddleware<AppEnv>(async (c, next) => {
     const limiter = c.get('platform').rateLimiter
     if (!limiter) return next()
-    const ip = clientIp({ get: name => c.req.header(name) })
+    const ip = clientIpOf(c) ?? 'unknown'
     const decision = await limiter.check(`rl:${options.name}:${ip}`, options)
     if (!decision.allowed) {
       c.header('Retry-After', String(decision.retryAfterSeconds))

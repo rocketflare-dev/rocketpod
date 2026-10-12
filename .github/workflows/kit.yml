@@ -10,9 +10,8 @@ name: Kit
 #   renamed     the gate on the checkout renamed to a HYPHENATED slug, as every copy is born, and
 #               then provisioned as Launch's write_config does it, with the copy's own Launch kit
 #               check in both states;
-#   plugins     the gate with every `defaultPlugins` entry installed, and the WHOLE suite under
-#               `neon` — the backstop for the driver seam, which a copy's gate proves through the
-#               conformance pass alone (apps/web/src/db/CLAUDE.md).
+#   plugins     the gate with every `defaultPlugins` entry installed — a plugin's own tables and
+#               routes under the whole suite.
 #
 # A required pull-request check through branch protection, never a deploy precondition: the kit
 # does not deploy (deploy.yml's guard says so and skips), and a deploy of a copy must not wait on a
@@ -156,7 +155,7 @@ jobs:
       - run: pnpm gate
 
   plugins:
-    name: Gate with default plugins, the whole suite under neon
+    name: Gate with default plugins
     needs: kit-checks
     if: needs.kit-checks.outputs.count != '0'
     runs-on: ubuntu-latest
@@ -208,9 +207,6 @@ jobs:
         env:
           DATABASE_URL: postgresql://test:test@localhost:5433/rocketpod_test
         run: |
-          docker compose -f apps/web/docker-compose.test.yml --profile neon up -d --wait
+          docker compose -f apps/web/docker-compose.test.yml up -d --wait
           pnpm db:migrate:ci
-      # The suite under `neon` through the proxy, the conformance pass under `postgres`.
       - run: pnpm gate
-        env:
-          GATE_SUITE_DRIVER: neon

@@ -107,10 +107,27 @@ is sent as `client_secret_basic` only (no `private_key_jwt`).
 
 ## 3. API shell
 
-- **One Worker, one app** (D5): `src/worker.ts` exports `{ fetch, queue, scheduled }` plus the
-  DO/Workflow classes; `api/index.ts` exports `app` so tests call `app.request(req, env, ctx)`.
-- **Config (D3/D4)**: `loadConfig(env)` validates the runtime env with zod once per isolate.
-  Routes read `c.get('config')`. `APP_ENV` replaces `NODE_ENV`, and `process.env` is banned in `src/`.
+- **One app, two entry points** (D5, M2): `api/index.ts` exports `app` (tests call
+  `app.request(req, env, ctx)`), and two runtimes serve it. **`src/node/server.ts`** — the Node
+  entry, the one Rocketpod ships toward — runs it on `@hono/node-server` in one of three modes
+  (`SERVER_MODE` / first argument: `web` = API + the SPA's static files + `/healthz` liveness +
+  `/readyz` pool ping, 503 while draining; `worker` = the background loop, pg-boss from M3; `all` =
+  both, for dev and small installs). It reads `process.env` once into `loadConfig`, holds ONE
+  Postgres pool per process (§4), hands the app a `waitUntil` backed by a tracked defer set, and
+  on SIGTERM flips readiness, stops the listener, stops the worker loop, drains the defer set and
+  closes the pool. `pnpm build` bundles it into `dist/server.js` (`scripts/build-server.mjs`,
+  esbuild, no `node_modules` needed at runtime); `pnpm web dev:node` runs it under `tsx watch`.
+  **`src/worker.ts`** still exports `{ fetch, queue, scheduled }` plus the DO/Workflow classes
+  until the Cloudflare path is deleted (M6b).
+- **Config (D3/D4)**: `loadConfig(env)` validates the runtime env with zod once per env object.
+  Routes read `c.get('config')`. `APP_ENV` replaces `NODE_ENV`; `process` (and Node's server
+  modules, and `@hono/node-server`) appear only under `src/node/`, and nothing else imports that
+  directory (`tests/config/platform-seam.test.ts`), so the Worker bundle never pulls the Node
+  entry in.
+- **Client IP**: one rule, `clientIpOf(c)` (`api/utils/routes/client-ip.ts`), for rate-limit keys
+  and the auth audit. On Node the socket's peer (passed on `executionCtx.props`, never on the
+  per-process env), `X-Forwarded-For` ignored unless `TRUSTED_PROXY_HOPS = N`, then the Nth entry
+  from the right; on the Worker `cf-connecting-ip`.
 - **The platform seam (M1)**: every runtime capability — jobs, storage, realtime, durable runs,
   rate limits and locks, the model runner, document conversion — is a neutral interface in
   `src/platform/types.ts`, bundled as one `Platform`. Routes read `c.get('platform')`; queue
@@ -119,8 +136,11 @@ is sent as `client_secret_basic` only (no `private_key_jwt`).
   implementation is `src/platform/cloudflare/` (adapted from its bindings per request), and
   `tests/config/platform-seam.test.ts` keeps every Cloudflare type, binding name and
   `cloudflare:` import inside those adapters, `src/worker.ts` and the two classes it exports.
-  Tests' `createTestEnv()` is both the Worker-shaped env and the `Platform` view of it. This is
-  what lets a Node entry with Postgres/S3 adapters replace the Worker (`docs/ROADMAP.md` M2–M6).
+  Tests' `createTestEnv()` is both the Worker-shaped env and the `Platform` view of it. The Node
+  entry's platform is `src/node/platform.ts`: every member null in M2 (the app answers each with
+  its configured-off state — 503 `storage_not_configured`, `agent_runs_not_configured`,
+  `realtime_not_configured`; no rate limit; a route that must enqueue fails with a 500 naming the
+  missing queue, `JobsQueueNotConfiguredError`), filled in by M3–M6 (`docs/ROADMAP.md`).
 - **Middleware order is deliberate** (error envelope → logger → config → platform → security headers → body
   limit → CORS → CSRF → DB → tracing → mounts). Auth is per mount. The ASSETS catch-all 404s every
   API prefix, so a missing route never returns `index.html`. Order and exceptions:
@@ -129,7 +149,8 @@ is sent as `client_secret_basic` only (no `private_key_jwt`).
   There is no `hono/client` RPC. Errors are `{ error, statusCode, code?, details? }` everywhere,
   and success bodies are bare.
 - **Routes are thin** and never run long work (§5).
-- **Local dev ports**: Vite :3000 proxies to `wrangler dev` :3001, both `strictPort`, unless
+- **Local dev ports**: Vite :3000 proxies to `wrangler dev` :3001 (or `pnpm web dev:node`, the
+  Node entry on `PORT`, default 3001), both `strictPort`, unless
   `DEV_UI_PORT` / `DEV_API_PORT` are set (shell, then `.dev.vars`; `scripts/lib/dev-ports.mjs` is the
   one reader). `APP_URL` follows the UI port by hand — the Worker cannot read the shell — and
   outside production CORS/CSRF also allow the loopback twin of `APP_URL` and of the request's own
@@ -140,46 +161,41 @@ is sent as `client_secret_basic` only (no `private_key_jwt`).
   override, no PATH binary and no managed copy. `pnpm install` never builds the package.
   `SETUP.md` 1.10.
 
-**Known gaps:** `pnpm dev:tunnel` always targets :3000 (cfld reads `package.json`); `pnpm dev:api`
+**Known gaps:** on Node every platform member is null until M3–M6, so inviting a member, deleting
+a tenant, chat compaction, uploads, agent runs, `/ws` and rate limiting answer "not configured"
+there; `pnpm dev` still runs `wrangler dev` (M7 switches it); `pnpm dev:tunnel` always targets :3000 (cfld reads `package.json`); `pnpm dev:api`
 alone reads `DEV_API_PORT` from the shell only, not `.dev.vars`; no `/api/ready` smoke step against a preview; no OpenAPI (`@hono/zod-openapi` is the
 path); no per-PR previews.
 
 ## 4. Database
 
-- **Two drivers, one client per request (D35, replacing D2's "postgres.js only")**:
-  `DATABASE_DRIVER` picks Drizzle over the Neon serverless driver (`neon`: neon-http per query, a
-  WebSocket `Pool` opened for `db.transaction`) or over `postgres.js` (`postgres`, through
-  Hyperdrive — any Postgres). A missing var means `postgres`; the kit's tomls say `neon`;
-  `.dev.vars` and `.env.test` say `postgres`, so local work and the suite run postgres.js; the seam
-  below is what makes that a safe stand-in for the deployed driver.
-  `openDatabase(env)` (`db/client.ts`) is the one resolver — URL `PREVIEW_DATABASE_URL ??
-  DATABASE_URL` under `neon`, `?? HYPERDRIVE.connectionString ??` in between under `postgres` — and
-  the client is built per request / consumer message / step / cron run and closed in `waitUntil` or
-  `finally`. No LISTEN/NOTIFY, advisory lock or PREPARE on the request path under either.
-  Why two: Hyperdrive caps an account at 25 configs (a fleet of apps cannot each have one) and
-  sandboxes have no TCP out, but Hyperdrive is also how a copy reaches a Postgres that is not Neon.
-  Detail and the switch: `docs/DEPLOY.md` § Database driver, `docs/NEON-DRIVER.md`.
+- **One driver, postgres.js (D35, narrowed in Rocketpod — `docs/FORK.md`)**. Rocketflare's Neon
+  serverless driver (neon-http + a WebSocket pool) is gone: postgres.js reaches any Postgres, Neon
+  included, over TCP. `DATABASE_DRIVER` remains, accepting only `postgres` (missing means it), and
+  `neon` fails config validation naming the fix. `openDatabase(env)` (`db/client.ts`) is the one
+  resolver — URL `PREVIEW_DATABASE_URL ?? HYPERDRIVE.connectionString ?? DATABASE_URL`. **On Node**
+  the entry installs ONE pool per process (`installProcessPool`, `DATABASE_POOL_MAX`, default 10,
+  named prepared statements on) and every `openDatabase` for that URL is a view of it whose
+  `close()` is a no-op; the pool is ended once on shutdown. **On the Worker** (until M6b) it is a
+  client per request / consumer message / step / cron run over Hyperdrive, closed in `waitUntil`
+  or `finally`. Either way the connection is pooled, so no session state, LISTEN or advisory lock
+  on the request path.
 - **The driver seam: code never sees the driver** (`src/db/CLAUDE.md`). `db/client.ts` is the only
-  place the two differ, and every divergence is either normalised there or banned everywhere else.
-  Normalised: a raw `db.execute()` is `unknown` (`Database` is drizzle's `PgDatabase` base) and is
-  read with `rows()` / `affected()`, because postgres.js returns an array with `.count` and Neon
-  `{ rows, rowCount }`; raw arrays parse to arrays under both (Neon's own parsers installed on
-  postgres.js, `ARRAY_PARSERS`); a SQLSTATE is read with `pgErrorCode()` / `isUniqueViolation()`.
-  Raw timestamps are Postgres's text under both. Banned by `tests/config/driver-results.test.ts`
-  (an AST scan over `src/`, installed plugins included): a cast, index or `.rows`/`.count` read on
-  a raw result, a driver import, a SQLSTATE compared by hand, session state (a statement `SET`,
-  `set_config(…, false)`, a session advisory lock, a temp table) outside a transaction callback —
-  neon-http runs every other query on a fresh connection — and `LISTEN` anywhere.
-- **Proved under both drivers.** The `driver` vitest project is the conformance suite for the seam:
-  each test states one equivalence and passes unchanged under both drivers
-  (`tests/config/driver-conformance.test.ts` fails a skip or a per-driver expectation).
-  `pnpm test` runs the suite under `postgres`, then the `driver` project under `neon` through the
-  local proxy — so every gate, a copy's CI included, proves the deployed path. `kit.yml` runs the
-  whole suite under `neon` with the default plugins installed (`GATE_SUITE_DRIVER=neon`); locally
-  `GATE_SUITE_DRIVER=neon pnpm gate test` does the same, and `pnpm dev:db:up --neon` runs the
-  deployed driver on the local database. Time limits scale by one latency factor per target
-  (`vitest.config.ts`: 1 local `postgres`, 4 through the proxy, 12 on a real Neon branch); no test
-  carries a budget of its own.
+  place it is named; everything else is normalised there or banned. Normalised: a raw
+  `db.execute()` is `unknown` (`Database` is drizzle's `PgDatabase` base) and is read with
+  `rows()` / `affected()`; raw arrays parse to arrays (`ARRAY_PARSERS` + `parseArrayLiteral`,
+  because postgres.js runs with `fetch_types: false`); a SQLSTATE is read with `pgErrorCode()` /
+  `isUniqueViolation()`. Raw timestamps are Postgres's text. Banned by
+  `tests/config/driver-results.test.ts` (an AST scan over `src/`, installed plugins included,
+  `src/node/` exempt): a cast, index or `.rows`/`.count` read on a raw result, a driver import, a
+  SQLSTATE compared by hand, session state (a statement `SET`, `set_config(…, false)`, a session
+  advisory lock, a temp table) outside a transaction callback — it would leak to the next request
+  on that pooled connection — and `LISTEN` on the request path.
+- **Proved every gate.** The `driver` vitest project is the conformance suite for the seam, through
+  a per-request client and through a view of the process pool
+  (`tests/config/driver-conformance.test.ts` fails a skip or a branch on the driver). Time limits
+  scale by one latency factor per target (`vitest.config.ts`: 1 local, 12 on a remote gate
+  branch); no test carries a budget of its own.
 - **The gate** (`pnpm gate`, `scripts/lib/gate-lib.mjs`): lint → typecheck → test → build,
   stopping at the first failure (`--keep-going` runs all; `pnpm gate <step…>` and `--skip` are for
   iterating locally — no workflow passes `--skip`). It is the pre-commit gate, a copy's one CI job
@@ -202,51 +218,40 @@ path); no per-PR previews.
   full gate. Unset, no lookup runs at all. Trust is the app id: anyone with `checks: write` can name
   a check `launch/gate`, only Launch's App can post one under its id.
 - **`pnpm test` picks its target from the environment** (`scripts/lib/test-plan.mjs`), never by
-  probing, and prints it first. **Local** (the default): it starts the compose test Postgres and
-  Neon proxy itself (`docker compose … --profile neon up -d --wait`; Docker down is a failure that
-  names both fixes, never a skip), then every package, the web suite under `postgres`, and the
-  `driver` project under `neon`. The narrow scripts (`pnpm web test:api|ui|config|driver`) are the
-  inner loop: `postgres`, no compose management.
+  probing, and prints it first. **Local** (the default): it starts the compose test Postgres itself
+  (`docker compose … up -d --wait`; Docker down is a failure that names both fixes, never a skip),
+  then every package and the web suite. The narrow scripts (`pnpm web test:api|ui|config|driver`)
+  are the inner loop: no compose management. `GATE_SUITE_DRIVER` is refused (one driver).
 - **Remote target — an ephemeral test database** (`pnpm test` with `TEST_DATABASE_BRANCH` set): the
-  whole gate's tests where there is no Docker and only 443 out — a coding sandbox, whose
-  orchestrator (Launch) creates a throwaway Neon branch per gate attempt and passes its owner
-  connection string. The runner sets `TEST_DATABASE_EPHEMERAL=1`, `DATABASE_DRIVER=neon`, an empty
-  `APP_DATABASE_URL` (the app role stays NOLOGIN) and runs every web project; the postgres half of
-  the conformance pass is skipped (no TCP) and said so. `TEST_DATABASE_EPHEMERAL=1` without a
-  branch, or `GATE_SUITE_DRIVER=postgres` with one, is refused. `safetyCheck()` (`tests/helpers/db-safety.ts`) still
-  refuses any non-local `DATABASE_URL` unless ALL hold: that profile, the `neon` driver, a
-  `*.neon.tech` host, `TEST_DATABASE_BRANCH` matching `^gate-[a-z0-9]+-\d+$`, and
+  whole gate's tests where there is no Docker — a coding sandbox, whose orchestrator creates a
+  throwaway database branch per gate attempt and passes its owner connection string, reached by
+  postgres.js over TCP. The runner sets `TEST_DATABASE_EPHEMERAL=1` and an empty
+  `APP_DATABASE_URL` (the app role stays NOLOGIN) and runs every web project.
+  `TEST_DATABASE_EPHEMERAL=1` without a branch is refused. `safetyCheck()`
+  (`tests/helpers/db-safety.ts`) still refuses any non-local `DATABASE_URL` unless ALL hold: that
+  profile, a `*.neon.tech` host, `TEST_DATABASE_BRANCH` matching `^gate-[a-z0-9]+-\d+$`, and
   `TEST_DATABASE_ENDPOINT` equal to the `ep-…` id in the URL. The branch name is not in a Neon
   connection string, so the name alone is only a claim; the endpoint id is, and binds the claim to
-  that URL (a stale opt-in in a shell cannot bless another database). The profile runs 2 forks
-  (`TEST_MAX_WORKERS` overrides; a small Neon compute allows ~100 connections, the local sizing
-  assumes 300), a 60 s test and 120 s hook limit (the factor of 12: real round trips, a
-  cold-starting compute; `TEST_LATENCY_FACTOR` raises the factor on any target — a slow sandbox
-  machine running a test by hand — and never lowers it, `tests/helpers/latency.ts`), and
-  skips `db-roles.test.ts` (postgres.js over TCP, and a superuser to make owner roles). Global setup
-  is unchanged: role → migrate → grants → truncate → seed, as the connecting role; its FIRST
-  connection (`db-roles`) waits for the database (`waitForDatabase`, `scripts/lib/sql.ts`) exactly
-  as the migrator does, because the neon driver reports a WebSocket that failed before Postgres
-  answered as an `ErrorEvent` with no message, and one such failure used to fail the whole run.
-  Every Neon `Pool` comes from `createNeonPool` (`db/client.ts`), whose `error` listeners turn a
-  dropped connection into a rejected query rather than an uncaught exception that kills the run.
-  `migrate.ts`,
-  `db-roles.ts` and `seed.ts` `process.exit` when done, as `db:check` does: Cloudflare's container
-  egress interceptor never ends a closed database WebSocket's stream, so Node would never exit.
+  that URL. The profile runs 2 forks (`TEST_MAX_WORKERS` overrides), a 60 s test and 120 s hook
+  limit (`TEST_LATENCY_FACTOR` raises the factor on any target and never lowers it,
+  `tests/helpers/latency.ts`), and skips `db-roles.test.ts` (a superuser to make owner roles).
+  Global setup is unchanged: role → migrate → grants → truncate → seed; its FIRST connection
+  (`db-roles`) waits for the database (`waitForDatabase`, `scripts/lib/sql.ts`) exactly as the
+  migrator does. `migrate.ts`, `db-roles.ts` and `seed.ts` `process.exit` when done, as `db:check`
+  does.
 - **Conventions**: one file per table, `tenantRef()` + `timestamps()` (`timestamptz`), append-only
   enums, `vector(1024)` (a new dimension means a new table). `migrate.ts` creates the `vector`
   extension first. Detail: `.claude/rules/database.md`.
 - **Local port is chosen** (`scripts/dev-db.mjs`): each checkout gets its own compose project and
   port, written back to `DATABASE_URL`, so two copies never share a database.
-- **Or an existing database** (`pnpm bootstrap --db-url <url>`): for a machine with no Docker (a
-  coding sandbox on a Neon branch). The URL goes into `DATABASE_URL` and nothing is started; a
-  `*.neon.tech` URL also sets `DATABASE_DRIVER=neon` there (HTTPS + WebSocket only, which is what a
-  sandbox allows; `--driver` overrides). An
-  off-box `DATABASE_URL` (not loopback) is left alone by `dev-db.mjs` and skips preflight's Docker
-  checks. The seed runs there with `SEED_ALLOW_REMOTE=1`. A sandbox that already installed, made
-  the database and knows it is migrated says so instead of paying for it again: `--no-install`,
-  `ROCKETPOD_BOOTSTRAP_SKIP=<steps>` (any of steps 1–8 by name) and `ROCKETPOD_ALLOW_ROOT=1`
-  (its commands run as root; the container is the boundary) — `SETUP.md` Part 1.
+- **Or an existing database** (`pnpm bootstrap --db-url <url>`): for a machine with no Docker.
+  The URL goes into `DATABASE_URL` and nothing is started (`--driver postgres` is accepted, `neon`
+  refused). An off-box `DATABASE_URL` (not loopback) is left alone by `dev-db.mjs` and skips
+  preflight's Docker checks. The seed runs there with `SEED_ALLOW_REMOTE=1`. A sandbox that already
+  installed, made the database and knows it is migrated says so instead of paying for it again:
+  `--no-install`, `ROCKETPOD_BOOTSTRAP_SKIP=<steps>` (any of steps 1–8 by name) and
+  `ROCKETPOD_ALLOW_ROOT=1` (its commands run as root; the container is the boundary) — `SETUP.md`
+  Part 1.
 - **Migrations**: `db:generate` → read the SQL → `db:migrate` (role → migrations → grants).
   Migrations are forward-only.
 - **Cross-tenant allow-list**: `tests/config/unscoped-allowlist.test.ts` fails a function that
@@ -255,21 +260,14 @@ path); no per-PR previews.
 - **RLS** ships inert: every tenant table has `tenantIsolation()` (enforced by `rls-coverage`),
   and `TENANT_SCOPE_MODE=enforce` waits on the spike in `docs/RLS.md`.
 
-**Known gaps:** the RLS spike has not been run; no read replicas; the local Neon proxy is a
-community image, mirrored to `ghcr.io/rocketflare-dev` and rebuilt with our start script (pinned by digest) — Neon's official "Neon Local"
-needs a cloud account; `neon` in deployment has no read cache and pays a round trip per query
-(p95 is measured per app when it switches, not gated); the seam's guard catches only the
-divergences it knows — a new kind (a driver release that parses something differently) surfaces
-in `kit.yml`'s full-neon pass or in production, not in a copy's gate, whose suite runs `postgres`;
-the proxy image is pulled by every local `pnpm test` (the narrow scripts never pull it); the TEST
-database is pinned to
-5433, so two checkouts cannot run `pnpm test` at once (each app has its own Compose project,
-`<slug>-test`, so switching checkouts no longer recreates the other's container). `--db-url` with a loopback URL (a native
-Postgres) still looks like this checkout's Docker database to preflight and `dev:db:*`, and a
-re-run of the bootstrap without the flag checks for Docker again. The remote target is proven in
-the kit only through the local Neon proxy: against a real Neon branch, the owner role's
-`ALTER ROLE`s on an app role someone else created, the connection count and the time limits are
-the caller's to prove.
+**Known gaps:** the RLS spike has not been run; no read replicas; the process pool turns named
+prepared statements on, so a PgBouncer in TRANSACTION mode in front of the Node server needs
+1.21+ (`max_prepared_statements`) — there is no switch to turn them off yet; the TEST database is
+pinned to 5433, so two checkouts cannot run `pnpm test` at once (each app has its own Compose
+project, `<slug>-test`). `--db-url` with a loopback URL (a native Postgres) still looks like this
+checkout's Docker database to preflight and `dev:db:*`, and a re-run of the bootstrap without the
+flag checks for Docker again. The remote target's safety check still names Neon (`*.neon.tech`,
+the `ep-…` endpoint) — the one hosted branch provider the gate-branch binding knows.
 
 ## 5. Background work and realtime
 

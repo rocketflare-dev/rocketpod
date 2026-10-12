@@ -76,7 +76,7 @@ describe('enqueueJob / enqueueJobs', () => {
     expect(() => buildJobEnvelope({ type: 'nope' } as never)).toThrow()
   })
 
-  it('a missing binding is a clear configuration error, never a silent drop', async () => {
+  it('a missing queue is a 503 jobs_not_configured, never a silent drop', async () => {
     await expect(
       enqueueJob(undefined, {
         type: 'activity.record',
@@ -87,7 +87,7 @@ describe('enqueueJob / enqueueJobs', () => {
       enqueueJobs(null, [
         { type: 'activity.record', payload: { tenantId: TENANT, type: 't', subjectType: 'T' } },
       ])
-    ).rejects.toThrow(/JOBS_QUEUE/)
+    ).rejects.toMatchObject({ statusCode: 503, code: 'jobs_not_configured' })
   })
 
   it('enqueueJobs chunks sendBatch at 100 and returns every envelope', async () => {

@@ -82,7 +82,7 @@ pnpm kit:upgrade [--to X.Y.Z] [--apply] · pnpm kit:release X.Y.Z  # port a kit 
 apps/web/          @rocketpod/web — wrangler*.toml, worker-configuration.d.ts, .dev.vars(.example), .env.test,
 │                  drizzle.config.ts, migrations/, scripts/, tests/
 │  src/node/       the Node entry (M2): server.ts (modes, probes, shutdown) · platform.ts · assets.ts
-│                  (static + SPA fallback) · defer.ts (waitUntil) · worker-loop.ts — `dist/server.js`
+│                  (static + SPA fallback) · defer.ts (waitUntil) · jobs{,-schema}.ts (pg-boss) — `dist/server.js`
 │  src/worker.ts   export default { fetch, queue, scheduled }; export { NotificationsHub, AgentRunWorkflow }
 │                  (the Cloudflare entry, until M6b)
 │  src/config.ts   loadConfig(env): zod over Cloudflare.Env; routes read c.get('config')

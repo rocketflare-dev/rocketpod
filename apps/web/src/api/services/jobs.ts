@@ -6,6 +6,7 @@
  * The queue is passed in (never read from a global) so the same service code runs from a route
  * (`c.get('platform').jobs`), a cron, a Workflow step or a test (`RecordingQueue`).
  */
+import { ERROR_CODES } from '@rocketpod/shared/errors'
 import {
   type JobEnvelope,
   type JobInput,
@@ -13,6 +14,7 @@ import {
   jobInputSchema,
 } from '@rocketpod/shared/jobs'
 import type { JobsQueue } from '../../platform/types'
+import { ServiceUnavailableError } from '../utils/core/errors'
 import { newId } from '../utils/core/ids'
 
 /**
@@ -36,12 +38,13 @@ export interface EnqueueOptions {
   delaySeconds?: number
 }
 
-/** Thrown when a code path needs the queue and the platform has none (a missing binding). */
-export class JobsQueueNotConfiguredError extends Error {
+/**
+ * Thrown when a code path needs the queue and the platform has none: a 503 `jobs_not_configured`
+ * (the Worker without its `JOBS_QUEUE` binding; a Node process built without the pg-boss producer).
+ */
+export class JobsQueueNotConfiguredError extends ServiceUnavailableError {
   constructor() {
-    super(
-      'JOBS_QUEUE binding is not configured: add [[queues.producers]] binding = "JOBS_QUEUE" to apps/web/wrangler*.toml and run `pnpm types`'
-    )
+    super('Background jobs are not configured', ERROR_CODES.jobsNotConfigured)
     this.name = 'JobsQueueNotConfiguredError'
   }
 }

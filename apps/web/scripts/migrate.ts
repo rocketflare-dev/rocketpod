@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url'
 import { drizzle as drizzlePostgres } from 'drizzle-orm/postgres-js'
 import { migrate as migratePostgres } from 'drizzle-orm/postgres-js/migrator'
 import postgres from 'postgres'
+import { installJobsSchema } from '../src/node/jobs-schema'
 import { isNeonUrl, scriptDriver, toDirectNeonHost, waitForDatabase } from './lib/sql'
 
 export { isNeonUrl, toDirectNeonHost }
@@ -25,6 +26,8 @@ export interface RunMigrationsOptions {
   maxAttempts?: number
   /** Where `DATABASE_DRIVER` is read from (it must be `postgres` or unset). Default `process.env`. */
   env?: { readonly [key: string]: string | undefined }
+  /** Also install pg-boss's `pgboss` schema and the queues (M3, `src/node/jobs-schema.ts`). Default true. */
+  jobs?: boolean
 }
 
 /**
@@ -63,6 +66,12 @@ export async function runMigrations(
     log('Migrations applied')
   } finally {
     await sql.end({ timeout: 5 })
+  }
+  // The jobs transport's own schema (pg-boss, M3): created/migrated here, by the migrate one-shot,
+  // never by a `web` process at boot.
+  if (options.jobs !== false) {
+    await installJobsSchema({ DATABASE_URL: url })
+    log('Jobs schema (pgboss) and queues applied')
   }
 }
 

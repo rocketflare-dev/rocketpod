@@ -36,6 +36,8 @@ export const ERROR_CODES = {
   aiNotConfigured: 'ai_not_configured',
   /** 503: the `AGENT_RUN_WORKFLOW` binding is missing, so a run cannot be started (D7). */
   agentRunsNotConfigured: 'agent_runs_not_configured',
+  /** 503: the platform has no jobs queue, so work that must be enqueued cannot be (D7, M3). */
+  jobsNotConfigured: 'jobs_not_configured',
   /** 409: `?strict=1` and an active run already exists for an exclusive agent (D7). */
   agentRunActive: 'agent_run_active',
   /** 404: `POST /api/agui/run` was given a `threadId` that exists but is not this user's. */

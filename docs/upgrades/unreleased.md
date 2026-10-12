@@ -3,8 +3,8 @@ version: unreleased
 previous: 0.1.0
 date: null
 breaking: true
-migrations: []
-areas: [api, db, config, docs]
+migrations: ["pgboss schema + queues (pg-boss, installed by pnpm db:migrate)"]
+areas: [api, db, config, shared, docs]
 touches_surfaces: []
 requires_surfaces: []
 manual: false
@@ -23,9 +23,12 @@ Every runtime capability is now a neutral `Platform`, a Node entry (`src/node/se
 - Plugin API: `PluginContext.platform` added; `ToolCtx`/`AgentCtx` carry `platform` instead of `env`; `durableObject` removed from `RequestCtx`, `BackgroundMethods` and `@/plugins/api`; `workflowCtx(step, env, config, logger, platform)` takes the neutral `Step`.
 - `GET /ws` answers 503 `realtime_not_configured` when the platform has no hub (it threw a 500 before).
 - `tests/config/platform-seam.test.ts` fails on any Cloudflare type, binding name or `cloudflare:` import outside the adapters, `src/worker.ts` and the two Worker classes.
-- Node entry (M2): `src/node/server.ts` runs the Hono app on `@hono/node-server` in `web`, `worker` or `all` mode (`SERVER_MODE` or the first argument), with `/healthz`, `/readyz` (503 while draining), static files plus an SPA fallback, a tracked `waitUntil` set and a SIGTERM drain; the `worker` mode is a placeholder loop until pg-boss (M3).
+- Node entry (M2): `src/node/server.ts` runs the Hono app on `@hono/node-server` in `web`, `worker` or `all` mode (`SERVER_MODE` or the first argument), with `/healthz`, `/readyz` (503 while draining), static files plus an SPA fallback, a tracked `waitUntil` set and a SIGTERM drain.
 - `pnpm build` adds `build:server` (`scripts/build-server.mjs`, esbuild) → `dist/server.js`, one file with no `node_modules` at runtime; `pnpm web dev:node` runs the entry under `tsx watch`.
-- The Node platform (`src/node/platform.ts`) has every member null for now: uploads, agent runs, `/ws` and rate limits answer "not configured", and a route that must enqueue (invitations, tenant delete, chat compaction) fails with a 500 naming the missing queue.
+- The Node platform (`src/node/platform.ts`) has `jobs` (pg-boss) and every other member null for now: uploads, agent runs, `/ws` and rate limits answer "not configured".
+- Jobs and cron on Node (M3): pg-boss 12 (`src/node/jobs.ts`, `src/node/jobs-schema.ts`) in schema `pgboss`. The producer is `Platform.jobs` (`send` → `startAfter`, `sendBatch` → `insert`); `worker`/`all` modes consume batches of 10 through the Worker's own `queue()` and settle per job (unsettled = acked, a throwing batch retries whole); the queue retries 3 times on the 30 s-doubling, 15 min-capped curve (pg-boss jitters it up to 2×) and then dead-letters to `rocketpod-jobs-dlq`; every `SCHEDULED_TASKS` expression is a pg-boss schedule (UTC, singleton across replicas) run through `scheduled()`. New config: `JOBS_CONCURRENCY` (2), `JOBS_POLL_INTERVAL_SECONDS` (2).
+- `pnpm db:migrate` (`runMigrations`) also installs the `pgboss` schema and the queues (`installJobsSchema`; `jobs: false` skips it).
+- `JobsQueueNotConfiguredError` is a 503 `ServiceUnavailableError` with code `jobs_not_configured` (new in `ERROR_CODES`), not a 500.
 - `installProcessPool(env, { max, prepare })` in `db/client.ts`: ONE postgres.js pool per process; `openDatabase` for the same URL returns a view whose `close()` is a no-op. New config: `DATABASE_POOL_MAX` (10), `TRUSTED_PROXY_HOPS` (0).
 - The Neon serverless driver is gone: `@neondatabase/serverless`, `createNeonDatabase`/`createNeonPool`/`routeNeonThroughProxy`, `NEON_LOCAL_PROXY`, the neon-proxy image and compose profiles, `pnpm dev:db:up --neon`, `test:db:up:neon`, `GATE_SUITE_DRIVER`, the driver project's second pass, `docs/NEON-DRIVER.md`, `ws-pg-relay`. `DATABASE_DRIVER` accepts only `postgres`; `neon` fails config validation (and `bootstrap --driver neon`) naming the fix; both tomls and `launch.kit.json` say `postgres`.
 - Raw arrays are parsed by the kit's own `parseArrayLiteral` (`ARRAY_PARSERS`), no longer by Neon's parsers; the conformance suite adds quoting, NULL, nesting and `bytea[]` cases and a process-pool case.
@@ -45,6 +48,8 @@ Every runtime capability is now a neutral `Platform`, a Node entry (`src/node/se
 7. Replace `apps/web/src/db/client.ts` with the kit's (one driver, `installProcessPool`, `parseArrayLiteral`), remove `@neondatabase/serverless` from `apps/web` and `apps/evals`, and set `DATABASE_DRIVER = "postgres"` in both tomls and `.dev.vars`; delete `NEON_LOCAL_PROXY` everywhere.
 8. Replace any `clientIp(…)` / hand-read `cf-connecting-ip` of your own with `clientIpOf(c)`.
 9. Remove the `neon` profile from `apps/web/docker-compose.{dev,test}.yml` and `--profile neon` / `GATE_SUITE_DRIVER` from your workflows.
+10. Add `pg-boss` (exact `12.37.1`) to `apps/web/package.json`, copy `apps/web/src/node/jobs.ts` and `apps/web/src/node/jobs-schema.ts`, and take the kit's `apps/web/scripts/migrate.ts`, `apps/web/src/node/server.ts` and `apps/web/src/node/platform.ts`; delete `apps/web/src/node/worker-loop.ts`.
+11. Run `pnpm db:migrate` once against every database so the `pgboss` schema and queues exist before a Node `worker` starts.
 
 ## Conflicts to expect
 
@@ -60,3 +65,5 @@ Every runtime capability is now a neutral `Platform`, a Node entry (`src/node/se
 3. `pnpm test` passes.
 4. `node scripts/plugin-api-doc.mjs --check` passes.
 5. `pnpm --filter @rocketpod/web build` writes `apps/web/dist/server.js`; `node apps/web/dist/server.js all` with `DATABASE_URL` set answers `GET /healthz` and `GET /readyz` with 200.
+6. `pnpm db:migrate` prints `Jobs schema (pgboss) and queues applied`; with `node apps/web/dist/server.js all` running, creating an invitation logs `jobs: done` for its `email.send` job.
+7. `pnpm web test:api` passes `tests/api/node-jobs.test.ts`.

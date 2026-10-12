@@ -79,7 +79,7 @@ The detailed adapter design already exists in `docs/SELF-HOSTED.md` (untracked i
   `src/platform/cloudflare/`, `HYPERDRIVE`) is NOT deleted here. It stays green beside the Node
   runtime until **M6b**, so every commit's gate passes on both.
 
-### M3. Jobs and cron on pg-boss (2–3 d)
+### M3. Jobs and cron on pg-boss (2–3 d) — done
 - The producer maps `delaySeconds` to `startAfter`.
 - The consumer wraps pg-boss jobs as `{ body, attempts, ack, retry }` and calls `processJobsBatch` unchanged.
 - Configure `retryLimit 3`, backoff and a real dead-letter queue.

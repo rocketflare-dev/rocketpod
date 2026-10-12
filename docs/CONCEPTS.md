@@ -280,13 +280,26 @@ work goes to `AGENT_RUN_WORKFLOW`, and cron only dispatches.
   with backoff up to `max_retries`. A missing binding throws. Consumers await everything and never
   use `waitUntil`. Queued today: `tenant.purge`, invitation and access-decision emails,
   `document.index`/`document.convert`, `chat.compact`. The magic link stays inline.
-  Detail: `.claude/rules/api.md`.
+  Detail: `.claude/rules/api.md`. A missing queue is a 503 `jobs_not_configured`.
+- **Jobs on Node (M3)**: **pg-boss** in the `pgboss` schema is the transport (`src/node/jobs.ts`,
+  `jobs-schema.ts`); the consumer hands its batches to the Worker's own `queue()`, so
+  `processJobsBatch` is unchanged. Batches of 10 settled per job; an unsettled message counts as
+  acked and a throwing batch retries whole, as on Cloudflare. Retries ride the queue's policy:
+  three after the first delivery, 30 s doubling to 15 min as a floor that pg-boss's jitter can
+  double, then the `rocketpod-jobs-dlq` dead-letter queue (14 days). `pnpm db:migrate` installs the
+  schema and queues; a `web` process only produces (pg-boss starts on the first send), a `worker`
+  process also supervises and runs cron. `JOBS_CONCURRENCY` (2) × 10 per worker,
+  `JOBS_POLL_INTERVAL_SECONDS` (2).
 - **Workflow**: `AgentRunWorkflow` (§9). **Concurrency is a DB claim row, never a `Map`**:
   `ACTIVE_RUN_STATUSES` (exclusive index, includes parked runs) ⊃ `CLAIMABLE_RUN_STATUSES`
   (the claim). Keep those two lists separate. A lost instance is settled on read, and there is no
   sweeper cron.
 - **Cron**: `scheduled.ts` looks up the task by expression. `0 4 * * *` prunes; plugins add their
-  own tasks, and each expression must appear in both tomls.
+  own tasks, and each expression must appear in both tomls. On Node every `SCHEDULED_TASKS`
+  expression is a pg-boss schedule (UTC) synced at worker start (stale ones dropped); pg-boss claims
+  each cron pass in the database and files each occurrence under a singleton key, so N worker
+  replicas run an occurrence once, through the same `scheduled()`. A failed cron task is not
+  retried (Cloudflare does not re-run one either).
 - **Realtime (D8)**: `NotificationsHub` DO, one per tenant, stateless, using the hibernation API
   with RPC publish. `GET /ws` resolves the cookie itself. **"DB is the truth, WebSocket is a
   nudge"**: events carry ids, and the UI invalidates the query-key roots from
@@ -295,7 +308,9 @@ work goes to `AGENT_RUN_WORKFLOW`, and cron only dispatches.
 
 **Known gaps:** `/api/admin` paths do not nudge; `notification.read` is never emitted;
 `activity.record` has no producer; the DO 101 upgrade is untestable under Node; no dead-letter
-queue; no vitest-pool-workers smoke project.
+queue on the Worker (Node has one); no vitest-pool-workers smoke project. On Node, `retry({
+delaySeconds })` is advisory — the queue's policy picks the delay (same curve, jittered); nothing
+consumes or redrives the dead-letter queue yet (`boss.redrive` by hand).
 
 ## 6. Email and storage
 

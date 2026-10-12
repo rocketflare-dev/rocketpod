@@ -116,6 +116,13 @@ const coreConfigSchema = z.object({
    */
   TRUSTED_PROXY_HOPS: z.coerce.number().int().min(0).max(10).default(0),
   /**
+   * Node worker (M3): consumers of the jobs queue per `worker` process, each fetching batches of
+   * up to 10 (the Cloudflare consumer's `max_batch_size`). Ignored by the Worker.
+   */
+  JOBS_CONCURRENCY: z.coerce.number().int().min(1).max(50).default(2),
+  /** Node worker (M3): how often an idle consumer polls the jobs queue, in seconds (≥ 0.5). */
+  JOBS_POLL_INTERVAL_SECONDS: z.coerce.number().min(0.5).max(60).default(2),
+  /**
    * D32: where the langfuse preset sends spans when `OTEL_EXPORTER_OTLP_ENDPOINT` is unset —
    * `<base>/api/public/otel`.
    */

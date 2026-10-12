@@ -240,6 +240,12 @@ const coreConfigSchema = z.object({
   DATABASE_URL: optionalString,
   /** Per-PR database branch; when set it wins over HYPERDRIVE and DATABASE_URL (see db/client.ts). */
   PREVIEW_DATABASE_URL: optionalString,
+  /**
+   * Node realtime (M5): the connection the `/ws` hub LISTENs on. Unset = the database URL. LISTEN
+   * needs a session: behind PgBouncer in transaction mode, point this straight at Postgres (or at a
+   * session-mode pool). Ignored by the Worker.
+   */
+  DATABASE_LISTEN_URL: optionalString,
   /** AES-GCM key for OAuth tokens at rest (D12). */
   OAUTH_ENCRYPTION_KEY: optionalSecret(32),
   RESEND_API_KEY: optionalString,

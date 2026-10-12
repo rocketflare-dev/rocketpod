@@ -312,12 +312,27 @@ work goes to `AGENT_RUN_WORKFLOW`, and cron only dispatches.
   nudge"**: events carry ids, and the UI invalidates the query-key roots from
   `REALTIME_INVALIDATIONS`. The `entity` of `entity.changed` IS the query-key root. All nudges go
   through `services/realtime.ts` inside `defer`, after commit.
+- **Realtime on Node (M5)**: no DO — `src/node/realtime.ts`. Every process PUBLISHES through
+  `pg_notify('rp_realtime', {t, u?, e})` (jobs, runs and cron in a `worker` process included), and
+  every `web`/`all` process holds its own sockets (by tenant, tagged by user) and LISTENs on ONE
+  dedicated connection — `DATABASE_LISTEN_URL`, else the database URL — delivering each
+  notification to its matching local sockets, so a nudge reaches a socket on any pod. LISTEN needs a
+  session: behind PgBouncer in transaction mode, `DATABASE_LISTEN_URL` must go straight to Postgres
+  (or a session-mode pool). The upgrade runs the app inside an `AsyncLocalStorage` slot: `routes/ws.ts`
+  stays the only auth and membership check, `hub.accept()` records the member, and `server.ts`
+  completes the handshake only then (a refusal is written back as plain HTTP, same statuses). Wire
+  protocol as on the DO: events as JSON, `{"type":"ping"}` → `{"type":"pong"}`; plus a protocol
+  ping every 30 s that drops a socket which missed the last one; shutdown closes sockets with 1001.
+  A NOTIFY payload over 7999 bytes is logged and dropped — large data belongs in a row the client
+  refetches. A lost listener reconnects with backoff; notifications sent meanwhile are lost (best
+  effort, like the DO). A publish cannot count remote sockets, so `BroadcastResult.delivered` is 0.
 
 **Known gaps:** `/api/admin` paths do not nudge; `notification.read` is never emitted;
 `activity.record` has no producer; the DO 101 upgrade is untestable under Node; no dead-letter
 queue on the Worker (Node has one); no vitest-pool-workers smoke project. On Node, `retry({
 delaySeconds })` is advisory — the queue's policy picks the delay (same curve, jittered); nothing
-consumes or redrives the dead-letter queue yet (`boss.redrive` by hand).
+consumes or redrives the dead-letter queue yet (`boss.redrive` by hand); realtime on Node has no
+connection cap per tenant or user (the DO had none either) and no metrics.
 
 ## 6. Email and storage
 

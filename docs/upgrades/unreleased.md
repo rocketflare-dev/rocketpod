@@ -39,6 +39,8 @@ Every runtime capability is now a neutral `Platform`, a Node entry (`src/node/se
 - Agent runs on Node (M4): OpenWorkflow 0.10.1 (`src/node/runs.ts`, `src/node/runs-schema.ts`) in schema `openworkflow` is `Platform.runs`. `create` uses the requested id as the idempotency key and returns the engine's id; status maps onto `queued|running|waiting|complete|errored|terminated`; `worker`/`all` modes run `RUNS_CONCURRENCY` (new config, 4) runs at once and drain them on SIGTERM.
 - `Step` gains `isControlFlow?(err)` and `waitForEvent`'s options gain `arrived?()` (`WaitForEventOptions`). `runAgentRun` rethrows engine control flow from both `catch` blocks and passes `arrived` (the row left `awaiting_input`); the Cloudflare adapter ignores both.
 - `pnpm db:migrate` also installs the `openworkflow` schema (`installRunsSchema`; `runs: false` skips it).
+- Realtime on Node (M5): `src/node/realtime.ts` is `Platform.realtime` in every mode. Publishing is `pg_notify('rp_realtime', …)`; `web`/`all` processes hold the `/ws` sockets (on `ws` 8.21.3) and LISTEN on one dedicated connection, so a nudge from any process reaches a socket on any pod. Same wire protocol as the DO (`ping` → `pong`), a 30 s protocol heartbeat, 1001 on shutdown, payloads over 7999 bytes dropped with a warning. New config: `DATABASE_LISTEN_URL` (optional; direct or session-mode Postgres behind PgBouncer).
+- `/ws` on Node: the server runs the app inside `upgradeScope` and completes the upgrade only when `hub.accept()` recorded the member; refusals keep their statuses (401, 403, 426).
 
 ## How to apply
 
@@ -56,6 +58,8 @@ Every runtime capability is now a neutral `Platform`, a Node entry (`src/node/se
 12. Add `openworkflow` (exact `0.10.1`) to `apps/web/package.json`, copy `apps/web/src/node/runs.ts` and `apps/web/src/node/runs-schema.ts`, and take the kit's `apps/web/src/platform/types.ts` (`Step.isControlFlow`, `WaitForEventOptions`) and `apps/web/src/api/workflows/agent-run-body.ts`.
 13. In every durable-run body of your own, rethrow `step.isControlFlow?.(err)` at the top of each `catch` around a step, and pass `arrived` to each `waitForEvent` whose event can arrive before the wait.
 14. Run `pnpm db:migrate` once more so the `openworkflow` schema exists before a Node `worker` starts.
+15. Add `ws` (exact `8.21.3`) and `@types/ws` to `apps/web/package.json`, copy `apps/web/src/node/realtime.ts`, and take the kit's `apps/web/src/node/server.ts` and `apps/web/src/node/platform.ts`.
+16. Behind PgBouncer in transaction mode, set `DATABASE_LISTEN_URL` to a direct (or session-mode) Postgres URL.
 
 ## Conflicts to expect
 
@@ -75,3 +79,5 @@ Every runtime capability is now a neutral `Platform`, a Node entry (`src/node/se
 7. `pnpm web test:api` passes `tests/api/node-jobs.test.ts`.
 8. `pnpm db:migrate` prints `Runs schema (openworkflow) applied`; with `node apps/web/dist/server.js all` running, `POST /api/agents/runs` produces a row in `openworkflow.workflow_runs` whose steps are `claim`, `execute#0` and `finish`.
 9. `pnpm web test:api` passes `tests/api/node-runs.test.ts`.
+10. `pnpm web test:api` passes `tests/api/node-realtime.test.ts`.
+11. With `node apps/web/dist/server.js all` running, a signed-in browser tab shows the realtime status as connected, and inviting a member refreshes the members list in a second tab.

@@ -153,6 +153,12 @@ pg-boss, around 400 lines) stays the plan B. The `RunEngine` seam makes swapping
 version, and keep the adapter thin enough that either the engine or the fallback can sit behind it.
 
 ### M5. Realtime with `ws` + LISTEN/NOTIFY (2–3 d)
+
+**Status: done (2026-10-12).** `apps/web/src/node/realtime.ts` on `ws` 8.21.3 directly (not
+`@hono/node-ws`: the route answers through `hub.accept()`, so the server runs the app inside an
+`AsyncLocalStorage` slot and completes the handshake itself); `tests/api/node-realtime.test.ts`.
+`NotificationsHub` is deleted in the M6b sweep with the rest of the Worker path.
+
 - `@hono/node-ws` on `/ws`. Keep the auth and membership check in `routes/ws.ts`, and drop the
   trusted-header hop to the DO.
 - Each pod keeps a map of tenant → sockets, tagged by user, with a 30 s ping.

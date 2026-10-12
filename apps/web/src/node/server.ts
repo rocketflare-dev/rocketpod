@@ -3,7 +3,8 @@
  * `@hono/node-server`, with a Node `Platform`, one Postgres pool per process and real
  * post-response work. One image, three modes (`SERVER_MODE`, or the first argument):
  *
- * - `web`: the API, the SPA's static files (`assets.ts`), `/healthz` (liveness) and `/readyz`
+ * - `web`: the API, `/ws` (`realtime.ts`: sockets + the LISTEN connection; M5), the SPA's static
+ *   files (`assets.ts`), `/healthz` (liveness) and `/readyz`
  *   (a `SELECT 1` on the pool; 503 while draining, so a load balancer stops sending traffic).
  * - `worker`: the jobs consumer and the cron schedules (`jobs.ts`, pg-boss; M3) and the agent
  *   runs (`runs.ts`, OpenWorkflow; M4).
@@ -17,7 +18,10 @@
  * requests finish, pg-boss and OpenWorkflow stop fetching and let in-flight work finish, the deferred-work set
  * drains, then the pool is closed.
  */
+import type { IncomingMessage } from 'node:http'
+import { STATUS_CODES } from 'node:http'
 import type { AddressInfo } from 'node:net'
+import type { Duplex } from 'node:stream'
 import { pathToFileURL } from 'node:url'
 import { serve } from '@hono/node-server'
 import { sql } from 'drizzle-orm'
@@ -31,6 +35,13 @@ import { createNodeAssets } from './assets'
 import { createDeferSet, type DeferSet } from './defer'
 import { createNodeJobs, type NodeJobs } from './jobs'
 import { createNodePlatform } from './platform'
+import {
+  createNodeRealtime,
+  type NodeRealtime,
+  UPGRADE_ACCEPTED_HEADER,
+  type UpgradeSlot,
+  upgradeScope,
+} from './realtime'
 import { createNodeRuns, type NodeRuns } from './runs'
 
 export type ServerMode = 'web' | 'worker' | 'all'
@@ -54,6 +65,8 @@ export interface StartServerOptions {
   jobs?: NodeJobs
   /** Replace the durable-runs runtime (tests). */
   runs?: NodeRuns
+  /** Replace the realtime hub (tests). */
+  realtime?: NodeRealtime
 }
 
 export interface RunningServer {
@@ -62,6 +75,7 @@ export interface RunningServer {
   port: number
   config: AppConfig
   defer: DeferSet
+  realtime: NodeRealtime
   /** Idempotent graceful stop (what SIGTERM runs). */
   stop(): Promise<void>
 }
@@ -79,8 +93,11 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
   const jobs =
     options.jobs ?? createNodeJobs({ config, log }, mode === 'web' ? 'producer' : 'worker')
   const runs = options.runs ?? createNodeRuns({ config, log })
+  const realtime =
+    options.realtime ?? createNodeRealtime({ config, log, sockets: mode !== 'worker' })
   const platform =
-    options.platform ?? createNodePlatform(config, { jobs: jobs.queue, runs: runs.engine })
+    options.platform ??
+    createNodePlatform(config, { jobs: jobs.queue, runs: runs.engine, realtime: realtime.hub })
   const defer = createDeferSet(err => log(`deferred work failed: ${String(err)}`))
   const pool: DatabaseHandle = installProcessPool(config, {
     max: config.DATABASE_POOL_MAX,
@@ -122,6 +139,39 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
       )
     })
     port = (server.address() as AddressInfo).port
+    // `/ws` (M5): Node delivers an upgrade outside the fetch handler, so the app runs here inside
+    // an `upgradeScope` slot — the route authenticates and `realtime.hub.accept()` fills the slot —
+    // and the handshake completes only if it did. Anything else is written back as plain HTTP.
+    server.on('upgrade', (req: IncomingMessage, socket: Duplex, head: Buffer) => {
+      socket.on('error', () => socket.destroy())
+      if (draining) {
+        writeHttpResponse(socket, new Response(null, { status: 503 }))
+        return
+      }
+      const slot: UpgradeSlot = { member: null }
+      const request = toRequest(req)
+      void upgradeScope
+        .run(slot, async () =>
+          app.fetch(request, env, {
+            waitUntil: (promise: Promise<unknown>) => defer.add(promise),
+            passThroughOnException: () => {},
+            props: { clientAddress: req.socket.remoteAddress ?? '' },
+          })
+        )
+        .then(
+          async res => {
+            if (slot.member && res.ok && res.headers.get(UPGRADE_ACCEPTED_HEADER)) {
+              realtime.handleUpgrade(req, socket, head, slot.member)
+            } else {
+              await writeHttpResponse(socket, res)
+            }
+          },
+          err => {
+            log(`ws: upgrade failed: ${String(err)}`)
+            void writeHttpResponse(socket, new Response(null, { status: 500 }))
+          }
+        )
+    })
     log(`web: listening on :${port} (${config.APP_ENV})`)
   }
 
@@ -135,6 +185,8 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
     stopped ??= (async () => {
       draining = true
       log('shutdown: draining')
+      // Sockets first: they hold the HTTP server open, and 1001 sends clients to another pod.
+      await realtime.stop()
       if (server) {
         const s = server
         await new Promise<void>(resolve => s.close(() => resolve()))
@@ -151,7 +203,29 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
     return stopped
   }
 
-  return { mode, port, config, defer, stop }
+  return { mode, port, config, defer, realtime, stop }
+}
+
+/** The upgrade request as a fetch `Request` (GET, no body) for the app. */
+function toRequest(req: IncomingMessage): Request {
+  const headers = new Headers()
+  for (const [name, value] of Object.entries(req.headers)) {
+    if (value === undefined) continue
+    for (const v of Array.isArray(value) ? value : [value]) headers.append(name, v)
+  }
+  const host = req.headers.host ?? 'localhost'
+  return new Request(`http://${host}${req.url ?? '/'}`, { method: 'GET', headers })
+}
+
+/** Answer an upgrade the app refused (401/403/426…) as plain HTTP/1.1, then close the socket. */
+async function writeHttpResponse(socket: Duplex, res: Response): Promise<void> {
+  const body = Buffer.from(await res.arrayBuffer())
+  const lines = [`HTTP/1.1 ${res.status} ${STATUS_CODES[res.status] ?? ''}`]
+  res.headers.forEach((value, name) => {
+    if (name !== 'content-length' && name !== 'transfer-encoding') lines.push(`${name}: ${value}`)
+  })
+  lines.push(`content-length: ${body.length}`, 'connection: close', '', '')
+  socket.end(Buffer.concat([Buffer.from(lines.join('\r\n')), body]))
 }
 
 /** `node dist/server.js [web|worker|all]` / `tsx src/node/server.ts`. */

@@ -162,6 +162,42 @@ see `src/api/workflows/CLAUDE.md`). What Workflows add is durable replay:
 - **`terminate`** sets the status and cancels pending jobs. **`status`** reads the row; the existing
   `reconcileRun` mapping (`not_found`, `errored`, `terminated`, `complete`, `waiting`) is unchanged.
 
+### 5.3a OpenWorkflow spike (M4, 2026-10-12)
+
+M4 put agent runs on [OpenWorkflow](https://openworkflow.dev) instead of the hand-rolled engine
+above (`apps/web/src/node/runs.ts`). The spike read `openworkflow@0.10.1` (Apache-2.0, pinned
+exactly) from its shipped types and source, not its docs. Answers:
+
+| Question | Answer |
+|---|---|
+| In-process worker? | **Yes.** `ow.newWorker({ concurrency })` → `start()` / graceful `stop()` (waits for active runs). It polls (100 ms doubling to 1 s, jittered) and heartbeats a 30 s lease. The CLI is not needed. |
+| Status by run id? | **Yes**, through the backend: `backend.getWorkflowRun({ workflowRunId })`. Statuses: `pending`, `running`, `sleeping` (legacy), `completed`/`succeeded`, `failed`, `canceled`. A PARKED run stays `running` with `workerId` NULL and `availableAt` in the future. |
+| Cancel a run waiting on a signal? | **Yes.** `cancelWorkflowRun` takes `pending`/`running`, and a parked run is `running`. A run mid-step finishes that step and starts no other (its lease fence trips). Cancelling a completed or failed run throws; an already-cancelled one is a no-op. |
+| Does `sendSignal` report recipients? | **Yes**, `{ workflowRunIds }` — the runs whose running `signal-wait` step took it. Empty means nobody was waiting, and the signal is dropped (NOT buffered). |
+| Custom run ids / idempotency? | **No custom ids**: the engine generates them (TEXT). `runWorkflow(spec, input, { idempotencyKey })` returns the existing run for the same key for 24 h. The kit's requested id (`<runId>`, `<runId>-rN`) becomes the key, and the engine's id is what `agent_runs.instanceId` stores. |
+| Existing postgres.js client? | **Yes**: `BackendPostgres.fromPool(sql, { schema })`. It expects camel-cased columns (`transform.column.from = postgres.toCamel`), and the kit builds that pool itself. It is a separate small pool (`RUNS_CONCURRENCY + 4`), because the backend reserves a connection per transaction. |
+| Migrations with `runMigrations: false` + an explicit call? | `fromPool` never migrates. `BackendPostgres.connect(url, { runMigrations: true })` does, and `installRunsSchema` (the `pnpm db:migrate` step) calls it once and closes. No `web`/`worker` boot migrates. |
+| Step timeout inside `step.run`? | No native option. A `Promise.race` around `fn` inside `step.run` works. The losing promise keeps running, just as on Cloudflare. |
+| Same replay model as Cloudflare Workflows? | **Mostly.** The body re-executes from the top and completed steps return their recorded output. **Different:** (1) a failing step reschedules the WHOLE run, and the error never reaches the body's `catch` until attempts run out; (2) a park (`waitForSignal`, `sleep`) is a THROWN `SleepSignalError`; (3) a repeated step name is auto-suffixed (`name:1`) rather than replaying the first result; (4) signals are not buffered; (5) a 1000-attempt cap per run. |
+
+**Verdict: go.** Each difference is absorbed in the adapter (`openWorkflowStep`), so the body
+stays engine-neutral:
+
+1. **Retries run in-process inside one `step.run`**, under the Cloudflare-style policy
+   (default: 5 retries, 10 s exponential, 10 min timeout). A final failure is RECORDED as the step's
+   output (`{ __stepFailed }`), and the adapter throws it, so a replay throws the same error rather
+   than re-running a step that already gave up.
+2. **`Step.isControlFlow(err)`** names the engine's steering errors. The body rethrows them from its
+   `catch` blocks, so a park is never mistaken for a timeout.
+3. **The unbuffered-signal race** is closed from both sides. `waitForEvent` takes an `arrived()`
+   check, run once as a checkpointed step before parking (the row already left `awaiting_input`).
+   `RunInstance.sendEvent` re-sends for up to 5 s while the run is alive but not yet waiting. It
+   throws for a terminal run, so the caller restarts it.
+4. A timed-out `waitForSignal` (`null`) is thrown as `workflow.wait_for_event_timeout`, which is
+   what the body's `catch` expects from Cloudflare.
+
+**Not wired:** OpenWorkflow's dashboard (no authentication) and its OpenTelemetry spans.
+
 ### 5.4 Realtime: `ws` + LISTEN/NOTIFY
 
 - `/ws` keeps the auth and membership check in `src/api/routes/ws.ts`. Because the socket is

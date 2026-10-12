@@ -174,7 +174,25 @@ export interface Step {
   do<T>(name: string, fn: () => Promise<T>): Promise<T>
   do<T>(name: string, options: StepOptions, fn: () => Promise<T>): Promise<T>
   /** Park until an event of `type` arrives; rejects when `timeout` passes first. */
-  waitForEvent(name: string, options: { type: string; timeout?: Duration }): Promise<unknown>
+  waitForEvent(name: string, options: WaitForEventOptions): Promise<unknown>
+  /**
+   * True for an error the ENGINE threw to steer the run — a park, a lease lost to another worker —
+   * which a body's `try/catch` must rethrow untouched (`if (step.isControlFlow?.(err)) throw err`).
+   * OpenWorkflow (Node) parks a run by throwing out of `waitForEvent`; Cloudflare never does, so
+   * its adapter leaves this undefined.
+   */
+  isControlFlow?(err: unknown): boolean
+}
+
+export interface WaitForEventOptions {
+  type: string
+  timeout?: Duration
+  /**
+   * For an engine that does NOT buffer events (OpenWorkflow drops a signal nobody is waiting on):
+   * asked once, checkpointed, before parking. `true` means the event's effect has already landed —
+   * the wait returns without parking. An engine that buffers (Cloudflare) ignores it.
+   */
+  arrived?: () => Promise<boolean>
 }
 
 export interface RunStatus {

@@ -3,7 +3,7 @@ version: unreleased
 previous: 0.1.0
 date: null
 breaking: true
-migrations: ["pgboss schema + queues (pg-boss, installed by pnpm db:migrate)"]
+migrations: ["pgboss schema + queues (pg-boss, installed by pnpm db:migrate)", "openworkflow schema (OpenWorkflow, installed by pnpm db:migrate)"]
 areas: [api, db, config, shared, docs]
 touches_surfaces: []
 requires_surfaces: []
@@ -36,6 +36,9 @@ Every runtime capability is now a neutral `Platform`, a Node entry (`src/node/se
 - `HUB_HEADERS` moved to `src/platform/cloudflare/hub-headers.ts` (re-exported by the DO module) so the Node bundle never pulls `cloudflare:workers` in.
 - `platform-seam.test.ts` also keeps `process`, Node server modules and `@hono/node-server` inside `src/node/`, and bans importing `src/node/` from anywhere else; `driver-results.test.ts` exempts `src/node/` and drops its Neon rules.
 - A refused `localhost` connect (`AggregateError`) is classified `database_unavailable`, and `waitForDatabase` prints its inner causes.
+- Agent runs on Node (M4): OpenWorkflow 0.10.1 (`src/node/runs.ts`, `src/node/runs-schema.ts`) in schema `openworkflow` is `Platform.runs`. `create` uses the requested id as the idempotency key and returns the engine's id; status maps onto `queued|running|waiting|complete|errored|terminated`; `worker`/`all` modes run `RUNS_CONCURRENCY` (new config, 4) runs at once and drain them on SIGTERM.
+- `Step` gains `isControlFlow?(err)` and `waitForEvent`'s options gain `arrived?()` (`WaitForEventOptions`). `runAgentRun` rethrows engine control flow from both `catch` blocks and passes `arrived` (the row left `awaiting_input`); the Cloudflare adapter ignores both.
+- `pnpm db:migrate` also installs the `openworkflow` schema (`installRunsSchema`; `runs: false` skips it).
 
 ## How to apply
 
@@ -50,6 +53,9 @@ Every runtime capability is now a neutral `Platform`, a Node entry (`src/node/se
 9. Remove the `neon` profile from `apps/web/docker-compose.{dev,test}.yml` and `--profile neon` / `GATE_SUITE_DRIVER` from your workflows.
 10. Add `pg-boss` (exact `12.37.1`) to `apps/web/package.json`, copy `apps/web/src/node/jobs.ts` and `apps/web/src/node/jobs-schema.ts`, and take the kit's `apps/web/scripts/migrate.ts`, `apps/web/src/node/server.ts` and `apps/web/src/node/platform.ts`; delete `apps/web/src/node/worker-loop.ts`.
 11. Run `pnpm db:migrate` once against every database so the `pgboss` schema and queues exist before a Node `worker` starts.
+12. Add `openworkflow` (exact `0.10.1`) to `apps/web/package.json`, copy `apps/web/src/node/runs.ts` and `apps/web/src/node/runs-schema.ts`, and take the kit's `apps/web/src/platform/types.ts` (`Step.isControlFlow`, `WaitForEventOptions`) and `apps/web/src/api/workflows/agent-run-body.ts`.
+13. In every durable-run body of your own, rethrow `step.isControlFlow?.(err)` at the top of each `catch` around a step, and pass `arrived` to each `waitForEvent` whose event can arrive before the wait.
+14. Run `pnpm db:migrate` once more so the `openworkflow` schema exists before a Node `worker` starts.
 
 ## Conflicts to expect
 
@@ -67,3 +73,5 @@ Every runtime capability is now a neutral `Platform`, a Node entry (`src/node/se
 5. `pnpm --filter @rocketpod/web build` writes `apps/web/dist/server.js`; `node apps/web/dist/server.js all` with `DATABASE_URL` set answers `GET /healthz` and `GET /readyz` with 200.
 6. `pnpm db:migrate` prints `Jobs schema (pgboss) and queues applied`; with `node apps/web/dist/server.js all` running, creating an invitation logs `jobs: done` for its `email.send` job.
 7. `pnpm web test:api` passes `tests/api/node-jobs.test.ts`.
+8. `pnpm db:migrate` prints `Runs schema (openworkflow) applied`; with `node apps/web/dist/server.js all` running, `POST /api/agents/runs` produces a row in `openworkflow.workflow_runs` whose steps are `claim`, `execute#0` and `finish`.
+9. `pnpm web test:api` passes `tests/api/node-runs.test.ts`.

@@ -5,7 +5,8 @@
  *
  * - `web`: the API, the SPA's static files (`assets.ts`), `/healthz` (liveness) and `/readyz`
  *   (a `SELECT 1` on the pool; 503 while draining, so a load balancer stops sending traffic).
- * - `worker`: the jobs consumer and the cron schedules (`jobs.ts`, pg-boss; M3).
+ * - `worker`: the jobs consumer and the cron schedules (`jobs.ts`, pg-boss; M3) and the agent
+ *   runs (`runs.ts`, OpenWorkflow; M4).
  * - `all`: both in one process — local dev, and small installs.
  *
  * This file and `src/config.ts`'s `loadConfig` are where configuration comes from: `process.env`
@@ -13,7 +14,7 @@
  * entry (`src/worker.ts`) never imports this directory.
  *
  * Shutdown (SIGTERM/SIGINT): readiness flips to 503, the listener stops accepting, in-flight
- * requests finish, pg-boss stops fetching and lets in-flight jobs finish, the deferred-work set
+ * requests finish, pg-boss and OpenWorkflow stop fetching and let in-flight work finish, the deferred-work set
  * drains, then the pool is closed.
  */
 import type { AddressInfo } from 'node:net'
@@ -30,6 +31,7 @@ import { createNodeAssets } from './assets'
 import { createDeferSet, type DeferSet } from './defer'
 import { createNodeJobs, type NodeJobs } from './jobs'
 import { createNodePlatform } from './platform'
+import { createNodeRuns, type NodeRuns } from './runs'
 
 export type ServerMode = 'web' | 'worker' | 'all'
 export const SERVER_MODES: readonly ServerMode[] = ['web', 'worker', 'all']
@@ -50,6 +52,8 @@ export interface StartServerOptions {
   drainTimeoutMs?: number
   /** Replace the jobs runtime (tests). */
   jobs?: NodeJobs
+  /** Replace the durable-runs runtime (tests). */
+  runs?: NodeRuns
 }
 
 export interface RunningServer {
@@ -74,7 +78,9 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
   const config = loadConfig(options.env)
   const jobs =
     options.jobs ?? createNodeJobs({ config, log }, mode === 'web' ? 'producer' : 'worker')
-  const platform = options.platform ?? createNodePlatform(config, { jobs: jobs.queue })
+  const runs = options.runs ?? createNodeRuns({ config, log })
+  const platform =
+    options.platform ?? createNodePlatform(config, { jobs: jobs.queue, runs: runs.engine })
   const defer = createDeferSet(err => log(`deferred work failed: ${String(err)}`))
   const pool: DatabaseHandle = installProcessPool(config, {
     max: config.DATABASE_POOL_MAX,
@@ -119,7 +125,10 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
     log(`web: listening on :${port} (${config.APP_ENV})`)
   }
 
-  if (mode !== 'web') await jobs.startWorker(env)
+  if (mode !== 'web') {
+    await jobs.startWorker(env)
+    await runs.startWorker(env, platform)
+  }
 
   let stopped: Promise<void> | undefined
   const stop = () => {
@@ -130,7 +139,10 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
         const s = server
         await new Promise<void>(resolve => s.close(() => resolve()))
       }
-      await jobs.stop(options.drainTimeoutMs ?? 30_000)
+      await Promise.all([
+        jobs.stop(options.drainTimeoutMs ?? 30_000),
+        runs.stop(options.drainTimeoutMs ?? 30_000),
+      ])
       const drained = await defer.drain(options.drainTimeoutMs ?? 10_000)
       if (!drained) log(`shutdown: ${defer.size} deferred task(s) still running — giving up`)
       await pool.close()

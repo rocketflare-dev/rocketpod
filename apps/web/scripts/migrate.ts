@@ -13,6 +13,7 @@ import { drizzle as drizzlePostgres } from 'drizzle-orm/postgres-js'
 import { migrate as migratePostgres } from 'drizzle-orm/postgres-js/migrator'
 import postgres from 'postgres'
 import { installJobsSchema } from '../src/node/jobs-schema'
+import { installRunsSchema } from '../src/node/runs-schema'
 import { isNeonUrl, scriptDriver, toDirectNeonHost, waitForDatabase } from './lib/sql'
 
 export { isNeonUrl, toDirectNeonHost }
@@ -28,6 +29,8 @@ export interface RunMigrationsOptions {
   env?: { readonly [key: string]: string | undefined }
   /** Also install pg-boss's `pgboss` schema and the queues (M3, `src/node/jobs-schema.ts`). Default true. */
   jobs?: boolean
+  /** Also install OpenWorkflow's `openworkflow` schema (M4, `src/node/runs-schema.ts`). Default true. */
+  runs?: boolean
 }
 
 /**
@@ -72,6 +75,11 @@ export async function runMigrations(
   if (options.jobs !== false) {
     await installJobsSchema({ DATABASE_URL: url })
     log('Jobs schema (pgboss) and queues applied')
+  }
+  // The durable-runs engine's own schema (OpenWorkflow, M4): the same rule.
+  if (options.runs !== false) {
+    await installRunsSchema({ DATABASE_URL: url })
+    log('Runs schema (openworkflow) applied')
   }
 }
 

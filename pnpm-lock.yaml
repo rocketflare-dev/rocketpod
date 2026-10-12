@@ -136,6 +136,9 @@ importers:
       jose:
         specifier: ^6.2.12
         version: 6.2.12
+      openworkflow:
+        specifier: 0.10.1
+        version: 0.10.1(@opentelemetry/api@1.9.1)(postgres@3.4.9)
       pg-boss:
         specifier: 12.37.1
         version: 12.37.1(@opentelemetry/api@1.9.1)
@@ -2878,6 +2881,18 @@ packages:
   open@11.0.2:
     resolution: {integrity: sha512-RWqF+pBSkqecEvCKOn8QYhaNdRMJDZRIrlS/7rTDdLHaPcfXGCZ/h8zb413NfvdeAV0MR7T1yJcA34/q+CSm1Q==}
     engines: {node: '>=20'}
+
+  openworkflow@0.10.1:
+    resolution: {integrity: sha512-BdgEjoaazhL26JgQ/SehD/tLVEUYsHD6oZWU79+04jnxc+hPlxmRRfVfaAGeUdS2YEPFr/53C0kcRNodzAdNnA==}
+    engines: {node: '>=20'}
+    peerDependencies:
+      '@opentelemetry/api': '1'
+      postgres: ^3.4.9
+    peerDependenciesMeta:
+      '@opentelemetry/api':
+        optional: true
+      postgres:
+        optional: true
 
   package-json-from-dist@1.0.1:
     resolution: {integrity: sha512-UEZIS3/by4OC8vL3P2dTXRETpebLI2NiI5vIrjaD/5UtrkFX/tNbwjTSRAGC/+7CAo2pIcBaRgWmcBBHcsaCIw==}
@@ -6083,6 +6098,11 @@ snapshots:
       is-inside-container: 1.0.0
       powershell-utils: 0.2.1
       wsl-utils: 1.0.0
+
+  openworkflow@0.10.1(@opentelemetry/api@1.9.1)(postgres@3.4.9):
+    optionalDependencies:
+      '@opentelemetry/api': 1.9.1
+      postgres: 3.4.9
 
   package-json-from-dist@1.0.1: {}
 

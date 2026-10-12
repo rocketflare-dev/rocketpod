@@ -88,6 +88,9 @@ The detailed adapter design already exists in `docs/SELF-HOSTED.md` (untracked i
 
 ### M4. Agent runs on OpenWorkflow (3–4 d, down from 5–7)
 
+**Status: done (2026-10-12).** `apps/web/src/node/runs.ts` + `runs-schema.ts`; the spike's answers are in
+`docs/DESIGN-SELFHOSTED.md` §5.3a. The plan below is kept as written.
+
 [OpenWorkflow](https://openworkflow.dev) is an Apache-2.0 TypeScript durable-workflow engine. It runs on
 Postgres 14+ through postgres.js (the same driver we use) and keeps its own `openworkflow` schema.
 Like Cloudflare Workflows, it re-runs the workflow function from the top and returns saved step

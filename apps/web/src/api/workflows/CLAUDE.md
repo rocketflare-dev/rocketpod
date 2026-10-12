@@ -51,3 +51,23 @@ The fake's `waitForEvent` is a recorder: `{ events?, onWait? }` in, `{ step, cal
 queueEvent }` out. `onWait` is the test's stand-in for the resolve route (write the answer, flip the
 row, return a payload); an empty queue with no `onWait` rejects the way the platform's timeout does,
 which is how the expiry path is driven. `names` is every step name in call order.
+
+## On Node: OpenWorkflow (M4)
+
+`src/node/runs.ts` runs `runAgentRun` (`agent-run-body.ts`) on OpenWorkflow, through
+`openWorkflowStep`. The body must stay engine-neutral, and two rules keep it correct on both
+engines:
+
+- **Every `catch` around a step rethrows engine control flow first**:
+  `if (step.isControlFlow?.(err)) throw err`. OpenWorkflow parks a run by THROWING out of
+  `waitForEvent`; swallowing that turns every park into a timeout.
+- **Every `waitForEvent` whose event can arrive before the wait passes `arrived`** — a check that
+  the effect already landed (here: the row left `awaiting_input`). OpenWorkflow drops a signal
+  nobody is waiting on; Cloudflare buffers it and ignores `arrived`.
+
+Retries are in-process on Node (one OpenWorkflow step per `step.do`, with the policy applied
+inside it), and a step that ran out of retries replays its recorded error. A repeated step name is
+auto-suffixed there rather than replayed, so the per-round names are still required for Cloudflare.
+`tests/api/node-runs.test.ts` drives the engine: crash replay, retries, timeouts, park and resume,
+the signal race, terminate, and the agent run end to end.
+

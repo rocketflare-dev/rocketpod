@@ -33,7 +33,7 @@ import { AGENT_RESUME_EVENT, MAX_INTERRUPT_ROUNDS } from '@rocketpod/shared/ai/a
 import { type AppConfig, loadConfig } from '../../config'
 import { type Database, openDatabase } from '../../db/client'
 import type { Duration, Platform, Step } from '../../platform/types'
-import type { AgentRunParams } from '../services/agents/runs'
+import { type AgentRunParams, getRun } from '../services/agents/runs'
 import {
   claimStep,
   EXECUTE_RETRIES,
@@ -100,6 +100,7 @@ export async function runAgentRun(
           withStepDatabase(env, cfg, db => executeRun(db, cfg, platform, logger, params, { round }))
       )
     } catch (err) {
+      if (step.isControlFlow?.(err)) throw err
       // Past its retries (or a fault outside the runtime's classification): finish settles the
       // row. `outcome` is cleared deliberately — carrying a PREVIOUS round's `awaiting_input`
       // into the fall-through would tell `finish` the run is parked when it is not.
@@ -134,8 +135,18 @@ export async function runAgentRun(
         // no runtime value can satisfy structurally. A bad duration is a failure on the first
         // park, which is what `.dev.vars.example` documents.
         timeout: cfg.AGENT_INTERRUPT_TIMEOUT as Duration,
+        // An engine that drops an event nobody waits on (OpenWorkflow) asks this first: the
+        // resolve route flips the row `awaiting_input → running` BEFORE it sends, so a row that
+        // has already left `awaiting_input` means the answer landed while we were getting here.
+        arrived: () =>
+          withStepDatabase(env, cfg, async db => {
+            const row = await getRun(db, params.tenantId, params.runId)
+            return row?.status !== 'awaiting_input'
+          }),
       })
     } catch (err) {
+      // A park on an engine that suspends by throwing (OpenWorkflow) is not a timeout.
+      if (step.isControlFlow?.(err)) throw err
       // Nobody answered inside `AGENT_INTERRUPT_TIMEOUT`. `finishStep`'s expiry arm settles the
       // parked row `cancelled` with `error` NULL — a cancel is a status, not a message.
       logger.info({ err, round }, 'agent-run: nobody answered, expiring the park')

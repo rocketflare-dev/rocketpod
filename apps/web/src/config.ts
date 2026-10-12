@@ -123,6 +123,11 @@ const coreConfigSchema = z.object({
   /** Node worker (M3): how often an idle consumer polls the jobs queue, in seconds (≥ 0.5). */
   JOBS_POLL_INTERVAL_SECONDS: z.coerce.number().min(0.5).max(60).default(2),
   /**
+   * Node worker (M4): agent runs one `worker` process executes at once (OpenWorkflow's worker
+   * concurrency). A parked run holds no slot. Ignored by the Worker.
+   */
+  RUNS_CONCURRENCY: z.coerce.number().int().min(1).max(50).default(4),
+  /**
    * D32: where the langfuse preset sends spans when `OTEL_EXPORTER_OTLP_ENDPOINT` is unset —
    * `<base>/api/public/otel`.
    */

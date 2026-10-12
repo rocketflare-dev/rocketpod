@@ -73,6 +73,7 @@
     "hono": "^4.13.5",
     "hono-pino": "^0.10.3",
     "jose": "^6.2.12",
+    "openworkflow": "0.10.1",
     "pg-boss": "12.37.1",
     "pino": "^10.3.1",
     "postgres": "^3.4.9",

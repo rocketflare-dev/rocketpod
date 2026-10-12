@@ -162,7 +162,7 @@ is sent as `client_secret_basic` only (no `private_key_jwt`).
   `SETUP.md` 1.10.
 
 **Known gaps:** on Node every platform member is null until M3–M6, so inviting a member, deleting
-a tenant, chat compaction, uploads, agent runs, `/ws` and rate limiting answer "not configured"
+a tenant, chat compaction, uploads, `/ws` and rate limiting answer "not configured"
 there; `pnpm dev` still runs `wrangler dev` (M7 switches it); `pnpm dev:tunnel` always targets :3000 (cfld reads `package.json`); `pnpm dev:api`
 alone reads `DEV_API_PORT` from the shell only, not `.dev.vars`; no `/api/ready` smoke step against a preview; no OpenAPI (`@hono/zod-openapi` is the
 path); no per-PR previews.
@@ -290,7 +290,14 @@ work goes to `AGENT_RUN_WORKFLOW`, and cron only dispatches.
   schema and queues; a `web` process only produces (pg-boss starts on the first send), a `worker`
   process also supervises and runs cron. `JOBS_CONCURRENCY` (2) × 10 per worker,
   `JOBS_POLL_INTERVAL_SECONDS` (2).
-- **Workflow**: `AgentRunWorkflow` (§9). **Concurrency is a DB claim row, never a `Map`**:
+- **Workflow**: `AgentRunWorkflow` (§9). **On Node (M4)** the same body (`runAgentRun`,
+  `api/workflows/agent-run-body.ts`) runs on **OpenWorkflow** in the `openworkflow` schema
+  (`src/node/runs.ts`; installed by `pnpm db:migrate`, never at boot): `worker`/`all` modes run
+  `RUNS_CONCURRENCY` (4) runs at once, a parked run holds no slot, and a dead worker's runs are
+  replayed by another once their 30 s lease lapses. Retries happen in-process inside one step; a
+  park is a thrown error the body rethrows (`Step.isControlFlow`); signals are not buffered, so
+  `waitForEvent` checks `arrived()` before parking and `sendEvent` re-sends for 5 s
+  (`docs/DESIGN-SELFHOSTED.md` §5.3a). **Concurrency is a DB claim row, never a `Map`**:
   `ACTIVE_RUN_STATUSES` (exclusive index, includes parked runs) ⊃ `CLAIMABLE_RUN_STATUSES`
   (the claim). Keep those two lists separate. A lost instance is settled on read, and there is no
   sweeper cron.

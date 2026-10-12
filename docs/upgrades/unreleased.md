@@ -3,7 +3,7 @@ version: unreleased
 previous: 0.1.0
 date: null
 breaking: true
-migrations: ["pgboss schema + queues (pg-boss, installed by pnpm db:migrate)", "openworkflow schema (OpenWorkflow, installed by pnpm db:migrate)"]
+migrations: ["pgboss schema + queues (pg-boss, installed by pnpm db:migrate)", "openworkflow schema (OpenWorkflow, installed by pnpm db:migrate)", "rate_limits and operation_locks tables (Node rate limiter and locks)"]
 areas: [api, db, config, shared, docs]
 touches_surfaces: []
 requires_surfaces: []
@@ -41,6 +41,11 @@ Every runtime capability is now a neutral `Platform`, a Node entry (`src/node/se
 - `pnpm db:migrate` also installs the `openworkflow` schema (`installRunsSchema`; `runs: false` skips it).
 - Realtime on Node (M5): `src/node/realtime.ts` is `Platform.realtime` in every mode. Publishing is `pg_notify('rp_realtime', …)`; `web`/`all` processes hold the `/ws` sockets (on `ws` 8.21.3) and LISTEN on one dedicated connection, so a nudge from any process reaches a socket on any pod. Same wire protocol as the DO (`ping` → `pong`), a 30 s protocol heartbeat, 1001 on shutdown, payloads over 7999 bytes dropped with a warning. New config: `DATABASE_LISTEN_URL` (optional; direct or session-mode Postgres behind PgBouncer).
 - `/ws` on Node: the server runs the app inside `upgradeScope` and completes the upgrade only when `hub.accept()` recorded the member; refusals keep their statuses (401, 403, 426).
+- Storage on Node (M6): `src/node/storage.ts` (`@aws-sdk/client-s3` 3.1150.0) is `Platform.storage` when `STORAGE_DRIVER=s3` and `STORAGE_BUCKET`/`STORAGE_ACCESS_KEY_ID`/`STORAGE_SECRET_ACCESS_KEY` are set (plus `STORAGE_ENDPOINT`, `STORAGE_REGION` = `us-east-1`, `STORAGE_FORCE_PATH_STYLE`); same answers as the R2 adapter (quoted ETag, metadata-less listings, `deleteMany` in calls of ≤ 1000), metadata keys case-preserved through `x-amz-meta-rp-keys`.
+- The dev and test compose files run the Versity S3 Gateway (`versity/versitygw:v1.8.0`, Apache-2.0; MinIO's images are no longer pullable anonymously): test on `:7433`, bucket `rocketpod-test` (`.env.test`); dev from `:7070`, bucket `rocketpod-dev`, started by `pnpm dev:db:up`, which writes the `STORAGE_*` lines into `.dev.vars`.
+- Rate limits and operation locks on Node (M6): `src/node/limits.ts` over the new `rate_limits` and `operation_locks` tables (`RLS_REVOKED_TABLES`). Same sliding-window answers and `Retry-After` as KV, exact under concurrency (row lock), database time; a lock is one `INSERT … ON CONFLICT DO UPDATE WHERE expires_at <= now()`. `runPruneExpired` also drops expired rows of both (`rateLimitKeys`, `operationLockKeys`).
+- Document conversion on Node (M6): `src/node/converter.ts` is `Platform.converter` — `unpdf` 1.8.1 (PDF → text), `mammoth` 1.13.0 (.docx → markdown), HTML stripped to text, XML/text decoded; Excel and OpenDocument answer a permanent `format: 'error'`.
+- Platform AI without Workers AI (M6): chat resolves `ANTHROPIC_API_KEY` → `AI_API_KEY` (OpenAI-compatible at `AI_BASE_URL` with `AI_MODEL`, else OpenAI with `AI_MODEL` or `gpt-4.1-mini`) → Workers AI (the Worker only); embeddings resolve Workers AI (the Worker only) → `EMBEDDINGS_API_KEY` (OpenAI-compatible at `EMBEDDINGS_BASE_URL` with `EMBEDDINGS_MODEL`, else OpenAI). `readiness` mirrors both. The 503 messages name `AI_API_KEY` and no longer suggest binding Workers AI.
 
 ## How to apply
 
@@ -60,6 +65,10 @@ Every runtime capability is now a neutral `Platform`, a Node entry (`src/node/se
 14. Run `pnpm db:migrate` once more so the `openworkflow` schema exists before a Node `worker` starts.
 15. Add `ws` (exact `8.21.3`) and `@types/ws` to `apps/web/package.json`, copy `apps/web/src/node/realtime.ts`, and take the kit's `apps/web/src/node/server.ts` and `apps/web/src/node/platform.ts`.
 16. Behind PgBouncer in transaction mode, set `DATABASE_LISTEN_URL` to a direct (or session-mode) Postgres URL.
+17. Add `@aws-sdk/client-s3` (exact `3.1150.0`), `unpdf` (exact `1.8.1`) and `mammoth` (exact `1.13.0`) to `apps/web/package.json`; copy `apps/web/src/node/storage.ts`, `apps/web/src/node/limits.ts` and `apps/web/src/node/converter.ts`, and take the kit's `apps/web/src/node/platform.ts`.
+18. Copy `apps/web/src/db/schema/platform-limits.ts`, export it from `apps/web/src/db/schema/index.ts`, add `rate_limits` and `operation_locks` to `RLS_REVOKED_TABLES`, then run `pnpm db:generate` and `pnpm db:migrate`.
+19. Take the kit's `runPruneExpired` in `apps/web/src/api/scheduled.ts` and `platformChat`/`resolveEmbeddings`/`readiness` in `apps/web/src/api/services/ai/resolve.ts`, and add the `STORAGE_*`, `AI_BASE_URL`, `AI_MODEL`, `AI_API_KEY`, `EMBEDDINGS_BASE_URL` and `EMBEDDINGS_MODEL` keys to `apps/web/src/config.ts`.
+20. Add the `s3-test` service to `apps/web/docker-compose.test.yml` and the `STORAGE_*` lines to `apps/web/.env.test`; add the `s3-dev` service and its two volumes to `apps/web/docker-compose.dev.yml` and take the kit's `apps/web/scripts/dev-db.mjs`.
 
 ## Conflicts to expect
 
@@ -67,6 +76,7 @@ Every runtime capability is now a neutral `Platform`, a Node entry (`src/node/se
 - `apps/web/tests/mocks/bindings.ts` → `TestEnv` gained the `Platform` view → keep yours alongside.
 - `apps/web/src/db/client.ts` → the neon half is gone → take the kit's file whole; a copy never edits it.
 - `scripts/lib/test-plan.mjs` / `apps/web/tests/config/gate.test.ts` → one driver, no conformance second pass → take the kit's.
+- `apps/web/migrations/` → a copy with its own migrations numbered after 0017 → regenerate the rate-limit and lock migration with `pnpm db:generate` instead of copying the kit's.
 
 ## Verify
 
@@ -81,3 +91,6 @@ Every runtime capability is now a neutral `Platform`, a Node entry (`src/node/se
 9. `pnpm web test:api` passes `tests/api/node-runs.test.ts`.
 10. `pnpm web test:api` passes `tests/api/node-realtime.test.ts`.
 11. With `node apps/web/dist/server.js all` running, a signed-in browser tab shows the realtime status as connected, and inviting a member refreshes the members list in a second tab.
+12. `pnpm web test:api` passes `tests/api/node-platform-adapters.test.ts` with the S3 gateway up (it skips the storage cases, saying so, when the gateway is unreachable).
+13. With `pnpm dev:db:up`, `pnpm db:migrate` and `node apps/web/dist/server.js all` running, uploading a PDF in Knowledge stores an object under `tenants/<id>/documents/` in the dev bucket and the document reaches `indexed` once an embeddings key is set.
+14. With the Node server running, the eleventh `POST /auth/dev-login` from one IP within a minute answers 429 with a `Retry-After` header.

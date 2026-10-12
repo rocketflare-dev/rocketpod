@@ -88,6 +88,8 @@ export const RLS_REVOKED_TABLES = [
   'magic_link_tokens',
   'oauth_providers',
   'access_requests',
+  'rate_limits',
+  'operation_locks',
 ] as const
 
 /**

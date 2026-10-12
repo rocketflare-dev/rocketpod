@@ -1,18 +1,27 @@
 /**
- * The Node `Platform`. Capabilities whose Node adapter has not landed yet are null — the same
- * configuration state the app already answers for (503 `storage_not_configured`, a no-op realtime
- * nudge, no rate limit, a run that cannot start). `docs/ROADMAP.md` fills them in: jobs (M3,
- * pg-boss — `jobs.ts`), runs (M4, OpenWorkflow — `runs.ts`), realtime (M5, `ws` + LISTEN/NOTIFY — `realtime.ts`), storage,
- * rate limits, locks and the document converter (M6).
+ * The Node `Platform`: jobs (M3, pg-boss — `jobs.ts`), runs (M4, OpenWorkflow — `runs.ts`),
+ * realtime (M5, `ws` + LISTEN/NOTIFY — `realtime.ts`), and from M6 object storage (S3 —
+ * `storage.ts`, null unless `STORAGE_DRIVER=s3` is fully configured), the rate limiter and
+ * operation locks (Postgres — `limits.ts`) and the document converter (`converter.ts`). A null
+ * member is the configuration state the app already answers for (503 `storage_not_configured`,
+ * a no-op realtime nudge, a run that cannot start). `ai` stays null: Workers AI has no Node
+ * counterpart, and the provider keys (`ANTHROPIC_API_KEY`, `AI_*`, `EMBEDDINGS_*`) cover it.
  */
 import type { AppConfig } from '../config'
 import {
+  type DocumentConverter,
   EMPTY_PLATFORM,
   type JobsQueue,
+  type Locks,
   type Platform,
+  type RateLimiter,
   type RealtimeHub,
   type RunEngine,
+  type StorageService,
 } from '../platform/types'
+import { createNodeConverter } from './converter'
+import { createPostgresLocks, createPostgresRateLimiter } from './limits'
+import { createS3Storage, storageConfigOf } from './storage'
 
 export interface NodePlatformParts {
   /** The pg-boss producer (`createNodeJobs(...).queue`). */
@@ -21,13 +30,24 @@ export interface NodePlatformParts {
   runs?: RunEngine | null
   /** The NOTIFY-backed hub (`createNodeRealtime(...).hub`). */
   realtime?: RealtimeHub | null
+  /** Overrides for tests; by default built from the config. */
+  storage?: StorageService | null
+  rateLimiter?: RateLimiter | null
+  locks?: Locks | null
+  converter?: DocumentConverter | null
 }
 
-export function createNodePlatform(_config: AppConfig, parts: NodePlatformParts = {}): Platform {
+export function createNodePlatform(config: AppConfig, parts: NodePlatformParts = {}): Platform {
+  const s3 = storageConfigOf(config)
   return {
     ...EMPTY_PLATFORM,
     jobs: parts.jobs ?? null,
     runs: parts.runs ?? null,
     realtime: parts.realtime ?? null,
+    storage: parts.storage !== undefined ? parts.storage : s3 ? createS3Storage(s3) : null,
+    rateLimiter:
+      parts.rateLimiter !== undefined ? parts.rateLimiter : createPostgresRateLimiter(config),
+    locks: parts.locks !== undefined ? parts.locks : createPostgresLocks(config),
+    converter: parts.converter !== undefined ? parts.converter : createNodeConverter(),
   }
 }

@@ -128,6 +128,35 @@ const coreConfigSchema = z.object({
    */
   RUNS_CONCURRENCY: z.coerce.number().int().min(1).max(50).default(4),
   /**
+   * Node storage (M6): `s3` stores uploads in an S3-compatible bucket (AWS S3, MinIO, R2's S3
+   * endpoint, GCS interop). Unset = no object storage on Node (uploads answer 503). The Worker
+   * uses its `FILES` R2 binding and ignores every `STORAGE_*` key.
+   */
+  STORAGE_DRIVER: optionalEnum(['s3'] as const),
+  /** The S3 endpoint (`http://localhost:9000` for MinIO). Unset = AWS's default for the region. */
+  STORAGE_ENDPOINT: optionalString,
+  /** `us-east-1` unless the store wants another (R2 accepts `auto`). */
+  STORAGE_REGION: z.preprocess(
+    value => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+    z.string().min(1).default('us-east-1')
+  ),
+  STORAGE_BUCKET: optionalString,
+  /** Path-style addressing (`http://host/bucket/key`) — true for MinIO and most self-hosted stores. */
+  STORAGE_FORCE_PATH_STYLE: optionalBoolean(false),
+  /**
+   * Platform chat over any OpenAI-compatible endpoint (M6), the tier after `ANTHROPIC_API_KEY`:
+   * `AI_API_KEY` + `AI_BASE_URL` (OpenRouter, vLLM, Ollama…) + `AI_MODEL`. Without a base URL the
+   * key is OpenAI's own (`AI_MODEL` defaults to its chat default).
+   */
+  AI_BASE_URL: optionalString,
+  AI_MODEL: optionalString,
+  /**
+   * Platform embeddings endpoint (M6) for `EMBEDDINGS_API_KEY`: unset = OpenAI. The model must
+   * answer 1024 dimensions (`dimensions: 1024` is sent); `EMBEDDINGS_MODEL` defaults to OpenAI's.
+   */
+  EMBEDDINGS_BASE_URL: optionalString,
+  EMBEDDINGS_MODEL: optionalString,
+  /**
    * D32: where the langfuse preset sends spans when `OTEL_EXPORTER_OTLP_ENDPOINT` is unset —
    * `<base>/api/public/otel`.
    */
@@ -246,6 +275,9 @@ const coreConfigSchema = z.object({
    * session-mode pool). Ignored by the Worker.
    */
   DATABASE_LISTEN_URL: optionalString,
+  /** M6: credentials for the `STORAGE_DRIVER=s3` bucket. */
+  STORAGE_ACCESS_KEY_ID: optionalString,
+  STORAGE_SECRET_ACCESS_KEY: optionalString,
   /** AES-GCM key for OAuth tokens at rest (D12). */
   OAUTH_ENCRYPTION_KEY: optionalSecret(32),
   RESEND_API_KEY: optionalString,
@@ -258,6 +290,8 @@ const coreConfigSchema = z.object({
   /** Optional: a PUBLIC client (PKCE only) has none. Sent as HTTP Basic (`client_secret_basic`). */
   OIDC_CLIENT_SECRET: optionalString,
   ANTHROPIC_API_KEY: optionalString,
+  /** M6: the key for the OpenAI-compatible platform chat tier (`AI_BASE_URL`, `AI_MODEL`). */
+  AI_API_KEY: optionalString,
   EMBEDDINGS_API_KEY: optionalString,
   /** D37: platform TypeSafe (Jev) key for `ctx.decide`; tenants may set their own in Settings → AI. */
   TYPESAFE_API_KEY: optionalString,

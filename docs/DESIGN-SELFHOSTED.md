@@ -227,7 +227,9 @@ stays engine-neutral:
   Another store is one more `StorageService` implementation.
 - Keys stay tenant-prefixed, and downloads stay streamed through the server. Presigned URLs are a
   possible later optimisation, not part of the port. The ETag is normalised to the quoted form R2 returns.
-- **Local and CI:** MinIO in `docker-compose.dev.yml` and `docker-compose.test.yml`, with a bucket
+- **As built (M6):** MinIO's images stopped being pullable anonymously, so the compose files run the
+  Versity S3 Gateway (`versity/versitygw`, Apache-2.0) instead — the adapter is unchanged S3.
+- **Local and CI (as proposed):** MinIO in `docker-compose.dev.yml` and `docker-compose.test.yml`, with a bucket
   created on start. The in-memory fake (`MemoryR2Bucket` → `MemoryStorage`) still serves the api tests.
 
 ### 5.6 Small adapters

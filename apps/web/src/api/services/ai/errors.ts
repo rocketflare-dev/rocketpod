@@ -29,8 +29,8 @@ export class AiNotConfiguredError extends ServiceUnavailableError {
   constructor(scope: 'chat' | 'embeddings' = 'chat') {
     super(
       scope === 'chat'
-        ? 'No AI chat provider is configured. Add one in Settings → AI, or set ANTHROPIC_API_KEY.'
-        : 'No embeddings provider is configured. Add one in Settings → AI, bind Workers AI, or set EMBEDDINGS_API_KEY.',
+        ? 'No AI chat provider is configured. Add one in Settings → AI, or set ANTHROPIC_API_KEY or AI_API_KEY.'
+        : 'No embeddings provider is configured. Add one in Settings → AI, or set EMBEDDINGS_API_KEY.',
       ERROR_CODES.aiNotConfigured
     )
     this.name = 'AiNotConfiguredError'

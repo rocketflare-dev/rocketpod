@@ -127,6 +127,13 @@
       "when": 1791779088706,
       "tag": "0017_kit-agent-run-decisions",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1791831992411,
+      "tag": "0018_kit-platform-limits",
+      "breakpoints": true
     }
   ]
 }

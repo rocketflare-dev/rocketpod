@@ -24,5 +24,32 @@ services:
       timeout: 5s
       retries: 5
 
+  # Object storage for uploads (M6): the Versity S3 Gateway (Apache-2.0) over a directory, metadata
+  # in a sidecar directory. `pnpm dev:db:up` starts it beside Postgres, picks its port (sticky, like
+  # the database's) and writes the STORAGE_* lines into .dev.vars. A bucket is a directory: the
+  # entrypoint creates `rocketpod-dev` before the gateway starts.
+  s3-dev:
+    image: versity/versitygw:v1.8.0
+    container_name: ${DEV_S3_CONTAINER:-rocketpod-dev-s3}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - mkdir -p /data/rocketpod-dev /meta && exec versitygw posix --sidecar /meta /data
+    environment:
+      ROOT_ACCESS_KEY_ID: rocketpod-dev
+      ROOT_SECRET_ACCESS_KEY: rocketpod-dev-secret
+    ports:
+      - "${DEV_S3_PORT:-7070}:7070"
+    volumes:
+      - rocketpod-dev-s3:/data
+      - rocketpod-dev-s3-meta:/meta
+    healthcheck:
+      test: ["CMD-SHELL", "wget -S -O /dev/null http://127.0.0.1:7070/ 2>&1 | grep -q 'HTTP/1.1'"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
 volumes:
   rocketpod-dev-data:
+  rocketpod-dev-s3:
+  rocketpod-dev-s3-meta:

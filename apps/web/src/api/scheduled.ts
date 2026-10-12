@@ -11,7 +11,7 @@
 import { lt, sql } from 'drizzle-orm'
 import { type AppConfig, loadConfig } from '../config'
 import { affected, type Database, openDatabase } from '../db/client'
-import { aiSpans, userSessions } from '../db/schema'
+import { aiSpans, operationLocks, rateLimits, userSessions } from '../db/schema'
 import { resolvePlatform } from '../platform'
 import type { Platform, WaitUntil } from '../platform/types'
 import { serverPlugins } from '../plugins/server'
@@ -44,7 +44,10 @@ export interface TaskReport {
   error?: unknown
 }
 
-/** Expired sessions, expired/consumed magic links, expired invitations older than 30 days. */
+/**
+ * Expired sessions, expired/consumed magic links, expired invitations older than 30 days, and the
+ * Node platform's expired rate-limit windows and abandoned operation locks.
+ */
 export async function runPruneExpired(db: Database) {
   const sessions = (
     await db
@@ -54,7 +57,15 @@ export async function runPruneExpired(db: Database) {
   ).length
   const magicLinks = await pruneMagicLinkTokens(db)
   const invitations = await pruneInvitations(db)
-  return { sessions, magicLinks, invitations }
+  // The Node platform's limiter and locks (M6): a key whose newest hit left its window, a lock
+  // whose holder never released it. Empty on the Worker, which keeps both in KV.
+  const rateLimitKeys = affected(
+    await db.delete(rateLimits).where(lt(rateLimits.expiresAt, sql`now()`))
+  )
+  const operationLockKeys = affected(
+    await db.delete(operationLocks).where(lt(operationLocks.expiresAt, sql`now()`))
+  )
+  return { sessions, magicLinks, invitations, rateLimitKeys, operationLockKeys }
 }
 
 /** Nightly prune of expired rows (D12): counts are logged so the run is auditable. */
@@ -62,7 +73,10 @@ export const pruneExpired: ScheduledTask = {
   name: 'pruneExpired',
   async run({ db, logger }) {
     const counts = await runPruneExpired(db)
-    logger.info(counts, 'pruneExpired: removed expired sessions, magic links and invitations')
+    logger.info(
+      counts,
+      'pruneExpired: removed expired sessions, magic links, invitations, rate limits and locks'
+    )
   },
 }
 

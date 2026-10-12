@@ -91,13 +91,14 @@ are always `tenant`; no audit log beyond `activity_events`; no personal API keys
   still use it). With an `end_session_endpoint`, `POST /auth/logout` answers
   `200 { endSessionUrl }` (RP-initiated logout back to `/login?signedOut=1`); otherwise 204. Setup: `SETUP.md` → "Sign in with any OIDC issuer".
 - **Hardening (D12)**: random tokens hashed with SHA-256, a required encryption key, CSRF by origin
-  allow-list (Bearer is exempt), and a KV sliding-window rate limit on login routes that no-ops
-  without `RATE_LIMIT_KV`.
+  allow-list (Bearer is exempt), and a sliding-window rate limit on login routes (the platform's
+  `rateLimiter`: KV on the Worker, no-op without `RATE_LIMIT_KV`; on Node the `rate_limits` table —
+  `src/node/limits.ts`, exact under concurrency, keyed by the client IP from `TRUSTED_PROXY_HOPS`).
 - **CLI handoff (D26)**: `GET /auth/cli?redirect_uri=http://127.0.0.1:<port>/callback` only allows
   loopback redirects. It mints a revocable tenant key `cli:<hostname>` and 302s back with it.
   Details: `.claude/rules/api.md`.
 
-**Known gaps:** no provider token refresh; the rate limit is approximate; no session management UI
+**Known gaps:** no provider token refresh; the Worker's KV rate limit is approximate (Node's is exact); no session management UI
 beyond "log out everywhere"; CLI keys differ from other keys only by name. OIDC: one issuer per
 deployment; the `groups` claim is read into the profile but **not stored or mapped** to kit groups
 or roles; no `id_token_hint` on logout (id_tokens are not kept, so the issuer may ask to confirm);
@@ -137,10 +138,11 @@ is sent as `client_secret_basic` only (no `private_key_jwt`).
   `tests/config/platform-seam.test.ts` keeps every Cloudflare type, binding name and
   `cloudflare:` import inside those adapters, `src/worker.ts` and the two classes it exports.
   Tests' `createTestEnv()` is both the Worker-shaped env and the `Platform` view of it. The Node
-  entry's platform is `src/node/platform.ts`: every member null in M2 (the app answers each with
-  its configured-off state — 503 `storage_not_configured`, `agent_runs_not_configured`,
-  `realtime_not_configured`; no rate limit; a route that must enqueue fails with a 500 naming the
-  missing queue, `JobsQueueNotConfiguredError`), filled in by M3–M6 (`docs/ROADMAP.md`).
+  entry's platform is `src/node/platform.ts`: jobs (pg-boss, M3), runs (OpenWorkflow, M4),
+  realtime (`ws` + LISTEN/NOTIFY, M5), and from M6 storage (S3, when `STORAGE_DRIVER=s3` is fully
+  configured — else null and 503 `storage_not_configured`), the rate limiter and operation locks
+  (Postgres tables), and the document converter (`unpdf`/`mammoth`). `ai` is null on Node: Workers
+  AI has no counterpart, and the provider keys cover it (§9).
 - **Middleware order is deliberate** (error envelope → logger → config → platform → security headers → body
   limit → CORS → CSRF → DB → tracing → mounts). Auth is per mount. The ASSETS catch-all 404s every
   API prefix, so a missing route never returns `index.html`. Order and exceptions:
@@ -161,9 +163,7 @@ is sent as `client_secret_basic` only (no `private_key_jwt`).
   override, no PATH binary and no managed copy. `pnpm install` never builds the package.
   `SETUP.md` 1.10.
 
-**Known gaps:** on Node every platform member is null until M3–M6, so inviting a member, deleting
-a tenant, chat compaction, uploads, `/ws` and rate limiting answer "not configured"
-there; `pnpm dev` still runs `wrangler dev` (M7 switches it); `pnpm dev:tunnel` always targets :3000 (cfld reads `package.json`); `pnpm dev:api`
+**Known gaps:** on Node, uploads answer 503 until `STORAGE_*` is configured; `pnpm dev` still runs `wrangler dev` (M7 switches it); `pnpm dev:tunnel` always targets :3000 (cfld reads `package.json`); `pnpm dev:api`
 alone reads `DEV_API_PORT` from the shell only, not `.dev.vars`; no `/api/ready` smoke step against a preview; no OpenAPI (`@hono/zod-openapi` is the
 path); no per-PR previews.
 
@@ -339,9 +339,9 @@ connection cap per tenant or user (the DO had none either) and no metrics.
 - **Email**: Resend over `fetch`, `sendEmail(...)`, neutral templates. With no key, messages are
   logged (`[email:dev]`), never errors. The magic link is sent inline; other email is `email.send`
   jobs.
-- **Storage (D23)**: the `StorageService` seam (`c.get('platform').storage`; R2 on the Worker). Keys are
-  `tenants/<tenantId>/<scope>/<uuid>-<name>`. Bytes stream through the Worker (no presigned
-  URLs). The `files` table is the immutable index and the only thing the browser can name. Writes
+- **Storage (D23)**: the `StorageService` seam (`c.get('platform').storage`; R2 on the Worker,
+  any S3-compatible store on Node). Keys are `tenants/<tenantId>/<scope>/<uuid>-<name>`. Bytes
+  stream through the server (no presigned URLs). The `files` table is the immutable index and the only thing the browser can name. Writes
   go object first, then row, and a failed insert deletes the object.
 - **`/api/files`**: upload with per-scope type/size checks (413/415); tenant-scoped read (another
   tenant's file is 404) with ETag/304; **only allowlisted types render inline, everything else is
@@ -352,9 +352,21 @@ connection cap per tenant or user (the DO had none either) and no metrics.
   the 304 early return. Never use a path allowlist for this.
 - A missing `FILES` binding is 503 `storage_not_configured`. `tenant.purge` pages through the
   tenant prefix and is idempotent.
+- **Storage on Node (M6)**: `STORAGE_DRIVER=s3` + `STORAGE_ENDPOINT` / `STORAGE_REGION` /
+  `STORAGE_BUCKET` / `STORAGE_ACCESS_KEY_ID` / `STORAGE_SECRET_ACCESS_KEY` /
+  `STORAGE_FORCE_PATH_STYLE` (`src/node/storage.ts`, `@aws-sdk/client-s3`): AWS S3, R2's S3
+  endpoint, MinIO, GCS interop — one adapter, the endpoint decides. It answers what the R2 adapter
+  answers: the quoted ETag, a listing with no content type or metadata (R2's `list` has neither),
+  `deleteMany` in calls of ≤ 1000, a streamed body. S3 lower-cases metadata keys, so the originals
+  ride in `x-amz-meta-rp-keys` and come back case-preserved. Locally and in tests the store is the
+  **Versity S3 Gateway** (Apache-2.0) in the compose files — MinIO's images are no longer published
+  for anonymous pulls; `pnpm dev:db:up` starts it and writes the `STORAGE_*` lines into `.dev.vars`.
 
 **Known gaps:** `avatarUrl` is global but the object is tenant-scoped (initials fallback elsewhere);
 re-uploads leave the old object; no listing endpoint, quotas or presigned URLs; unbranded templates.
+On Node: no Azure Blob adapter (not S3-compatible); metadata values travel as HTTP headers, so
+non-ASCII values are not supported (the kit writes only ids and scopes); `put` reports the request
+time as `uploaded` (S3's PutObject does not answer the stored one; `head`/`get` do).
 
 ## 7. UI shell
 
@@ -397,10 +409,14 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
 
 - **One resolver (D17)**: `resolveChat` / `resolveEmbeddings` are the only readers of `ai_configs`
   / `agent_models` and the only place credentials are decrypted. Chat order: per-agent assignment →
-  tenant default → platform `ANTHROPIC_API_KEY` → **Workers AI `glm-4.7-flash` via `[ai]`** → 503
-  `ai_not_configured`. Embeddings order: tenant → Workers AI `bge-m3` (1024-dim) →
-  `EMBEDDINGS_API_KEY` → 503. Workers AI calls are **billed** to the account; removing `[ai]` from
-  both tomls makes the kit zero-spend. Credentials never leave the server (`hasCredential`); every
+  tenant default → platform `ANTHROPIC_API_KEY` → platform `AI_API_KEY` (M6: OpenAI-compatible at
+  `AI_BASE_URL` with `AI_MODEL` — OpenRouter, vLLM, Ollama — or OpenAI itself without a base URL)
+  → **Workers AI `glm-4.7-flash` via `[ai]`** (the Worker only) → 503 `ai_not_configured`.
+  Embeddings order: tenant → Workers AI `bge-m3` (1024-dim, the Worker only) →
+  `EMBEDDINGS_API_KEY` (OpenAI, or OpenAI-compatible at `EMBEDDINGS_BASE_URL` with
+  `EMBEDDINGS_MODEL`; `dimensions: 1024` is always sent, so the model must honour it) → 503.
+  Workers AI calls are **billed** to the account; removing `[ai]` from both tomls makes the kit
+  zero-spend. **On Node there is no Workers AI**: no key means chat, agents and indexing answer 503. Credentials never leave the server (`hasCredential`); every
   error is normalised to `AiError` with secrets redacted.
 - **Providers**: `anthropic`, `anthropic_compatible`, `openai`, `openai_compatible`, `workers_ai`.
   There is no Vercel AI SDK and no Bedrock (a SigV4 adapter behind `ChatClient` is the extension).
@@ -457,7 +473,10 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   and reconciliation runs once before the first frame. Payloads never go over the tenant-wide DO,
   because run visibility is per run.
 - **Knowledge (D18)**: `documents` + `chunks` (pgvector HNSW). Text is ingested inline or by job;
-  uploads go to R2, then `AI.toMarkdown`, then the same indexer. Search is hybrid dense + lexical
+  uploads go to storage, then the platform `converter` (`AI.toMarkdown` on the Worker; on Node,
+  M6, `src/node/converter.ts`: `unpdf` for PDF, `mammoth` for .docx → markdown, HTML stripped to
+  text, XML/text decoded — Excel and OpenDocument answer a permanent `format: 'error'`), then the
+  same indexer. Search is hybrid dense + lexical
   (the lexical half matches ANY query word, ranked by `ts_rank_cd` — `anyTermTsquery` — so a
   sentence's filler words cannot veto it) with RRF, scoped by `AccessScope` (§1).
   `document-content.ts` is the one text reader behind both
@@ -545,7 +564,7 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   was also rejected: steps are unlimited in wall-clock time, and splitting would force every side
   effect outside a step to replay.
 
-**Known gaps:** no document summary or thumbnail (the card is an excerpt; Workers cannot rasterise);
+**Known gaps:** on Node (M6) the upload route accepts every convertible type but the converter reads only PDF, .docx, HTML, XML and text — an Excel or OpenDocument upload fails at `document.convert` with a permanent error, not at upload; no document summary or thumbnail (the card is an excerpt; Workers cannot rasterise);
 `charOffset` does not map to PDF pages; no frontend tools in chat, no `STATE_DELTA`; protobuf drops
 `TOOL_CALL_RESULT` and has no stream cursor; `@ag-ui/core` is 0.0.x (pin + contract test are the
 mitigation); no token-level streaming for runs (would need a per-run DO); char-based history budget

@@ -42,6 +42,11 @@ const DEV_VARS_EXAMPLE = path.join(WEB_DIR, '.dev.vars.example')
 /** Wrangler reads this for the local Hyperdrive binding; the toml's value is only a fallback. */
 const HYPERDRIVE_ENV = 'CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE'
 const SERVICE = 'postgres-dev'
+/** The S3 gateway beside it (M6) — uploads on the Node server. */
+const S3_SERVICE = 's3-dev'
+const S3_PORT_START = 7070
+/** The test stack's S3 gateway (`docker-compose.test.yml`). */
+const TEST_S3_PORT = 7433
 
 /** This checkout's compose project — unique per path, so two checkouts never share containers. */
 const PROJECT = `rocketpod-dev-${checkoutTag(WEB_DIR)}`
@@ -127,14 +132,62 @@ function writeDevVars(values) {
   return true
 }
 
-const composeEnv = (port, url) => ({
+const composeEnv = (port, url, s3Port = S3_PORT_START) => ({
   ...process.env,
   COMPOSE_PROJECT_NAME: PROJECT,
   DEV_DB_PORT: String(port),
   DEV_DB_CONTAINER: `rocketpod-dev-postgres-${checkoutTag(WEB_DIR)}`,
+  DEV_S3_PORT: String(s3Port),
+  DEV_S3_CONTAINER: `rocketpod-dev-s3-${checkoutTag(WEB_DIR)}`,
   DATABASE_URL: url,
   [HYPERDRIVE_ENV]: url,
 })
+
+/** The STORAGE_* values a fresh checkout starts from (.dev.vars, else the example). */
+function currentStorage() {
+  for (const file of [DEV_VARS, DEV_VARS_EXAMPLE]) {
+    if (!existsSync(file)) continue
+    const vars = readDevVars(readFileSync(file, 'utf8'))
+    if (vars.STORAGE_ENDPOINT || vars.STORAGE_DRIVER) return vars
+  }
+  return {}
+}
+
+/** A STORAGE_ENDPOINT on this machine (or none at all) is ours to start and re-port. */
+function isLocalEndpoint(endpoint) {
+  if (!endpoint) return true
+  try {
+    return ['localhost', '127.0.0.1', '[::1]'].includes(new URL(endpoint).hostname)
+  } catch {
+    return false
+  }
+}
+
+/**
+ * The S3 gateway's port (M6) — sticky like the database's: the one in STORAGE_ENDPOINT wins while it
+ * is still ours or still free. `null` when storage is not ours to start (an off-box endpoint).
+ */
+async function resolveS3Port() {
+  const vars = currentStorage()
+  if (vars.STORAGE_DRIVER === '' || !isLocalEndpoint(vars.STORAGE_ENDPOINT)) return null
+  let preferred = null
+  try {
+    preferred = vars.STORAGE_ENDPOINT ? Number(new URL(vars.STORAGE_ENDPOINT).port) || null : null
+  } catch {
+    preferred = null
+  }
+  const ours = oursPorts()
+  const free = new Map()
+  for (let p = S3_PORT_START; p < S3_PORT_START + 20; p += 1) free.set(p, await portIsFree(p))
+  const isAvailable = port => ours.has(port) || free.get(port) === true
+  return chooseDevDbPort({
+    preferred,
+    isAvailable,
+    start: S3_PORT_START,
+    count: 20,
+    skip: [TEST_S3_PORT],
+  })
+}
 
 async function up(json) {
   const { port, url, moved, external } = await resolvePort()
@@ -144,21 +197,35 @@ async function up(json) {
     else console.log(`DATABASE_URL points at ${target} (not this machine) — nothing to start`)
     return
   }
-  const env = composeEnv(port, url)
+  const s3Port = await resolveS3Port()
+  const env = composeEnv(port, url, s3Port ?? S3_PORT_START)
+  const services = s3Port === null ? [SERVICE] : [SERVICE, S3_SERVICE]
   const result = spawnSync(
     'docker',
-    ['compose', '-p', PROJECT, '-f', COMPOSE_FILE, 'up', '-d', '--wait', SERVICE],
+    ['compose', '-p', PROJECT, '-f', COMPOSE_FILE, 'up', '-d', '--wait', ...services],
     { cwd: WEB_DIR, env, stdio: json ? 'pipe' : 'inherit' }
   )
   if (result.status !== 0) {
     if (json) process.stderr.write(result.stderr ?? '')
     process.exit(result.status ?? 1)
   }
-  const wrote = writeDevVars({ DATABASE_URL: url })
+  const storage =
+    s3Port === null
+      ? {}
+      : {
+          STORAGE_DRIVER: 's3',
+          STORAGE_ENDPOINT: `http://localhost:${s3Port}`,
+          STORAGE_BUCKET: 'rocketpod-dev',
+          STORAGE_ACCESS_KEY_ID: 'rocketpod-dev',
+          STORAGE_SECRET_ACCESS_KEY: 'rocketpod-dev-secret',
+          STORAGE_FORCE_PATH_STYLE: 'true',
+        }
+  const wrote = writeDevVars({ DATABASE_URL: url, ...storage })
   if (json) {
-    console.log(JSON.stringify({ port, url, project: PROJECT, moved, wroteDevVars: wrote }))
+    console.log(JSON.stringify({ port, url, s3Port, project: PROJECT, moved, wroteDevVars: wrote }))
   } else {
     console.log(`dev database ready on :${port}  (project ${PROJECT})`)
+    if (s3Port !== null) console.log(`dev object storage (S3) ready on :${s3Port}`)
     if (moved)
       console.log(`  :${port} chosen because the previous port was taken by something else`)
     if (wrote) console.log('  apps/web/.dev.vars updated to match')

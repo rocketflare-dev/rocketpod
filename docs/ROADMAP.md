@@ -167,6 +167,16 @@ version, and keep the adapter thin enough that either the engine or the fallback
 - Delete `NotificationsHub`.
 
 ### M6. Storage, small adapters and AI (3–4 d)
+
+**Status: done (2026-10-12).** `apps/web/src/node/storage.ts` (S3), `limits.ts` (rate limits and
+locks over `rate_limits`/`operation_locks`, migration `0018_kit-platform-limits`), `converter.ts`
+(`unpdf`, `mammoth`, HTML/XML/text); platform `AI_*` and `EMBEDDINGS_BASE_URL`/`EMBEDDINGS_MODEL`
+in `services/ai/resolve.ts`; `tests/api/node-platform-adapters.test.ts`. **Deviation:** MinIO's
+images are no longer pullable anonymously, so the dev and test compose files run the **Versity S3
+Gateway** (`versity/versitygw:v1.8.0`, Apache-2.0) instead; the adapter is plain S3 and still talks
+to MinIO, AWS S3, R2 and GCS. Excel and OpenDocument uploads are not converted on Node (a permanent
+`format: 'error'`).
+
 - **`STORAGE_DRIVER=s3`:** `@aws-sdk/client-s3` behind `StorageService`, configured by endpoint,
   region, bucket, keys and `forcePathStyle`.
   - One adapter covers AWS S3, MinIO, R2 and GCS.
@@ -192,10 +202,10 @@ version, and keep the adapter thin enough that either the engine or the fallback
 - Multi-stage `Dockerfile`: `vite build` + a `tsup` server bundle, then a non-root slim Node 24 image.
 - `docker-compose.yml`:
   - `postgres` (pgvector 17)
-  - `minio` + bucket init
+  - an S3 store (`versitygw`, as in the dev/test compose files — MinIO is no longer pullable) + bucket init
   - a one-shot `migrate` (drizzle + pg-boss schema)
   - `web` and `worker`
-- `docker-compose.dev.yml` and `docker-compose.test.yml` gain MinIO.
+- `docker-compose.dev.yml` and `docker-compose.test.yml` gained the S3 gateway in M6.
 - Helm chart:
   - `web` and `worker` Deployments
   - a migrate Job as a pre-install/upgrade hook
@@ -229,7 +239,7 @@ after M0–M3 + M6 + a minimal M7, in about 2.5 weeks, with agent runs and realt
 
 ## Verification
 
-- `pnpm gate` is green with the new integration tests against test Postgres + MinIO:
+- `pnpm gate` is green with the new integration tests against test Postgres + the S3 gateway:
   - pg-boss retry and DLQ
   - step replay after a crash; `waitForEvent` timeout and resume; terminate
   - NOTIFY fan-out across two hub instances
@@ -238,7 +248,7 @@ after M0–M3 + M6 + a minimal M7, in about 2.5 weeks, with agent runs and realt
   - a guard that no Cloudflare imports remain
 - `docker compose up` with an AI key, then:
   - dev-login
-  - upload a PDF → MinIO → converted → embedded → found by chat
+  - upload a PDF → the S3 store → converted → embedded → found by chat
   - an agent run that interrupts → resume it from the UI
   - kill `worker` mid-run → it resumes with no duplicate `agent_run_effects`
 - On kind + Helm with 2 web and 3 worker replicas:

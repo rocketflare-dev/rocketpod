@@ -6,6 +6,12 @@
 # `name:` pins the Compose project per app (the rename moves it with the slug). Without it the
 # project was `web` — the directory — in every copy of the kit, so `pnpm test:db:up` in one copy
 # recreated another copy's test Postgres on its volume (#38). Both still publish 5433.
+#
+# `s3-test` (M6) is the S3-compatible object store the storage tests run against: the Versity S3
+# Gateway (Apache-2.0) over a POSIX directory, with object metadata in a sidecar directory so the
+# filesystem needs no xattrs. MinIO was the plan, but its images are no longer published for
+# anonymous pulls. A bucket is a directory, so the entrypoint creates `rocketpod-test` before the
+# gateway starts; the healthcheck passes once the gateway answers at all (403 to an unsigned GET).
 name: rocketpod-test
 
 services:
@@ -24,3 +30,21 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
+  s3-test:
+    image: versity/versitygw:v1.8.0
+    container_name: rocketpod-test-s3
+    entrypoint:
+      - /bin/sh
+      - -c
+      - mkdir -p /data/rocketpod-test /meta && exec versitygw posix --sidecar /meta /data
+    environment:
+      ROOT_ACCESS_KEY_ID: test
+      ROOT_SECRET_ACCESS_KEY: test-secret-key
+    ports:
+      - "7433:7070"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -S -O /dev/null http://127.0.0.1:7070/ 2>&1 | grep -q 'HTTP/1.1'"]
+      interval: 2s
+      timeout: 5s
+      retries: 15

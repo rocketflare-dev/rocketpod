@@ -83,13 +83,19 @@ credentials into it, not even as comments.
 
 ### 1.4 Database
 ```bash
-pnpm dev:db:up        # pgvector/pgvector:pg17, first free port from :5432 (apps/web/scripts/dev-db.mjs)
+pnpm dev:db:up        # pgvector/pgvector:pg17, first free port from :5432, + the S3 gateway from :7070 (apps/web/scripts/dev-db.mjs)
 pnpm dev:db:status    # every dev database on this machine, and which one is this checkout's
 pnpm web db:check     # apps/web/scripts/test-db-connection.ts
 pnpm db:migrate       # db-roles --phase=role → migrations → db-roles --phase=grants
 ```
 Verify: `db:up` prints the port it chose; `db:check` prints the server version; `db:migrate` ends
 with the applied migration count and no `role "rocketpod_app" does not exist` error.
+
+**Object storage (M6, the Node server).** `dev:db:up` also starts the S3 gateway beside Postgres
+(Versity S3 Gateway, bucket `rocketpod-dev`, first free port from :7070, sticky like the database's)
+and writes the `STORAGE_*` lines into `apps/web/.dev.vars`. Point `STORAGE_ENDPOINT` at any other
+S3-compatible store (AWS S3, R2's S3 endpoint, MinIO) and `dev:db:up` leaves it alone; blank
+`STORAGE_DRIVER` turns uploads off (503). The Worker ignores all of these and uses R2.
 
 **The port is chosen, not fixed.** `dev:db:up` runs `apps/web/scripts/dev-db.mjs`, which gives this
 checkout its own compose project, container and port: it keeps the port already in `DATABASE_URL`
@@ -425,6 +431,11 @@ cost line before relying on it, then pick any of these:
    `claude-sonnet-4-5` — it ranks above Workers AI. Verify: Settings → AI (as owner/admin) shows chat
    readiness `Anthropic · claude-sonnet-4-5 · platform default`; `curl -b <cookie>
    localhost:3001/api/ai/config/readiness` → `"chat":{…,"source":"platform","provider":"anthropic"…}`.
+1b. **OpenAI-compatible platform key (M6).** `AI_API_KEY=` with `AI_BASE_URL=` (OpenRouter, vLLM,
+   Ollama… including `/v1`) and `AI_MODEL=`; without `AI_BASE_URL` the key is OpenAI's own
+   (`AI_MODEL` defaults to `gpt-4.1-mini`). It ranks after `ANTHROPIC_API_KEY` and before Workers AI.
+   **On the Node server this or a tenant provider is required** — there is no Workers AI there.
+   Verify: readiness reads `"source":"platform","provider":"openai_compatible"` (or `openai`).
 2. **Tenant provider (no platform key).** Settings → AI → *Add provider*: scope `chat`, a label (it is
    the upsert key — renaming later means delete + re-add), provider `anthropic` / `anthropic_compatible`
    (Fireworks, Moonshot presets; base URL required) / `openai` / `openai_compatible`, model, API key
@@ -447,7 +458,9 @@ enables it with a budget (cost decision).
 binding (both tomls, and `wrangler dev` emulates it) is the zero-key default — `@cf/baai/bge-m3`,
 1024-dim. Alternatives: an `embeddings`-scope tenant config (`openai`, `openai_compatible`,
 `workers_ai`) or `EMBEDDINGS_API_KEY` for platform OpenAI `text-embedding-3-small` (reduced to 1024
-dims). Verify: `POST /api/ai/documents/ingest` `{ "title": "t", "text": "hello world" }` → `status:
+dims) — or, with `EMBEDDINGS_BASE_URL` + `EMBEDDINGS_MODEL`, any OpenAI-compatible endpoint whose model
+honours `dimensions: 1024` (M6; on the Node server, where Workers AI does not exist, this or a tenant
+row is the only way to index). Verify: `POST /api/ai/documents/ingest` `{ "title": "t", "text": "hello world" }` → `status:
 "indexed"`; `pnpm web db:check` reports the pgvector extension installed. Changing the dimension is a
 new table (`docs/ADAPTING.md` §3).
 

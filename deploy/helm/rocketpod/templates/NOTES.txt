@@ -1,0 +1,16 @@
+Rocketpod {{ .Chart.AppVersion }} is installed as "{{ .Release.Name }}".
+
+  web:    {{ .Values.web.replicaCount }} replica(s) behind service/{{ include "rocketpod.fullname" . }}
+  worker: {{ .Values.worker.replicaCount }} replica(s)
+  migrations ran as the pre-install/pre-upgrade Job (logs: kubectl logs job/{{ include "rocketpod.fullname" . }}-migrate — kept only if it failed)
+
+Public origin: {{ .Values.config.APP_URL }}
+{{- if not .Values.ingress.enabled }}
+
+No ingress: try it with
+  kubectl port-forward svc/{{ include "rocketpod.fullname" . }} 3001:{{ .Values.service.port }}
+(the session cookie needs https, or localhost: set config.APP_URL=http://localhost:3001 for that).
+{{- end }}
+
+First admin: put their email in secrets.BOOTSTRAP_ADMIN_EMAILS and sign in by magic link (logged
+by the worker pods when RESEND_API_KEY is empty).

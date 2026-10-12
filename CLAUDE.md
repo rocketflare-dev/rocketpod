@@ -61,6 +61,8 @@ pnpm bootstrap · pnpm preflight  # first run in one go / read-only check
 pnpm dev:db:up && pnpm db:migrate  # Postgres on the first free port from :5432 → DATABASE_URL; role → migrations → grants
 pnpm seed [--demo] && pnpm dev  # tenant/users/key (+ populated workspace); Node :3001 (tsx watch) + vite :3000 (strict ports)
 pnpm build && node apps/web/dist/server.js [web|worker|all]  # the production server
+docker compose up -d --build  # the whole stack from the image: postgres, s3, migrate, web, worker (docs/DEPLOY.md)
+helm upgrade --install rocketpod deploy/helm/rocketpod -f values.yaml  # Kubernetes; Postgres + S3 external
 pnpm dev:stop · pnpm dev:status · pnpm dev:db:status  # kill this repo's dev tree / port holders / every dev database
 pnpm cli login --server http://localhost:3001  # browser → ~/.rocketpod/config.json, then whoami
 pnpm gate [step…] · pnpm gate --list [--json]  # THE gate: lint → typecheck → test → build (CI's one job, Launch's ship gate)
@@ -108,6 +110,9 @@ scripts/           bootstrap.sh → bootstrap.mjs (9 steps), install.sh (curl on
                    kit-update-check.mjs (SessionStart: tells a copy about a newer kit release),
                    kit-check.mjs (the Launch kit conformance check, shared with the meta-kit — this
                    kit is not conformant: launch.kit.json `$runtime`), lib/
+Dockerfile         ONE image: dist/server.js (web|worker|all) + dist/migrate.js + dist/ui, no node_modules
+docker-compose.yml the self-contained stack; deploy/ holds compose.single.yml, compose.env.example and
+                   helm/rocketpod (web/worker Deployments, migrate hook Job, ConfigMap/Secret ≡ config.ts)
 .rocketflare.json  kit version + commit, the app's names, the replaceable-surface manifest
 launch.kit.json    the Launch kit contract (D36), Cloudflare-shaped; kept schema-valid, its `worker` and
                    `release` blocks describe nothing here (`$runtime`)

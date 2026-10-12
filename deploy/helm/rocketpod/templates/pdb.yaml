@@ -1,0 +1,18 @@
+{{- range $component := list "web" "worker" }}
+{{- $values := index $.Values $component }}
+{{- if $values.podDisruptionBudget.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "rocketpod.fullname" $ }}-{{ $component }}
+  labels:
+    {{- include "rocketpod.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $component }}
+spec:
+  minAvailable: {{ $values.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "rocketpod.selectorLabels" (dict "root" $ "component" $component) | nindent 6 }}
+{{- end }}
+{{- end }}

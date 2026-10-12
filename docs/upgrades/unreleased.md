@@ -56,6 +56,12 @@ Every runtime capability is now a neutral `Platform`, a Node entry (`src/node/se
 - Test fakes are native `Platform` implementations: `createTestEnv()` puts an in-memory platform on `env.PLATFORM` (and as getters on `env`); override a member with `{ jobs: null }`, `{ storage: null }`, `{ ai: null }`…; `MemoryStorage`, `RecordingRealtime` (`accepted[]`), `createMemoryRateLimiter`/`createMemoryLocks`; `tests/mocks/step.ts` `createFakeStep` replaces `createFakeWorkflowStep`.
 - Platform AI without Workers AI (M6): chat resolves `ANTHROPIC_API_KEY` → `AI_API_KEY` (OpenAI-compatible at `AI_BASE_URL` with `AI_MODEL`, else OpenAI with `AI_MODEL` or `gpt-4.1-mini`) → Workers AI (the Worker only); embeddings resolve Workers AI (the Worker only) → `EMBEDDINGS_API_KEY` (OpenAI-compatible at `EMBEDDINGS_BASE_URL` with `EMBEDDINGS_MODEL`, else OpenAI). `readiness` mirrors both. The 503 messages name `AI_API_KEY` and no longer suggest binding Workers AI.
 
+- Packaging (M7): a root `Dockerfile` builds ONE image (`node:24-alpine`, npm/corepack/yarn removed, non-root `node`, `HEALTHCHECK` on `/healthz`) holding only `dist/server.js`, `dist/migrate.js`, `dist/ui` and `migrations/` — no `node_modules`; `ENTRYPOINT node dist/server.js`, `CMD web`. `scripts/build-server.mjs` now also bundles `scripts/migrate-all.ts` → `dist/migrate.js`, the migrate one-shot (`db-roles` role → migrations + `pgboss` + `openworkflow` → `db-roles` grants, as `pnpm db:migrate`; `MIGRATIONS_DIR` overrides the SQL folder). `db-roles.ts` and `migrate.ts` start their CLIs only when run as `.ts`, so a bundle that imports them does not.
+- `node dist/server.js worker` answers `/healthz` and `/readyz` (nothing else) on `PORT` (`startServer({ probePort })`), so a container healthcheck or a Kubernetes probe can watch a worker.
+- Root `docker-compose.yml` (postgres + pgvector, Versity S3 Gateway, `migrate`, `web`, `worker`, every value defaulted, `deploy/compose.env.example` for `.env`) and `deploy/compose.single.yml` (one `all` process).
+- Helm chart `deploy/helm/rocketpod`: `web` and `worker` Deployments, a migrate `pre-install,pre-upgrade` Job, Service, optional Ingress, PodDisruptionBudgets, a ConfigMap (`config:`) and Secret (`secrets:`, or `existingSecret`) whose keys are exactly `src/config.ts`'s (`tests/config/packaging.test.ts`), non-root read-only pods.
+- `.github/workflows/image.yml` builds the image on every PR and push (pushes `ghcr.io/<owner>/rocketpod` on a version tag) and lints, renders and kubeconform-checks the chart. `docs/DEPLOY.md` is the container runbook (Compose, Helm, secrets, Postgres and PgBouncer requirements, scaling, rollback).
+
 ## How to apply
 
 1. Copy `apps/web/src/platform/` and `apps/web/src/api/middleware/platform.ts`, and register `platformMiddleware` after `configMiddleware` in `apps/web/src/api/index.ts`.
@@ -84,6 +90,8 @@ Every runtime capability is now a neutral `Platform`, a Node entry (`src/node/se
 23. Take the kit's `apps/web/package.json` scripts (`dev`, `dev:api`, `typecheck`, `build`) and `apps/web/scripts/dev-server.mjs`; delete your own `deploy`, `provision`, `types` and `dev:tunnel` scripts.
 24. Take the kit's `apps/web/tests/mocks/bindings.ts` and `apps/web/tests/mocks/step.ts`, and in your own tests replace a binding override (`{ FILES: undefined }`) with a platform one (`{ storage: null }`) and `stubs(env).files.objects.get(k)?.httpMetadata?.contentType` with `?.contentType`.
 25. Remove `bindings` and `workerExports` from every plugin manifest of your own, and reach the capability through `ctx.platform`.
+26. Take the kit's `Dockerfile`, `.dockerignore`, `docker-compose.yml`, `deploy/` and `.github/workflows/image.yml`, then replace `rocketpod` in image names, the chart name and the compose database/bucket names with your app's.
+27. Take the kit's `apps/web/scripts/build-server.mjs` and `apps/web/scripts/migrate-all.ts`, and the `.ts`-only CLI guard at the bottom of `apps/web/scripts/db-roles.ts` and `apps/web/scripts/migrate.ts`.
 
 ## Conflicts to expect
 
@@ -113,3 +121,5 @@ Every runtime capability is now a neutral `Platform`, a Node entry (`src/node/se
 14. With the Node server running, the eleventh `POST /auth/dev-login` from one IP within a minute answers 429 with a `Retry-After` header.
 15. `pnpm web test:config` passes `tests/config/platform-seam.test.ts`, and `grep -rIl "@cloudflare/\|cloudflare:" --exclude-dir=node_modules apps packages` finds nothing.
 16. `pnpm dev` prints `web: listening on :3001` and `dev ready`; `http://localhost:3000` renders and dev-login signs in.
+17. `docker compose up -d --build` leaves `migrate` exited 0 and `web`/`worker` healthy; `http://localhost:3001/readyz` answers 200 and the UI renders.
+18. `pnpm web test:config` passes `tests/config/packaging.test.ts`.

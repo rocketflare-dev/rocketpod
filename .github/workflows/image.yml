@@ -1,0 +1,77 @@
+name: Image
+
+# The container image and the Helm chart (M7, docs/DEPLOY.md). Pull requests and main BUILD the
+# image (no push) and lint + render the chart, so a broken Dockerfile or template fails before a
+# release; a version tag (`v*` or a bare `X.Y.Z`) pushes ghcr.io/<owner>/rocketpod:<version> and
+# `:latest`. The quality gate stays ci.yml's one job — nothing here re-runs it.
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ['v*', '[0-9]+.[0-9]+.[0-9]+']
+
+concurrency:
+  group: image-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  chart:
+    name: Helm chart
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.4
+      - name: Lint and render
+        run: |
+          set -euo pipefail
+          args=(--set config.APP_URL=https://app.example.com
+                --set secrets.DATABASE_URL=postgresql://u:p@db:5432/app
+                --set ingress.enabled=true)
+          helm lint deploy/helm/rocketpod "${args[@]}"
+          helm template ci deploy/helm/rocketpod "${args[@]}" > "$RUNNER_TEMP/rendered.yaml"
+          helm template ci deploy/helm/rocketpod --set config.APP_URL=https://app.example.com \
+            --set existingSecret=rocketpod >> "$RUNNER_TEMP/rendered.yaml"
+      - name: Validate against the Kubernetes schemas
+        run: |
+          docker run --rm -v "$RUNNER_TEMP":/work ghcr.io/yannh/kubeconform:v0.6.7 \
+            -strict -summary -kubernetes-version 1.30.0 /work/rendered.yaml
+
+  image:
+    name: Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/rocketpod
+          tags: |
+            type=semver,pattern={{version}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/') }}
+            type=sha
+      - name: Log in to ghcr.io
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build (and push on a tag)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: ${{ startsWith(github.ref, 'refs/tags/') }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: RELEASE_VERSION=${{ github.ref_name }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

@@ -54,6 +54,11 @@ export interface StartServerOptions {
   /** 0 picks a free port (tests). */
   port?: number
   hostname?: string
+  /**
+   * `worker` mode only (M7): serve `/healthz` + `/readyz` — and nothing else — on this port, so a
+   * container healthcheck or a Kubernetes probe can watch a worker. Unset: a worker binds no port.
+   */
+  probePort?: number
   /** The UI build (`vite build` → `dist/ui`). */
   uiDir?: string
   /** Replace the Node platform (tests). */
@@ -71,7 +76,7 @@ export interface StartServerOptions {
 
 export interface RunningServer {
   mode: ServerMode
-  /** The bound port (`web`/`all`); 0 in `worker` mode. */
+  /** The bound port (`web`/`all`, or a worker's `probePort`); 0 for a worker without one. */
   port: number
   config: AppConfig
   defer: DeferSet
@@ -112,7 +117,8 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
 
   let server: ReturnType<typeof serve> | undefined
   let port = 0
-  if (mode !== 'worker') {
+  const serveApp = mode !== 'worker'
+  if (serveApp || options.probePort !== undefined) {
     const outer = new Hono<{ Bindings: { incoming?: { socket?: { remoteAddress?: string } } } }>()
     outer.get('/healthz', c => c.json({ status: 'ok' }))
     outer.get('/readyz', async c => {
@@ -124,21 +130,26 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
         return c.json({ status: 'database_unavailable' }, 503)
       }
     })
-    if (assets) outer.use('*', assets.files)
-    outer.all('*', c =>
-      app.fetch(c.req.raw, env, {
-        waitUntil: (promise: Promise<unknown>) => defer.add(promise),
-        passThroughOnException: () => {},
-        props: { clientAddress: c.env.incoming?.socket?.remoteAddress ?? '' },
-      })
-    )
+    if (serveApp) {
+      if (assets) outer.use('*', assets.files)
+      outer.all('*', c =>
+        app.fetch(c.req.raw, env, {
+          waitUntil: (promise: Promise<unknown>) => defer.add(promise),
+          passThroughOnException: () => {},
+          props: { clientAddress: c.env.incoming?.socket?.remoteAddress ?? '' },
+        })
+      )
+    }
+    const listenPort = serveApp ? (options.port ?? 3001) : options.probePort
     server = await new Promise<ReturnType<typeof serve>>(resolve => {
-      const s = serve(
-        { fetch: outer.fetch, port: options.port ?? 3001, hostname: options.hostname },
-        () => resolve(s)
+      const s = serve({ fetch: outer.fetch, port: listenPort, hostname: options.hostname }, () =>
+        resolve(s)
       )
     })
     port = (server.address() as AddressInfo).port
+  }
+  if (server && !serveApp) log(`worker: probes on :${port}`)
+  if (server && serveApp) {
     // `/ws` (M5): Node delivers an upgrade outside the fetch handler, so the app runs here inside
     // an `upgradeScope` slot — the route authenticates and `realtime.hub.accept()` fills the slot —
     // and the handshake completes only if it did. Anything else is written back as plain HTTP.
@@ -237,6 +248,8 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     mode,
     port: env.PORT ? Number(env.PORT) : 3001,
     hostname: env.HOST || '0.0.0.0',
+    // A worker answers its probes on the same port the web process serves on (M7).
+    probePort: env.PORT ? Number(env.PORT) : 3001,
     uiDir: env.UI_DIST_DIR || 'dist/ui',
   })
   let signalled = false

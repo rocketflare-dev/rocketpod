@@ -1,0 +1,138 @@
+# Rocketpod, self-contained (M7, docs/DEPLOY.md § Docker Compose): Postgres + pgvector, an
+# S3-compatible store, the migrate one-shot, the web process and the worker — one image for all
+# three app services. Values come from a root `.env` (copy `deploy/compose.env.example`); every
+# one has a default below, so `docker compose up -d --build` works on a laptop as-is.
+#
+#   docker compose up -d --build                      # web on http://localhost:3001
+#   docker compose -f docker-compose.yml -f deploy/compose.single.yml up -d --build
+#                                                     # one `all` process instead of web + worker
+#   docker compose down                               # keep the data   (down -v deletes it)
+#
+# Point DATABASE_URL / STORAGE_* at managed services and delete `postgres` / `s3` from the
+# `depends_on` lists to run against a real database and bucket.
+
+x-app: &app
+  image: ${ROCKETPOD_IMAGE:-rocketpod:local}
+  # Built once, by `migrate` (below) — three services building one tag at once collide.
+  pull_policy: missing
+  restart: unless-stopped
+  environment: &app-env
+    APP_ENV: ${APP_ENV:-production}
+    # The origin a browser uses. The session cookie is `__Host-` (always Secure): browsers accept it
+    # over plain http only on localhost — anything else needs https in front (DEPLOY.md).
+    APP_URL: ${APP_URL:-http://localhost:3001}
+    APP_NAME: ${APP_NAME:-Rocketpod}
+    LOG_LEVEL: ${LOG_LEVEL:-info}
+    SIGNUP_MODE: ${SIGNUP_MODE:-invite_only}
+    TENANCY_MODE: ${TENANCY_MODE:-multi}
+    BOOTSTRAP_ADMIN_EMAILS: ${BOOTSTRAP_ADMIN_EMAILS:-}
+    EMAIL_FROM: ${EMAIL_FROM:-Rocketpod <noreply@example.com>}
+    RESEND_API_KEY: ${RESEND_API_KEY:-}
+    OAUTH_ENCRYPTION_KEY: ${OAUTH_ENCRYPTION_KEY:-}
+    # No proxy in front of this file: the socket address is the client. Behind one, set the hop count.
+    TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-0}
+    DATABASE_URL: ${DATABASE_URL:-postgresql://rocketpod:rocketpod_pass@postgres:5432/rocketpod}
+    DATABASE_LISTEN_URL: ${DATABASE_LISTEN_URL:-}
+    APP_DATABASE_URL: ${APP_DATABASE_URL:-}
+    STORAGE_DRIVER: s3
+    STORAGE_ENDPOINT: ${STORAGE_ENDPOINT:-http://s3:7070}
+    STORAGE_REGION: ${STORAGE_REGION:-us-east-1}
+    STORAGE_BUCKET: ${STORAGE_BUCKET:-rocketpod}
+    STORAGE_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:-rocketpod}
+    STORAGE_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY:-rocketpod-secret}
+    STORAGE_FORCE_PATH_STYLE: ${STORAGE_FORCE_PATH_STYLE:-true}
+    ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    AI_API_KEY: ${AI_API_KEY:-}
+    AI_BASE_URL: ${AI_BASE_URL:-}
+    AI_MODEL: ${AI_MODEL:-}
+    EMBEDDINGS_API_KEY: ${EMBEDDINGS_API_KEY:-}
+    EMBEDDINGS_BASE_URL: ${EMBEDDINGS_BASE_URL:-}
+    EMBEDDINGS_MODEL: ${EMBEDDINGS_MODEL:-}
+    GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+    GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+    MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-}
+    MICROSOFT_CLIENT_SECRET: ${MICROSOFT_CLIENT_SECRET:-}
+    OIDC_ISSUER: ${OIDC_ISSUER:-}
+    OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+    OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+    JOBS_CONCURRENCY: ${JOBS_CONCURRENCY:-2}
+    RUNS_CONCURRENCY: ${RUNS_CONCURRENCY:-4}
+  depends_on: &app-depends
+    migrate:
+      condition: service_completed_successfully
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: rocketpod
+      POSTGRES_USER: rocketpod
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rocketpod_pass}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rocketpod -d rocketpod"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Versity S3 Gateway (Apache-2.0) over a volume; the entrypoint creates the bucket directory.
+  s3:
+    image: versity/versitygw:v1.8.0
+    restart: unless-stopped
+    entrypoint:
+      - /bin/sh
+      - -c
+      - mkdir -p /data/$${STORAGE_BUCKET} /meta && exec versitygw posix --sidecar /meta /data
+    environment:
+      STORAGE_BUCKET: ${STORAGE_BUCKET:-rocketpod}
+      ROOT_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:-rocketpod}
+      ROOT_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY:-rocketpod-secret}
+    volumes:
+      - s3-data:/data
+      - s3-meta:/meta
+    healthcheck:
+      test: ["CMD-SHELL", "wget -S -O /dev/null http://127.0.0.1:7070/ 2>&1 | grep -q 'HTTP/1.1'"]
+      interval: 3s
+      timeout: 5s
+      retries: 15
+
+  # The one-shot: db-roles (role) → drizzle migrations + pgboss + openworkflow → db-roles (grants).
+  migrate:
+    <<: *app
+    build:
+      context: .
+      args:
+        RELEASE_VERSION: ${RELEASE_VERSION:-dev}
+    restart: "no"
+    entrypoint: ["node", "dist/migrate.js"]
+    command: []
+    healthcheck:
+      disable: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    <<: *app
+    command: ["web"]
+    ports:
+      - "${WEB_PORT:-3001}:3001"
+    depends_on:
+      <<: *app-depends
+      s3:
+        condition: service_healthy
+
+  worker:
+    <<: *app
+    command: ["worker"]
+    depends_on:
+      <<: *app-depends
+      s3:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+  s3-data:
+  s3-meta:

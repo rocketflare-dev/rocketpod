@@ -1,0 +1,84 @@
+{{- if .Values.migrate.enabled }}
+{{- /*
+  The migrate one-shot as a pre-install/pre-upgrade hook (M7). Hooks run BEFORE the release's
+  ConfigMap and Secret exist on a first install, so the Job reads its two connection strings from
+  `existingSecret` when one is named, else from a hook-scoped Secret rendered here.
+*/ -}}
+{{- $secret := include "rocketpod.secretName" . }}
+{{- if not .Values.existingSecret }}
+{{- $secret = printf "%s-migrate" (include "rocketpod.fullname" .) }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $secret }}
+  labels:
+    {{- include "rocketpod.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-5"
+    helm.sh/hook-delete-policy: before-hook-creation
+type: Opaque
+stringData:
+  DATABASE_URL: {{ required "secrets.DATABASE_URL is required (or set existingSecret)" .Values.secrets.DATABASE_URL | quote }}
+  {{- with .Values.secrets.APP_DATABASE_URL }}
+  APP_DATABASE_URL: {{ . | quote }}
+  {{- end }}
+---
+{{- end }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "rocketpod.fullname" . }}-migrate
+  labels:
+    {{- include "rocketpod.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrate
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "0"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: {{ .Values.migrate.backoffLimit }}
+  activeDeadlineSeconds: {{ .Values.migrate.activeDeadlineSeconds }}
+  template:
+    metadata:
+      labels:
+        {{- include "rocketpod.selectorLabels" (dict "root" . "component" "migrate") | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      containers:
+        - name: migrate
+          image: {{ include "rocketpod.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["node", "dist/migrate.js"]
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secret }}
+                  key: DATABASE_URL
+            - name: APP_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secret }}
+                  key: APP_DATABASE_URL
+                  optional: true
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.migrate.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+{{- end }}

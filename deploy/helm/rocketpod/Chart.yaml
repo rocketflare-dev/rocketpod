@@ -1,0 +1,10 @@
+apiVersion: v2
+name: rocketpod
+description: Rocketpod — multi-tenant SaaS starter on Node, Postgres + pgvector and S3-compatible storage
+type: application
+# The chart's own version; appVersion is the image tag it deploys by default (the kit release).
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/rocketflare-dev/rocketpod
+sources:
+  - https://github.com/rocketflare-dev/rocketpod

@@ -1,0 +1,15 @@
+# Docker build context (M7): the source, never local state or secrets.
+**/node_modules
+**/dist
+**/coverage
+**/.env
+**/.env.*
+!**/.env.example
+.git
+.github
+.claude
+**/*.log
+**/.DS_Store
+.rocketflare.local.json
+deploy
+docs

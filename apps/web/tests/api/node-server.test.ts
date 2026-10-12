@@ -117,6 +117,20 @@ describe('the Node entry, shutdown', () => {
     const worker = await startServer({ env: testEnv(), mode: 'worker', log: () => {} })
     expect(worker.port).toBe(0)
     await worker.stop()
+
+    // With a probe port (what `node dist/server.js worker` passes, M7): probes only, no app.
+    const probed = await startServer({
+      env: testEnv(),
+      mode: 'worker',
+      probePort: 0,
+      hostname: '127.0.0.1',
+      log: () => {},
+    })
+    expect(probed.port).toBeGreaterThan(0)
+    expect((await fetch(`http://127.0.0.1:${probed.port}/healthz`)).status).toBe(200)
+    expect((await fetch(`http://127.0.0.1:${probed.port}/readyz`)).status).toBe(200)
+    expect((await fetch(`http://127.0.0.1:${probed.port}/api/health`)).status).toBe(404)
+    await probed.stop()
   })
 
   it('parseServerMode: all by default, the three modes, anything else refused', () => {

@@ -1,0 +1,15 @@
+{{- if not .Values.config.APP_URL }}
+{{- fail "config.APP_URL is required: the public origin, e.g. https://app.example.com" }}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "rocketpod.fullname" . }}
+  labels:
+    {{- include "rocketpod.labels" . | nindent 4 }}
+data:
+  {{- range $key, $value := .Values.config }}
+  {{- if ne (toString $value) "" }}
+  {{ $key }}: {{ toString $value | quote }}
+  {{- end }}
+  {{- end }}

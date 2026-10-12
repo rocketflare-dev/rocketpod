@@ -207,21 +207,24 @@ to MinIO, AWS S3, R2 and GCS. Excel and OpenDocument uploads are not converted o
   exists but can never run (`Platform.ai` is always null); SETUP Part 2, CONCEPTS §§ beyond 10,
   DEPLOY, ADAPTING, RLS and CONTRIBUTING carry an M6b banner instead of a rewrite.
 
-### M7. Packaging: Docker, Compose, Helm (3–4 d)
-- Multi-stage `Dockerfile`: `vite build` + a `tsup` server bundle, then a non-root slim Node 24 image.
-- `docker-compose.yml`:
-  - `postgres` (pgvector 17)
-  - an S3 store (`versitygw`, as in the dev/test compose files — MinIO is no longer pullable) + bucket init
-  - a one-shot `migrate` (drizzle + pg-boss schema)
-  - `web` and `worker`
-- `docker-compose.dev.yml` and `docker-compose.test.yml` gained the S3 gateway in M6.
-- Helm chart:
-  - `web` and `worker` Deployments
-  - a migrate Job as a pre-install/upgrade hook
-  - a Service and an Ingress with WebSocket upgrade
-  - a Secret and a ConfigMap (today's `[vars]`)
-  - a PodDisruptionBudget, and probes on `/healthz`
-- `pnpm dev` runs `tsx watch src/server.ts` (mode `all`) + Vite. `.env` replaces `.dev.vars`.
+### M7. Packaging: Docker, Compose, Helm (3–4 d) — done
+- Root `Dockerfile`: pnpm install + `pnpm build` (Vite UI + esbuild bundles `dist/server.js` and
+  `dist/migrate.js`), then `node:24-alpine` with npm/corepack/yarn removed, non-root, no
+  `node_modules` (the bundles carry every dependency). `ENTRYPOINT node dist/server.js`, `CMD web`;
+  `node dist/migrate.js` is the migrate one-shot. A worker answers `/healthz`/`/readyz` on its probe
+  port.
+- Root `docker-compose.yml`: `postgres` (pgvector 17), `s3` (Versity S3 Gateway — MinIO images no
+  longer pull anonymously), `migrate`, `web`, `worker`; `deploy/compose.single.yml` runs one `all`
+  process instead.
+- Helm chart `deploy/helm/rocketpod`: `web`/`worker` Deployments, migrate pre-install/pre-upgrade
+  Job (hook-scoped Secret or `existingSecret`), Service, Ingress, PDBs, ConfigMap/Secret mirroring
+  `src/config.ts` (`tests/config/packaging.test.ts`), non-root read-only pods. Postgres and S3
+  stay external.
+- `.github/workflows/image.yml`: build on PR/main, push to ghcr on a version tag; helm lint +
+  template + kubeconform.
+- `docs/DEPLOY.md` rewritten as the container runbook.
+- Not verified: a live install on a cluster (no kind/cluster here) — `helm lint`, `helm template`
+  and kubeconform (18 resources, k8s 1.30) only. `pnpm dev` already moved to Node in M6b.
 
 ### M8. Tooling, plugins, docs and skills (4–6 d, the long tail)
 - **Bootstrap:** remove the cloudflare step and the `--offline/--online` toggle; ask for an AI key instead.

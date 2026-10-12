@@ -28,7 +28,9 @@ describe('pruneExpired', () => {
       {
         email: user.email,
         tokenHash: await hashToken(expiredLink),
-        expiresAt: new Date(Date.now() - 1000),
+        // An hour, not a second: the prune compares with the database's now(), and a VM-hosted
+        // test database's clock can drift a second or more from the host's under load.
+        expiresAt: new Date(Date.now() - 3_600_000),
       },
       {
         email: user.email,

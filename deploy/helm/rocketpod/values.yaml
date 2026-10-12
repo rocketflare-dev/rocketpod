@@ -1,0 +1,185 @@
+# Rocketpod Helm values (M7, docs/DEPLOY.md § Kubernetes). Postgres (17 + pgvector) and the S3
+# bucket are EXTERNAL — point `secrets.DATABASE_URL` and `config.STORAGE_*` at them.
+
+image:
+  repository: ghcr.io/rocketflare-dev/rocketpod
+  # Defaults to the chart's appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+# Non-secret settings → a ConfigMap. Keys mirror apps/web/src/config.ts (vars half); an empty value
+# is left out, so the app's own default applies. `tests/config/packaging.test.ts` keeps this list
+# complete.
+config:
+  APP_ENV: production
+  # REQUIRED: the public origin (https://app.example.com) — OAuth redirects, magic links, CSRF.
+  APP_URL: ""
+  APP_NAME: ""
+  RELEASE_VERSION: ""
+  LOG_LEVEL: info
+  EMAIL_FROM: ""
+  TENANCY_MODE: multi
+  SIGNUP_MODE: invite_only
+  TENANT_SCOPE_MODE: "off"
+  DATABASE_DRIVER: postgres
+  DATABASE_POOL_MAX: "10"
+  # Proxies between the client and the pod that append to X-Forwarded-For (an ingress controller = 1).
+  TRUSTED_PROXY_HOPS: "1"
+  JOBS_CONCURRENCY: "2"
+  JOBS_POLL_INTERVAL_SECONDS: "2"
+  RUNS_CONCURRENCY: "4"
+  STORAGE_DRIVER: s3
+  # Empty = AWS S3 for STORAGE_REGION; set for R2, GCS, MinIO, Versity…
+  STORAGE_ENDPOINT: ""
+  STORAGE_REGION: us-east-1
+  STORAGE_BUCKET: ""
+  STORAGE_FORCE_PATH_STYLE: "false"
+  AI_BASE_URL: ""
+  AI_MODEL: ""
+  EMBEDDINGS_BASE_URL: ""
+  EMBEDDINGS_MODEL: ""
+  LANGFUSE_BASE_URL: ""
+  LANGFUSE_TRACING_ENVIRONMENT: ""
+  OTEL_EXPORTER_OTLP_ENDPOINT: ""
+  OTEL_EXPORTER_OTLP_PROTOCOL: ""
+  OBSERVABILITY_PRESET: ""
+  OBSERVABILITY_CAPTURE_CONTENT: ""
+  OBSERVABILITY_TRACE_URL: ""
+  OBSERVABILITY_SPAN_RETENTION_DAYS: ""
+  AGENT_MAX_OUTPUT_TOKENS: ""
+  AGENT_MAX_TURNS: ""
+  CHAT_KNOWLEDGE_TOOLS: ""
+  AGENT_INTERRUPT_TIMEOUT: ""
+  CHAT_HISTORY_MAX_CHARS: ""
+  FEATURES_ENABLED: ""
+  OIDC_ISSUER: ""
+  OIDC_CLIENT_ID: ""
+  OIDC_LABEL: ""
+  OIDC_SCOPES: ""
+  AUTH_OIDC_ONLY: ""
+  OIDC_TRUST_EMAIL: ""
+
+# Secrets → a Secret, unless `existingSecret` names one you manage (External Secrets, Sealed
+# Secrets, Vault…) with the same keys. Empty values are left out.
+existingSecret: ""
+secrets:
+  # REQUIRED. The owner connection: migrations and the app pool. Direct or a session-mode pooler.
+  DATABASE_URL: ""
+  PREVIEW_DATABASE_URL: ""
+  # The realtime LISTEN connection. Behind PgBouncer in TRANSACTION mode this must go direct to
+  # Postgres (or a session-mode pool); unset = DATABASE_URL.
+  DATABASE_LISTEN_URL: ""
+  # Optional RLS app role (docs/RLS.md); read by the migrate Job to give it LOGIN.
+  APP_DATABASE_URL: ""
+  STORAGE_ACCESS_KEY_ID: ""
+  STORAGE_SECRET_ACCESS_KEY: ""
+  # 32+ characters (openssl rand -base64 32); needed for OAuth sign-in.
+  OAUTH_ENCRYPTION_KEY: ""
+  RESEND_API_KEY: ""
+  BOOTSTRAP_ADMIN_EMAILS: ""
+  GOOGLE_CLIENT_ID: ""
+  GOOGLE_CLIENT_SECRET: ""
+  MICROSOFT_CLIENT_ID: ""
+  MICROSOFT_CLIENT_SECRET: ""
+  OIDC_CLIENT_SECRET: ""
+  ANTHROPIC_API_KEY: ""
+  AI_API_KEY: ""
+  EMBEDDINGS_API_KEY: ""
+  TYPESAFE_API_KEY: ""
+  LANGFUSE_PUBLIC_KEY: ""
+  LANGFUSE_SECRET_KEY: ""
+  OTEL_EXPORTER_OTLP_HEADERS: ""
+
+# Extra env for every app container (web, worker, migrate): [{name, value|valueFrom}].
+extraEnv: []
+
+web:
+  # Stateless: scale freely. Realtime fans out across pods through Postgres LISTEN/NOTIFY.
+  replicaCount: 2
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { memory: 512Mi }
+  # SIGTERM drains in-flight requests, deferred work and websockets (closed with 1001).
+  terminationGracePeriodSeconds: 45
+  # Lets the Service/Ingress drop the pod before it stops accepting connections.
+  preStopSleepSeconds: 5
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+
+worker:
+  # Jobs (pg-boss), cron (singleton across replicas) and agent runs (OpenWorkflow): safe to scale.
+  replicaCount: 1
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { memory: 768Mi }
+  # Finishes in-flight jobs and runs before exiting; anything longer resumes on another worker.
+  terminationGracePeriodSeconds: 60
+  podDisruptionBudget:
+    enabled: false
+    minAvailable: 1
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+
+# The migrate one-shot: a pre-install/pre-upgrade hook Job (`node dist/migrate.js`) — db roles,
+# drizzle migrations, the pgboss and openworkflow schemas. Idempotent.
+migrate:
+  enabled: true
+  backoffLimit: 3
+  activeDeadlineSeconds: 600
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: false
+  className: ""
+  # /ws is a WebSocket. ingress-nginx proxies upgrades by default; raise its timeouts so idle
+  # sockets live past 60 s, e.g.:
+  #   nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+  #   nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+  # ingress-nginx caps bodies at 1 MB by default; uploads go up to 5 MB:
+  #   nginx.ingress.kubernetes.io/proxy-body-size: "6m"
+  annotations: {}
+  hosts:
+    - host: app.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  #  - secretName: rocketpod-tls
+  #    hosts: [app.example.com]
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+# The app writes nothing to disk; /tmp is an emptyDir for libraries that expect one.
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: [ALL]

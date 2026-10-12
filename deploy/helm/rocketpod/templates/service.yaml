@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "rocketpod.fullname" . }}
+  labels:
+    {{- include "rocketpod.labels" . | nindent 4 }}
+    app.kubernetes.io/component: web
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http
+  selector:
+    {{- include "rocketpod.selectorLabels" (dict "root" . "component" "web") | nindent 4 }}

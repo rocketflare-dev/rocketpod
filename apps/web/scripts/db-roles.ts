@@ -294,6 +294,8 @@ async function main() {
 
 // Only run as a CLI — tests/setup.ts imports applyDbRoles directly.
 const invokedPath = process.argv[1]
-if (invokedPath && fileURLToPath(import.meta.url) === invokedPath) {
+// `.ts` only: bundled into `dist/migrate.js` (M7) every module shares the bundle's
+// `import.meta.url`, which would otherwise start this CLI too.
+if (invokedPath?.endsWith('.ts') && fileURLToPath(import.meta.url) === invokedPath) {
   main()
 }

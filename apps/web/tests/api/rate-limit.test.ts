@@ -3,7 +3,8 @@
  * is 429 with Retry-After; no binding → no limit; the lock refuses a concurrent second caller.
  */
 import { describe, expect, it } from 'vitest'
-import { checkRateLimit, operationLock } from '@/api/middleware/rate-limit'
+import { operationLock } from '@/api/middleware/rate-limit'
+import { checkRateLimit, createKvLocks } from '@/platform/cloudflare'
 import { uniqueId } from '../helpers/auth'
 import { json, request } from '../helpers/request'
 import { createTestEnv, MemoryKV } from '../mocks/bindings'
@@ -80,7 +81,8 @@ describe('checkRateLimit', () => {
 
 describe('operationLock', () => {
   it('runs fn, refuses a concurrent caller with 409, releases afterwards, and works without KV', async () => {
-    const kv = new MemoryKV()
+    const store = new MemoryKV()
+    const kv = createKvLocks(store)
     let release: () => void = () => {}
     const gate = new Promise<void>(resolve => {
       release = resolve
@@ -104,6 +106,6 @@ describe('operationLock', () => {
         throw new Error('boom')
       })
     ).rejects.toThrow('boom')
-    expect(await kv.get('op_lock:tenant:y')).toBeNull()
+    expect(await store.get('op_lock:tenant:y')).toBeNull()
   })
 })

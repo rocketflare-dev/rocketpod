@@ -16,6 +16,7 @@ import type { PinoLogger } from 'hono-pino'
 import type { AppConfig } from '../../../config'
 import { type Database, type DatabaseHandle, openDatabase } from '../../../db/client'
 import type { User } from '../../../db/schema'
+import type { Defer } from '../../../platform/types'
 import { deferOrAwait } from '../../middleware/database'
 import { requireAuth } from '../../middleware/permissions'
 import { noopTracer, type Tracer } from '../../observability/tracer'
@@ -23,7 +24,7 @@ import type { Realtime } from '../../services/realtime'
 import type { AppContext, AuthContext } from '../../types'
 import { ForbiddenError, NotFoundError } from '../../utils/core/errors'
 
-export type Defer = (fn: () => Promise<unknown>) => void
+export type { Defer }
 
 export interface TenantFreeRouteContext {
   auth: AuthContext
@@ -64,7 +65,7 @@ export function withAuth(c: AppContext): TenantFreeRouteContext {
     cfg: c.get('config'),
     logger: c.get('logger'),
     defer,
-    realtime: { defer, env: c.env },
+    realtime: { defer, hub: c.get('platform').realtime },
     tracer: safeTracer(c),
   }
 }

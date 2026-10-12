@@ -120,7 +120,11 @@ const CAPABILITIES = [
   ['Tell open tabs a family of rows moved', 'RequestCtx.nudge', '@/plugins/api'],
   ['Notify one person', 'notify', '@/plugins/api'],
   ['Write to the audit log', 'recordActivity', '@/plugins/api'],
-  ['Reach a per-tenant Durable Object', 'durableObject', '@/plugins/api'],
+  [
+    'Reach the host runtime (jobs, storage, realtime, AI)',
+    'PluginContext.platform',
+    '@/plugins/api',
+  ],
   ['Store or read a file', 'RequestCtx.storage', '@/plugins/api'],
   ['Write several rows as one transaction', 'transaction', '@/plugins/api'],
   ['Seed a new organisation', 'HookCtx', '@/plugins/api'],

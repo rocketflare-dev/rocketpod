@@ -7,15 +7,16 @@
  * anything handed to one that drops it is lost.
  *
  * So this builds a `Realtime` whose `defer` collects, and awaits the collection. That keeps
- * `services/realtime.ts` the only module that touches `NOTIFICATIONS_HUB` — the kit's own runtime
+ * `services/realtime.ts` the only module that sends to the platform's hub — the kit's own runtime
  * does the same thing for Workflow steps (`createStepRealtime`), and this is the plugin-facing
  * spelling of it, kept here rather than imported because the runtime's version lives inside the
  * deletable `feature-agents` surface.
  */
 
 import type { RealtimeEvent } from '@rocketpod/shared/realtime'
-import type { HubEnv, Realtime } from '../../api/services/realtime'
+import type { Realtime } from '../../api/services/realtime'
 import { nudge, nudgeUser, nudgeUsers, realtimeEvent } from '../../api/services/realtime'
+import type { Broadcaster } from '../../platform/types'
 
 export interface StepRealtime {
   /** The `Realtime` a kit-shaped service takes as its trailing optional argument. */
@@ -28,13 +29,13 @@ export interface StepRealtime {
   sendToUsers(userIds: string[], event: RealtimeEvent): Promise<void>
 }
 
-export function createStepRealtimeFor(env: HubEnv): StepRealtime {
+export function createStepRealtimeFor(hub: Broadcaster | null): StepRealtime {
   const pending: Promise<unknown>[] = []
   const realtime: Realtime = {
     defer: fn => {
       pending.push(fn().catch(() => {}))
     },
-    env,
+    hub,
   }
   const settle = async () => {
     const batch = pending.splice(0, pending.length)

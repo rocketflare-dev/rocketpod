@@ -40,7 +40,7 @@ invitationsRouter.post('/', validate('json', inviteMemberRequestSchema), async c
   const { db, cfg, logger, tenantId, user, defer, realtime } = withAuthAndDb(c)
   guardPermission(c, 'manage', 'Invitation')
   const { email, role } = c.req.valid('json')
-  const { invitation } = await createInvitation(db, cfg, logger, c.env.JOBS_QUEUE, {
+  const { invitation } = await createInvitation(db, cfg, logger, c.get('platform').jobs, {
     tenantId,
     email,
     role,
@@ -64,7 +64,7 @@ invitationsRouter.post('/bulk', validate('json', bulkInviteRequestSchema), async
   const { db, cfg, logger, tenantId, user, defer } = withAuthAndDb(c)
   guardPermission(c, 'manage', 'Invitation')
   const { emails, role } = c.req.valid('json')
-  const results = await bulkInvite(db, cfg, logger, c.env.JOBS_QUEUE, {
+  const results = await bulkInvite(db, cfg, logger, c.get('platform').jobs, {
     tenantId,
     emails,
     role,
@@ -90,7 +90,7 @@ invitationsRouter.post('/:id/resend', async c => {
   const { db, cfg, logger, tenantId, user, defer } = withAuthAndDb(c)
   guardPermission(c, 'manage', 'Invitation')
   const id = uuidParam(c, 'id')
-  const invitation = await resendInvitation(db, cfg, logger, c.env.JOBS_QUEUE, {
+  const invitation = await resendInvitation(db, cfg, logger, c.get('platform').jobs, {
     tenantId,
     id,
     inviter: user,

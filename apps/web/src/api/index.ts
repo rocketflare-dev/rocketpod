@@ -14,6 +14,7 @@ import { corsMiddleware } from './middleware/cors'
 import { csrfProtection } from './middleware/csrf'
 import { databaseMiddleware } from './middleware/database'
 import { errorHandler, notFoundBody, notFoundHandler } from './middleware/error-handler'
+import { platformMiddleware } from './middleware/platform'
 import { authRateLimit } from './middleware/rate-limit'
 import { requestIdMiddleware, requestLogger } from './middleware/request-logger'
 import { securityHeaders } from './middleware/security-headers'
@@ -67,9 +68,11 @@ app.notFound(notFoundHandler)
  */
 app.all('/cdn-cgi/*', c => c.body(null, 404))
 
-// 2–4. Request id + logger → validated config → security headers (wraps everything below).
+// 2–4. Request id + logger → validated config → the runtime's capabilities (M1) → security
+//      headers (wraps everything below).
 app.use('*', requestIdMiddleware, requestLogger)
 app.use('*', configMiddleware)
+app.use('*', platformMiddleware)
 app.use('*', securityHeaders)
 
 // 5. Reject oversized bodies before any parsing or DB work. The upload route mounts its own

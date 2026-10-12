@@ -119,7 +119,7 @@ aguiRouter.post('/run', validate('json', kitRunAgentInputSchema), async c => {
 
   // Resolve once, before any row: a tenant with no provider gets the 503 envelope, and the
   // adopted conversation freezes the same provider/model a `/api/chat` thread would.
-  const resolved = await resolveChat(db, cfg, c.env, tenantId, { promptKey: 'chat' })
+  const resolved = await resolveChat(db, cfg, c.get('platform'), tenantId, { promptKey: 'chat' })
   const conversation = await resolveThread(
     db,
     tenantId,

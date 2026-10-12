@@ -14,11 +14,12 @@
  */
 import { createMiddleware } from 'hono/factory'
 import { openDatabase } from '../../db/client'
+import type { WaitUntil } from '../../platform/types'
 import type { AppContext, AppEnv } from '../types'
 
 /** `ctx.waitUntil(p)` when we have an ExecutionContext, otherwise await it. */
 export async function deferOrAwait(c: AppContext, work: () => Promise<unknown>): Promise<void> {
-  let ctx: Pick<ExecutionContext, 'waitUntil'> | undefined
+  let ctx: WaitUntil | undefined
   try {
     ctx = c.executionCtx
   } catch {

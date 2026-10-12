@@ -52,7 +52,7 @@ export async function handleChatCompact(
   job: JobOf<'chat.compact'>,
   ctx: JobContext
 ): Promise<void> {
-  const { db, env, config, logger } = ctx
+  const { db, platform, config, logger } = ctx
   const { tenantId, conversationId } = job.payload
   const conversation = await db.query.conversations.findFirst({
     where: and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId)),
@@ -80,7 +80,7 @@ export async function handleChatCompact(
 
   let resolved: Awaited<ReturnType<typeof resolveChat>>
   try {
-    resolved = await resolveChat(db, config, env, tenantId, { promptKey: 'chat-compaction' })
+    resolved = await resolveChat(db, config, platform, tenantId, { promptKey: 'chat-compaction' })
   } catch (err) {
     // No provider: the thread still works, it just forgets. Never retry — nothing will change.
     if (err instanceof AiNotConfiguredError) {

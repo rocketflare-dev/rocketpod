@@ -45,7 +45,13 @@ import { agentRunEffects, agentRuns, aiSpans, aiUsage, chunks, documents } from 
 import { FakeChatClient, type FakeScript } from '../helpers/ai'
 import { createTestTenantWithUser } from '../helpers/auth'
 import { setupTestDatabase } from '../helpers/db'
-import { createExecutionContext, createTestEnv, stubs, type TestEnv } from '../mocks/bindings'
+import {
+  createExecutionContext,
+  createTestEnv,
+  stubs,
+  type TestEnv,
+  workerEnv,
+} from '../mocks/bindings'
 import { createFakeWorkflowStep, type FakeWorkflowStepOptions } from '../mocks/cloudflare-workers'
 
 const state: { client: ChatClient | null } = { client: null }
@@ -112,7 +118,7 @@ async function drive(
   maxInterruptRounds?: number
 ) {
   const { step, calls, waits, names } = createFakeWorkflowStep(stepOptions)
-  const workflow = new AgentRunWorkflow(createExecutionContext(), env)
+  const workflow = new AgentRunWorkflow(createExecutionContext(), workerEnv(env))
   if (maxInterruptRounds !== undefined) workflow.maxInterruptRounds = maxInterruptRounds
   // The fake covers `do`/`sleep`; the platform type also declares `sleepUntil`/`waitForEvent`.
   const outcome = await workflow.run(
@@ -611,9 +617,9 @@ describe('the suspend/resume loop (issue #17)', () => {
   // to be what the workflow uses by default.
   it('an agent that never stops asking is abandoned after MAX_INTERRUPT_ROUNDS, cleanly', async () => {
     const ROUNDS = 3
-    expect(new AgentRunWorkflow(createExecutionContext(), createTestEnv()).maxInterruptRounds).toBe(
-      MAX_INTERRUPT_ROUNDS
-    )
+    expect(
+      new AgentRunWorkflow(createExecutionContext(), workerEnv(createTestEnv())).maxInterruptRounds
+    ).toBe(MAX_INTERRUPT_ROUNDS)
     const env = createTestEnv()
     script([])
     let asked = 0

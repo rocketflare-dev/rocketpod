@@ -21,6 +21,7 @@ import type { JobContext } from '../../api/queues/jobs'
 import type { TaskContext } from '../../api/scheduled'
 import { tenantFeatures } from '../../api/services/features'
 import { enqueueJob, enqueueJobs } from '../../api/services/jobs'
+import type { Platform } from '../../platform/types'
 import { createStepRealtimeFor } from './realtime-step'
 import type { PluginContext } from './types'
 
@@ -44,12 +45,6 @@ export interface BackgroundMethods {
    * nudge: there is no `waitUntil` here to hang it on.
    */
   nudge(tenantId: string, entity: string, id?: string): Promise<void>
-  /** A per-tenant Durable Object stub, with the tenant prefix built here rather than by the caller. */
-  durableObject<T extends Rpc.DurableObjectBranded | undefined = undefined>(
-    namespace: DurableObjectNamespace<T>,
-    tenantId: string,
-    key?: string
-  ): DurableObjectStub<T>
   /**
    * The feature keys one organisation has (D30) — what `auth.features` is on a request, resolved
    * here for a tenant named per call. A cron that fans out across every organisation reads this to
@@ -72,18 +67,22 @@ export interface CronCtx extends PluginContext, BackgroundMethods {
   waitUntil(promise: Promise<unknown>): void
 }
 
-/** Shared by `JobCtx`, `CronCtx` and the public-mount context (`./public`). */
-export function backgroundMethods({ db, config, env }: PluginContext): BackgroundMethods {
+/**
+ * Shared by `JobCtx`, `CronCtx` and the public-mount context (`./public`). `platform` is the host's
+ * runtime (M1) — the queue and the realtime hub come from it, never from a binding on `env`.
+ */
+export function backgroundMethods(
+  { db, config }: Pick<PluginContext, 'db' | 'config'>,
+  platform: Pick<Platform, 'jobs' | 'realtime'>
+): BackgroundMethods {
   return {
-    enqueue: (input, options) => enqueueJob(env.JOBS_QUEUE, input, options),
+    enqueue: (input, options) => enqueueJob(platform.jobs, input, options),
     enqueueMany: async (inputs, options) => {
-      await enqueueJobs(env.JOBS_QUEUE, inputs, options)
+      await enqueueJobs(platform.jobs, inputs, options)
     },
     nudge: async (tenantId, entity, id) => {
-      await createStepRealtimeFor(env).nudgeEntity(tenantId, entity, id)
+      await createStepRealtimeFor(platform.realtime).nudgeEntity(tenantId, entity, id)
     },
-    durableObject: (namespace, tenantId, key) =>
-      namespace.get(namespace.idFromName(key ? `${tenantId}:${key}` : tenantId)),
     features: tenantId => tenantFeatures(db, config, tenantId),
   }
 }
@@ -95,7 +94,8 @@ export function jobCtx(ctx: JobContext): JobCtx {
     config: ctx.config,
     logger: ctx.logger,
     env: ctx.env,
-    ...backgroundMethods(ctx),
+    platform: ctx.platform,
+    ...backgroundMethods(ctx, ctx.platform),
   }
 }
 
@@ -106,7 +106,8 @@ export function cronCtx(ctx: TaskContext): CronCtx {
     config: ctx.config,
     logger: ctx.logger,
     env: ctx.env,
+    platform: ctx.platform,
     waitUntil: ctx.waitUntil,
-    ...backgroundMethods(ctx),
+    ...backgroundMethods(ctx, ctx.platform),
   }
 }

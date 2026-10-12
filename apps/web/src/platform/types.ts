@@ -1,0 +1,289 @@
+/**
+ * The platform seam (M1, `docs/DESIGN-SELFHOSTED.md` §4): every capability the app takes from its
+ * runtime, as a neutral interface. Routes, services, queue handlers, cron tasks and the agent-run
+ * body depend on THESE — never on a Cloudflare binding type. The entry point builds one `Platform`
+ * (`src/platform/cloudflare/` from the Worker `env` today; Node adapters from M2 on) and the app
+ * reads it with `c.get('platform')`; background contexts are handed the same object.
+ *
+ * Every member is nullable: a missing capability is a configuration state the callers already
+ * handle (503 `storage_not_configured`, a no-op nudge, no rate limit), not a crash.
+ * `tests/config/platform-seam.test.ts` keeps Cloudflare types out of everything but the adapters.
+ */
+import type { JobEnvelope } from '@rocketpod/shared/jobs'
+import type { RealtimeEvent } from '@rocketpod/shared/realtime'
+
+// ---- Jobs -----------------------------------------------------------------------------------
+
+export interface JobSendOptions {
+  /** Deliver no earlier than this many seconds from now (0–43200). */
+  delaySeconds?: number
+}
+
+/** One message of a batch send. */
+export interface JobSendRequest {
+  body: JobEnvelope
+  delaySeconds?: number
+}
+
+/**
+ * The producer. Return types are `unknown` so any transport (and a recording fake) satisfies it
+ * structurally, whatever `send` resolves to.
+ */
+export interface JobsQueue {
+  send(body: JobEnvelope, options?: JobSendOptions): Promise<unknown>
+  sendBatch(messages: Iterable<JobSendRequest>, options?: JobSendOptions): Promise<unknown>
+}
+
+/** One delivered message, as the consumer sees it: at-least-once, acked or retried explicitly. */
+export interface JobMessage<Body = unknown> {
+  readonly id: string
+  readonly body: Body
+  /** 1 on the first delivery. */
+  readonly attempts: number
+  ack(): void
+  retry(options?: { delaySeconds?: number }): void
+}
+
+/** A batch the consumer processes; `queue` is the queue's name in this environment. */
+export interface JobBatch<Body = unknown> {
+  readonly queue: string
+  readonly messages: readonly JobMessage<Body>[]
+  ackAll(): void
+}
+
+// ---- Storage --------------------------------------------------------------------------------
+
+/** Bodies `put` accepts. Prefer a `Blob`/`ArrayBuffer`: a store may need a known length. */
+export type StorageBody = ArrayBuffer | ArrayBufferView | Blob | string
+
+export interface PutOptions {
+  contentType: string
+  /** Free-form key/value pairs stored with the object. */
+  metadata?: Record<string, string>
+}
+
+export interface StoredObjectMeta {
+  key: string
+  size: number
+  contentType: string
+  /** Quoted, HTTP-ready — usable as an `ETag` header verbatim. */
+  etag: string
+  uploaded: Date
+  metadata: Record<string, string>
+}
+
+export interface StoredObject extends StoredObjectMeta {
+  body: ReadableStream<Uint8Array>
+}
+
+/** One page of a listing: the objects, and the cursor to resume from when there are more. */
+export interface StorageListPage {
+  objects: StoredObjectMeta[]
+  /** `undefined` when this page is the last one. */
+  cursor?: string
+}
+
+export interface StorageService {
+  put(key: string, body: StorageBody, options: PutOptions): Promise<StoredObjectMeta>
+  /** `null` when the key does not exist. The body is a one-shot stream. */
+  get(key: string): Promise<StoredObject | null>
+  head(key: string): Promise<StoredObjectMeta | null>
+  /** Idempotent — deleting a missing key is not an error. */
+  delete(key: string): Promise<void>
+  /** Delete a batch in ONE call (at most 1 000 keys). */
+  deleteMany(keys: readonly string[]): Promise<void>
+  /**
+   * ONE page of a prefix. The paged form is the primitive and `list` is the convenience over it:
+   * a bulk delete must never hold every key of a large tenant in memory at once.
+   */
+  listPage(prefix: string, options?: { cursor?: string; limit?: number }): Promise<StorageListPage>
+  /** Every object under a prefix, accumulated. Fine for a bounded prefix; `listPage` otherwise. */
+  list(prefix: string): Promise<StoredObjectMeta[]>
+}
+
+// ---- Realtime -------------------------------------------------------------------------------
+
+/** How many sockets one send reached. */
+export interface BroadcastResult {
+  delivered: number
+}
+
+/** Per-tenant fan-out to connected sockets. Best effort: the database is the truth. */
+export interface Broadcaster {
+  toTenant(tenantId: string, event: RealtimeEvent): Promise<BroadcastResult>
+  toUser(tenantId: string, userId: string, event: RealtimeEvent): Promise<BroadcastResult>
+  toUsers(tenantId: string, userIds: string[], event: RealtimeEvent): Promise<BroadcastResult>
+}
+
+/** The socket side of realtime: accept an authenticated `/ws` upgrade for one tenant member. */
+export interface RealtimeHub extends Broadcaster {
+  /**
+   * Hand the upgrade request over. The caller has ALREADY authenticated the user and checked the
+   * membership; the hub trusts `tenantId`/`userId` and answers the 101 (or an error response).
+   */
+  accept(
+    request: Request,
+    member: { tenantId: string; userId: string; sessionId: string }
+  ): Promise<Response>
+}
+
+// ---- Durable runs ---------------------------------------------------------------------------
+
+/** A duration: milliseconds, or a `'<n> <unit>'` string (`'10 seconds'`, `'168 hours'`). */
+export type Duration = number | `${number} ${DurationUnit}`
+export type DurationUnit =
+  | 'second'
+  | 'seconds'
+  | 'minute'
+  | 'minutes'
+  | 'hour'
+  | 'hours'
+  | 'day'
+  | 'days'
+  | 'week'
+  | 'weeks'
+  | 'month'
+  | 'months'
+  | 'year'
+  | 'years'
+
+/** A step's checkpointed result has to survive a JSON round trip. */
+export type Checkpointable =
+  | string
+  | number
+  | boolean
+  | null
+  | undefined
+  | readonly Checkpointable[]
+  | { readonly [key: string]: Checkpointable }
+
+export interface StepOptions {
+  retries?: {
+    limit: number
+    delay: Duration
+    backoff?: 'constant' | 'linear' | 'exponential'
+  }
+  timeout?: Duration
+}
+
+/**
+ * What a durable run's body is handed. A step NAME is its identity: a completed step replays its
+ * recorded result instead of running again, so a name must be unique within one run.
+ */
+export interface Step {
+  do<T>(name: string, fn: () => Promise<T>): Promise<T>
+  do<T>(name: string, options: StepOptions, fn: () => Promise<T>): Promise<T>
+  /** Park until an event of `type` arrives; rejects when `timeout` passes first. */
+  waitForEvent(name: string, options: { type: string; timeout?: Duration }): Promise<unknown>
+}
+
+export interface RunStatus {
+  status: string
+  error?: { name: string; message: string }
+}
+
+/** A handle on one durable run instance. */
+export interface RunInstance {
+  readonly id: string
+  status(): Promise<RunStatus>
+  /** Kills the instance mid-step — the escape hatch behind a forced cancel. */
+  terminate(): Promise<void>
+  /** Wakes an instance parked on `step.waitForEvent`. */
+  sendEvent(event: { type: string; payload?: unknown }): Promise<void>
+}
+
+/** Starts and addresses durable runs of one workflow (the agent run). */
+export interface RunEngine<Params = unknown> {
+  create(options: { id: string; params: Params }): Promise<{ id: string }>
+  get(id: string): Promise<RunInstance>
+}
+
+// ---- Rate limits and locks ------------------------------------------------------------------
+
+export interface RateLimitDecision {
+  allowed: boolean
+  remaining: number
+  retryAfterSeconds: number
+}
+
+/** A sliding-window counter per key. */
+export interface RateLimiter {
+  check(key: string, options: { max: number; windowSeconds: number }): Promise<RateLimitDecision>
+}
+
+/**
+ * Advisory mutual exclusion by key. `acquire` answers false when somebody else holds it; the TTL
+ * is the crash safety net, `release` the normal path.
+ */
+export interface Locks {
+  acquire(key: string, ttlSeconds: number): Promise<boolean>
+  release(key: string): Promise<void>
+}
+
+// ---- AI -------------------------------------------------------------------------------------
+
+/** One file handed to a converter. */
+export interface MarkdownDocumentInput {
+  name: string
+  blob: Blob
+}
+
+/** What a converter answers for one file. */
+export type MarkdownConversion =
+  | { name: string; mimeType: string; format: 'markdown' | 'text'; tokens: number; data: string }
+  | { name: string; mimeType: string; format: 'error'; error: string }
+
+/** PDF/Office → markdown, for `document.convert`. */
+export type DocumentConverter = (document: MarkdownDocumentInput) => Promise<MarkdownConversion>
+
+/**
+ * The platform's built-in model runner (Workers AI today): `run` for the embeddings/chat adapters,
+ * `toMarkdown` for document conversion. Optional: an install with a provider key never needs it.
+ */
+export interface PlatformAi {
+  run(model: string, inputs: Record<string, unknown>): Promise<unknown>
+  toMarkdown?(document: MarkdownDocumentInput): Promise<MarkdownConversion>
+}
+
+// ---- Request lifetime -----------------------------------------------------------------------
+
+/** Work that may outlive the response (`waitUntil`). Never awaited on the response path. */
+export type Defer = (fn: () => Promise<unknown>) => void
+
+/** The request's lifetime hook, when the runtime has one. */
+export interface WaitUntil {
+  waitUntil(promise: Promise<unknown>): void
+}
+
+// ---- The bundle -----------------------------------------------------------------------------
+
+export interface Platform {
+  /** The background-job producer (`JOBS_QUEUE`). */
+  readonly jobs: JobsQueue | null
+  /** Object storage for uploads (`FILES`). */
+  readonly storage: StorageService | null
+  /** Socket fan-out and the `/ws` upgrade (`NOTIFICATIONS_HUB`). */
+  readonly realtime: RealtimeHub | null
+  /** Durable agent runs (`AGENT_RUN_WORKFLOW`). */
+  readonly runs: RunEngine | null
+  /** Per-IP throttling; absent = no limit. */
+  readonly rateLimiter: RateLimiter | null
+  /** Per-operation mutex; absent = the operation simply runs. */
+  readonly locks: Locks | null
+  /** The platform model runner; absent = provider keys only. */
+  readonly ai: PlatformAi | null
+  /** Document → markdown; absent = only text-like uploads are indexable. */
+  readonly converter: DocumentConverter | null
+}
+
+/** A platform with nothing in it — the state a bare test or a script starts from. */
+export const EMPTY_PLATFORM: Platform = Object.freeze({
+  jobs: null,
+  storage: null,
+  realtime: null,
+  runs: null,
+  rateLimiter: null,
+  locks: null,
+  ai: null,
+  converter: null,
+})

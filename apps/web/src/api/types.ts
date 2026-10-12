@@ -1,6 +1,6 @@
 /**
- * Hono typing (04 §2, D13): bindings come from `wrangler types` (`Cloudflare.Env` in
- * worker-configuration.d.ts), variables are declared once here, and every `Hono` instance is
+ * Hono typing (04 §2, D13): the env is the neutral `AppBindings` below (vars + an optional
+ * prebuilt `Platform`), variables are declared once here, and every `Hono` instance is
  * `Hono<AppEnv>` via `utils/routes/router.ts`. No `declare module 'hono'` augmentation.
  */
 import type { GroupRef } from '@rocketpod/shared/groups'
@@ -11,23 +11,8 @@ import type { PinoLogger } from 'hono-pino'
 import type { AppConfig } from '../config'
 import type { Database } from '../db/client'
 import type { User } from '../db/schema'
+import type { Platform } from '../platform/types'
 import type { Tracer } from './observability/tracer'
-
-declare global {
-  namespace Cloudflare {
-    /**
-     * `AI` is declared here as well as by `wrangler types` so that the type exists in BOTH toml
-     * states: `pnpm bootstrap --offline` comments the `[ai]` block out of both tomls (no Cloudflare
-     * login needed), the regenerated `worker-configuration.d.ts` then has no `AI`, and every
-     * `c.env` handed to an `AiEnv` slice would fail TypeScript's weak-type check (TS2559). With
-     * `[ai]` present the two declarations are identical and merge. The runtime value is still
-     * absent offline — read it only through `AiEnv` (`AI?`) and `services/ai/resolve.ts`.
-     */
-    interface Env {
-      AI: Ai
-    }
-  }
-}
 
 /**
  * What `authMiddleware` sets (D10, D25). Read ONLY through `withAuthAndDb` in routes and the
@@ -62,15 +47,27 @@ export interface AuthContext {
 }
 
 /**
- * The generated `Cloudflare.Env` plus the one binding that exists only under
- * `DATABASE_DRIVER = "postgres"` (D35): the kit's tomls ship without `[[hyperdrive]]`, so
- * `wrangler types` omits it, while a copy on postgres has it. Optional either way.
+ * The runtime env as the app sees it (M1): vars and secrets by name, read through `loadConfig`
+ * (D3) and never directly by a route; the database connection when it comes from the runtime; the
+ * SPA's assets; and, when the entry point built one, the `Platform` itself. Every runtime
+ * capability (jobs, storage, realtime, runs, rate limits, AI) is read through `c.get('platform')`,
+ * never from here — the Cloudflare binding types stay inside `src/platform/cloudflare/`.
  */
-export type AppBindings = Cloudflare.Env & { HYPERDRIVE?: Hyperdrive }
+export interface AppBindings {
+  readonly [name: string]: unknown
+  /** A prebuilt platform (a non-Worker entry, a test); the Worker's is adapted from its bindings. */
+  PLATFORM?: Platform
+  /** Postgres through a pooler binding (D35 `postgres` driver); else `DATABASE_URL`. */
+  HYPERDRIVE?: { connectionString: string }
+  /** The SPA's static assets, when the runtime serves them. */
+  ASSETS?: { fetch(request: Request): Promise<Response> }
+}
 
 export interface AppVariables {
   /** Validated config — routes read this, never `c.env` (D3). */
   config: AppConfig
+  /** The runtime's capabilities (M1, `src/platform/types.ts`); set by `platformMiddleware`. */
+  platform: Platform
   /** Per-request drizzle handle (owner connection). */
   db: Database
   /** Ends the request's DB client; the database middleware schedules it in `waitUntil`. */

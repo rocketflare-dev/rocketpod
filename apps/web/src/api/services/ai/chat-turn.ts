@@ -355,7 +355,8 @@ export async function prepareChatTurn(
   const { db, tenantId, user, cfg, auth, defer } = withAuthAndDb(c)
   const scope = accessScopeOf(auth)
   const resolved =
-    options.resolved ?? (await resolveChat(db, cfg, c.env, tenantId, { promptKey: 'chat' }))
+    options.resolved ??
+    (await resolveChat(db, cfg, c.get('platform'), tenantId, { promptKey: 'chat' }))
   const system = await resolvePrompt(db, tenantId, 'chat', {
     appName: cfg.APP_NAME,
     tenantName: auth.tenant?.name ?? '',
@@ -383,7 +384,7 @@ export async function prepareChatTurn(
     // material is worth a model call, so enqueuing on every long turn is cheap and idempotent.
     if (pendingCompaction(dropped, conversation.summarisedThroughId).length > 0) {
       defer(() =>
-        enqueueJob(c.env.JOBS_QUEUE, {
+        enqueueJob(c.get('platform').jobs, {
           type: 'chat.compact',
           payload: { tenantId, conversationId: conversation.id },
         })
@@ -436,7 +437,7 @@ export async function prepareChatTurn(
           buildAgentTools({
             db: sdb,
             cfg,
-            env: c.env,
+            env: c.get('platform'),
             // D29: the chatting person's own visibility — chat cannot surface a document its
             // reader could not open on the Knowledge page.
             scope,

@@ -45,7 +45,13 @@ import {
 } from '../helpers/auth'
 import { setupTestDatabase } from '../helpers/db'
 import { json, request } from '../helpers/request'
-import { createExecutionContext, createTestEnv, stubs, type TestEnv } from '../mocks/bindings'
+import {
+  createExecutionContext,
+  createTestEnv,
+  stubs,
+  type TestEnv,
+  workerEnv,
+} from '../mocks/bindings'
 import { createFakeWorkflowStep } from '../mocks/cloudflare-workers'
 
 const state: { client: ChatClient | null } = { client: null }
@@ -416,7 +422,7 @@ describe('the restart fallback, end to end (T4/T5)', () => {
 
     // Now be that new instance. Its first step is `claim`, which only takes `queued|running`.
     const { step, names } = createFakeWorkflowStep()
-    const outcome = await new AgentRunWorkflow(createExecutionContext(), env).run(
+    const outcome = await new AgentRunWorkflow(createExecutionContext(), workerEnv(env)).run(
       {
         payload: { runId: run.id, tenantId: a.tenant.id },
         timestamp: new Date(),

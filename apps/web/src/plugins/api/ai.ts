@@ -36,7 +36,7 @@ import type {
 } from '../../api/services/ai/kit'
 import { callStructuredTool, runToolLoop, toolInputSchema } from '../../api/services/ai/kit'
 import { recordUsage } from '../../api/services/ai/usage'
-import type { Database, PluginBindings, PluginConfig } from './types'
+import type { Database, PluginConfig, PluginPlatform } from './types'
 
 export type {
   AgentDecide,
@@ -70,7 +70,8 @@ export { AiNotConfiguredError, recordUsage, toolInputSchema }
 export interface ToolCtx {
   db: Database
   config: PluginConfig
-  env: PluginBindings
+  /** The host's runtime capabilities (M1) — what the Worker bindings were. */
+  platform: PluginPlatform
   scope: AccessScope
   /** The run's tenant — `scope.tenantId`, surfaced because every query needs it. */
   tenantId: string
@@ -83,7 +84,7 @@ export function toolCtx(ctx: AgentToolContext): ToolCtx {
   return {
     db: ctx.db,
     config: ctx.cfg,
-    env: ctx.env as PluginBindings,
+    platform: ctx.env,
     scope: ctx.scope,
     tenantId: ctx.scope.tenantId,
     ...(ctx.maxDocumentChars !== undefined && { maxDocumentChars: ctx.maxDocumentChars }),
@@ -115,7 +116,8 @@ export function defineTool<Input>(tool: Tool<Input>): Tool<Input> {
 export interface AgentCtx<Input = unknown> {
   db: Database
   config: PluginConfig
-  env: PluginBindings
+  /** The host's runtime capabilities (M1) — what the Worker bindings were. */
+  platform: PluginPlatform
   logger: AgentContext['logger']
   tenantId: string
   runId: string
@@ -185,7 +187,7 @@ export function agentCtx<Input>(ctx: AgentContext<Input>): AgentCtx<Input> {
   return {
     db: ctx.db,
     config: ctx.cfg,
-    env: ctx.env as PluginBindings,
+    platform: ctx.env,
     logger: ctx.logger,
     tenantId: ctx.tenantId,
     runId: ctx.runId,

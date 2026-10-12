@@ -48,13 +48,10 @@ describe('scheduled dispatcher', () => {
     expect(await dispatchScheduled('59 23 31 12 *', createTestEnv(), ctx)).toEqual([])
   })
 
-  it('the Worker handler accepts a ScheduledController', async () => {
+  it('the cron entry accepts a ScheduledController', async () => {
     const ctx = createExecutionContext()
-    await scheduled(
-      { cron: '0 4 * * *', scheduledTime: Date.now(), noRetry() {} },
-      createTestEnv(),
-      ctx
-    )
+    const controller = { cron: '0 4 * * *', scheduledTime: Date.now(), noRetry() {} }
+    await scheduled(controller, createTestEnv(), ctx)
     await waitOnExecutionContext(ctx)
   })
 })

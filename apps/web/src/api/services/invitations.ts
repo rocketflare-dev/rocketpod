@@ -116,7 +116,7 @@ type InviteLogger = Pick<Logger, 'info' | 'warn' | 'error'>
  * offloading it. A missing binding throws `JobsQueueNotConfiguredError`, never silently drops mail.
  */
 async function queueInvitationEmail(
-  jobs: JobsQueue,
+  jobs: JobsQueue | null | undefined,
   cfg: AppConfig,
   input: {
     to: string
@@ -160,7 +160,7 @@ export async function createInvitation(
   db: Database,
   cfg: AppConfig,
   logger: InviteLogger,
-  jobs: JobsQueue,
+  jobs: JobsQueue | null | undefined,
   input: InviteInput
 ): Promise<{ invitation: Invitation; token: string }> {
   const email = input.email.toLowerCase()
@@ -229,7 +229,7 @@ export async function bulkInvite(
   db: Database,
   cfg: AppConfig,
   logger: InviteLogger,
-  jobs: JobsQueue,
+  jobs: JobsQueue | null | undefined,
   input: { tenantId: string; emails: string[]; role: TenantRole; inviter: User }
 ): Promise<BulkInviteOutcome[]> {
   const results: BulkInviteOutcome[] = []
@@ -261,7 +261,7 @@ export async function resendInvitation(
   db: Database,
   cfg: AppConfig,
   logger: InviteLogger,
-  jobs: JobsQueue,
+  jobs: JobsQueue | null | undefined,
   input: { tenantId: string; id: string; inviter: User }
 ): Promise<Invitation> {
   const existing = await db.query.teamInvitations.findFirst({

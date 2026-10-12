@@ -31,6 +31,7 @@ import { and, asc, eq, sql } from 'drizzle-orm'
 import type { AppConfig } from '../../../config'
 import type { Database } from '../../../db/client'
 import { type AgentRunInterruptRow, agentRunEvents, tenants, tenantUsers } from '../../../db/schema'
+import type { Platform } from '../../../platform/types'
 import { databaseSpanStore } from '../../observability/span-store'
 import { rootSpanIdForRun, traceIdForRun } from '../../observability/trace-ids'
 import { traceChatClient, tracerFor, withAgentTrace } from '../../observability/tracing'
@@ -45,10 +46,9 @@ import {
   type ToolApproval,
 } from '../ai/kit'
 import { DECISIONS_FALLBACK_PROMPT_KEY, resolveChat, resolveDecisions } from '../ai/resolve'
-import type { AiEnv } from '../ai/types'
 import { notifyMany } from '../notifications'
 import { resolvePrompt } from '../prompts'
-import type { HubEnv, Realtime } from '../realtime'
+import type { Realtime } from '../realtime'
 import { toAgentArtifact, upsertArtifact } from './artifacts'
 import { createDecide } from './decisions'
 import {
@@ -57,7 +57,7 @@ import {
   interruptExpiryFrom,
   requestInterrupt,
 } from './interrupts'
-import type { AgentContext, AgentEvent, AgentRunEnv } from './registry'
+import type { AgentContext, AgentEvent } from './registry'
 import { getAgent } from './registry'
 import {
   AgentCancelledError,
@@ -83,8 +83,8 @@ import { buildAgentTools } from './tools'
 /** `step.do('execute', { retries: { limit } })` — the runtime counts attempts against the same number. */
 export const EXECUTE_RETRIES = 2
 
-/** Everything the runtime reads from the Worker env: hub (nudges), AI binding, queue (ingest). */
-export type RuntimeEnv = HubEnv & AiEnv & AgentRunEnv
+/** Everything the runtime reads: the platform — the hub (nudges), AI, the queue (ingest). */
+export type RuntimeEnv = Platform
 
 export interface ExecuteOutcome {
   runId: string
@@ -103,10 +103,10 @@ export interface ExecuteOutcome {
  * A `Realtime` for a Workflow step: nudges are collected and awaited by `settle()` at the end of
  * the step (everything in a step is awaited; there is no `waitUntil`). A failed nudge is logged.
  */
-export function createStepRealtime(env: HubEnv, logger: Logger) {
+export function createStepRealtime(env: Pick<RuntimeEnv, 'realtime'>, logger: Logger) {
   const pending: Promise<unknown>[] = []
   const realtime: Realtime = {
-    env,
+    hub: env.realtime ?? null,
     defer: fn => {
       pending.push(fn().catch(err => logger.warn({ err }, 'agent-run: nudge failed')))
     },

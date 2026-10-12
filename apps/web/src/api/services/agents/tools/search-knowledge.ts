@@ -31,11 +31,11 @@ import { KNOWLEDGE_TOOLS, SEARCH_MAX_LIMIT } from '@rocketpod/shared/ai/embeddin
 import { z } from 'zod'
 import type { AppConfig } from '../../../../config'
 import type { Database } from '../../../../db/client'
+import type { Platform } from '../../../../platform/types'
 import type { AccessScope } from '../../access'
 import { AiNotConfiguredError } from '../../ai/errors'
 import type { Tool } from '../../ai/kit'
 import { searchChunks } from '../../ai/retrieval'
-import type { AiEnv } from '../../ai/types'
 import { type KnowledgeBaseEntry, listKnowledgeDocuments } from './list-documents'
 
 export const SEARCH_KNOWLEDGE_TOOL = KNOWLEDGE_TOOLS.search
@@ -118,11 +118,12 @@ export interface SearchKnowledgeResult {
   knowledgeBase?: KnowledgeBaseEntry[]
 }
 
-/** The slice of `AgentContext` the tools need — structural so tests pass `{ db, cfg, env, scope }`. */
+/** The slice of `AgentContext` the tools need — tests pass `{ db, cfg, env, scope }`. */
 export interface AgentToolContext {
   db: Database
   cfg: AppConfig
-  env: AiEnv
+  /** The runtime's capabilities (`src/platform/types.ts`) — the tools read AI from it. */
+  env: Platform
   /**
    * What this run may READ (D29) — the tenant AND the requesting person's groups. Built at EXECUTE
    * time from `agent_runs.requestedByUserId`, not snapshotted at enqueue, so a run started before

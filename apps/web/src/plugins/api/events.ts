@@ -1,5 +1,5 @@
 /**
- * Realtime nudges, notifications, activity and Durable Objects (D8, D31).
+ * Realtime nudges, notifications and activity (D8, D31).
  *
  * **"DB is the truth, WebSocket is a nudge."** Everything here sends an id and a family root, never
  * a payload: the client re-queries. A nudge carrying the row would broadcast one member's data to
@@ -16,7 +16,6 @@ import { recordActivity } from '../../api/services/activity'
 import { notify, notifyMany } from '../../api/services/notifications'
 import type { Realtime } from '../../api/services/realtime'
 import { nudge, nudgeUser, nudgeUsers, realtimeEvent } from '../../api/services/realtime'
-import type { PluginBindings } from './types'
 
 export type { ActivityInput } from '../../api/services/activity'
 export type { NotifyInput } from '../../api/services/notifications'
@@ -47,27 +46,3 @@ export function nudgeEntity(
  * effect that must never fail the response — and `await` it everywhere else.
  */
 export { notify, notifyMany, nudge, nudgeUser, nudgeUsers, realtimeEvent, recordActivity }
-
-/**
- * A Durable Object stub for one tenant, **with the tenant prefix built here rather than by the
- * caller** (D31).
- *
- * This is the whole reason the method exists. `docs/CONCEPTS.md` §9 rejects Cloudflare's Agents SDK
- * partly because a DO's instance name is a client-supplied string, which converts tenant isolation
- * "from structure into convention" — `tests/config/unscoped-allowlist.test.ts` parses queries and
- * cannot see a name string. A plugin calling `idFromName` itself reintroduces exactly that: one
- * forgotten prefix is a cross-tenant object with nothing in the repo able to notice.
- *
- * So the plugin never calls `idFromName`. It names a binding, a tenant and an optional key, and the
- * prefix is structural.
- */
-export function durableObject<T extends Rpc.DurableObjectBranded | undefined = undefined>(
-  namespace: DurableObjectNamespace<T>,
-  tenantId: string,
-  key?: string
-): DurableObjectStub<T> {
-  return namespace.get(namespace.idFromName(key ? `${tenantId}:${key}` : tenantId))
-}
-
-/** The bindings slice `durableObject` needs — so a plugin's helper can take less than the whole env. */
-export type DurableObjectBindings = PluginBindings

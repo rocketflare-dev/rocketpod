@@ -40,6 +40,7 @@ import {
   agentRunEvents,
   agentRuns,
 } from '../../../db/schema'
+import type { RunEngine, RunStatus } from '../../../platform/types'
 import { traceIdForRun } from '../../observability/trace-ids'
 import { ServiceUnavailableError, ValidationError } from '../../utils/core/errors'
 import { parseToolLoopCheckpoint, type ToolLoopCheckpoint } from '../ai/kit'
@@ -53,27 +54,19 @@ export interface AgentRunParams {
   tenantId: string
 }
 
-/** The slice of the `Workflow` binding the service uses; the test `RecordingWorkflow` satisfies it. */
-export interface AgentRunWorkflowBinding {
-  create(options: { id: string; params: AgentRunParams }): Promise<{ id: string }>
-  get(id: string): Promise<{
-    status(): Promise<{ status: string; error?: { name: string; message: string } }>
-    /** Kills the instance mid-step — the escape hatch behind a forced cancel. */
-    terminate(): Promise<void>
-    /** Wakes a parked instance sitting on `step.waitForEvent` (issue #17). */
-    sendEvent(event: { type: string; payload?: unknown }): Promise<void>
-  }>
-}
+/** The run engine the service uses (`src/platform/types.ts`); the test `RecordingWorkflow` satisfies it. */
+export type AgentRunWorkflowBinding = RunEngine<AgentRunParams>
 
+/** What the service reads from the platform (`Platform` satisfies it). */
 export interface AgentRunsEnv {
-  AGENT_RUN_WORKFLOW?: AgentRunWorkflowBinding
+  readonly runs?: RunEngine | null
 }
 
 /** 503 `agent_runs_not_configured`: the Workflow binding is missing from the toml. */
 export class AgentRunsNotConfiguredError extends ServiceUnavailableError {
   constructor() {
     super(
-      'Agent runs are not configured: add [[workflows]] binding = "AGENT_RUN_WORKFLOW" to apps/web/wrangler*.toml and run `pnpm types`',
+      'Agent runs are not configured: this server has no run engine (on Cloudflare: add [[workflows]] binding = "AGENT_RUN_WORKFLOW" to apps/web/wrangler*.toml and run `pnpm types`)',
       ERROR_CODES.agentRunsNotConfigured
     )
     this.name = 'AgentRunsNotConfiguredError'
@@ -177,7 +170,7 @@ export async function enqueueRun(
   env: AgentRunsEnv,
   input: EnqueueRunInput
 ): Promise<EnqueueRunResult> {
-  const workflow = env.AGENT_RUN_WORKFLOW
+  const workflow = env.runs
   if (!workflow) throw new AgentRunsNotConfiguredError()
   const agent = getAgent(input.agentKey)
   const parsed = agent.meta.inputSchema.safeParse(input.input)
@@ -423,9 +416,9 @@ export async function requestCancel(
 
 /** Best-effort kill of the run's Workflow instance. Every failure is ignored on purpose. */
 async function terminateInstance(env: AgentRunsEnv | undefined, run: AgentRunRow): Promise<void> {
-  if (!env?.AGENT_RUN_WORKFLOW || !run.instanceId) return
+  if (!env?.runs || !run.instanceId) return
   try {
-    await (await env.AGENT_RUN_WORKFLOW.get(run.instanceId)).terminate()
+    await (await env.runs.get(run.instanceId)).terminate()
   } catch {
     // Already terminated, already finished, or gone with the local dev server: settle anyway.
   }
@@ -439,9 +432,9 @@ async function sendResumeEvent(
   run: AgentRunRow,
   payload: { interruptId: string | null }
 ): Promise<boolean> {
-  if (!env?.AGENT_RUN_WORKFLOW || !run.instanceId) return false
+  if (!env?.runs || !run.instanceId) return false
   try {
-    const instance = await env.AGENT_RUN_WORKFLOW.get(run.instanceId)
+    const instance = await env.runs.get(run.instanceId)
     await instance.sendEvent({ type: AGENT_RESUME_EVENT, payload })
     return true
   } catch {
@@ -484,7 +477,7 @@ export async function nudgeOrRestartInstance(
   run: AgentRunRow,
   payload: { interruptId: string | null }
 ): Promise<AgentRunRow> {
-  const workflow = env.AGENT_RUN_WORKFLOW
+  const workflow = env.runs
   if (!workflow) return run
   if (run.instanceId && (await sendResumeEvent(env, run, payload))) return run
 
@@ -599,10 +592,10 @@ export async function reconcileRun(
   if (run.status !== 'queued' && run.status !== 'running') return run
   const lastEventAt = options.lastEventAt
   if (lastEventAt && Date.now() - lastEventAt.getTime() < RECONCILE_LIVENESS_MS) return run
-  if (!env.AGENT_RUN_WORKFLOW || !run.instanceId) return run
-  let status: Awaited<ReturnType<Awaited<ReturnType<AgentRunWorkflowBinding['get']>>['status']>>
+  if (!env.runs || !run.instanceId) return run
+  let status: RunStatus
   try {
-    status = await (await env.AGENT_RUN_WORKFLOW.get(run.instanceId)).status()
+    status = await (await env.runs.get(run.instanceId)).status()
   } catch (err) {
     if (!isMissingInstanceError(err)) return run
     return (await failRun(db, run.tenantId, run.id, 'Workflow instance not found')) ?? run

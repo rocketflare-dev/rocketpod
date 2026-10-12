@@ -14,7 +14,7 @@
  * hook promises the same, so a retry is free and a half-finished run resumes rather than restarts.
  */
 import type { JobOf } from '@rocketpod/shared/jobs'
-import { createR2Storage, purgeTenantObjects } from '../../services/storage'
+import { purgeTenantObjects } from '../../services/storage'
 import { runTenantDeletedHooks } from '../../utils/db/tenant-helpers'
 import type { JobContext } from '../jobs'
 
@@ -30,8 +30,9 @@ export async function handleTenantPurge(
   // entirely. Both halves are idempotent, so a retry re-running the hooks costs nothing.
   await runTenantDeletedHooks(ctx.db, tenantId, ctx.env, ctx.logger)
 
-  if (!ctx.env.FILES) {
-    // Permanent, so ACK rather than throw: no R2 binding means no objects were ever written, and
+  const storage = ctx.platform.storage
+  if (!storage) {
+    // Permanent, so ACK rather than throw: no storage means no objects were ever written, and
     // no number of retries can conjure one. Deliberately the opposite of `document.convert`, which
     // throws on a missing `FILES` — there the bytes exist and are unreachable, which is data loss;
     // here their absence IS the answer.
@@ -44,6 +45,6 @@ export async function handleTenantPurge(
 
   // A thrown R2 error is RETRYABLE and is allowed to propagate: the alternative is a tenant's
   // files living on in the bucket for ever because one list call timed out.
-  const deleted = await purgeTenantObjects(createR2Storage(ctx.env.FILES), tenantId)
+  const deleted = await purgeTenantObjects(storage, tenantId)
   ctx.logger.info({ tenantId, tenantSlug, deleted }, 'tenant.purge: storage purged')
 }

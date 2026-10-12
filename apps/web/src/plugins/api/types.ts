@@ -30,6 +30,7 @@ import type { AppBindings } from '../../api/types'
 import type { Logger } from '../../api/utils/core/logger'
 import type { AppConfig } from '../../config'
 import type { Database, DatabaseHandle } from '../../db/client'
+import type { Platform } from '../../platform/types'
 
 /**
  * The four things every execution context carries, whatever invoked it.
@@ -49,10 +50,17 @@ export interface PluginContext {
   config: PluginConfig
   logger: PluginLogger
   /**
-   * The Worker bindings. A plugin reads the ones its own `plugin.json` declares; reaching for a
-   * kit binding directly is usually the sign that a method is missing from this surface.
+   * The runtime env: vars and secrets by name, plus whatever bindings this plugin's own
+   * `plugin.json` declares (typed `unknown` — narrow them where you read them). Prefer
+   * `config` for vars; reaching for a kit capability here is the sign a method is missing.
    */
   env: PluginBindings
+  /**
+   * The host's runtime capabilities (M1, `src/platform/types.ts`) — jobs, storage, realtime, AI.
+   * Neutral: the same object whatever the host runs on. Prefer the context's own methods
+   * (`enqueue`, `nudge`, `storage()`) where one exists.
+   */
+  platform: PluginPlatform
 }
 
 // ---- Bare types a plugin NAMES rather than receives ----------------------------------------------
@@ -88,5 +96,8 @@ export type PluginConfig = AppConfig
  */
 export type PluginLogger = Pick<Logger, 'debug' | 'info' | 'warn' | 'error'>
 
-/** What `ctx.env` is (`Cloudflare.Env`), named for the same reason. */
+/** What `ctx.env` is, named for the same reason. */
 export type PluginBindings = AppBindings
+
+/** What `ctx.platform` is, named for the same reason. */
+export type PluginPlatform = Platform

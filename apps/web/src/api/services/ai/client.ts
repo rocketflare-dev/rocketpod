@@ -23,11 +23,11 @@ import {
   EMBEDDING_DIM,
   THINKING_ANSWER_HEADROOM,
 } from '@rocketpod/shared/ai/config'
+import type { PlatformAi } from '../../../platform/types'
 import { AiError, normalizeAiError } from './errors'
 import { cachedSystem, withRollingCacheBreakpoints } from './kit'
 import { DEFAULT_BASE_URLS, WORKERS_AI_TOOL_CHOICE_MODELS } from './providers'
 import type {
-  AiEnv,
   ChatClient,
   ChatDelta,
   ChatMessage,
@@ -48,8 +48,8 @@ export interface ChatClientOptions {
   apiKey?: string | null
   baseUrl?: string | null
   defaults?: RequestDefaults
-  /** The `AI` binding, for `workers_ai`. */
-  ai?: AiEnv['AI']
+  /** The platform's model runner, for `workers_ai`. */
+  ai?: PlatformAi | null
   /** Injected for tests; defaults to the global `fetch`. */
   fetch?: FetchLike
   /** `workers_ai` only: how long to wait for `env.AI.run` (it cannot be aborted). */
@@ -61,8 +61,8 @@ export interface EmbeddingsClientOptions {
   model: string
   apiKey?: string | null
   baseUrl?: string | null
-  /** The `AI` binding, for `workers_ai`. */
-  ai?: AiEnv['AI']
+  /** The platform's model runner, for `workers_ai`. */
+  ai?: PlatformAi | null
   fetch?: FetchLike
 }
 

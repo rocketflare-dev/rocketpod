@@ -109,9 +109,19 @@ is sent as `client_secret_basic` only (no `private_key_jwt`).
 
 - **One Worker, one app** (D5): `src/worker.ts` exports `{ fetch, queue, scheduled }` plus the
   DO/Workflow classes; `api/index.ts` exports `app` so tests call `app.request(req, env, ctx)`.
-- **Config (D3/D4)**: `loadConfig(env)` validates `Cloudflare.Env` with zod once per isolate.
+- **Config (D3/D4)**: `loadConfig(env)` validates the runtime env with zod once per isolate.
   Routes read `c.get('config')`. `APP_ENV` replaces `NODE_ENV`, and `process.env` is banned in `src/`.
-- **Middleware order is deliberate** (error envelope → logger → config → security headers → body
+- **The platform seam (M1)**: every runtime capability — jobs, storage, realtime, durable runs,
+  rate limits and locks, the model runner, document conversion — is a neutral interface in
+  `src/platform/types.ts`, bundled as one `Platform`. Routes read `c.get('platform')`; queue
+  handlers, cron tasks and the agent-run body (`api/workflows/agent-run-body.ts`, over a neutral
+  `Step`) are handed the same object; plugins get it as `ctx.platform`. The Worker's
+  implementation is `src/platform/cloudflare/` (adapted from its bindings per request), and
+  `tests/config/platform-seam.test.ts` keeps every Cloudflare type, binding name and
+  `cloudflare:` import inside those adapters, `src/worker.ts` and the two classes it exports.
+  Tests' `createTestEnv()` is both the Worker-shaped env and the `Platform` view of it. This is
+  what lets a Node entry with Postgres/S3 adapters replace the Worker (`docs/ROADMAP.md` M2–M6).
+- **Middleware order is deliberate** (error envelope → logger → config → platform → security headers → body
   limit → CORS → CSRF → DB → tracing → mounts). Auth is per mount. The ASSETS catch-all 404s every
   API prefix, so a missing route never returns `index.html`. Order and exceptions:
   `.claude/rules/api.md`.
@@ -294,7 +304,7 @@ queue; no vitest-pool-workers smoke project.
 - **Email**: Resend over `fetch`, `sendEmail(...)`, neutral templates. With no key, messages are
   logged (`[email:dev]`), never errors. The magic link is sent inline; other email is `email.send`
   jobs.
-- **Storage (D23)**: the `StorageService` seam over the `FILES` R2 binding. Keys are
+- **Storage (D23)**: the `StorageService` seam (`c.get('platform').storage`; R2 on the Worker). Keys are
   `tenants/<tenantId>/<scope>/<uuid>-<name>`. Bytes stream through the Worker (no presigned
   URLs). The `files` table is the immutable index and the only thing the browser can name. Writes
   go object first, then row, and a failed insert deletes the object.

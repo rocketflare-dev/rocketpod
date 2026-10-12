@@ -7,6 +7,7 @@
  */
 import type { TokenUsage } from '@rocketpod/shared/ai/chat'
 import type { AiProvider, ThinkingSetting } from '@rocketpod/shared/ai/config'
+import type { DocumentConverter, PlatformAi } from '../../../platform/types'
 
 export type ContentBlock =
   | { type: 'text'; text: string }
@@ -90,39 +91,21 @@ export interface RequestDefaults {
   thinking?: ThinkingSetting
 }
 
-/** One file handed to Workers AI Markdown Conversion. */
-export interface MarkdownDocumentInput {
-  name: string
-  blob: Blob
-}
-
-/** What `AI.toMarkdown` answers for one file — the platform's `ConversionResponse`, declared here so shared code never sees the global. */
-export type MarkdownConversion =
-  | { name: string; mimeType: string; format: 'markdown' | 'text'; tokens: number; data: string }
-  | { name: string; mimeType: string; format: 'error'; error: string }
+export type { MarkdownConversion, MarkdownDocumentInput } from '../../../platform/types'
 
 /**
- * The narrow slice of the `AI` binding the kit needs (`Ai` in production, `RecordingAi` in tests):
- * `run` for the embeddings/chat adapters, `toMarkdown` for document conversion (D18 uploads).
+ * The platform's model runner (`src/platform/types.ts` `PlatformAi`; Workers AI on the Worker,
+ * `RecordingAi` in tests): `run` for the embeddings/chat adapters, `toMarkdown` for conversion.
  */
-export interface WorkersAiBinding {
-  run(model: string, inputs: Record<string, unknown>): Promise<unknown>
-  toMarkdown?(document: MarkdownDocumentInput): Promise<MarkdownConversion>
-}
+export type WorkersAiBinding = PlatformAi
 
-/** The bindings the resolver may read. Optional: a Worker without `[ai]` still chats. */
+/**
+ * What the AI services read from the platform (`Platform` satisfies it). Optional: an install with
+ * no model runner still chats on a provider key, and one with no converter indexes text uploads.
+ */
 export interface AiEnv {
-  AI?: WorkersAiBinding | Ai
-}
-
-/** The conversion slice of the binding, or null when the Worker has no `[ai]` (or a stub without it). */
-export function markdownConverterOf(
-  env: AiEnv
-): ((document: MarkdownDocumentInput) => Promise<MarkdownConversion>) | null {
-  const ai = env.AI as WorkersAiBinding | undefined
-  if (!ai || typeof ai.toMarkdown !== 'function') return null
-  return document =>
-    (ai.toMarkdown as NonNullable<WorkersAiBinding['toMarkdown']>).call(ai, document)
+  readonly ai?: PlatformAi | null
+  readonly converter?: DocumentConverter | null
 }
 
 /** Sum two usage reports (multi-turn loops report the total). */

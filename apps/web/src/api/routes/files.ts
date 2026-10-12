@@ -31,12 +31,7 @@ import { uploadBodyLimit } from '../middleware/body-limit'
 import { can, guardPermission } from '../middleware/permissions'
 import { type AccessScope, accessScopeOf, visibleDocuments } from '../services/access'
 import { recordActivity } from '../services/activity'
-import {
-  createR2Storage,
-  deleteStoredFile,
-  type StorageService,
-  storeUploadedFile,
-} from '../services/storage'
+import { deleteStoredFile, type StorageService, storeUploadedFile } from '../services/storage'
 import type { AppContext } from '../types'
 import {
   ApiError,
@@ -76,12 +71,13 @@ async function canReadOwningDocument(
   return Boolean(row)
 }
 
-/** The R2 binding or a 503 — a deployment without `FILES` must fail loudly, not 500 on `undefined`. */
+/** The platform's storage or a 503 — a deployment without it must fail loudly, not 500 on `null`. */
 function storageFor(c: AppContext): StorageService {
-  if (!c.env.FILES) {
+  const storage = c.get('platform').storage
+  if (!storage) {
     throw new ServiceUnavailableError('File storage is not configured', 'storage_not_configured')
   }
-  return createR2Storage(c.env.FILES)
+  return storage
 }
 
 export function toStoredFile(row: FileRow): StoredFile {

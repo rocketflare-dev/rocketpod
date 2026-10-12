@@ -35,7 +35,7 @@ export async function handleDocumentIndex(
       spanName: 'job document.index',
       metadata: { documentId },
     },
-    () => indexDocument(ctx.db, ctx.config, ctx.env, tenantId, documentId)
+    () => indexDocument(ctx.db, ctx.config, ctx.platform, tenantId, documentId)
   )
   ctx.logger.info(
     { tenantId, documentId, chunkCount: indexed.chunkCount, model: indexed.embeddingModel },

@@ -5,11 +5,11 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildStorageKey,
-  createR2Storage,
   MAX_FILENAME_LENGTH,
   sanitizeFilename,
   tenantStoragePrefix,
 } from '@/api/services/storage'
+import { createR2Storage } from '@/platform/cloudflare'
 import { MemoryR2Bucket } from '../mocks/bindings'
 
 const TENANT = '11111111-1111-4111-8111-111111111111'

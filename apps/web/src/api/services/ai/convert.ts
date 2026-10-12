@@ -1,8 +1,8 @@
 /**
  * Document → text for the knowledge base (D18 uploads). Text-like types (`kind: 'text'` in
  * `DOCUMENT_UPLOAD_TYPES`) are decoded as UTF-8 here and never need a model. Everything else goes
- * through Workers AI Markdown Conversion on the `AI` binding (`env.AI.toMarkdown({ name, blob })`
- * — PDF, Word, Excel, OpenDocument, HTML, XML). The binding is OPTIONAL in code: without it a
+ * through the platform's `converter` (Workers AI Markdown Conversion on the Worker — PDF, Word,
+ * Excel, OpenDocument, HTML, XML). The converter is OPTIONAL in code: without it a
  * binary upload is a 503 `conversion_not_configured` at the route (before any byte is stored),
  * text uploads keep working. Conversion of documents is free on Workers AI (images, which the
  * allowlist excludes, are the billed case), so removing `[ai]` stays the only spend switch.
@@ -12,7 +12,7 @@
  * retry.
  */
 import { resolveDocumentUploadType } from '@rocketpod/shared/ai/embeddings'
-import { type AiEnv, type MarkdownDocumentInput, markdownConverterOf } from './types'
+import type { AiEnv, MarkdownDocumentInput } from './types'
 
 export class ConversionFailedError extends Error {
   constructor(message: string) {
@@ -26,9 +26,9 @@ export function needsConversion(contentType: string): boolean {
   return resolveDocumentUploadType('', contentType)?.kind === 'convert'
 }
 
-/** `true` when this Worker can convert binary uploads (the `AI` binding exposes `toMarkdown`). */
+/** `true` when this server can convert binary uploads (the platform has a `converter`). */
 export function canConvert(env: AiEnv): boolean {
-  return markdownConverterOf(env) !== null
+  return Boolean(env.converter)
 }
 
 /** UTF-8 decode with the BOM dropped and CRLF normalised — what a pasted text would look like. */
@@ -55,7 +55,7 @@ export async function convertToText(
   if (!needsConversion(input.contentType)) {
     return { text: await decodeText(input.blob), format: 'text' }
   }
-  const convert = markdownConverterOf(env)
+  const convert = env.converter
   if (!convert)
     throw new ConversionFailedError('Document conversion is not configured on this server')
   const result = await convert({ name: input.name, blob: input.blob })

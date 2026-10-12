@@ -8,12 +8,13 @@
  * `X-Tenant-Id` / `X-User-Id` / `X-Session-Id` headers because the object is reachable solely via
  * the `NOTIFICATIONS_HUB` binding — the route did cookie → session → membership before forwarding.
  * Publishing is RPC (`broadcast`, `broadcastToUser`, `broadcastToUsers`, `connectionCount`), never
- * fetch dispatch; `services/realtime.ts` is the only caller.
+ * fetch dispatch; `src/platform/cloudflare/realtime.ts` is the only caller.
  */
 
 import { DurableObject } from 'cloudflare:workers'
 import type { RealtimeEvent } from '@rocketpod/shared/realtime'
-import type { AppBindings } from '../types'
+import type { CloudflareBindings } from '../../platform/cloudflare'
+import type { BroadcastResult } from '../../platform/types'
 
 /** Survives hibernation via `serializeAttachment`; the tags carry tenant and user. */
 export interface HubAttachment {
@@ -22,9 +23,7 @@ export interface HubAttachment {
   connectedAt: string
 }
 
-export interface BroadcastResult {
-  delivered: number
-}
+export type { BroadcastResult }
 
 export const HUB_HEADERS = {
   tenantId: 'X-Tenant-Id',
@@ -42,8 +41,8 @@ function badRequest(error: string): Response {
   })
 }
 
-export class NotificationsHub extends DurableObject<AppBindings> {
-  constructor(ctx: DurableObjectState, env: AppBindings) {
+export class NotificationsHub extends DurableObject<CloudflareBindings> {
+  constructor(ctx: DurableObjectState, env: CloudflareBindings) {
     super(ctx, env)
     // Keepalives are answered by the runtime; a hibernated object stays asleep.
     this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(PING, PONG))

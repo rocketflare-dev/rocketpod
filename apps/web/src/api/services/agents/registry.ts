@@ -13,12 +13,12 @@ import type { AgentArtifact, AgentArtifactInput } from '@rocketpod/shared/ai/art
 import type { AgentInterruptSpec, AgentSteeringNote } from '@rocketpod/shared/ai/interrupts'
 import type { AppConfig } from '../../../config'
 import type { Database } from '../../../db/client'
+import type { Platform } from '../../../platform/types'
 import { serverPlugins } from '../../../plugins/server'
 import type { Tracer } from '../../observability/tracer'
 import type { Logger } from '../../utils/core/logger'
 import { type Tool, type ToolApproval, type ToolLoopCheckpoint, toolInputSchema } from '../ai/kit'
-import type { AiEnv, ChatClient } from '../ai/types'
-import type { JobsQueue } from '../jobs'
+import type { ChatClient } from '../ai/types'
 import type { RegistryPromptKey } from '../prompts'
 import type { AgentDecide } from './decisions'
 import { researchTopicAgent } from './examples/research-topic'
@@ -31,11 +31,8 @@ export interface AgentEvent {
   data: unknown
 }
 
-/** The bindings a run may touch — structural slices, so tests hand in stubs. */
-export interface AgentRunEnv {
-  AI?: AiEnv['AI']
-  JOBS_QUEUE?: JobsQueue | null
-}
+/** What a run may touch: the runtime's capabilities (M1, `src/platform/types.ts`). */
+export type AgentRunEnv = Platform
 
 /** What an agent asks a person through {@link AgentContext.interrupt}. */
 export interface AgentInterruptAsk {

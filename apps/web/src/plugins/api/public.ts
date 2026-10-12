@@ -55,10 +55,11 @@ export function publicCtx(c: AppContext): PublicCtx {
     config: c.get('config'),
     logger: c.get('logger'),
     env: c.env,
+    platform: c.get('platform'),
   }
   return {
     ...base,
-    ...backgroundMethods(base),
+    ...backgroundMethods(base, base.platform),
     appUrl: base.config.APP_URL,
     defer: makeDefer(c),
     notFound: (message = 'Not found', code = ERROR_CODES.notFound) => {

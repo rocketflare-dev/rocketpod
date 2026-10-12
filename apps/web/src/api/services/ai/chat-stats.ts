@@ -24,6 +24,7 @@ import { estimateCostMicrocents } from '@rocketpod/shared/ai/pricing'
 import type { AppConfig } from '../../../config'
 import type { Database } from '../../../db/client'
 import type { ConversationRow, MessageRow } from '../../../db/schema'
+import type { Platform } from '../../../platform/types'
 import { fullAccessScope } from '../access'
 import { buildAgentTools } from '../agents/tools'
 import { resolvePrompt } from '../prompts'
@@ -31,7 +32,7 @@ import { pendingCompaction, selectHistoryWindow, withSummary } from './chat-hist
 import { CHARS_PER_TOKEN } from './chunking'
 import { toToolDefinition } from './kit'
 import { readiness } from './resolve'
-import type { AiEnv, SystemPrompt } from './types'
+import type { SystemPrompt } from './types'
 
 const ZERO: TokenUsage = { inputTokens: 0, outputTokens: 0 }
 
@@ -93,7 +94,7 @@ export interface ConversationStatsInput {
 export async function buildConversationStats(
   db: Database,
   cfg: AppConfig,
-  env: AiEnv,
+  env: Platform,
   tenantId: string,
   input: ConversationStatsInput
 ): Promise<ConversationStats> {

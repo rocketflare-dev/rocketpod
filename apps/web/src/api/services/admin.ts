@@ -91,7 +91,7 @@ export async function decideAccessRequest(
   db: Database,
   cfg: AppConfig,
   logger: AdminLogger,
-  jobs: JobsQueue,
+  jobs: JobsQueue | null | undefined,
   input: { id: string; decision: DecideAccessRequest; admin: User }
 ): Promise<AccessRequest> {
   const request = await db.query.accessRequests.findFirst({

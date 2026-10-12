@@ -44,7 +44,7 @@ name here is a name you can import today.
 | Tell open tabs a family of rows moved | `RequestCtx.nudge` | `@/plugins/api` |
 | Notify one person | `notify` | `@/plugins/api` |
 | Write to the audit log | `recordActivity` | `@/plugins/api` |
-| Reach a per-tenant Durable Object | `durableObject` | `@/plugins/api` |
+| Reach the host runtime (jobs, storage, realtime, AI) | `PluginContext.platform` | `@/plugins/api` |
 | Store or read a file | `RequestCtx.storage` | `@/plugins/api` |
 | Write several rows as one transaction | `transaction` | `@/plugins/api` |
 | Seed a new organisation | `HookCtx` | `@/plugins/api` |
@@ -98,7 +98,8 @@ The server surface: the context family, and the types a plugin must be able to n
   What a plugin's `run(ctx)` is handed.
   - `db: Database`
   - `config: PluginConfig`
-  - `env: PluginBindings`
+  - `platform: PluginPlatform`
+    The host's runtime capabilities (M1) — what the Worker bindings were.
   - `logger: AgentContext['logger']`
   - `tenantId: string`
   - `runId: string`
@@ -134,7 +135,7 @@ The server surface: the context family, and the types a plugin must be able to n
 - `interface BackgroundMethods`
   What every background context can do, tenant supplied per call.
 - `function createRouter(): Hono<AppEnv>`
-- `function createStepRealtimeFor(env: HubEnv): StepRealtime`
+- `function createStepRealtimeFor(hub: Broadcaster \| null): StepRealtime`
 - `function cronCtx(ctx: TaskContext): CronCtx`
   Adapt the kit's `TaskContext`.
 - `interface CronCtx extends PluginContext, BackgroundMethods`
@@ -160,8 +161,6 @@ The server surface: the context family, and the types a plugin must be able to n
     As on `RequestCtx` — a value, so it survives the request that resolved it.
 - `class DuplicateStepNameError extends Error`
   Thrown when a run reuses a step name — see rule 1.
-- `function durableObject<T extends Rpc.DurableObjectBranded \| undefined = undefined>( namespace: DurableObjectNamespace<T>, tenantId: string, key?: string ): DurableObjectStub<T>`
-  A Durable Object stub for one tenant, **with the tenant prefix built here rather than by the caller** (D31).
 - `function hasFeature(auth: Pick<PluginAuth, 'features'>, name: string): boolean`
   `true` when this deployment ships the surface AND this organisation has it yet.
 - `interface HookCtx extends Pick<PluginContext, 'db'>`
@@ -204,7 +203,7 @@ The server surface: the context family, and the types a plugin must be able to n
 - `async function notifyMany( db: Database, userIds: string[], input: Omit<NotifyInput, 'userId'>, realtime?: Realtime )`
   Same notification to several users (e.g. every owner/admin of a tenant).
 - `function nudge(rt: Realtime \| undefined, event: RealtimeEvent): void`
-  Tenant-wide nudge (member / invitation / tenant changes). No-op without a hub binding.
+  Tenant-wide nudge (member / invitation / tenant changes). No-op without a hub.
 - `function nudgeEntity( realtime: Realtime \| undefined, tenantId: string, entity: string, id?: string ): void`
   Nudge every socket in one tenant that a family of rows moved.
 - `function nudgeUser(rt: Realtime \| undefined, userId: string, event: RealtimeEvent): void`
@@ -232,7 +231,7 @@ The server surface: the context family, and the types a plugin must be able to n
   - `features: readonly string[]`
     Flags on for this organisation. Read with `hasFeature`, never through the ability.
 - `type PluginBindings = AppBindings`
-  What `ctx.env` is (`Cloudflare.Env`), named for the same reason.
+  What `ctx.env` is, named for the same reason.
 - `type PluginConfig = AppConfig`
   What `ctx.config` is, named so a plugin's own function signature can take it.
 - `interface PluginContext`
@@ -243,7 +242,9 @@ The server surface: the context family, and the types a plugin must be able to n
     Validated config, including whatever this plugin's `SharedPlugin.config` added to the schema.
   - `logger: PluginLogger`
   - `env: PluginBindings`
-    The Worker bindings. A plugin reads the ones its own `plugin.json` declares; reaching for a kit binding directly is usually the sign that a method is missing from this surface.
+    The runtime env: vars and secrets by name, plus whatever bindings this plugin's own `plugin.json` declares (typed `unknown` — narrow them where you read them). Prefer `config` for…
+  - `platform: PluginPlatform`
+    The host's runtime capabilities (M1, `src/platform/types.ts`) — jobs, storage, realtime, AI. Neutral: the same object whatever the host runs on. Prefer the context's own methods…
 - `interface PluginIngestFileInput extends IngestCommon`
 - `interface PluginIngestResult`
   What an ingest answers. `queued` means a `document.index` / `document.convert` job finishes it.
@@ -258,6 +259,8 @@ The server surface: the context family, and the types a plugin must be able to n
   - `before?: string`
     Insert before the core group with this label; appended when the label is not found.
   - `items: NavItem[]`
+- `type PluginPlatform = Platform`
+  What `ctx.platform` is, named for the same reason.
 - `type PluginPublicMount = readonly [string, Hono<AppEnv>]`
   One UNAUTHENTICATED mount (D34): prefix and router, no gate — a feature gate reads `auth.features`, and there is no auth here. The prefix must be `/api/hooks/<plugin id>` or…
 - `interface PluginRequires`
@@ -292,7 +295,7 @@ The server surface: the context family, and the types a plugin must be able to n
   - `forbidden(message?: string, code?: string): never`
   - `unauthorized(message?: string): never`
 - `interface Realtime`
-  Everything a service needs to nudge: how to defer, and the hub binding. Built by `withAuth`.
+  Everything a service needs to nudge: how to defer, and the hub (null = no realtime).
 - `function realtimeEvent( type: RealtimeEventType, tenantId: string, payload?: unknown ): RealtimeEvent`
 - `async function recordActivity(db: Database, input: ActivityInput): Promise<void>`
 - `async function recordUsage(db: Database, input: UsageInput): Promise<void>`
@@ -326,9 +329,7 @@ The server surface: the context family, and the types a plugin must be able to n
   - `nudge(entity: string, id?: string): void`
     Tell this organisation's open tabs that a family of rows moved. `entity` IS the query-key family root, so declaring it once covers the socket wiring (D8).
   - `storage(): StorageService`
-    R2, or a 503 `storage_not_configured` — loud, because a silently absent bucket loses bytes.
-  - `durableObject<T extends Rpc.DurableObjectBranded \| undefined = undefined>( namespace: DurableObjectNamespace<T>, key?: string ): DurableObjectStub<T>`
-    A per-tenant Durable Object stub. The plugin never spells the name; the prefix is structural.
+    Object storage, or a 503 `storage_not_configured` — loud, because a silently absent store loses bytes.
   - `notFound(message?: string, code?: string): never`
   - `badRequest(message?: string, code?: string, details?: unknown): never`
   - `forbidden(message?: string, code?: string): never`
@@ -408,9 +409,8 @@ The server surface: the context family, and the types a plugin must be able to n
   - `realtime: StepRealtime`
     Nudges, collected and awaited before the step returns.
 - `interface StepOptions`
-  `step.do`'s options, narrowed to what the kit's own workflow uses.
-  - `retries?: { limit: number delay: WorkflowSleepDuration \| number backoff?: 'constant' \| 'linear' \| 'exponential' }`
-  - `timeout?: WorkflowSleepDuration \| number`
+  - `retries?: { limit: number delay: Duration backoff?: 'constant' \| 'linear' \| 'exponential' }`
+  - `timeout?: Duration`
 - `interface StepRealtime`
   - `realtime: Realtime`
     The `Realtime` a kit-shaped service takes as its trailing optional argument.
@@ -433,7 +433,8 @@ The server surface: the context family, and the types a plugin must be able to n
   What `ServerPlugin.agentTools(ctx)` is handed, spelled as the plugin surface rather than as the runtime's internal shape.
   - `db: Database`
   - `config: PluginConfig`
-  - `env: PluginBindings`
+  - `platform: PluginPlatform`
+    The host's runtime capabilities (M1) — what the Worker bindings were.
   - `scope: AccessScope`
   - `tenantId: string`
     The run's tenant — `scope.tenantId`, surfaced because every query needs it.
@@ -474,17 +475,18 @@ The server surface: the context family, and the types a plugin must be able to n
   What it takes to be a resource a group can restrict.
 - `async function withAgentTrace<T>( name: string, ctx: AgentTraceContext, fn: (trace: TraceHandle) => Promise<T> ): Promise<T>`
   Run `fn` inside one span named for `name` (`invoke_agent <name>` unless `spanName` overrides it), ACTIVE for everything `fn` does, so tools, retrieval and embeddings nest under…
-- `function workflowCtx( step: WorkflowStep, env: PluginBindings, config: AppConfig, logger: Logger ): WorkflowCtx`
-  Adapt a Cloudflare `WorkflowStep` into the plugin surface.
+- `function workflowCtx( step: Step, env: PluginBindings, config: AppConfig, logger: Logger, platform: Platform ): WorkflowCtx`
+  Adapt the run engine's neutral `Step` into the plugin surface.
 - `interface WorkflowCtx`
   - `config: AppConfig`
   - `env: PluginBindings`
+  - `platform: Platform`
   - `logger: Logger`
-  - `step<T extends Rpc.Serializable<T>>( name: string, options: StepOptions, fn: (ctx: StepCtx) => Promise<T> ): Promise<T>`
+  - `step<T extends Checkpointable>( name: string, options: StepOptions, fn: (ctx: StepCtx) => Promise<T> ): Promise<T>`
     Run one durable step. The name must be unique within the run — see rule 1 above; a repeat throws here rather than silently replaying.
-  - `step<T extends Rpc.Serializable<T>>(name: string, fn: (ctx: StepCtx) => Promise<T>): Promise<T>`
+  - `step<T extends Checkpointable>(name: string, fn: (ctx: StepCtx) => Promise<T>): Promise<T>`
     Run one durable step. The name must be unique within the run — see rule 1 above; a repeat throws here rather than silently replaying.
-  - `waitForEvent( name: string, options: { type: string; timeout?: WorkflowSleepDuration \| number } ): Promise<unknown>`
+  - `waitForEvent(name: string, options: Parameters<Step['waitForEvent']>[1]): Promise<unknown>`
     Park the instance until somebody sends this event, or the timeout expires.
 
 ### `@/plugins/api/peers`
@@ -907,7 +909,7 @@ The harness: a real database, the real Hono app, real bindings-shaped stubs, the
 - `async function createTestTenantWithUser( db: Database, role: MembershipRole = 'owner', userOverrides: Partial<NewUser> = {}, tenantOverrides: Partial<NewTenant> = {} )`
   Tenant + one member in one call (default `owner`).
 - `async function createTestUser(db: Database, overrides: Partial<NewUser> = {})`
-- `async function dispatchScheduled( cron: string, env: AppBindings, ctx: Pick<ExecutionContext, 'waitUntil'>, registry: Record<string, ScheduledTask[]> = SCHEDULED_TASKS ): Promise<TaskReport[]>`
+- `async function dispatchScheduled( cron: string, env: AppBindings, ctx: WaitUntil, registry: Record<string, ScheduledTask[]> = SCHEDULED_TASKS, platform: Platform = resolvePlatform(env) ): Promise<TaskReport[]>`
   Runs every task registered for `cron` and returns a per-task report (used by tests).
 - `function errorResponse(status: number, error = 'Error', code?: string)`
 - `const IDS: { user: string; otherUser: string; tenant: string; otherTenant: string; }`
@@ -952,8 +954,8 @@ The harness: a real database, the real Hono app, real bindings-shaped stubs, the
   Layer a `/auth/session` answer over whatever `fetch` the test already installed.
 - `interface TaskReport`
 - `function testDatabaseUrl(): string`
-- `type TestEnv = AppBindings & { DATABASE_URL: string [secret: string]: unknown }`
-  Structurally `Cloudflare.Env` so it can be passed straight to `app.request`, `queue()` and `scheduled()`. The bindings are in-memory stubs cast to the platform types; reach the…
+- `type TestEnv = AppBindings & TestBindings & Platform & { DATABASE_URL: string [secret: string]: unknown }`
+  A test env is BOTH things at once (M1): the runtime env the app receives — pass it straight to `app.request`, `queue()` and `scheduled()`, which adapt its bindings into a…
 - `interface TestSeed`
   Plain, JSON-serialisable — vitest's `provide()` requires it.
 - `const unauthorizedResponse: () => Response`
@@ -1007,7 +1009,7 @@ nothing in the comparison that can throw.
 @/plugins/api :: interface :: AgentCtx :: interface AgentCtx<Input = unknown>
 @/plugins/api :: member :: AgentCtx.db :: db: Database
 @/plugins/api :: member :: AgentCtx.config :: config: PluginConfig
-@/plugins/api :: member :: AgentCtx.env :: env: PluginBindings
+@/plugins/api :: member :: AgentCtx.platform :: platform: PluginPlatform
 @/plugins/api :: member :: AgentCtx.logger :: logger: AgentContext['logger']
 @/plugins/api :: member :: AgentCtx.tenantId :: tenantId: string
 @/plugins/api :: member :: AgentCtx.runId :: runId: string
@@ -1029,7 +1031,7 @@ nothing in the comparison that can throw.
 @/plugins/api :: type :: AppRouter :: type AppRouter = Hono<AppEnv>
 @/plugins/api :: interface :: BackgroundMethods :: interface BackgroundMethods
 @/plugins/api :: function :: createRouter :: function createRouter(): Hono<AppEnv>
-@/plugins/api :: function :: createStepRealtimeFor :: function createStepRealtimeFor(env: HubEnv): StepRealtime
+@/plugins/api :: function :: createStepRealtimeFor :: function createStepRealtimeFor(hub: Broadcaster | null): StepRealtime
 @/plugins/api :: function :: cronCtx :: function cronCtx(ctx: TaskContext): CronCtx
 @/plugins/api :: interface :: CronCtx :: interface CronCtx extends PluginContext, BackgroundMethods
 @/plugins/api :: member :: CronCtx.waitUntil :: waitUntil(promise: Promise<unknown>): void
@@ -1047,7 +1049,6 @@ nothing in the comparison that can throw.
 @/plugins/api :: member :: DetachedCtx.scope :: scope: AccessScope
 @/plugins/api :: member :: DetachedCtx.groups :: groups: readonly GroupRef[]
 @/plugins/api :: class :: DuplicateStepNameError :: class DuplicateStepNameError extends Error
-@/plugins/api :: function :: durableObject :: function durableObject<T extends Rpc.DurableObjectBranded | undefined = undefined>( namespace: DurableObjectNamespace<T>, tenantId: string, key?: string ): DurableObjectStub<T>
 @/plugins/api :: function :: hasFeature :: function hasFeature(auth: Pick<PluginAuth, 'features'>, name: string): boolean
 @/plugins/api :: interface :: HookCtx :: interface HookCtx extends Pick<PluginContext, 'db'>
 @/plugins/api :: member :: HookCtx.tenant :: tenant: Tenant
@@ -1099,6 +1100,7 @@ nothing in the comparison that can throw.
 @/plugins/api :: member :: PluginContext.config :: config: PluginConfig
 @/plugins/api :: member :: PluginContext.logger :: logger: PluginLogger
 @/plugins/api :: member :: PluginContext.env :: env: PluginBindings
+@/plugins/api :: member :: PluginContext.platform :: platform: PluginPlatform
 @/plugins/api :: interface :: PluginIngestFileInput :: interface PluginIngestFileInput extends IngestCommon
 @/plugins/api :: interface :: PluginIngestResult :: interface PluginIngestResult
 @/plugins/api :: interface :: PluginIngestTextInput :: interface PluginIngestTextInput extends IngestCommon
@@ -1108,6 +1110,7 @@ nothing in the comparison that can throw.
 @/plugins/api :: member :: PluginNavGroup.label :: label?: string
 @/plugins/api :: member :: PluginNavGroup.before :: before?: string
 @/plugins/api :: member :: PluginNavGroup.items :: items: NavItem[]
+@/plugins/api :: type :: PluginPlatform :: type PluginPlatform = Platform
 @/plugins/api :: type :: PluginPublicMount :: type PluginPublicMount = readonly [string, Hono<AppEnv>]
 @/plugins/api :: interface :: PluginRequires :: interface PluginRequires
 @/plugins/api :: interface :: PluginRoute :: interface PluginRoute
@@ -1148,7 +1151,6 @@ nothing in the comparison that can throw.
 @/plugins/api :: member :: RequestCtx.enqueueMany :: enqueueMany(inputs: readonly JobInput[], options?: { delaySeconds?: number }): Promise<void>
 @/plugins/api :: member :: RequestCtx.nudge :: nudge(entity: string, id?: string): void
 @/plugins/api :: member :: RequestCtx.storage :: storage(): StorageService
-@/plugins/api :: member :: RequestCtx.durableObject :: durableObject<T extends Rpc.DurableObjectBranded | undefined = undefined>( namespace: DurableObjectNamespace<T>, key?: string ): DurableObjectStub<T>
 @/plugins/api :: member :: RequestCtx.notFound :: notFound(message?: string, code?: string): never
 @/plugins/api :: member :: RequestCtx.badRequest :: badRequest(message?: string, code?: string, details?: unknown): never
 @/plugins/api :: member :: RequestCtx.forbidden :: forbidden(message?: string, code?: string): never
@@ -1199,8 +1201,8 @@ nothing in the comparison that can throw.
 @/plugins/api :: member :: StepCtx.name :: name: string
 @/plugins/api :: member :: StepCtx.realtime :: realtime: StepRealtime
 @/plugins/api :: interface :: StepOptions :: interface StepOptions
-@/plugins/api :: member :: StepOptions.retries :: retries?: { limit: number delay: WorkflowSleepDuration | number backoff?: 'constant' | 'linear' | 'exponential' }
-@/plugins/api :: member :: StepOptions.timeout :: timeout?: WorkflowSleepDuration | number
+@/plugins/api :: member :: StepOptions.retries :: retries?: { limit: number delay: Duration backoff?: 'constant' | 'linear' | 'exponential' }
+@/plugins/api :: member :: StepOptions.timeout :: timeout?: Duration
 @/plugins/api :: interface :: StepRealtime :: interface StepRealtime
 @/plugins/api :: member :: StepRealtime.realtime :: realtime: Realtime
 @/plugins/api :: member :: StepRealtime.settle :: settle(): Promise<void>
@@ -1217,7 +1219,7 @@ nothing in the comparison that can throw.
 @/plugins/api :: interface :: ToolCtx :: interface ToolCtx
 @/plugins/api :: member :: ToolCtx.db :: db: Database
 @/plugins/api :: member :: ToolCtx.config :: config: PluginConfig
-@/plugins/api :: member :: ToolCtx.env :: env: PluginBindings
+@/plugins/api :: member :: ToolCtx.platform :: platform: PluginPlatform
 @/plugins/api :: member :: ToolCtx.scope :: scope: AccessScope
 @/plugins/api :: member :: ToolCtx.tenantId :: tenantId: string
 @/plugins/api :: member :: ToolCtx.maxDocumentChars :: maxDocumentChars?: number
@@ -1243,14 +1245,15 @@ nothing in the comparison that can throw.
 @/plugins/api :: function :: verifyState :: async function verifyState<T = Record<string, unknown>>( config: PluginConfig, purpose: string, token: string ): Promise<T | null>
 @/plugins/api :: interface :: VisibilityResource :: interface VisibilityResource
 @/plugins/api :: function :: withAgentTrace :: async function withAgentTrace<T>( name: string, ctx: AgentTraceContext, fn: (trace: TraceHandle) => Promise<T> ): Promise<T>
-@/plugins/api :: function :: workflowCtx :: function workflowCtx( step: WorkflowStep, env: PluginBindings, config: AppConfig, logger: Logger ): WorkflowCtx
+@/plugins/api :: function :: workflowCtx :: function workflowCtx( step: Step, env: PluginBindings, config: AppConfig, logger: Logger, platform: Platform ): WorkflowCtx
 @/plugins/api :: interface :: WorkflowCtx :: interface WorkflowCtx
 @/plugins/api :: member :: WorkflowCtx.config :: config: AppConfig
 @/plugins/api :: member :: WorkflowCtx.env :: env: PluginBindings
+@/plugins/api :: member :: WorkflowCtx.platform :: platform: Platform
 @/plugins/api :: member :: WorkflowCtx.logger :: logger: Logger
-@/plugins/api :: member :: WorkflowCtx.step :: step<T extends Rpc.Serializable<T>>( name: string, options: StepOptions, fn: (ctx: StepCtx) => Promise<T> ): Promise<T>
-@/plugins/api :: member :: WorkflowCtx.step :: step<T extends Rpc.Serializable<T>>(name: string, fn: (ctx: StepCtx) => Promise<T>): Promise<T>
-@/plugins/api :: member :: WorkflowCtx.waitForEvent :: waitForEvent( name: string, options: { type: string; timeout?: WorkflowSleepDuration | number } ): Promise<unknown>
+@/plugins/api :: member :: WorkflowCtx.step :: step<T extends Checkpointable>( name: string, options: StepOptions, fn: (ctx: StepCtx) => Promise<T> ): Promise<T>
+@/plugins/api :: member :: WorkflowCtx.step :: step<T extends Checkpointable>(name: string, fn: (ctx: StepCtx) => Promise<T>): Promise<T>
+@/plugins/api :: member :: WorkflowCtx.waitForEvent :: waitForEvent(name: string, options: Parameters<Step['waitForEvent']>[1]): Promise<unknown>
 @/plugins/api/peers :: function :: allTables :: function allTables(): AllTables
 @/plugins/api/peers :: type :: AllTables :: type AllTables = typeof schema
 @/plugins/api/peers :: function :: extensions :: function extensions(key: string): readonly unknown[]
@@ -1482,7 +1485,7 @@ nothing in the comparison that can throw.
 @testkit/integration :: function :: createTestTenant :: async function createTestTenant(db: Database, overrides: Partial<NewTenant> = {})
 @testkit/integration :: function :: createTestTenantWithUser :: async function createTestTenantWithUser( db: Database, role: MembershipRole = 'owner', userOverrides: Partial<NewUser> = {}, tenantOverrides: Partial<NewTenant> = {} )
 @testkit/integration :: function :: createTestUser :: async function createTestUser(db: Database, overrides: Partial<NewUser> = {})
-@testkit/integration :: function :: dispatchScheduled :: async function dispatchScheduled( cron: string, env: AppBindings, ctx: Pick<ExecutionContext, 'waitUntil'>, registry: Record<string, ScheduledTask[]> = SCHEDULED_TASKS ): Promise<TaskReport[]>
+@testkit/integration :: function :: dispatchScheduled :: async function dispatchScheduled( cron: string, env: AppBindings, ctx: WaitUntil, registry: Record<string, ScheduledTask[]> = SCHEDULED_TASKS, platform: Platform = resolvePlatform(env) ): Promise<TaskReport[]>
 @testkit/integration :: function :: errorResponse :: function errorResponse(status: number, error = 'Error', code?: string)
 @testkit/integration :: const :: IDS :: const IDS: { user: string; otherUser: string; tenant: string; otherTenant: string; }
 @testkit/integration :: function :: json :: async function json<T = unknown>(res: Response): Promise<T>
@@ -1511,7 +1514,7 @@ nothing in the comparison that can throw.
 @testkit/integration :: function :: stubSessionFetch :: function stubSessionFetch(session: SessionResponse | null)
 @testkit/integration :: interface :: TaskReport :: interface TaskReport
 @testkit/integration :: function :: testDatabaseUrl :: function testDatabaseUrl(): string
-@testkit/integration :: type :: TestEnv :: type TestEnv = AppBindings & { DATABASE_URL: string [secret: string]: unknown }
+@testkit/integration :: type :: TestEnv :: type TestEnv = AppBindings & TestBindings & Platform & { DATABASE_URL: string [secret: string]: unknown }
 @testkit/integration :: interface :: TestSeed :: interface TestSeed
 @testkit/integration :: const :: unauthorizedResponse :: const unauthorizedResponse: () => Response
 @testkit/integration :: function :: uniqueId :: function uniqueId(): string

@@ -9,7 +9,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { createInvitation } from '@/api/services/invitations'
 import type { JobsQueue } from '@/api/services/jobs'
 import { notify } from '@/api/services/notifications'
-import { createHubBroadcaster, nudge, type Realtime, realtimeEvent } from '@/api/services/realtime'
+import { nudge, type Realtime, realtimeEvent } from '@/api/services/realtime'
 import { loadConfig } from '@/config'
 import {
   createTestSession,
@@ -123,7 +123,7 @@ describe('realtime nudges', () => {
   it('notify() with a Realtime nudges only that user; without one it just inserts', async () => {
     const { owner, tenant } = await ownerWithCookie()
     const env = createTestEnv()
-    const realtime: Realtime = { defer: fn => void fn(), env }
+    const realtime: Realtime = { defer: fn => void fn(), hub: env.realtime }
     await notify(
       db,
       { tenantId: tenant.id, userId: owner.id, type: 'system', title: 'Hello' },
@@ -201,17 +201,19 @@ describe('realtime nudges', () => {
   it('nudges are a no-op without the binding and never throw', () => {
     const defer = vi.fn()
     const env = createTestEnv({ NOTIFICATIONS_HUB: undefined })
-    expect(() => nudge({ defer, env }, realtimeEvent('tenant.changed', 't1'))).not.toThrow()
+    expect(() =>
+      nudge({ defer, hub: env.realtime }, realtimeEvent('tenant.changed', 't1'))
+    ).not.toThrow()
     expect(defer).not.toHaveBeenCalled()
   })
 
-  it('createHubBroadcaster addresses the tenant DO by name and returns { delivered }', async () => {
+  it('the hub addresses the tenant DO by name and returns { delivered }', async () => {
     const env = createTestEnv()
     const event = realtimeEvent('tenant.changed', 'tenant-x', { id: 'tenant-x' })
-    await expect(createHubBroadcaster(env).toTenant('tenant-x', event)).resolves.toEqual({
+    await expect(env.realtime?.toTenant('tenant-x', event)).resolves.toEqual({
       delivered: 0,
     })
-    await createHubBroadcaster(env).toUsers('tenant-x', ['u1', 'u2'], event)
+    await env.realtime?.toUsers('tenant-x', ['u1', 'u2'], event)
     expect(stubs(env).hub.broadcasts).toEqual([
       { tenantId: 'tenant-x', args: ['broadcast', event] },
       { tenantId: 'tenant-x', args: ['broadcastToUsers', ['u1', 'u2'], event] },

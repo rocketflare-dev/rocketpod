@@ -25,7 +25,7 @@ tenantsRouter.post('/', validate('json', createTenantRequestSchema), async c => 
   const { db, cfg, user, auth } = withAuth(c)
   requireMultiTenant(cfg)
   const { name, slug } = c.req.valid('json')
-  const tenant = await operationLock(c.env.RATE_LIMIT_KV, `tenant:create:${user.id}`, () =>
+  const tenant = await operationLock(c.get('platform').locks, `tenant:create:${user.id}`, () =>
     createTenantForUser(db, {
       name,
       slug,

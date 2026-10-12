@@ -67,7 +67,7 @@ export interface IngestTextInput {
 }
 
 export interface IngestDeps {
-  /** `env.JOBS_QUEUE` — required only when the text exceeds the inline limit. */
+  /** The platform's `jobs` — required only when the text exceeds the inline limit. */
   jobs?: JobsQueue | null
   /** R2 — only to remove an original that an external-id re-ingest replaced (D34). */
   storage?: StorageService | null
@@ -422,7 +422,7 @@ export interface IngestFileInput {
 }
 
 export interface IngestFileDeps extends IngestDeps {
-  /** `createR2Storage(env.FILES)` — the route answers 503 `storage_not_configured` without it. */
+  /** The platform's `storage` — the route answers 503 `storage_not_configured` without it. */
   storage: StorageService
 }
 

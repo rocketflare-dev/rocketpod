@@ -111,7 +111,7 @@ chatRouter.post('/conversations', validate('json', createConversationRequestSche
   const { db, tenantId, user, cfg, defer } = withAuthAndDb(c)
   guardPermission(c, 'create', 'Conversation')
   // Resolve first: a tenant with no provider gets the 503 here, not after a row exists.
-  const resolved = await resolveChat(db, cfg, c.env, tenantId, { promptKey: 'chat' })
+  const resolved = await resolveChat(db, cfg, c.get('platform'), tenantId, { promptKey: 'chat' })
   const [row] = await db
     .insert(conversations)
     .values({
@@ -169,12 +169,18 @@ chatRouter.get('/conversations/:id/stats', async c => {
     .from(messages)
     .where(and(eq(messages.conversationId, row.id), eq(messages.tenantId, tenantId)))
     .orderBy(asc(messages.createdAt), asc(messages.id))
-  const body: ConversationStats = await buildConversationStats(db, cfg, c.env, tenantId, {
-    conversation: row,
-    rows: turns,
-    tenantName: auth.tenant?.name ?? '',
-    userName: user.name,
-  })
+  const body: ConversationStats = await buildConversationStats(
+    db,
+    cfg,
+    c.get('platform'),
+    tenantId,
+    {
+      conversation: row,
+      rows: turns,
+      tenantName: auth.tenant?.name ?? '',
+      userName: user.name,
+    }
+  )
   return c.json(body)
 })
 
@@ -206,7 +212,7 @@ chatRouter.post('/conversations/:id/compact', async c => {
       'nothing_to_compact'
     )
   }
-  await enqueueJob(c.env.JOBS_QUEUE, {
+  await enqueueJob(c.get('platform').jobs, {
     type: 'chat.compact',
     payload: { tenantId, conversationId: row.id, force: true },
   })

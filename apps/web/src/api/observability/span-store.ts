@@ -76,7 +76,7 @@ export function databaseSpanStore(db: Database): SpanSink {
 }
 
 export interface SpanStoreEnv {
-  HYPERDRIVE?: Hyperdrive
+  HYPERDRIVE?: { connectionString: string }
 }
 
 /** A sink that opens (and closes) its own client per flush. `null` when no database is configured. */

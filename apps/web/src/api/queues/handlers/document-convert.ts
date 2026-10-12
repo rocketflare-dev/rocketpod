@@ -14,7 +14,6 @@ import { noopTracer } from '../../observability/tracer'
 import { withAgentTrace } from '../../observability/tracing'
 import { ConversionFailedError } from '../../services/ai/convert'
 import { convertAndIndexDocument } from '../../services/ai/ingest'
-import { createR2Storage } from '../../services/storage'
 import type { JobContext } from '../jobs'
 
 export async function handleDocumentConvert(
@@ -30,12 +29,12 @@ export async function handleDocumentConvert(
     ctx.logger.warn({ tenantId, documentId }, 'document.convert: document no longer exists')
     return
   }
-  if (!ctx.env.FILES) {
+  const storage = ctx.platform.storage
+  if (!storage) {
     throw new Error(
-      'document.convert: FILES binding is not configured (add [[r2_buckets]] to both tomls)'
+      'document.convert: storage is not configured (on Cloudflare: add [[r2_buckets]] to both tomls)'
     )
   }
-  const storage = createR2Storage(ctx.env.FILES)
   try {
     // D32: a `job document.convert` span, so each embeddings batch nests under something.
     const indexed = await withAgentTrace(
@@ -47,7 +46,7 @@ export async function handleDocumentConvert(
         spanName: 'job document.convert',
         metadata: { documentId },
       },
-      () => convertAndIndexDocument(ctx.db, ctx.config, ctx.env, storage, tenantId, documentId)
+      () => convertAndIndexDocument(ctx.db, ctx.config, ctx.platform, storage, tenantId, documentId)
     )
     ctx.logger.info(
       { tenantId, documentId, chunkCount: indexed.chunkCount, model: indexed.embeddingModel },

@@ -3,8 +3,8 @@
  * `jobInputSchema`, stamps the envelope (`id`, `enqueuedAt`) and sends. Routes and services call
  * this instead of doing the work inline — "a route never runs long work; it enqueues".
  *
- * The queue binding is passed in (never read from a global) so the same service code runs from a
- * route (`c.env.JOBS_QUEUE`), a cron, a Workflow step or a test (`RecordingQueue`).
+ * The queue is passed in (never read from a global) so the same service code runs from a route
+ * (`c.get('platform').jobs`), a cron, a Workflow step or a test (`RecordingQueue`).
  */
 import {
   type JobEnvelope,
@@ -12,6 +12,7 @@ import {
   jobEnvelopeSchema,
   jobInputSchema,
 } from '@rocketpod/shared/jobs'
+import type { JobsQueue } from '../../platform/types'
 import { newId } from '../utils/core/ids'
 
 /**
@@ -27,24 +28,15 @@ export function isJobsQueue(queueName: string): boolean {
   return queueName.startsWith(JOBS_QUEUE_NAME_PREFIX)
 }
 
-/**
- * The slice of `Queue` the producer needs. Return types are `unknown` so both the platform binding
- * and the test `RecordingQueue` satisfy it structurally, whatever `send` resolves to.
- */
-export interface JobsQueue {
-  send(body: JobEnvelope, options?: QueueSendOptions): Promise<unknown>
-  sendBatch(
-    messages: Iterable<MessageSendRequest<JobEnvelope>>,
-    options?: QueueSendBatchOptions
-  ): Promise<unknown>
-}
+/** The producer (`src/platform/types.ts`): any transport, or the test `RecordingQueue`. */
+export type { JobsQueue }
 
 export interface EnqueueOptions {
   /** Deliver no earlier than this many seconds from now (0–43200). Delays, does not dedupe. */
   delaySeconds?: number
 }
 
-/** Thrown when a code path needs the queue and the binding is missing from the toml. */
+/** Thrown when a code path needs the queue and the platform has none (a missing binding). */
 export class JobsQueueNotConfiguredError extends Error {
   constructor() {
     super(

@@ -31,7 +31,7 @@ Auth is per-mount, not global: the public surface is enumerable and small.
 
 - `createRouter()` (`apps/web/src/api/utils/routes/router.ts`) — never `new Hono()` bare; no `declare module 'hono'` augmentation
 - Validate with `validate('json'|'query'|'param', schema)` (`apps/web/src/api/utils/routes/validate.ts`, a zValidator wrapper) using schemas from `@rocketpod/shared/<module>` (`packages/shared/src/`); its hook throws `ValidationError` so a 400 uses the shared envelope `{ error, statusCode, code?, details? }` — never call `zValidator` directly
-- `const { db, tenantId, user, cfg, logger, defer, realtime, tracer } = withAuthAndDb(c)` is the **only** way to read auth in a route (`withAuth(c)` is the tenant-free variant, `tenantId: string | null`). Never `c.get('auth'|'session'|'db'|'tracer')` by hand. `defer(fn)` runs a side effect through `waitUntil` (awaited inline when there is no ExecutionContext) and logs instead of throwing; `realtime` (`{ defer, env }`) is what you hand to a service so it can `nudge` (D8) — routes never touch `NOTIFICATIONS_HUB`; `tracer` (D32) is the request's span recorder (or the no-op when no sink is reachable), for `withAgentTrace` / `traceChatClient`. Bindings a service needs (`c.env.JOBS_QUEUE`, `c.env.FILES`, `c.env.AI`, `c.env.AGENT_RUN_WORKFLOW`) are passed from the route as arguments
+- `const { db, tenantId, user, cfg, logger, defer, realtime, tracer } = withAuthAndDb(c)` is the **only** way to read auth in a route (`withAuth(c)` is the tenant-free variant, `tenantId: string | null`). Never `c.get('auth'|'session'|'db'|'tracer')` by hand. `defer(fn)` runs a side effect through `waitUntil` (awaited inline when there is no ExecutionContext) and logs instead of throwing; `realtime` (`{ defer, hub }`) is what you hand to a service so it can `nudge` (D8) — routes never touch the hub; `tracer` (D32) is the request's span recorder (or the no-op when no sink is reachable), for `withAgentTrace` / `traceChatClient`. Runtime capabilities a service needs come from `c.get('platform')` (M1, `src/platform/types.ts`: `jobs`, `storage`, `ai`, `runs`, `realtime`, `locks`…) and are passed from the route as arguments — never `c.env.<BINDING>`; `tests/config/platform-seam.test.ts` keeps Cloudflare types inside `src/platform/cloudflare/`
 - Authorise with `guardPermission(c, action, subject)` (CASL, `apps/web/src/api/middleware/permissions.ts`) — throws `UnauthorizedError`/`ForbiddenError` and returns the `AuthContext`; `can(c, …)` for branching. Owner-only actions (delete tenant, transfer ownership) use `guardOwner(c)` / `isOwnerLevel(auth)` — an explicit `role === 'owner'` check, never `manage Tenant`
 - Every query filters by `tenantId` from the auth context — see `.claude/rules/database.md`
 - **Row VISIBILITY is a predicate too (D29).** `accessScopeOf(auth)` (`services/access.ts`) →
@@ -124,7 +124,7 @@ failures surface as the JSON envelope on this route.
   documents only. `searchChunks(db, cfg, env, scope, request)` and the three `document-content.ts`
   readers take the scope, not a tenant id. `fullAccessScope(tenantId)` is for maintenance paths only
 - **Agents read knowledge through `ctx.tools`** (`services/agents/tools/`): `search_knowledge` = `searchChunks` bound to the run's `tenantId` (whole passages, grouped by document, each located by `passage`/`charOffset`), `get_document` = a tenant-scoped `{ offset, maxChars }` window over `documents.content`, `list_documents` = what is indexed. An agent that uses `runToolLoop` includes `ctx.tools`. **A tool answer is JSON the model can act on**: never a bare "nothing found" — a dead end carries `error` + `hint` and, where it helps, the documents that DO exist (`listKnowledgeDocuments`), and a nearest-neighbour ranking says so (`note`) rather than implying relevance. Add kit-wide tools in `buildAgentTools` (`tools/index.ts`), never by importing `searchChunks` into an agent
-- **Agents: routes enqueue, never run.** `POST /api/agents/runs` → `enqueueRun(db, c.env, …)` (validate → `queued` row → `AGENT_RUN_WORKFLOW.create({ id: runId })` → 202). Missing binding → `AgentRunsNotConfiguredError` (503 `agent_runs_not_configured`). Never call an agent's `run()` from a route. Reads go through `settleOnRead`; cancel through `requestCancel` (cooperative — the run polls `checkCancelled()` — escalating to a forced terminate + settle when a cancel was already requested; pass `c.env` so it can)
+- **Agents: routes enqueue, never run.** `POST /api/agents/runs` → `enqueueRun(db, c.get('platform'), …)` (validate → `queued` row → `AGENT_RUN_WORKFLOW.create({ id: runId })` → 202). Missing binding → `AgentRunsNotConfiguredError` (503 `agent_runs_not_configured`). Never call an agent's `run()` from a route. Reads go through `settleOnRead`; cancel through `requestCancel` (cooperative — the run polls `checkCancelled()` — escalating to a forced terminate + settle when a cancel was already requested; pass `c.get('platform')` so it can)
 - **A route also PARKS and RESUMES a run** (issue #17). `POST /runs/:id/interrupts/:interruptId` is `update AgentRun` PLUS the agent's `approvers` policy (`'requester' | 'admin'`, via `canAnswer`), validates the body with `interruptPayloadSchema(spec)` — the SAME function the UI validated its draft with — then `resolveInterrupt` (a **compare-and-set on `status = 'pending'`**, so two people answering at once is one 200 and one 409 `interrupt_not_pending`, never a lost decision), `resumeRun` and only THEN `nudgeOrRestartInstance`. **The answer is the transition**: flip the row first, wake the instance second, and `sendEvent` carries `{ interruptId }` only — a payload on the wire would be a second source of truth that can disagree with the audit row. `instance.not_found` there is recovered, not failed: start `<runId>-r1`. `POST /runs/:id/steering` appends a note to a live run (409 on a settled one); `GET /api/agents/interrupts` is the tenant-wide inbox, returning `canAnswer` PER ITEM rather than filtering
 - **`GET /runs/:id` reads the log, THEN settles, THEN reads the asks — the order is the contract.** Reading the interrupts before the settle returns a `pending` ask beside a `cancelled` run, which is a screen nobody can act on. And `reconcileRun` only touches the binding when the row has been quiet for `RECONCILE_LIVENESS_MS`: a run that emitted a durable event seconds ago is alive by definition, and a Workflow subrequest per reader per tick to be told so is what that guard removes
 - **A step retry OR a resume re-enters the agent from the top**, so `run()` must be safe to re-run: side effects (an ingest, a ledger write, tokens) go through `ctx.once(key, fn)` — once per `(run, key)`, guaranteed by the unique index on `agent_run_effects`, result stored as jsonb so **return ids, not rows** (at-least-once with a recorded result, not exactly-once). A `runToolLoop` agent passes `resume: await ctx.checkpoint.load()` + `onCheckpoint: ctx.checkpoint.save` so the retry continues the conversation instead of re-paying for it, and rebuilds any state it derived from tool results DURING the loop out of the resumed transcript. A checkpoint that will not parse is `null` — the run starts fresh, never fails
@@ -271,18 +271,19 @@ A plugin is a separate git repository copied into the app that contributes throu
 
 Plain modules, signature `(db, cfg, logger, …args)` — dependencies are passed, never imported as
 process globals. No service reads `c.env`, `process.env` or a module-level `config`. A service that
-needs a binding (KV, Queue, R2, AI) takes it as a parameter typed from `Cloudflare.Env`. The two
+needs a runtime capability (jobs, storage, AI, runs) takes it as a parameter typed from the
+neutral `Platform` (`src/platform/types.ts`), never a Cloudflare type. The two
 Phase 2 shapes: services that **queue** take the binding after the logger —
 `createInvitation(db, cfg, logger, jobs, input)`, `decideAccessRequest(db, cfg, logger, jobs,
 input)` (`jobs: JobsQueue`, a structural slice so tests pass a `RecordingQueue`); services that
 **nudge** take `realtime?: Realtime` as a trailing optional parameter (`updateTenant(db, tenantId,
 patch, realtime?)`, `notify(db, input, realtime?)`) or inside their `input` (`changeMemberRole`,
-`removeMember`, `acceptInvitation`). Storage routes build the seam themselves:
-`createR2Storage(c.env.FILES)` → `StorageService`, 503 `storage_not_configured` without the binding.
+`removeMember`, `acceptInvitation`). Storage routes read the seam from the platform:
+`c.get('platform').storage` → `StorageService`, 503 `storage_not_configured` when it is null.
 
 ## Config
 
-`apps/web/src/config.ts`: one zod schema over `Cloudflare.Env`, `loadConfig(env)` memoised per isolate by env
+`apps/web/src/config.ts`: one zod schema over the runtime env, `loadConfig(env)` memoised per isolate by env
 identity, called at the top of `fetch`, `queue` and `scheduled`. `APP_ENV` (`development | staging |
 production`) is the environment discriminator — `NODE_ENV` is a Node concept and exists only in test
 scripts. **`process.env` is forbidden in `apps/web/src/`** (the compat flag would populate it from `[vars]`,
@@ -333,13 +334,13 @@ never dropped on the floor.
 
 ## Realtime (D8)
 
-Routes never touch `NOTIFICATIONS_HUB` directly. `apps/web/src/api/services/realtime.ts` is the
+Routes never touch the realtime hub directly. `apps/web/src/api/services/realtime.ts` is the
 **only** caller: `nudge(realtime, event)` (tenant-wide), `nudgeUser(realtime, userId, event)`,
-`nudgeUsers(realtime, userIds, event)`, over a `Broadcaster` seam whose one implementation is
-`createHubBroadcaster(env)` → `idFromName(tenantId)` → typed RPC stub (`broadcast`,
+`nudgeUsers(realtime, userIds, event)`, over the platform's `Broadcaster` (`c.get('platform').realtime`; on the Worker
+`src/platform/cloudflare/realtime.ts` → `idFromName(tenantId)` → typed RPC stub — `broadcast`,
 `broadcastToUser`, `broadcastToUsers` → `{ delivered }`). `realtime` is the `Realtime` (`{ defer,
-env }`) returned by `withAuth()`; every nudge goes through `defer`/`waitUntil`, is never awaited on
-the response path and is a no-op without the binding. Build events with
+hub }`) returned by `withAuth()`; every nudge goes through `defer`/`waitUntil`, is never awaited on
+the response path and is a no-op without a hub. Build events with
 `realtimeEvent(type, tenantId, payload?)`; types and the query-key invalidation map
 (`REALTIME_INVALIDATIONS`) live in `@rocketpod/shared/realtime` — add a type there, not in a route. The
 payload is a nudge (`{ id }` or `{ entity, id }` for `entity.changed`); the client re-queries. "DB is

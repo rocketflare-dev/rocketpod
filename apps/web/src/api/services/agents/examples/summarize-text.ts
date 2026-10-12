@@ -170,7 +170,7 @@ export const summarizeTextAgent: AgentDefinition<SummarizeTextInput, SummarizeTe
             text: [result.summary, ...result.keyPoints.map(p => `- ${p}`)].join('\n\n'),
             source: 'agent:summarize-text',
           },
-          { jobs: ctx.env.JOBS_QUEUE }
+          { jobs: ctx.env.jobs }
         )
         return {
           id: row.id,

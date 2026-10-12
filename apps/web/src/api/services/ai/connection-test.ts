@@ -108,13 +108,13 @@ async function candidateFor(
         scope: 'chat',
         provider: input.provider,
         model: input.model,
-        chat: createChatClient({ ...common, ai: env.AI }),
+        chat: createChatClient({ ...common, ai: env.ai }),
       }
     : {
         scope: 'embeddings',
         provider: input.provider,
         model: input.model,
-        embeddings: createEmbeddingsClient({ ...common, model: input.model, ai: env.AI }),
+        embeddings: createEmbeddingsClient({ ...common, model: input.model, ai: env.ai }),
       }
 }
 

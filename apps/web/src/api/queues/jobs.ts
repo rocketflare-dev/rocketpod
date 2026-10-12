@@ -1,6 +1,6 @@
 /**
- * `JOBS_QUEUE` consumer (D7): a plain `(batch, deps)` function so tests call it with a hand-built
- * `MessageBatch` and no platform. Per message: parse the envelope (invalid → log + `ack()`, a poison
+ * `JOBS_QUEUE` consumer (D7): a plain `(batch, deps)` function over the neutral `JobBatch`
+ * (`src/platform/types.ts`), so tests call it with a hand-built batch and no runtime. Per message: parse the envelope (invalid → log + `ack()`, a poison
  * message must never retry), dispatch on `type` to `handlers/*`, `ack()` on success, `retry({
  * delaySeconds })` with exponential backoff on failure (the platform stops after the toml's
  * `max_retries`). Each message gets its own DB client, closed in `finally` — there is no
@@ -14,6 +14,8 @@ import {
 } from '@rocketpod/shared/jobs'
 import type { AppConfig } from '../../config'
 import { type DatabaseHandle, openDatabase } from '../../db/client'
+import { resolvePlatform } from '../../platform'
+import type { JobBatch, JobMessage, Platform } from '../../platform/types'
 import { serverPlugins } from '../../plugins/server'
 import { databaseSpanStore } from '../observability/span-store'
 import type { Tracer } from '../observability/tracer'
@@ -27,9 +29,11 @@ import { handleDocumentIndex } from './handlers/document-index'
 import { handleEmailSend } from './handlers/email-send'
 import { handleTenantPurge } from './handlers/tenant-purge'
 
-/** What every handler receives: the bindings, validated config, a job-scoped logger and a DB. */
+/** What every handler receives: the env, the platform, validated config, a job-scoped logger and a DB. */
 export interface JobContext {
   env: AppBindings
+  /** The runtime's capabilities (storage, jobs, realtime, AI…) — never a binding off `env`. */
+  platform: Platform
   config: AppConfig
   logger: Logger
   db: DatabaseHandle['db']
@@ -48,6 +52,8 @@ export type JobHandler<T extends JobType> = (
 
 export interface JobsConsumerDeps {
   env: AppBindings
+  /** Defaults to `resolvePlatform(env)` — the prebuilt `env.PLATFORM`, else the Worker's bindings. */
+  platform?: Platform
   config: AppConfig
   logger: Logger
   /** Override the per-message DB factory (tests). Defaults to `openDatabase({ ...config, HYPERDRIVE })`. */
@@ -92,21 +98,20 @@ export function backoffSeconds(attempts: number): number {
   return Math.min(BACKOFF_MAX_SECONDS, BACKOFF_BASE_SECONDS * 2 ** exponent)
 }
 
-export async function processJobsBatch(
-  batch: MessageBatch<unknown>,
-  deps: JobsConsumerDeps
-): Promise<void> {
+export async function processJobsBatch(batch: JobBatch, deps: JobsConsumerDeps): Promise<void> {
   const createDb =
     deps.createDb ?? (() => openDatabase({ ...deps.config, HYPERDRIVE: deps.env.HYPERDRIVE }))
+  const platform = deps.platform ?? resolvePlatform(deps.env)
 
   for (const message of batch.messages) {
-    await processMessage(message, deps, createDb)
+    await processMessage(message, deps, platform, createDb)
   }
 }
 
 async function processMessage(
-  message: Message<unknown>,
+  message: JobMessage,
   deps: JobsConsumerDeps,
+  platform: Platform,
   createDb: () => DatabaseHandle
 ): Promise<void> {
   const parsed = jobEnvelopeSchema.safeParse(message.body)
@@ -125,7 +130,14 @@ async function processMessage(
   const handle = createDb()
   const tracer = tracerFor(deps.config, { logger, store: databaseSpanStore(handle.db) })
   try {
-    const ctx: JobContext = { env: deps.env, config: deps.config, logger, db: handle.db, tracer }
+    const ctx: JobContext = {
+      env: deps.env,
+      platform,
+      config: deps.config,
+      logger,
+      db: handle.db,
+      tracer,
+    }
     // `job` is the union and `handlers[job.type]` the matching handler, but TypeScript pairs them
     // only by widening both to their union — which makes the CALL the intersection of every
     // handler's parameter. The table's mapped type is what keeps the pairing honest.

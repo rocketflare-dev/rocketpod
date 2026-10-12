@@ -75,7 +75,6 @@ export type { HookCtx, SeedCtx, Tenant } from './db'
 export { affected, isUniqueViolation, pgErrorCode, rows, transaction } from './db'
 export type { ActivityInput, NotifyInput, Realtime } from './events'
 export {
-  durableObject,
   notify,
   notifyMany,
   nudge,
@@ -140,6 +139,7 @@ export type {
   PluginConfig,
   PluginContext,
   PluginLogger,
+  PluginPlatform,
 } from './types'
 export type { StepCtx, StepOptions, WorkflowCtx } from './workflow'
 export { DuplicateStepNameError, workflowCtx } from './workflow'

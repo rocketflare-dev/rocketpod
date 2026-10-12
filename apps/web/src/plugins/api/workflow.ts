@@ -23,8 +23,8 @@
  * 3. **Everything is awaited.** A step has no `waitUntil`, so nudges are collected and settled
  *    before the step returns.
  *
- * `T extends Rpc.Serializable<T>` is the platform's own constraint, repeated rather than widened:
- * a step's return value is CHECKPOINTED, so it has to survive a round trip. Keep it a small object
+ * `T extends Checkpointable` is the run engine's constraint, repeated rather than widened: a
+ * step's return value is CHECKPOINTED, so it has to survive a round trip. Keep it a small object
  * (`{ id, status }`) — a row with a `Date` on it comes back as a string.
  *
  * `withStepDatabase` is deliberately re-implemented here rather than imported: the kit's copy lives
@@ -32,11 +32,13 @@
  * surface must not disappear with the example agents.
  */
 
-import type { WorkflowSleepDuration, WorkflowStep } from 'cloudflare:workers'
 import type { AppConfig } from '../../config'
 import { type Database, openDatabase } from '../../db/client'
+import type { Checkpointable, Platform, Step, StepOptions } from '../../platform/types'
 import { createStepRealtimeFor, type StepRealtime } from './realtime-step'
 import type { Logger, PluginBindings, PluginContext } from './types'
+
+export type { StepOptions }
 
 /** What a step body is handed: the base context, with a client that belongs to THIS step. */
 export interface StepCtx extends PluginContext {
@@ -46,35 +48,21 @@ export interface StepCtx extends PluginContext {
   realtime: StepRealtime
 }
 
-/**
- * `step.do`'s options, narrowed to what the kit's own workflow uses.
- *
- * The durations are the platform's template-literal type rather than `string`, so `'10 secnods'` is
- * a compile error instead of a deploy-time one on the first retry.
- */
-export interface StepOptions {
-  retries?: {
-    limit: number
-    delay: WorkflowSleepDuration | number
-    backoff?: 'constant' | 'linear' | 'exponential'
-  }
-  timeout?: WorkflowSleepDuration | number
-}
-
 export interface WorkflowCtx {
   config: AppConfig
   env: PluginBindings
+  platform: Platform
   logger: Logger
   /**
    * Run one durable step. The name must be unique within the run — see rule 1 above; a repeat
    * throws here rather than silently replaying.
    */
-  step<T extends Rpc.Serializable<T>>(
+  step<T extends Checkpointable>(
     name: string,
     options: StepOptions,
     fn: (ctx: StepCtx) => Promise<T>
   ): Promise<T>
-  step<T extends Rpc.Serializable<T>>(name: string, fn: (ctx: StepCtx) => Promise<T>): Promise<T>
+  step<T extends Checkpointable>(name: string, fn: (ctx: StepCtx) => Promise<T>): Promise<T>
   /**
    * Park the instance until somebody sends this event, or the timeout expires.
    *
@@ -88,10 +76,7 @@ export interface WorkflowCtx {
    * written before the instance was woken. A payload on the wire is a second source of truth that
    * can disagree with the audit row.
    */
-  waitForEvent(
-    name: string,
-    options: { type: string; timeout?: WorkflowSleepDuration | number }
-  ): Promise<unknown>
+  waitForEvent(name: string, options: Parameters<Step['waitForEvent']>[1]): Promise<unknown>
 }
 
 /** One database client for one step, closed whatever happens. */
@@ -121,21 +106,22 @@ export class DuplicateStepNameError extends Error {
 }
 
 /**
- * Adapt a Cloudflare `WorkflowStep` into the plugin surface.
+ * Adapt the run engine's neutral `Step` into the plugin surface.
  *
  * The name set lives in this closure rather than anywhere durable, on purpose: it catches a reused
  * name within ONE execution, which is where the mistake is written. A replay legitimately re-runs
  * the same names, and the platform's own cache is what answers those.
  */
 export function workflowCtx(
-  step: WorkflowStep,
+  step: Step,
   env: PluginBindings,
   config: AppConfig,
-  logger: Logger
+  logger: Logger,
+  platform: Platform
 ): WorkflowCtx {
   const seen = new Set<string>()
 
-  function run<T extends Rpc.Serializable<T>>(
+  function run<T extends Checkpointable>(
     name: string,
     options: StepOptions | undefined,
     fn: (ctx: StepCtx) => Promise<T>
@@ -144,9 +130,17 @@ export function workflowCtx(
     seen.add(name)
     const body = () =>
       withStepDatabase(env, config, async db => {
-        const realtime = createStepRealtimeFor(env)
+        const realtime = createStepRealtimeFor(platform.realtime)
         try {
-          return await fn({ db, config, logger: logger.child({ step: name }), env, name, realtime })
+          return await fn({
+            db,
+            config,
+            logger: logger.child({ step: name }),
+            env,
+            platform,
+            name,
+            realtime,
+          })
         } finally {
           await realtime.settle()
         }
@@ -154,7 +148,7 @@ export function workflowCtx(
     return options ? step.do(name, options, body) : step.do(name, body)
   }
 
-  function stepFn<T extends Rpc.Serializable<T>>(
+  function stepFn<T extends Checkpointable>(
     name: string,
     a: StepOptions | ((ctx: StepCtx) => Promise<T>),
     b?: (ctx: StepCtx) => Promise<T>
@@ -167,6 +161,7 @@ export function workflowCtx(
   return {
     config,
     env,
+    platform,
     logger,
     step: stepFn,
     waitForEvent: (name, options) => step.waitForEvent(name, options),

@@ -47,7 +47,7 @@ export function toAssignment(row: AgentModelRow): AgentModelAssignment {
 aiAgentModelsRouter.get('/', async c => {
   const { db, tenantId, cfg } = withAuthAndDb(c)
   guardPermission(c, 'read', 'AiConfig')
-  const platform = platformChat(cfg, c.env)
+  const platform = platformChat(cfg, c.get('platform'))
   const items: AgentModelEntry[] = []
   for (const key of PROMPT_KEYS) {
     const { assignment, config, model } = await planChat(db, tenantId, key)

@@ -1,8 +1,8 @@
 /**
  * The single read seam for "which AI client does this tenant get" (D17). Resolution order:
  *   chat:       tenant default `ai_configs(scope='chat')` → platform `ANTHROPIC_API_KEY` →
- *               `workers_ai` (`WORKERS_AI_CHAT_MODEL`) if `env.AI` → 503
- *   embeddings: tenant default `ai_configs(scope='embeddings')` → `workers_ai` if `env.AI` →
+ *               `workers_ai` (`WORKERS_AI_CHAT_MODEL`) if `env.ai` → 503
+ *   embeddings: tenant default `ai_configs(scope='embeddings')` → `workers_ai` if `env.ai` →
  *               `EMBEDDINGS_API_KEY` (OpenAI) → 503
  *   decisions:  tenant default `ai_configs(scope='decisions')` (TypeSafe) → platform
  *               `TYPESAFE_API_KEY` → the chat model on prompt key `agent-decide` (D37, the
@@ -154,7 +154,7 @@ export async function chatClientFromRow(
     apiKey: await credentialOf(row, cfg),
     baseUrl: row.baseUrl,
     defaults: { serviceTier: row.serviceTier, thinking: row.thinking },
-    ai: env.AI,
+    ai: env.ai,
     fetch: fetchImpl,
   })
 }
@@ -180,8 +180,8 @@ export function platformChat(cfg: AppConfig, env: AiEnv): PlatformChat | null {
       build: fetchImpl => createChatClient({ provider: 'anthropic', apiKey, fetch: fetchImpl }),
     }
   }
-  if (env.AI) {
-    const ai = env.AI
+  if (env.ai) {
+    const ai = env.ai
     return {
       provider: 'workers_ai',
       model: WORKERS_AI_CHAT_MODEL,
@@ -202,7 +202,7 @@ export async function embeddingsClientFromRow(
     model: row.model,
     apiKey: await credentialOf(row, cfg),
     baseUrl: row.baseUrl,
-    ai: env.AI,
+    ai: env.ai,
     fetch: fetchImpl,
   })
 }
@@ -326,10 +326,10 @@ export async function resolveEmbeddings(
       configId: row.id,
     }
   }
-  if (env.AI) {
+  if (env.ai) {
     const model = DEFAULT_MODELS.workers_ai
     return {
-      client: createEmbeddingsClient({ provider: 'workers_ai', model, ai: env.AI }),
+      client: createEmbeddingsClient({ provider: 'workers_ai', model, ai: env.ai }),
       provider: 'workers_ai',
       model,
       source: 'platform',
@@ -373,7 +373,7 @@ export async function readiness(
       : none
   const embeddings: AiScopeReadiness = embRow
     ? { ready: true, source: 'tenant', provider: embRow.provider, model: embRow.model }
-    : env.AI
+    : env.ai
       ? {
           ready: true,
           source: 'platform',

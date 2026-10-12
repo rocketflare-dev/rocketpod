@@ -36,7 +36,7 @@ import type { AccessScope } from '../../api/services/access-sql'
 import { accessScopeOf } from '../../api/services/access-sql'
 import { enqueueJob, enqueueJobs } from '../../api/services/jobs'
 import type { Realtime } from '../../api/services/realtime'
-import { createR2Storage, type StorageService } from '../../api/services/storage'
+import type { StorageService } from '../../api/services/storage'
 import type { AppContext } from '../../api/types'
 import {
   BadRequestError,
@@ -51,7 +51,7 @@ import { uuidParam, withAuthAndDb } from '../../api/utils/routes/route-helpers'
 import { createRouter } from '../../api/utils/routes/router'
 import { validate } from '../../api/utils/routes/validate'
 import { isAdminLevel, isGlobalAdmin, isOwnerLevel, type PluginAuth } from './auth'
-import { durableObject, nudgeEntity } from './events'
+import { nudgeEntity } from './events'
 import type { PluginContext } from './types'
 
 export type { AppRouter } from '../../api/utils/routes/router'
@@ -180,13 +180,8 @@ export interface RequestCtx extends PluginContext, PluginAuth {
    * family root, so declaring it once covers the socket wiring (D8).
    */
   nudge(entity: string, id?: string): void
-  /** R2, or a 503 `storage_not_configured` — loud, because a silently absent bucket loses bytes. */
+  /** Object storage, or a 503 `storage_not_configured` — loud, because a silently absent store loses bytes. */
   storage(): StorageService
-  /** A per-tenant Durable Object stub. The plugin never spells the name; the prefix is structural. */
-  durableObject<T extends Rpc.DurableObjectBranded | undefined = undefined>(
-    namespace: DurableObjectNamespace<T>,
-    key?: string
-  ): DurableObjectStub<T>
 
   // ---- failing -----------------------------------------------------------------------------
 
@@ -251,6 +246,7 @@ export function requestCtx(c: AppContext): RequestCtx {
     config: route.cfg,
     logger: route.logger,
     env: c.env,
+    platform: c.get('platform'),
 
     user: route.user,
     userId: route.user.id,
@@ -316,21 +312,21 @@ export function requestCtx(c: AppContext): RequestCtx {
     page: (items, total, query) => paginated(items, total, query),
 
     defer: route.defer,
-    enqueue: (input, options) => enqueueJob(c.env.JOBS_QUEUE, input, options),
+    enqueue: (input, options) => enqueueJob(c.get('platform').jobs, input, options),
     enqueueMany: async (inputs, options) => {
-      await enqueueJobs(c.env.JOBS_QUEUE, inputs, options)
+      await enqueueJobs(c.get('platform').jobs, inputs, options)
     },
     nudge: (entity, id) => nudgeEntity(route.realtime, route.tenantId, entity, id),
     storage: () => {
-      if (!c.env.FILES) {
+      const storage = c.get('platform').storage
+      if (!storage) {
         throw new ServiceUnavailableError(
           'File storage is not configured',
           'storage_not_configured'
         )
       }
-      return createR2Storage(c.env.FILES)
+      return storage
     },
-    durableObject: (namespace, key) => durableObject(namespace, route.tenantId, key),
 
     notFound: (message = 'Not found', code = ERROR_CODES.notFound) => {
       throw new NotFoundError(message, code)
@@ -356,6 +352,7 @@ export function requestCtx(c: AppContext): RequestCtx {
       config: route.cfg,
       logger: route.logger,
       env: c.env,
+      platform: c.get('platform'),
       tenantId: route.tenantId,
       userId: route.user.id,
       role: auth.tenantUser?.role ?? null,

@@ -12,6 +12,8 @@ import { lt, sql } from 'drizzle-orm'
 import { type AppConfig, loadConfig } from '../config'
 import { affected, type Database, openDatabase } from '../db/client'
 import { aiSpans, userSessions } from '../db/schema'
+import { resolvePlatform } from '../platform'
+import type { Platform, WaitUntil } from '../platform/types'
 import { serverPlugins } from '../plugins/server'
 import { pruneMagicLinkTokens } from './auth/magic-link'
 import { pruneInvitations } from './services/invitations'
@@ -20,6 +22,8 @@ import { type Logger, loggerFor } from './utils/core/logger'
 
 export interface TaskContext {
   env: AppBindings
+  /** The runtime's capabilities (storage, jobs, realtime, AI…) — never a binding off `env`. */
+  platform: Platform
   config: AppConfig
   db: Database
   logger: Logger
@@ -119,8 +123,9 @@ for (const plugin of serverPlugins) {
 export async function dispatchScheduled(
   cron: string,
   env: AppBindings,
-  ctx: Pick<ExecutionContext, 'waitUntil'>,
-  registry: Record<string, ScheduledTask[]> = SCHEDULED_TASKS
+  ctx: WaitUntil,
+  registry: Record<string, ScheduledTask[]> = SCHEDULED_TASKS,
+  platform: Platform = resolvePlatform(env)
 ): Promise<TaskReport[]> {
   const config = loadConfig(env)
   const logger = loggerFor(config, { handler: 'scheduled', cron })
@@ -139,6 +144,7 @@ export async function dispatchScheduled(
       try {
         await task.run({
           env,
+          platform,
           config,
           db: handle.db,
           logger: taskLogger,
@@ -163,11 +169,11 @@ export async function dispatchScheduled(
   return reports
 }
 
-/** The Worker `scheduled` handler (src/worker.ts). */
+/** The runtime's cron entry (`src/worker.ts` hands it the Worker's `scheduled` event). */
 export async function scheduled(
-  event: ScheduledController,
+  event: { cron: string },
   env: AppBindings,
-  ctx: ExecutionContext
+  ctx: WaitUntil
 ): Promise<void> {
   await dispatchScheduled(event.cron, env, ctx)
 }

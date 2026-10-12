@@ -102,7 +102,7 @@ async function thread(count: number, content = LONG) {
 }
 
 function jobContext(env: TestEnv): JobContext {
-  return { env, config: loadConfig(env), logger: fakeLogger(), db }
+  return { env, platform: env, config: loadConfig(env), logger: fakeLogger(), db }
 }
 
 const compactJob = (tenantId: string, conversationId: string) =>

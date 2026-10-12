@@ -1,5 +1,5 @@
 /**
- * `Cloudflare.Env`-shaped test bindings (D15): in-memory KV, a 404 ASSETS fetcher, the database
+ * Worker-shaped test bindings (D15), which double as the `Platform` view of themselves (M1): in-memory KV, a 404 ASSETS fetcher, the database
  * for the driver `.env.test` selects (D35 — a HYPERDRIVE stub pointing at the test Postgres under
  * `postgres`; `DATABASE_URL` + `NEON_LOCAL_PROXY` under `neon`), a recording Queue, an in-memory R2 bucket, a recording DO namespace,
  * a recording Workers AI stub, a recording Workflow namespace, and vars from `process.env` (loaded
@@ -11,6 +11,8 @@
  */
 import { deterministicEmbedding } from '@/api/services/ai/deterministic-embedding'
 import type { AppBindings } from '@/api/types'
+import { type CloudflareBindings, createCloudflarePlatform } from '@/platform/cloudflare'
+import { EMPTY_PLATFORM, type Platform } from '@/platform/types'
 
 // ---- KV -----------------------------------------------------------------------------------
 
@@ -456,13 +458,44 @@ export class RecordingWorkflow {
 // ---- Env -----------------------------------------------------------------------------------
 
 /**
- * Structurally `Cloudflare.Env` so it can be passed straight to `app.request`, `queue()` and
- * `scheduled()`. The bindings are in-memory stubs cast to the platform types; reach the stubs'
- * inspection surface (recorded messages, stored objects, KV store) through `stubs(env)`.
+ * The Worker-shaped bindings the fakes stand in for. The Cloudflare adapters
+ * (`src/platform/cloudflare/`) read these, so a test env exercises the same adapter the Worker does.
  */
-export type TestEnv = AppBindings & {
-  DATABASE_URL: string
-  [secret: string]: unknown
+export interface TestBindings {
+  RATE_LIMIT_KV?: KVNamespace
+  JOBS_QUEUE?: Queue
+  FILES?: R2Bucket
+  NOTIFICATIONS_HUB?: DurableObjectNamespace
+  AI?: Ai
+  AGENT_RUN_WORKFLOW?: Workflow
+}
+
+/**
+ * A test env is BOTH things at once (M1): the runtime env the app receives — pass it straight to
+ * `app.request`, `queue()` and `scheduled()`, which adapt its bindings into a `Platform` like the
+ * Worker does — and the `Platform` view of those same bindings, as live getters, so a service that
+ * takes a `Platform` takes `env` too. Change a binding (or override it) and the view follows.
+ * Reach the stubs' inspection surface (recorded messages, stored objects, KV store) through
+ * `stubs(env)`.
+ */
+export type TestEnv = AppBindings &
+  TestBindings &
+  Platform & {
+    DATABASE_URL: string
+    [secret: string]: unknown
+  }
+
+/** Define the `Platform` members as getters over the env's own bindings. */
+function withPlatformView<T extends object>(env: T): T & Platform {
+  const view = () => createCloudflarePlatform(env as Parameters<typeof createCloudflarePlatform>[0])
+  for (const key of Object.keys(EMPTY_PLATFORM) as (keyof Platform)[]) {
+    Object.defineProperty(env, key, {
+      get: () => view()[key],
+      enumerable: true,
+      configurable: true,
+    })
+  }
+  return env as T & Platform
 }
 
 const SECRET_KEYS = [
@@ -550,7 +583,12 @@ export function createTestEnv(overrides: Partial<TestEnv> = {}): TestEnv {
     if (value !== undefined && value !== '') env[key] = value
   }
   env.DATABASE_URL = databaseUrl
-  return { ...env, ...overrides } as TestEnv
+  return withPlatformView({ ...env, ...overrides }) as TestEnv
+}
+
+/** A test env as the Worker classes receive it (`AgentRunWorkflow`, `NotificationsHub`). */
+export function workerEnv(env: TestEnv): CloudflareBindings {
+  return env as unknown as CloudflareBindings
 }
 
 /** Typed access to the in-memory stubs behind a `createTestEnv()` env. */

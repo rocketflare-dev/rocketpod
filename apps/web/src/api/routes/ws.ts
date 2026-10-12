@@ -3,18 +3,22 @@
  * cannot set headers on an upgrade) so the route resolves the cookie itself with the same helper
  * the middleware uses: cookie → session → `resolveCookieAuth` (blocked / suspended → 403), then a
  * `tenant_users` membership check for the REQUESTED tenant (`?tenantId`, else the session's) — a
- * client-sent tenant id is never trusted without a matching row. Only then is the upgrade
- * forwarded to `NOTIFICATIONS_HUB.idFromName(tenantId)` with the identity in `X-*` headers, which
- * the DO trusts because it is reachable solely through the binding.
+ * client-sent tenant id is never trusted without a matching row. Only then is the upgrade handed
+ * to the platform's realtime hub (`accept`), which trusts the identity it is given — on the Worker,
+ * the tenant's Durable Object, reachable solely through its binding.
  *
  * A non-upgrade GET gets a JSON 426 envelope; CSRF needs no exemption (GET is a safe method).
  */
 import { ERROR_CODES } from '@rocketpod/shared/errors'
 import { and, eq } from 'drizzle-orm'
 import { tenants, tenantUsers } from '../../db/schema'
-import { HUB_HEADERS } from '../durable-objects/notifications-hub'
 import { resolveCookieAuth } from '../middleware/auth'
-import { ApiError, ForbiddenError, UnauthorizedError } from '../utils/core/errors'
+import {
+  ApiError,
+  ForbiddenError,
+  ServiceUnavailableError,
+  UnauthorizedError,
+} from '../utils/core/errors'
 import { createRouter } from '../utils/routes/router'
 
 export const wsRouter = createRouter()
@@ -44,16 +48,13 @@ wsRouter.get('/', async c => {
     throw new ForbiddenError('Organisation is suspended', ERROR_CODES.tenantSuspended)
   }
 
-  const hub = c.env.NOTIFICATIONS_HUB
-  const stub = hub.get(hub.idFromName(membership.tenantId))
-  return stub.fetch(
-    new Request(c.req.url, {
-      headers: {
-        Upgrade: 'websocket',
-        [HUB_HEADERS.tenantId]: membership.tenantId,
-        [HUB_HEADERS.userId]: auth.user.id,
-        [HUB_HEADERS.sessionId]: auth.session.id,
-      },
-    })
-  )
+  const hub = c.get('platform').realtime
+  if (!hub) {
+    throw new ServiceUnavailableError('Realtime is not configured', 'realtime_not_configured')
+  }
+  return hub.accept(c.req.raw, {
+    tenantId: membership.tenantId,
+    userId: auth.user.id,
+    sessionId: auth.session.id,
+  })
 })

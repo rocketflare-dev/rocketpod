@@ -33,7 +33,7 @@ import {
   ingestFile,
   ingestText,
 } from '../../api/services/ai/ingest'
-import { createR2Storage, type StorageService } from '../../api/services/storage'
+import type { StorageService } from '../../api/services/storage'
 import { ApiError, BadRequestError, ServiceUnavailableError } from '../../api/utils/core/errors'
 import { groups } from '../../db/schema/groups'
 import type { PluginContext } from './types'
@@ -97,7 +97,7 @@ async function checkGroups(ctx: PluginContext, input: IngestCommon): Promise<voi
 }
 
 function optionalStorage(ctx: PluginContext): StorageService | null {
-  return ctx.env.FILES ? createR2Storage(ctx.env.FILES) : null
+  return ctx.platform.storage
 }
 
 /**
@@ -112,7 +112,7 @@ export async function ingestDocument(
   const result = await ingestText(
     ctx.db,
     ctx.config,
-    ctx.env,
+    ctx.platform,
     {
       tenantId: input.tenantId,
       userId: input.userId,
@@ -124,7 +124,7 @@ export async function ingestDocument(
       visibility: input.visibility,
       groupIds: input.groupIds,
     },
-    { jobs: ctx.env.JOBS_QUEUE, storage: optionalStorage(ctx) }
+    { jobs: ctx.platform.jobs, storage: optionalStorage(ctx) }
   )
   return toResult(result)
 }
@@ -159,7 +159,7 @@ export async function ingestDocumentFile(
     const result = await ingestFile(
       ctx.db,
       ctx.config,
-      ctx.env,
+      ctx.platform,
       {
         tenantId: input.tenantId,
         userId: input.userId,
@@ -172,7 +172,7 @@ export async function ingestDocumentFile(
         visibility: input.visibility,
         groupIds: input.groupIds,
       },
-      { jobs: ctx.env.JOBS_QUEUE, storage }
+      { jobs: ctx.platform.jobs, storage }
     )
     return toResult(result)
   } catch (err) {

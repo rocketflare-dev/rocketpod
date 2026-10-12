@@ -145,7 +145,7 @@ aiConfigRouter.get('/providers', async c => {
 aiConfigRouter.get('/readiness', async c => {
   const { db, tenantId, cfg } = withAuthAndDb(c)
   guardPermission(c, 'read', 'AiConfig')
-  return c.json(aiReadinessSchema.parse(await readiness(db, cfg, c.env, tenantId)))
+  return c.json(aiReadinessSchema.parse(await readiness(db, cfg, c.get('platform'), tenantId)))
 })
 
 // ---- POST /api/ai/config/test --------------------------------------------------------------------
@@ -157,7 +157,7 @@ aiConfigRouter.post(
   async c => {
     const { db, tenantId, cfg } = withAuthAndDb(c)
     guardPermission(c, 'manage', 'AiConfig')
-    return c.json(await testConfig(db, cfg, c.env, tenantId, c.req.valid('json')))
+    return c.json(await testConfig(db, cfg, c.get('platform'), tenantId, c.req.valid('json')))
   }
 )
 

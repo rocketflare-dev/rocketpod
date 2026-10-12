@@ -46,7 +46,7 @@ import {
 } from '../services/ai/ingest'
 import { searchChunks } from '../services/ai/retrieval'
 import { nudge, realtimeEvent } from '../services/realtime'
-import { createR2Storage, deleteStoredFile, type StorageService } from '../services/storage'
+import { deleteStoredFile, type StorageService } from '../services/storage'
 import type { AppContext } from '../types'
 import {
   ApiError,
@@ -90,17 +90,18 @@ async function groupsOf(
   return (await grantsForResources(db, tenantId, 'document', [documentId])).get(documentId) ?? []
 }
 
-/** The R2 binding or a 503 — same rule as `/api/files`: a deployment without `FILES` fails loudly. */
+/** The platform's storage or a 503 — same rule as `/api/files`: no storage fails loudly. */
 function storageFor(c: AppContext): StorageService {
-  if (!c.env.FILES) {
+  const storage = c.get('platform').storage
+  if (!storage) {
     throw new ServiceUnavailableError('File storage is not configured', 'storage_not_configured')
   }
-  return createR2Storage(c.env.FILES)
+  return storage
 }
 
-/** The binding may be absent (a delete still succeeds; the object is logged as left behind). */
+/** Storage may be absent (a delete still succeeds; the object is logged as left behind). */
 function optionalStorage(c: AppContext): StorageService | null {
-  return c.env.FILES ? createR2Storage(c.env.FILES) : null
+  return c.get('platform').storage
 }
 
 // ---- POST /api/ai/documents/ingest ----------------------------------------------------------------
@@ -113,7 +114,7 @@ aiDocumentsRouter.post('/ingest', validate('json', ingestTextRequestSchema), asy
   const { document, mode } = await ingestText(
     db,
     cfg,
-    c.env,
+    c.get('platform'),
     {
       tenantId,
       userId: user.id,
@@ -123,7 +124,7 @@ aiDocumentsRouter.post('/ingest', validate('json', ingestTextRequestSchema), asy
       visibility: access.visibility,
       groupIds: access.groupIds,
     },
-    { jobs: c.env.JOBS_QUEUE }
+    { jobs: c.get('platform').jobs }
   )
   defer(() =>
     recordActivity(db, {
@@ -190,7 +191,7 @@ aiDocumentsRouter.post('/upload', uploadBodyLimit, async c => {
     result = await ingestFile(
       db,
       cfg,
-      c.env,
+      c.get('platform'),
       {
         tenantId,
         userId: user.id,
@@ -202,7 +203,7 @@ aiDocumentsRouter.post('/upload', uploadBodyLimit, async c => {
         visibility: access.visibility,
         groupIds: access.groupIds,
       },
-      { jobs: c.env.JOBS_QUEUE, storage }
+      { jobs: c.get('platform').jobs, storage }
     )
   } catch (err) {
     if (err instanceof ConversionNotConfiguredError) {
@@ -299,7 +300,7 @@ aiDocumentsRouter.post('/search', validate('json', searchRequestSchema), async c
   const { db, cfg, auth } = withAuthAndDb(c)
   guardPermission(c, 'read', 'Document')
   const request = c.req.valid('json')
-  const hits = await searchChunks(db, cfg, c.env, accessScopeOf(auth), request)
+  const hits = await searchChunks(db, cfg, c.get('platform'), accessScopeOf(auth), request)
   const body: SearchResponse = { query: request.query, hits }
   return c.json(body)
 })

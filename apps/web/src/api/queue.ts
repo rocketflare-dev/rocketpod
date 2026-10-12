@@ -6,16 +6,13 @@
  * queue cannot retry forever. Config is validated like `fetch` (D3).
  */
 import { loadConfig } from '../config'
+import type { JobBatch } from '../platform/types'
 import { processJobsBatch } from './queues/jobs'
 import { isJobsQueue } from './services/jobs'
 import type { AppBindings } from './types'
 import { loggerFor } from './utils/core/logger'
 
-export async function queue(
-  batch: MessageBatch<unknown>,
-  env: AppBindings,
-  _ctx: ExecutionContext
-): Promise<void> {
+export async function queue(batch: JobBatch, env: AppBindings): Promise<void> {
   const config = loadConfig(env)
   const logger = loggerFor(config, { handler: 'queue', queue: batch.queue })
 

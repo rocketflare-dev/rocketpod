@@ -57,8 +57,8 @@ tenantRouter.delete('/', validate('json', deleteTenantRequestSchema), async c =>
       'confirmation_mismatch'
     )
   }
-  await operationLock(c.env.RATE_LIMIT_KV, `tenant:delete:${tenantId}`, () =>
-    deleteTenant(db, tenantId, c.env.JOBS_QUEUE, realtime)
+  await operationLock(c.get('platform').locks, `tenant:delete:${tenantId}`, () =>
+    deleteTenant(db, tenantId, c.get('platform').jobs, realtime)
   )
   return c.body(null, 204)
 })

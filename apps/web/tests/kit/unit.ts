@@ -28,7 +28,6 @@ import type { PaginationQuery } from '@rocketpod/shared/pagination'
 import type { Actions, Subjects } from '@rocketpod/shared/permissions'
 import type { MembershipRole } from '@rocketpod/shared/tenants'
 import type { AgentToolContext } from '@/api/services/agents/tools'
-import { createR2Storage } from '@/api/services/storage'
 import {
   BadRequestError,
   ConflictError,
@@ -44,7 +43,7 @@ import type { Database } from '@/db/client'
 import type { User } from '@/db/schema'
 import { buildAbility } from '@/permissions'
 import type { AccessScope } from '@/plugins/api'
-import { durableObject, nudgeEntity } from '@/plugins/api'
+import { nudgeEntity } from '@/plugins/api'
 import type { ToolCtx } from '@/plugins/api/ai'
 import { toolCtx } from '@/plugins/api/ai'
 import type { RequestCtx } from '@/plugins/api/http'
@@ -172,7 +171,7 @@ export function makeRequestCtx(options: RequestCtxOptions): FakeRequestCtx {
   const defer = (fn: () => Promise<unknown>) => {
     deferred.push(fn)
   }
-  const realtime = { defer, env }
+  const realtime = { defer, hub: env.realtime }
 
   const groups = options.groups ?? []
   const scope: AccessScope = {
@@ -187,6 +186,7 @@ export function makeRequestCtx(options: RequestCtxOptions): FakeRequestCtx {
     config,
     logger,
     env,
+    platform: env,
 
     user,
     userId,
@@ -246,23 +246,23 @@ export function makeRequestCtx(options: RequestCtxOptions): FakeRequestCtx {
     defer,
     enqueue: async (input, opts) => {
       const { enqueueJob } = await import('@/api/services/jobs')
-      return enqueueJob(env.JOBS_QUEUE, input, opts)
+      return enqueueJob(env.jobs, input, opts)
     },
     enqueueMany: async (inputs, opts) => {
       const { enqueueJobs } = await import('@/api/services/jobs')
-      await enqueueJobs(env.JOBS_QUEUE, inputs, opts)
+      await enqueueJobs(env.jobs, inputs, opts)
     },
     nudge: (entity, id) => nudgeEntity(realtime, options.tenantId, entity, id),
     storage: () => {
-      if (!env.FILES) {
+      const storage = env.storage
+      if (!storage) {
         throw new ServiceUnavailableError(
           'File storage is not configured',
           'storage_not_configured'
         )
       }
-      return createR2Storage(env.FILES)
+      return storage
     },
-    durableObject: (namespace, key) => durableObject(namespace, options.tenantId, key),
 
     notFound: (message = 'Not found', code?: string) => {
       throw new NotFoundError(message, code)
@@ -288,6 +288,7 @@ export function makeRequestCtx(options: RequestCtxOptions): FakeRequestCtx {
       config,
       logger,
       env,
+      platform: env,
       tenantId: options.tenantId,
       userId,
       role,
@@ -317,7 +318,7 @@ export function makeRequestCtx(options: RequestCtxOptions): FakeRequestCtx {
  */
 export function makeJobCtx(options: BaseOptions): JobCtx {
   const { db, env, config, logger } = baseParts(options, 'makeJobCtx')
-  return jobCtx({ db, env, config, logger: logger as Logger })
+  return jobCtx({ db, env, platform: env, config, logger: logger as Logger })
 }
 
 export interface CronCtxOptions extends BaseOptions {
@@ -331,6 +332,7 @@ export function makeCronCtx(options: CronCtxOptions): CronCtx {
   return cronCtx({
     db,
     env,
+    platform: env,
     config,
     logger: logger as Logger,
     waitUntil: options.waitUntil ?? (p => pending.push(p)),
@@ -382,7 +384,7 @@ export function makeWorkflowCtx(options: WorkflowCtxOptions): FakeWorkflowCtx {
   // step context neither the kit's workflow nor a plugin's uses. Same cast, and same reason, as
   // `tests/api/agent-run-workflow.test.ts` — the alias makes them one object at runtime.
   const step = recorded.step as unknown as Parameters<typeof workflowCtx>[0]
-  const ctx = workflowCtx(step, env, config, logger as Logger)
+  const ctx = workflowCtx(step, env, config, logger as Logger, env)
   return Object.assign(ctx, { recorded })
 }
 

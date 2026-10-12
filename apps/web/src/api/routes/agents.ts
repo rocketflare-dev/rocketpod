@@ -138,7 +138,7 @@ async function settleOnRead(
   options?: { lastEventAt?: Date | null }
 ): Promise<AgentRunRow> {
   const { db, realtime } = withAuthAndDb(c)
-  return expireParkedRun(db, await reconcileRun(db, c.env, row, options), realtime)
+  return expireParkedRun(db, await reconcileRun(db, c.get('platform'), row, options), realtime)
 }
 
 // ---- GET /api/agents ------------------------------------------------------------------------------
@@ -182,7 +182,7 @@ agentsRouter.post('/runs', validate('json', createAgentRunRequestSchema), async 
   guardPermission(c, 'create', 'AgentRun')
   const { agentKey, input } = c.req.valid('json')
   const strict = c.req.query('strict') === '1'
-  const { run, deduplicated } = await enqueueRun(db, c.env, {
+  const { run, deduplicated } = await enqueueRun(db, c.get('platform'), {
     tenantId,
     agentKey,
     input,
@@ -324,7 +324,7 @@ agentsRouter.post('/runs/:id/cancel', async c => {
   const id = uuidParam(c, 'id')
   const row = await getRun(db, tenantId, id)
   if (!row || !visible(auth, row)) throw new NotFoundError('Agent run not found')
-  const run = (await requestCancel(db, tenantId, id, realtime, c.env)) ?? row
+  const run = (await requestCancel(db, tenantId, id, realtime, c.get('platform'))) ?? row
   defer(() =>
     recordActivity(db, {
       tenantId,
@@ -419,7 +419,8 @@ agentsRouter.post(
       // Null means the row was not parked — the answer beat the park, or the run was cancelled
       // underneath it. Either way there is no instance of ours to wake: the execute step that is
       // still running will read this answer as a row, which is the whole point of decision 3.
-      if (resumedRow) await nudgeOrRestartInstance(db, c.env, resumedRow, { interruptId })
+      if (resumedRow)
+        await nudgeOrRestartInstance(db, c.get('platform'), resumedRow, { interruptId })
     }
 
     defer(() =>

@@ -6,7 +6,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { queue } from '@/api/queue'
 import { buildJobEnvelope } from '@/api/services/jobs'
-import { createExecutionContext, createTestEnv } from '../mocks/bindings'
+import { createTestEnv } from '../mocks/bindings'
 
 const TENANT = '11111111-1111-4111-8111-111111111111'
 
@@ -49,7 +49,7 @@ describe('queue() dispatcher', () => {
   for (const name of ['rocketpod-jobs', 'rocketpod-jobs-staging']) {
     it(`routes '${name}' to the jobs consumer (per-message ack)`, async () => {
       const { batch, spies } = batchFor(name)
-      await queue(batch, createTestEnv(), createExecutionContext())
+      await queue(batch, createTestEnv())
       expect(spies.messages[0]?.ack).toHaveBeenCalledTimes(1)
       expect(spies.messages[0]?.retry).not.toHaveBeenCalled()
       expect(spies.ackAll).not.toHaveBeenCalled()
@@ -58,7 +58,7 @@ describe('queue() dispatcher', () => {
 
   it('acks an unknown queue wholesale without touching the messages', async () => {
     const { batch, spies } = batchFor('some-other-queue')
-    await queue(batch, createTestEnv(), createExecutionContext())
+    await queue(batch, createTestEnv())
     expect(spies.ackAll).toHaveBeenCalledTimes(1)
     expect(spies.messages[0]?.ack).not.toHaveBeenCalled()
     expect(spies.messages[0]?.retry).not.toHaveBeenCalled()
@@ -66,8 +66,8 @@ describe('queue() dispatcher', () => {
 
   it('validates config like fetch does', async () => {
     const { batch } = batchFor('rocketpod-jobs')
-    await expect(
-      queue(batch, createTestEnv({ APP_URL: 'not a url' }), createExecutionContext())
-    ).rejects.toThrow(/Invalid environment configuration/)
+    await expect(queue(batch, createTestEnv({ APP_URL: 'not a url' }))).rejects.toThrow(
+      /Invalid environment configuration/
+    )
   })
 })

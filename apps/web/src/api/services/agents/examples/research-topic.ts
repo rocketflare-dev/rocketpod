@@ -266,7 +266,7 @@ function indexFindingTool(ctx: AgentContext<ResearchTopicInput>): Tool {
           text,
           source: 'agent:research-topic',
         },
-        { jobs: ctx.env.JOBS_QUEUE }
+        { jobs: ctx.env.jobs }
       )
       await ctx.artifact({
         key: `finding:${document.id}`,

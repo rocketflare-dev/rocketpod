@@ -173,7 +173,7 @@ version, and keep the adapter thin enough that either the engine or the fallback
 ### M6. Storage, small adapters and AI (3–4 d)
 
 **Status: done (2026-10-12).** `apps/web/src/node/storage.ts` (S3), `limits.ts` (rate limits and
-locks over `rate_limits`/`operation_locks`, now part of the `0000_rocketpod-baseline` migration), `converter.ts`
+locks over `rate_limits`/`operation_locks`, now part of the `0000_kit-baseline` migration), `converter.ts`
 (`unpdf`, `mammoth`, HTML/XML/text); platform `AI_*` and `EMBEDDINGS_BASE_URL`/`EMBEDDINGS_MODEL`
 in `services/ai/resolve.ts`; `tests/api/node-platform-adapters.test.ts`. **Deviation:** MinIO's
 images are no longer pullable anonymously, so the dev and test compose files run the **Versity S3
@@ -235,7 +235,7 @@ to MinIO, AWS S3, R2 and GCS. Excel and OpenDocument uploads are not converted o
 Split in two. **M8a — done:** code and skills — the `workers_ai` provider removed (history rows stay
 readable through `RECORDED_AI_PROVIDERS`), the upload type gate (`DocumentConverter.contentTypes` →
 415), the `rp-*` skills and the new `rp-deploy`, `plugin check` green, and the drizzle chain squashed
-into `0000_rocketpod-baseline` + `0001_plugin-example-feature-0.1.0` (schema dump identical to the
+into `0000_kit-baseline` + `0001_plugin-example-feature-0.1.0` (schema dump identical to the
 old 19-file chain, column order aside). **M8b — done (2026-10-13):** the docs rewrite — CONCEPTS
 (Rocketpod is D41; every "removed in M6b" banner replaced by the Node design and its known gaps),
 SETUP, README, ADAPTING, RLS, CONTRIBUTING, SECURITY, CLAUDE.md (full config model, packaging and

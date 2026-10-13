@@ -3,7 +3,7 @@ version: unreleased
 previous: 0.1.0
 date: null
 breaking: true
-migrations: ["pgboss schema + queues (pg-boss, installed by pnpm db:migrate)", "openworkflow schema (OpenWorkflow, installed by pnpm db:migrate)", "rate_limits and operation_locks tables (Node rate limiter and locks)", "the kit's drizzle chain squashed into 0000_rocketpod-baseline + 0001_plugin-example-feature-0.1.0"]
+migrations: ["pgboss schema + queues (pg-boss, installed by pnpm db:migrate)", "openworkflow schema (OpenWorkflow, installed by pnpm db:migrate)", "rate_limits and operation_locks tables (Node rate limiter and locks)", "the kit's drizzle chain squashed into 0000_kit-baseline + 0001_plugin-example-feature-0.1.0"]
 areas: [api, db, config, shared, ui, docs, tooling]
 touches_surfaces: []
 requires_surfaces: []
@@ -66,7 +66,7 @@ Every runtime capability is now a neutral `Platform`, a Node entry (`src/node/se
 - `DocumentConverter` is an object, `{ contentTypes, convert }`: the upload route refuses a `convert`-kind type the converter does not declare with 415 `unsupported_media_type` (`UnsupportedConversionTypeError`) before anything is stored. `DOCUMENT_UPLOAD_TYPES` drops `.xlsx`, `.xls`, `.odt` and `.ods` (no converter reads them), so the UI's accept list follows.
 - The test env's model runner is a recording OpenAI-compatible endpoint (`RecordingAi`, `FAKE_MODELS_BASE_URL`) reached through `fetch`; `createTestEnv()` points `AI_*` and `EMBEDDINGS_*` at it, and `ai: null` leaves them to `process.env`.
 - Skills are `rp-*` (`rp-setup`, `rp-preflight`, `rp-adapt`, `rp-how-do-i`, `rp-upgrade`, `rp-plugin`, `rp-traces`, `rp-evals`), plus the new `rp-deploy` — Compose or Helm, the secrets checklist, and a stop before anything that pushes, touches a cluster or bills.
-- The drizzle migration chain is squashed: `0000_rocketpod-baseline.sql` is the whole kit schema and `0001_plugin-example-feature-0.1.0.sql` the vendored plugin's table (so `plugin check` still finds the plugin's migration). A schema dump of a database built from them equals one built from the old 19-file chain, column order aside.
+- The drizzle migration chain is squashed: `0000_kit-baseline.sql` is the whole kit schema and `0001_plugin-example-feature-0.1.0.sql` the vendored plugin's table (so `plugin check` still finds the plugin's migration). A schema dump of a database built from them equals one built from the old 19-file chain, column order aside.
 - Docs describe the container runtime (D41): `docs/CONCEPTS.md` replaces every removed-in-M6b banner with the Node design and its known gaps (pg-boss, OpenWorkflow, `ws` + NOTIFY, S3, three pools per process, no zero-key AI), and `SETUP.md`, `README.md`, `docs/ADAPTING.md`, `docs/RLS.md`, `CONTRIBUTING.md`, `SECURITY.md`, `CLAUDE.md`, `.claude/rules/*` and the per-directory guides follow; `docs/ROADMAP.md` gains a Next list.
 - The test Postgres publishes host port 5533 instead of 5433 (`apps/web/docker-compose.test.yml`, `apps/web/.env.test`, `TEST_DB_PORT`, CI), so Rocketpod's tests no longer collide with a Rocketflare checkout's test database.
 - AI models (Rocketflare `fix/current-models`): the adapters follow each model's own rules, so Claude 5.x and GPT-6 work; the `openai` provider speaks the Responses API; defaults are `claude-haiku-5-5` and `gpt-6-luna`; prices corrected.

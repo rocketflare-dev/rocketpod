@@ -286,7 +286,7 @@ describe('exclusions', () => {
     for (const d of ['node_modules', 'dist', '.git']) expect(EXCLUDED_DIRS).toContain(d)
     expect(isExcluded('apps/web/node_modules/x/package.json')).toBe(true)
     expect(isExcluded('apps/web/dist/ui/index.html')).toBe(true)
-    expect(isExcluded('apps/web/migrations/0000_rocketpod-baseline.sql')).toBe(false)
+    expect(isExcluded('apps/web/migrations/0000_kit-baseline.sql')).toBe(false)
     expect(isExcluded('apps/web/migrations/meta/0000_snapshot.json')).toBe(false)
     expect(isExcluded('apps/web/wrangler.staging.toml')).toBe(false)
   })

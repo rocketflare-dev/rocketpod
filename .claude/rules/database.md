@@ -182,7 +182,7 @@ the environment). Point the migration at a DIRECT connection, never a transactio
 DDL and the libraries' schema installs need a real session (`migrate.ts` rewrites a Neon `-pooler`
 host to the direct host itself; any other pooler is yours to bypass).
 
-Rocketpod starts from ONE baseline (`0000_rocketpod-baseline.sql`, plus one per vendored plugin);
+Rocketpod starts from ONE baseline (`0000_kit-baseline.sql`, plus one per vendored plugin);
 everything after it is generated. Never hand-edit an applied migration or `apps/web/migrations/meta/`. Custom SQL (an extension, a fact table)
 is a generated file edited before it is applied, journal intact.
 

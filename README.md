@@ -19,6 +19,9 @@ features wait for a provider key), and the codebase is written to be driven by a
 `.claude/rules/`, per-directory guides and a "how it works" reference mean the next feature is a
 contract → schema → route → page (→ command) loop, not a platform project.
 
+> See **[Rocketflare](https://github.com/rocketflare-dev/rocketflare)** for the original version of
+> Rocketpod that runs on Cloudflare (one Worker, Workflows, Durable Objects, R2 and Queues).
+
 ## Getting started
 
 The kit is a starting point, not a dependency: take a copy, cut it loose from this repository's

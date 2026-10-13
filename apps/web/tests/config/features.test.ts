@@ -6,6 +6,9 @@
  * tenants already inside one would fall out of it. If this test fails after a refactor, the refactor
  * is wrong — not the vectors.
  */
+import { execFileSync } from 'node:child_process'
+import { existsSync, readFileSync } from 'node:fs'
+import path from 'node:path'
 import {
   evaluateFeatures,
   evaluateFlag,
@@ -14,6 +17,7 @@ import {
   type FeatureDefinition,
   type FeatureFlagEvaluation,
   featureBucket,
+  featureDefinition,
 } from '@rocketpod/shared/features'
 import type { FeatureName } from '@rocketpod/shared/permissions'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -150,7 +154,7 @@ describe('rollout monotonicity', () => {
 
 describe('evaluateFlag precedence', () => {
   it('falls back to the registry default with no stored row', () => {
-    expect(evaluateFlag(KEY, null, ctx())).toBe(FEATURE_FLAGS[KEY].defaultState === 'on')
+    expect(evaluateFlag(KEY, null, ctx())).toBe(featureDefinition(KEY).defaultState === 'on')
   })
 
   it('reads the platform state', () => {
@@ -194,7 +198,7 @@ describe('the environment layer', () => {
    * Layer 1 is the release gate and beats everything, including an override — because "this
    * deployment does not ship that surface" is not a per-customer decision.
    */
-  const gated = { ...FEATURE_FLAGS[KEY], environmentGated: true }
+  const gated = { ...featureDefinition(KEY), environmentGated: true }
 
   it('is skipped entirely for a flag that is not environment-gated', () => {
     expect(evaluateFlag(KEY, row({ state: 'on' }), ctx({ environmentEnabled: [] }))).toBe(true)
@@ -226,6 +230,37 @@ describe('evaluateFeatures', () => {
   })
 
   it('treats a missing row as the registry default', () => {
-    expect(evaluateFeatures([], ctx()).includes(KEY)).toBe(FEATURE_FLAGS[KEY].defaultState === 'on')
+    expect(evaluateFeatures([], ctx()).includes(KEY)).toBe(
+      featureDefinition(KEY).defaultState === 'on'
+    )
+  })
+})
+
+describe('a kit with no plugins (FeatureName = never)', () => {
+  /**
+   * `FEATURES` is empty once the last plugin is removed (ADAPTING tells an app to remove
+   * `example-feature`), so `FeatureName` is `never` and `FEATURE_FLAGS[key]` types as `never` —
+   * every `.label` / `.defaultState` after it stops compiling. This checkout HAS a plugin, so the
+   * compiler cannot catch a new direct index here; this does. Go through `featureDefinition()`.
+   */
+  it('indexes FEATURE_FLAGS only through featureDefinition()', () => {
+    const root = path.resolve(__dirname, '../../../..')
+    const files = execFileSync('git', ['ls-files', '*.ts', '*.tsx'], {
+      cwd: root,
+      encoding: 'utf8',
+    })
+      .split('\n')
+      .filter(f => f && !f.endsWith('packages/shared/src/features.ts'))
+    // A plugin indexing its OWN literal key is fine: that key exists whenever the plugin does.
+    const offenders = files
+      .filter(f => !f.includes('/plugins/') && existsSync(path.join(root, f)))
+      .flatMap(f =>
+        readFileSync(path.join(root, f), 'utf8')
+          .split('\n')
+          .flatMap((line, i) =>
+            /^\s*(\*|\/\/)/.test(line) || !/\bFEATURE_FLAGS\[/.test(line) ? [] : [`${f}:${i + 1}`]
+          )
+      )
+    expect(offenders).toEqual([])
   })
 })

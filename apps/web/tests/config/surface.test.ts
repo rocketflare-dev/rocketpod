@@ -11,7 +11,7 @@
  *
  * The `config` project: no database, no network.
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -320,10 +320,14 @@ describe('missingFrom', () => {
    * every symbol it names must be in the ledger this checkout emits — if this fails, either the
    * document is stale or the reference plugin has reached for something the kit no longer provides.
    */
-  it('finds nothing missing for the reference plugin against the real ledger', () => {
-    const real = readLedger(REPO_ROOT)
-    const uses = usesOf(REPO_ROOT, 'example-feature')
-    expect(Object.keys(uses).length).toBeGreaterThan(0)
-    expect(missingFrom(uses, real)).toEqual([])
-  })
+  // ADAPTING tells an app to remove the reference plugin; a bare kit has nothing to check here.
+  it.skipIf(!existsSync(path.join(REPO_ROOT, 'apps/web/src/plugins/example-feature')))(
+    'finds nothing missing for the reference plugin against the real ledger',
+    () => {
+      const real = readLedger(REPO_ROOT)
+      const uses = usesOf(REPO_ROOT, 'example-feature')
+      expect(Object.keys(uses).length).toBeGreaterThan(0)
+      expect(missingFrom(uses, real)).toEqual([])
+    }
+  )
 })

@@ -93,6 +93,13 @@ const read = (rel: string) => readFileSync(path.join(REPO_ROOT, rel), 'utf8')
  */
 const installedHere = pluginSurfaces(readManifest().manifest)
 const subject = installedHere[0]?.id ?? null
+/**
+ * The vendored reference plugin. ADAPTING tells an app to remove it, so every case that reads its
+ * files skips once it is gone — a bare kit must pass its own gate.
+ */
+const REFERENCE_PLUGIN = existsSync(
+  path.join(REPO_ROOT, 'apps/web/src/plugins/example-feature/plugin.json')
+)
 const kitRepo = readManifest().manifest?.kit.repo ?? ''
 const vendoredHere = installedHere.find(s => isVendored(s.source, kitRepo))?.id ?? null
 
@@ -1038,11 +1045,14 @@ describe('the audit', () => {
     const nested = ['{', '  "tables": "decoy",', '  "schema": {', '    "tables": []', '  }', '}']
     // The decoy is what a naive search for `"tables"` would answer, and it is the wrong line.
     expect(jsonKeyLine(nested.join('\n'), 'schema.tables')).toBe(4)
+  })
+
+  it.skipIf(!REFERENCE_PLUGIN)('finds a top-level key in the reference manifest', () => {
     expect(jsonKeyLine(read(anchorFile), 'id')).toBe(2)
     expect(jsonKeyLine(read(anchorFile), 'nope')).toBeNull()
   })
 
-  it("passes the kit's own reference manifest", () => {
+  it.skipIf(!REFERENCE_PLUGIN)("passes the kit's own reference manifest", () => {
     expect(pluginManifestProblems(JSON.parse(read(anchorFile)))).toEqual([])
   })
 
@@ -1102,21 +1112,25 @@ describe('the audit', () => {
    * cannot*. Neither `plugins.test.ts` nor `helpers/plugins.ts` mentioned isolation at all, so the
    * one area the kit treats as non-negotiable had no enforcement whatsoever.
    */
-  it("accepts the reference plugin's isolation test and refuses a stub", () => {
-    const real = read('apps/web/src/plugins/example-feature/tests/api/example-feature.test.ts')
-    expect(isolationEvidence(real).ok).toBe(true)
-    // Two signals, because either alone is noise. Naming the property proves nothing on its own…
-    expect(isolationEvidence("describe('tenant isolation', () => {})").ok).toBe(false)
-    // …and creating two organisations proves nothing without a case that contrasts them.
-    expect(isolationEvidence('createTestTenant(db); createTestTenant(db)').ok).toBe(false)
-    expect(
-      isolationEvidence("describe('tenant isolation')\ncreateTestTenant(db)\ncreateTestTenant(db)")
-        .ok
-    ).toBe(true)
-    expect(
-      isolationEvidence('const otherTenantId = x\ncreateTestTenant()\ncreateTestTenant()').ok
-    ).toBe(true)
-  })
+  it.skipIf(!REFERENCE_PLUGIN)(
+    "accepts the reference plugin's isolation test and refuses a stub",
+    () => {
+      const real = read('apps/web/src/plugins/example-feature/tests/api/example-feature.test.ts')
+      expect(isolationEvidence(real).ok).toBe(true)
+      // Two signals, because either alone is noise. Naming the property proves nothing on its own…
+      expect(isolationEvidence("describe('tenant isolation', () => {})").ok).toBe(false)
+      // …and creating two organisations proves nothing without a case that contrasts them.
+      expect(isolationEvidence('createTestTenant(db); createTestTenant(db)').ok).toBe(false)
+      expect(
+        isolationEvidence(
+          "describe('tenant isolation')\ncreateTestTenant(db)\ncreateTestTenant(db)"
+        ).ok
+      ).toBe(true)
+      expect(
+        isolationEvidence('const otherTenantId = x\ncreateTestTenant()\ncreateTestTenant()').ok
+      ).toBe(true)
+    }
+  )
 
   /**
    * The same failure mode as `declaresProperty`, in the check that matters most: a file whose

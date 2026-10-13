@@ -98,6 +98,16 @@ export const FEATURE_FLAGS = {
   >),
 } as Record<FeatureName, FeatureDefinition>
 
+/**
+ * One flag's definition. **Index through this, never `FEATURE_FLAGS[key]` directly**: in a bare
+ * kit `FeatureName` is `never` (see `FEATURES`), and `T[never]` is `never`, so every
+ * `FEATURE_FLAGS[key].label` stops typechecking the moment the last plugin is removed. Reading the
+ * same object through a string index keeps the declared return type whatever is installed.
+ */
+export function featureDefinition(key: FeatureName): FeatureDefinition {
+  return (FEATURE_FLAGS as Readonly<Record<string, FeatureDefinition>>)[key] as FeatureDefinition
+}
+
 export const FEATURE_KEYS = Object.keys(FEATURE_FLAGS) as FeatureName[]
 
 export function isFeatureName(value: string): value is FeatureName {
@@ -170,7 +180,7 @@ export function evaluateFlag(
   row: FeatureFlagEvaluation | null,
   ctx: FeatureEvaluationContext
 ): boolean {
-  const definition = FEATURE_FLAGS[key]
+  const definition = featureDefinition(key) as FeatureDefinition | undefined
   if (!definition) return false
   // Layer 1. An environment that has not opted in never reaches the database state at all.
   if (definition.environmentGated && !ctx.environmentEnabled.includes(key)) return false

@@ -97,6 +97,7 @@ Every runtime capability is now a neutral `Platform`, a Node entry (`src/node/se
     - Every Claude 5.x model, GPT-6, GPT-5.x and their `-pro` variants now have their own entries.
     - Haiku 5.5 uses its ≤ 100k-token rate.
   - Why: `docs/CONCEPTS.md` §9, "The request body is per MODEL".
+- A kit with no plugins passes its own gate. Read a flag's definition through `featureDefinition(key)` (`@rocketpod/shared/features`), never `FEATURE_FLAGS[key]`. With no plugin installed `FeatureName` is `never`, so a direct index types as `never` and `.label`/`.defaultState` stop compiling. `tests/config/features.test.ts` refuses a direct index outside plugin trees. The config tests that read `example-feature`'s files skip once it is removed.
 
 ## How to apply
 
@@ -156,6 +157,7 @@ Every runtime capability is now a neutral `Platform`, a Node entry (`src/node/se
 43. A copy renamed before this release keeps the kit's local ports: give it its own by taking the kit's `scripts/lib/rename-lib.mjs` port-block functions and running `node -e "import('./scripts/lib/rename-lib.mjs').then(m => console.log(m.choosePortBlock('<slug>', () => true)))"`, then replacing its test ports (`TEST_DB_PORT`, `TEST_S3_PORT` and every mention of them) and setting `DEV_DB_PORT_START` / `DEV_S3_PORT_START` in `scripts/lib/bootstrap-lib.mjs` to the block's values.
 44. A copy whose Helm chart still sits in `deploy/helm/rocketpod/` while its name is the slug: `git mv deploy/helm/rocketpod deploy/helm/<slug>`.
 45. Rename `apps/web/migrations/0000_rocketpod-baseline.sql` to `0000_kit-baseline.sql` and its `tag` in `apps/web/migrations/meta/_journal.json` to match (drizzle records applied migrations by hash, so an existing database is unaffected).
+46. Add `featureDefinition()` to `packages/shared/src/features.ts`, and replace every `FEATURE_FLAGS[key]` outside a plugin's own tree with `featureDefinition(key)` (the kit's are in `apps/web/src/api/{routes,services}/features.ts` and `evaluateFlag`). Take the kit's `tests/config/features.test.ts` case and the `skipIf` guards in `tests/config/{plugin-lib,surface}.test.ts`.
 
 ## Conflicts to expect
 

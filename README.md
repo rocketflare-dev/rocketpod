@@ -24,14 +24,14 @@ contract → schema → route → page (→ command) loop, not a platform projec
 The kit is a starting point, not a dependency: take a copy, cut it loose from this repository's
 history, and make it your own — you will rename, delete and rewrite freely, and you never merge from
 here. Cut loose is not cut off: your copy keeps a `.rocketflare.json` saying where it came from, and
-`/rf-upgrade` ports later kit releases into it without recreating anything you deleted.
+`/rp-upgrade` ports later kit releases into it without recreating anything you deleted.
 
-**Ask your coding agent.** Open the copy in Claude Code and type **`/rf-setup`** — it checks the
+**Ask your coding agent.** Open the copy in Claude Code and type **`/rp-setup`** — it checks the
 toolchain, starts Postgres, migrates, seeds the demo workspace and leaves you signed in, showing one
-verification line per step. Then **`/rf-adapt <slug> "Your App"`** renames the kit to your app.
-**`/rf-plugin`** installs a capability as a plugin — a git repository copied into your
+verification line per step. Then **`/rp-adapt <slug> "Your App"`** renames the kit to your app.
+**`/rp-plugin`** installs a capability as a plugin — a git repository copied into your
 app, with the plan shown before anything is written. Later, when the kit has moved on,
-**`/rf-upgrade`**.
+**`/rp-upgrade`**.
 
 **One command.** Read [`scripts/install.sh`](scripts/install.sh) first — it is short — then:
 
@@ -61,8 +61,8 @@ OpenAI-compatible endpoint) and `EMBEDDINGS_API_KEY` in `apps/web/.env`.
 Then `pnpm gate` — lint, typecheck, test and build, the same command CI runs; `pnpm test` starts a
 throwaway Postgres on :5433 and the Neon proxy itself, runs the suite, then proves the driver seam
 under the Neon driver. Before
-building your app, rename it: `/rf-adapt` or [`docs/ADAPTING.md`](docs/ADAPTING.md). Later,
-`/rf-upgrade` (or `pnpm kit:upgrade`) reads `.rocketflare.json` and the release notes in
+building your app, rename it: `/rp-adapt` or [`docs/ADAPTING.md`](docs/ADAPTING.md). Later,
+`/rp-upgrade` (or `pnpm kit:upgrade`) reads `.rocketflare.json` and the release notes in
 [`docs/upgrades/`](docs/upgrades/), translates the kit's diff into your names, and skips every part
 you removed. [`CHANGELOG.md`](CHANGELOG.md) is what you would be catching up on.
 
@@ -116,7 +116,7 @@ you removed. [`CHANGELOG.md`](CHANGELOG.md) is what you would be catching up on.
 - **Retrieval** — ingest text into `documents`/`chunks` (paragraph-aware chunking, inline or queued indexing), `vector(1024)` embeddings with an HNSW index, and **hybrid search**: dense cosine + lexical `tsvector`, fused with Reciprocal Rank Fusion. Vectors are ordinary tenant-scoped rows.
 - **Document uploads** — PDF, Word, Excel, OpenDocument, HTML and XML are stored in R2 and converted to Markdown by Workers AI (`env.AI.toMarkdown`, free for documents) in a `document.convert` job, then indexed like pasted text; the original stays downloadable. Agents read the same knowledge base through built-in `search_knowledge` / `get_document` / `list_documents` tools.
 - **Usage ledger and tracing** — one `ai_usage` row per model call with token counts and a usage summary endpoint; vendor-neutral OTLP traces with GenAI conventions (agent → model calls, tools, retrieval, embeddings) exported to Langfuse, Phoenix or any OTLP backend from `waitUntil`, and always recorded locally so `rocketpod traces show <runId>` works with zero config — no OpenTelemetry dependency.
-- **Evals and feedback** — `pnpm eval` runs vitest-evals suites against the real chat route and agent runtime in-process, with deterministic judges (tool trajectory, schema, contains, budget) and LLM judges (rubric, faithfulness to what was retrieved, reference answer) that go through the kit's own model resolver; runs are JSON with committed baselines and `--compare` regression checks, plus a local report UI. Thumbs on chat replies and run output feed `rocketpod evals promote`, which turns a bad real answer into a draft case. The `/rf-evals` skill drives all of it.
+- **Evals and feedback** — `pnpm eval` runs vitest-evals suites against the real chat route and agent runtime in-process, with deterministic judges (tool trajectory, schema, contains, budget) and LLM judges (rubric, faithfulness to what was retrieved, reference answer) that go through the kit's own model resolver; runs are JSON with committed baselines and `--compare` regression checks, plus a local report UI. Thumbs on chat replies and run output feed `rocketpod evals promote`, which turns a bad real answer into a draft case. The `/rp-evals` skill drives all of it.
 
 ### Analytics
 - **Semantic layer** — drizzle-cube mounted at `/cubejs-api` and `/mcp` behind the app's auth; every cube scopes its SQL to the current tenant, and a mandatory isolation test queries every cube as two tenants and asserts disjoint rows.
@@ -174,7 +174,7 @@ there list every known gap.
 | [`docs/DEPLOY.md`](docs/DEPLOY.md) | Rocketflare's Cloudflare deploy runbook, kept for reference until the container runbook lands (ROADMAP M7/M8) |
 | [`docs/RLS.md`](docs/RLS.md) | tenant isolation posture and how to turn row-level security on |
 | `.claude/rules/*.md` | layer conventions (api, database, ui, cli, testing, code-quality, runtime) — auto-loaded by path |
-| `.claude/skills/` | the slash commands a coding agent drives: `/rf-setup` (first run), `/rf-preflight` (read-only diagnosis), `/rf-adapt` (rename + checklist), `/rf-how-do-i` (coaching for a new feature — asks, plans, writes `docs/features/<slug>.md`, never the code), `/rf-upgrade` (port later kit releases into your copy), `/rf-plugin` (install, upgrade, remove or audit a plugin), `/rf-traces` (debug a run or chat turn from its span tree; pick or switch a tracing backend), `/rf-evals` (write, run and interpret evals; compare models or prompts; turn thumbs-down into cases) — an agent may run those when you ask in plain words — and `/rf-provision` (deploy to Cloudflare + Neon + Resend), which only you can start: it creates paid resources and prompts for tokens |
+| `.claude/skills/` | the slash commands a coding agent drives: `/rp-setup` (first run), `/rp-preflight` (read-only diagnosis), `/rp-adapt` (rename + checklist), `/rp-how-do-i` (coaching for a new feature — asks, plans, writes `docs/features/<slug>.md`, never the code), `/rp-upgrade` (port later kit releases into your copy), `/rp-plugin` (install, upgrade, remove or audit a plugin), `/rp-traces` (debug a run or chat turn from its span tree; pick or switch a tracing backend), `/rp-evals` (write, run and interpret evals; compare models or prompts; turn thumbs-down into cases) — an agent may run those when you ask in plain words — and `/rp-deploy` (Compose or Helm), which renders and checks locally and asks you before it pushes an image, touches a cluster or creates anything billed |
 
 ## Provenance
 

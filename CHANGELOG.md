@@ -1,7 +1,7 @@
 # Changelog
 
 Releases of the kit. Each one links to its porting note in [`docs/upgrades/`](docs/upgrades/) —
-the note is the instruction set `pnpm kit:upgrade` and the `/rf-upgrade` skill follow to bring a
+the note is the instruction set `pnpm kit:upgrade` and the `/rp-upgrade` skill follow to bring a
 copy of the kit forward without recreating anything its owner deleted.
 
 If you are running a copy: `pnpm kit:upgrade` tells you which of these you are missing.

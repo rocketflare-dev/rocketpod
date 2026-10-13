@@ -1,13 +1,15 @@
 /**
  * The test `Platform` (D15, M6b): native in-memory implementations of every capability — a rate
  * limiter and operation locks over an in-memory KV-style store, a recording jobs queue, an
- * in-memory object store, a recording realtime hub, a recording model runner (with `toMarkdown`
- * for D18 uploads) and a recording run engine — plus vars from `process.env` (loaded from
- * .env.test by dotenv-cli). Tests may read `process.env`; `src/` may not.
+ * in-memory object store, a recording realtime hub, a recording OpenAI-compatible model endpoint
+ * (reached through `fetch`, see `RecordingAi`) with its converter for D18 uploads, and a recording
+ * run engine — plus vars from `process.env` (loaded from .env.test by dotenv-cli). Tests may read
+ * `process.env`; `src/` may not.
  *
  * Also `createExecutionContext()` — `waitUntil` collects promises so `waitOnExecutionContext`
  * can drain them; this is how the per-request DB close (middleware/database.ts) is awaited.
  */
+import { DOCUMENT_UPLOAD_TYPES } from '@rocketpod/shared/ai/embeddings'
 import type { RealtimeEvent } from '@rocketpod/shared/realtime'
 import type { ExecutionContext } from 'hono'
 import { deterministicEmbedding } from '@/api/services/ai/deterministic-embedding'
@@ -17,7 +19,6 @@ import type {
   JobsQueue,
   Locks,
   Platform,
-  PlatformAi,
   PutOptions,
   RateLimitDecision,
   RateLimiter,
@@ -334,7 +335,7 @@ export class RecordingRealtime implements RealtimeHub {
   }
 }
 
-// ---- Workers AI ------------------------------------------------------------------------------
+// ---- Model endpoint ------------------------------------------------------------------------
 
 export interface RecordedAiRun {
   model: string
@@ -359,17 +360,38 @@ export type FakeConversion =
     }
   | { id: string; name: string; mimeType: string; format: 'error'; error: string }
 
+/** Where every test env's platform AI vars point; `fetch` to it never leaves the process. */
+export const FAKE_MODELS_BASE_URL = 'http://fake-models.test/v1'
+export const FAKE_CHAT_MODEL = 'fake-chat'
+export const FAKE_EMBEDDINGS_MODEL = 'fake-embeddings'
+
+/** Each fake answers for its own bearer token, so envs in one process never see each other's calls. */
+const FAKE_MODELS = new Map<string, RecordingAi>()
+
 /**
- * A recording model runner (Phase 3, D17): `run()` records the call and answers an embeddings-shaped
- * `{ shape, data }` of deterministic 1024-dim vectors (one per input text) so `resolveEmbeddings`'s
- * `workers_ai` branch is testable without the platform. Override `respond` to shape other models.
- * `toMarkdown()` (D18 uploads) records `{ name, type, size }` in `conversions` and answers markdown
- * made of the blob's bytes decoded as text — so a fixture "PDF" is just text typed
- * `application/pdf`; override `convert` for `format: 'error'` or a thrown outage.
+ * A recording OpenAI-compatible model endpoint (D17/D18) — what the platform `AI_*` and
+ * `EMBEDDINGS_*` vars of every test env point at. The real `openai_compatible` adapters call it
+ * through `fetch`, which this module routes in-process for `FAKE_MODELS_BASE_URL`, so the code under
+ * test is the production client and nothing touches the network.
+ *
+ * - `runs` records `{ model, inputs }` per call: an embeddings call's inputs are `{ text }` (the
+ *   request's `input`), a chat call's are the request body (`messages`, `tools`, `stream`…).
+ * - `respond(model, inputs)` shapes the answer: `{ data: number[][] }` for embeddings (default:
+ *   deterministic 1024-dim vectors), `{ response, usage, tool_calls? }` for chat (default `'ok'`),
+ *   or a `ReadableStream` of OpenAI SSE bytes to drive streaming. A throw with a `status` becomes
+ *   that HTTP status, so a test can stage an outage the adapter must classify.
+ * - `toMarkdown()` (D18 uploads) records `{ name, type, size }` in `conversions` and answers markdown
+ *   made of the blob's bytes decoded as text — so a fixture "PDF" is just text typed
+ *   `application/pdf`; override `convert` for `format: 'error'` or a thrown outage. The test env's
+ *   converter declares every `convert` type in `DOCUMENT_UPLOAD_TYPES`.
  */
 export class RecordingAi {
+  readonly token = `fake-models-${crypto.randomUUID()}`
   readonly runs: RecordedAiRun[] = []
   readonly conversions: RecordedConversion[] = []
+  constructor() {
+    FAKE_MODELS.set(this.token, this)
+  }
   convert: (doc: { name: string; blob: Blob }) => Promise<FakeConversion> = async doc => ({
     id: crypto.randomUUID(),
     name: doc.name,
@@ -382,31 +404,118 @@ export class RecordingAi {
     this.conversions.push({ name: doc.name, type: doc.blob.type, size: doc.blob.size })
     return this.convert(doc)
   }
-  /**
-   * Default answers: a chat call (`inputs.messages`) gets `{ response: 'ok', usage }` in the
-   * non-streamed shape — override `respond` with an SSE `ReadableStream` to exercise streaming —
-   * and an embeddings call (`inputs.text`) gets deterministic 1024-dim vectors.
-   */
   respond: (model: string, inputs: Record<string, unknown>) => unknown = (_model, inputs) => {
     if (Array.isArray(inputs.messages)) {
       return { response: 'ok', usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 } }
     }
     const text = inputs.text
     const texts = Array.isArray(text) ? text : [String(text ?? '')]
+    return { data: texts.map(t => deterministicEmbedding(String(t))) }
+  }
+  /** The platform vars that point a test env at this endpoint. */
+  vars(): Record<string, string> {
     return {
-      shape: [texts.length, 1024],
-      data: texts.map(t => deterministicEmbedding(String(t))),
+      AI_BASE_URL: FAKE_MODELS_BASE_URL,
+      AI_API_KEY: this.token,
+      AI_MODEL: FAKE_CHAT_MODEL,
+      EMBEDDINGS_BASE_URL: FAKE_MODELS_BASE_URL,
+      EMBEDDINGS_API_KEY: this.token,
+      EMBEDDINGS_MODEL: FAKE_EMBEDDINGS_MODEL,
     }
   }
-  async run(model: string, inputs: Record<string, unknown>): Promise<unknown> {
+  async handle(path: string, body: Record<string, unknown>): Promise<Response> {
+    const model = String(body.model ?? '')
+    const embeddings = path.endsWith('/embeddings')
+    const inputs = embeddings ? { text: body.input } : body
     this.runs.push({ model, inputs })
-    return this.respond(model, inputs)
+    let out: unknown
+    try {
+      out = await this.respond(model, inputs)
+    } catch (err) {
+      const status = (err as { status?: number }).status ?? 500
+      const message = err instanceof Error ? err.message : String(err)
+      return Response.json({ error: { message } }, { status })
+    }
+    if (out instanceof ReadableStream) {
+      return new Response(out, { headers: { 'content-type': 'text/event-stream' } })
+    }
+    if (embeddings) {
+      const data = (out as { data?: number[][] }).data ?? []
+      return Response.json({ data: data.map((embedding, index) => ({ index, embedding })) })
+    }
+    const answer = out as {
+      response?: string
+      usage?: Record<string, number>
+      tool_calls?: unknown[]
+    }
+    const message = {
+      role: 'assistant',
+      content: answer.response ?? '',
+      tool_calls: answer.tool_calls,
+    }
+    const finish = answer.tool_calls?.length ? 'tool_calls' : 'stop'
+    if (!body.stream) {
+      return Response.json({
+        model,
+        choices: [{ index: 0, message, finish_reason: finish }],
+        usage: answer.usage,
+      })
+    }
+    const frames = [
+      { choices: [{ index: 0, delta: { role: 'assistant', content: message.content } }] },
+      ...(answer.tool_calls?.length
+        ? [
+            {
+              choices: [
+                {
+                  index: 0,
+                  delta: {
+                    tool_calls: answer.tool_calls.map((call, index) => ({
+                      index,
+                      ...(call as object),
+                    })),
+                  },
+                },
+              ],
+            },
+          ]
+        : []),
+      { choices: [{ index: 0, delta: {}, finish_reason: finish }], usage: answer.usage },
+    ]
+    const sse = `${frames.map(f => `data: ${JSON.stringify(f)}\n\n`).join('')}data: [DONE]\n\n`
+    return new Response(sse, { headers: { 'content-type': 'text/event-stream' } })
   }
   clear(): void {
     this.runs.length = 0
     this.conversions.length = 0
   }
 }
+
+/** Route `fetch` to `FAKE_MODELS_BASE_URL` in-process; everything else goes to the real `fetch`. */
+function installFakeModelsFetch(): void {
+  const marker = Symbol.for('rocketpod.fakeModelsFetch')
+  const g = globalThis as typeof globalThis & { [k: symbol]: boolean }
+  if (g[marker]) return
+  g[marker] = true
+  const realFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init)
+    if (!request.url.startsWith(FAKE_MODELS_BASE_URL)) return realFetch(input, init)
+    const token = (request.headers.get('authorization') ?? '').replace(/^Bearer\s+/i, '')
+    const fake = FAKE_MODELS.get(token)
+    if (!fake) return Response.json({ error: { message: 'unknown fake token' } }, { status: 401 })
+    const path = new URL(request.url).pathname
+    return fake.handle(path, (await request.json()) as Record<string, unknown>)
+  }) as typeof fetch
+}
+installFakeModelsFetch()
+
+/** Every `convert`-kind upload type — what the test converter declares. */
+const TEST_CONVERTER_TYPES: ReadonlySet<string> = new Set(
+  Object.entries(DOCUMENT_UPLOAD_TYPES)
+    .filter(([, t]) => t.kind === 'convert')
+    .map(([type]) => type)
+)
 
 // ---- Workflow --------------------------------------------------------------------------------
 
@@ -555,7 +664,12 @@ const SECRET_KEYS = [
   'MICROSOFT_CLIENT_ID',
   'MICROSOFT_CLIENT_SECRET',
   'ANTHROPIC_API_KEY',
+  'AI_API_KEY',
+  'AI_BASE_URL',
+  'AI_MODEL',
   'EMBEDDINGS_API_KEY',
+  'EMBEDDINGS_BASE_URL',
+  'EMBEDDINGS_MODEL',
   'LANGFUSE_PUBLIC_KEY',
   'LANGFUSE_SECRET_KEY',
   'LANGFUSE_BASE_URL',
@@ -582,14 +696,16 @@ const PLATFORM_KEYS = [
   'runs',
   'rateLimiter',
   'locks',
-  'ai',
   'converter',
 ] as const satisfies readonly (keyof Platform)[]
 
-/** The converter slice of a model runner that can convert, or null. */
-function converterOf(ai: PlatformAi | null): DocumentConverter | null {
-  if (!ai || typeof ai.toMarkdown !== 'function') return null
-  return document => (ai.toMarkdown as NonNullable<PlatformAi['toMarkdown']>).call(ai, document)
+/** The converter backed by a fake model endpoint's `toMarkdown`, or null. */
+function converterOf(ai: RecordingAi | null | undefined): DocumentConverter | null {
+  if (!ai) return null
+  return {
+    contentTypes: TEST_CONVERTER_TYPES,
+    convert: document => ai.toMarkdown(document) as ReturnType<DocumentConverter['convert']>,
+  }
 }
 
 /**
@@ -609,7 +725,8 @@ export function createTestEnv(overrides: Partial<TestEnv> = {}): TestEnv {
     ai: new RecordingAi(),
     workflow: new RecordingWorkflow(),
   }
-  const ai = fakes.ai as unknown as PlatformAi
+  if ('ai' in overrides) fakes.ai = (overrides.ai ?? undefined) as RecordingAi | undefined
+  const ai = fakes.ai
   const base: Platform = {
     jobs: fakes.queue as unknown as JobsQueue,
     storage: fakes.files,
@@ -617,16 +734,10 @@ export function createTestEnv(overrides: Partial<TestEnv> = {}): TestEnv {
     runs: fakes.workflow as unknown as RunEngine,
     rateLimiter: createMemoryRateLimiter(kv),
     locks: createMemoryLocks(kv),
-    ai,
     converter: converterOf(ai),
   }
   const members: Record<string, unknown> = { ...base }
   for (const key of PLATFORM_KEYS) if (key in overrides) members[key] = overrides[key]
-  // A converter follows its model runner unless the test set one explicitly.
-  if ('ai' in overrides && !('converter' in overrides)) {
-    members.converter = converterOf((overrides.ai ?? null) as PlatformAi | null)
-  }
-  if ('ai' in overrides) fakes.ai = (overrides.ai ?? undefined) as RecordingAi | undefined
   if ('runs' in overrides) {
     fakes.workflow = (overrides.runs ?? undefined) as RecordingWorkflow | undefined
   }
@@ -648,11 +759,14 @@ export function createTestEnv(overrides: Partial<TestEnv> = {}): TestEnv {
     const value = process.env[key]
     if (value !== undefined && value !== '') vars[key] = value
   }
+  // The platform model keys point at this env's fake endpoint (overrides below still win); with
+  // `ai: null` they are left to process.env, so an eval run can reach a real provider.
+  if (ai) Object.assign(vars, ai.vars())
   vars.DATABASE_URL = databaseUrl
 
   const env: Record<string, unknown> = { ...vars }
   for (const [key, value] of Object.entries(overrides)) {
-    if (!(PLATFORM_KEYS as readonly string[]).includes(key)) env[key] = value
+    if (key !== 'ai' && !(PLATFORM_KEYS as readonly string[]).includes(key)) env[key] = value
   }
   const platform = Object.freeze(members) as unknown as Platform
   env.PLATFORM = platform

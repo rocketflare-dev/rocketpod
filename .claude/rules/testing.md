@@ -51,8 +51,11 @@ tests), and put the claim about THIS checkout in `kit-only`.
   `DATABASE_URL` from `apps/web/.env.test` and an in-memory `Platform` (as `env.PLATFORM` and as
   getters on `env` itself): a memory rate limiter and locks over `MemoryKV` (`rateLimiter`, `locks`),
   a `RecordingQueue` (`jobs`), a `MemoryStorage` (`storage`), a `RecordingRealtime` (`realtime`), a
-  `RecordingAi` (`ai`, deterministic 1024-dim vectors; `respond` overridable — its `toMarkdown` is
-  the `converter`), a `RecordingWorkflow` (`runs`, records `create({ id, params })` and `sendEvent`,
+  `RecordingAi` (`stubs(env).ai` — an OpenAI-compatible model endpoint at `FAKE_MODELS_BASE_URL`,
+  reached through `fetch` and routed in-process; the env's `AI_*`/`EMBEDDINGS_*` vars point at it,
+  `ai: null` leaves them to `process.env`; deterministic 1024-dim vectors, `respond` overridable,
+  `runs` records each call; its `toMarkdown` backs the `converter`, which declares every `convert`
+  upload type), a `RecordingWorkflow` (`runs`, records `create({ id, params })` and `sendEvent`,
   `setStatus(id, …)` drives `instance.status()`, `terminated[]` records a forced cancel, `get()` of
   an unknown id throws `instance.not_found`, and `failSendEvent` simulates the instance a park
   outlived — retention expired, or a dev server restarted), and `DATABASE_URL` pointing at the test
@@ -195,7 +198,7 @@ a fake `WebSocket` factory left set) is on you.
 - Uploads into knowledge (`document-upload.test.ts`, `document-convert-job.test.ts`): the same stub's
   `toMarkdown` records `stubs(env).ai.conversions` and answers markdown made of the blob's bytes, so a
   fixture PDF is text typed `application/pdf`; override `convert` for `format: 'error'` (→ `failed` +
-  ack) or a throw (→ `failed` + retry); `createTestEnv({ AI: undefined, EMBEDDINGS_API_KEY })` is the
+  ack) or a throw (→ `failed` + retry); `createTestEnv({ ai: null, EMBEDDINGS_API_KEY })` is the
   Worker that embeds but cannot convert (503 `conversion_not_configured`, nothing stored)
 - Tracing (D32): `tests/api/observability.test.ts` needs no database — `createTracer({ sinks:
   [collect] })` hands a test every recorded span, `tracerFor(cfg, { fetch })` takes an injected

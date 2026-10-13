@@ -4,7 +4,7 @@
  * agent runs, connection tests). Append-only, no `updated_at`. `costMicrocents` stays null until an
  * app supplies a pricing table — cheap to record now, impossible to backfill later.
  */
-import type { AiProvider } from '@rocketpod/shared/ai/config'
+import type { RecordedAiProvider } from '@rocketpod/shared/ai/config'
 import { relations } from 'drizzle-orm'
 import { bigint, index, integer, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core'
 import { tenantRef } from './_helpers'
@@ -28,7 +28,7 @@ export const aiUsage = pgTable(
     agentRunId: uuid('agent_run_id').references(() => agentRuns.id, { onDelete: 'set null' }),
     /** Prompt key or feature name: `chat`, `summarize-text`, `connection-test`. */
     feature: text('feature').notNull(),
-    provider: text('provider').$type<AiProvider>().notNull(),
+    provider: text('provider').$type<RecordedAiProvider>().notNull(),
     model: text('model').notNull(),
     inputTokens: integer('input_tokens').notNull().default(0),
     outputTokens: integer('output_tokens').notNull().default(0),

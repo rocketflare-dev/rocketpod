@@ -6,10 +6,10 @@
  *   `indexOrEnqueue`: index INLINE when ≤ `INLINE_CHUNK_LIMIT` chunks (one embeddings call or
  *   two, well inside a request) or enqueue a `document.index` job that calls the same
  *   `indexDocument`.
- * - `ingestFile` — an upload: store the original in R2 as a `files` row (scope `documents`), write
+ * - `ingestFile` — an upload: store the original in object storage as a `files` row (scope `documents`), write
  *   the `documents` row with `fileId` and the ORIGINAL `contentType`; text-like types are decoded
  *   here and follow `indexOrEnqueue` like pasted text, binary types are left `content: null` and a
- *   `document.convert` job runs `convertAndIndexDocument` (Workers AI `toMarkdown` → the same
+ *   `document.convert` job runs `convertAndIndexDocument` (the platform converter → the same
  *   `indexDocument`).
  *
  * Indexing = `resolveEmbeddings` → embed in batches of `EMBED_BATCH_SIZE` → replace the document's
@@ -31,10 +31,17 @@ import type { AppConfig } from '../../../config'
 import type { Database } from '../../../db/client'
 import { chunks, type DocumentRow, documentGroups, documents, files } from '../../../db/schema'
 import { traceEmbed } from '../../observability/context'
+import { ApiError } from '../../utils/core/errors'
 import { enqueueJob, type JobsQueue } from '../jobs'
 import { deleteStoredFile, type StorageService, storeUploadedFile } from '../storage'
 import { chunkText, type TextChunk } from './chunking'
-import { ConversionFailedError, canConvert, convertToText, decodeText } from './convert'
+import {
+  ConversionFailedError,
+  canConvert,
+  converterSupports,
+  convertToText,
+  decodeText,
+} from './convert'
 import { normalizeAiError, redactSecrets } from './errors'
 import { type ResolvedEmbeddings, resolveEmbeddings } from './resolve'
 import type { AiEnv } from './types'
@@ -77,9 +84,25 @@ export interface IngestDeps {
 export class ConversionNotConfiguredError extends Error {
   constructor() {
     super(
-      'Document conversion is not configured: binary uploads need the `[ai]` binding (Workers AI Markdown Conversion)'
+      'Document conversion is not configured: binary uploads need a document converter on the platform'
     )
     this.name = 'ConversionNotConfiguredError'
+  }
+}
+
+/**
+ * A `convert`-kind upload this platform's converter does not declare (`DocumentConverter
+ * .contentTypes`): refused before anything is stored, rather than accepted and failed by the job.
+ */
+export class UnsupportedConversionTypeError extends ApiError {
+  constructor(contentType: string, filename: string | null) {
+    super(
+      415,
+      `This server cannot convert ${contentType} files; upload a PDF, Word, HTML, XML, CSV, JSON, Markdown or text file`,
+      'unsupported_media_type',
+      { contentType, filename }
+    )
+    this.name = 'UnsupportedConversionTypeError'
   }
 }
 
@@ -456,7 +479,12 @@ export async function ingestFile(
   deps: IngestFileDeps
 ): Promise<IngestResult> {
   const embeddings = await resolveEmbeddings(db, cfg, env, input.tenantId)
-  if (input.type.kind === 'convert' && !canConvert(env)) throw new ConversionNotConfiguredError()
+  if (input.type.kind === 'convert') {
+    if (!canConvert(env)) throw new ConversionNotConfiguredError()
+    if (!converterSupports(env, input.type.contentType)) {
+      throw new UnsupportedConversionTypeError(input.type.contentType, input.filename)
+    }
+  }
 
   const stored = await storeUploadedFile(db, deps.storage, {
     tenantId: input.tenantId,

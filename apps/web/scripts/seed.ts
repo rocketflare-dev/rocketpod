@@ -29,7 +29,7 @@ import {
   summarizeTextOutputSchema,
 } from '@rocketpod/shared/ai/agents'
 import { type TokenUsage, tokenUsageSchema } from '@rocketpod/shared/ai/chat'
-import { type AiProvider, WORKERS_AI_CHAT_MODEL } from '@rocketpod/shared/ai/config'
+import { type AiProvider, DEFAULT_CHAT_MODELS } from '@rocketpod/shared/ai/config'
 import { estimateCostMicrocents } from '@rocketpod/shared/ai/pricing'
 import { and, count, eq, gt, isNull, sql } from 'drizzle-orm'
 import { databaseUrlTarget } from '../../../scripts/lib/bootstrap-lib.mjs'
@@ -280,6 +280,8 @@ const DEMO_TENANTS = [
 ] as const
 
 const CLAUDE_MODEL = 'claude-sonnet-4-5'
+/** The demo's OpenAI chat model — priced, so the Usage page shows costs for its rows. */
+const OPENAI_CHAT_MODEL = DEFAULT_CHAT_MODELS.openai ?? 'gpt-4.1-mini'
 
 // ---- Knowledge base -----------------------------------------------------------------------------
 
@@ -881,8 +883,8 @@ const DEMO_CONVERSATIONS: DemoConversation[] = [
   {
     key: 'rotterdam-lane',
     title: 'Late deliveries on the Rotterdam lane',
-    provider: 'workers_ai',
-    model: WORKERS_AI_CHAT_MODEL,
+    provider: 'openai',
+    model: OPENAI_CHAT_MODEL,
     startedDaysAgo: 3,
     turns: [
       {
@@ -1632,7 +1634,7 @@ Before release, the export coordinator runs the pre-departure checklist — a ve
   log(`  events  ${activity.length} activity events over the last 14 days`)
 
   // -- AI usage ledger ---------------------------------------------------------------------------
-  const LLAMA = { provider: 'workers_ai' as const, model: WORKERS_AI_CHAT_MODEL }
+  const GPT = { provider: 'openai' as const, model: OPENAI_CHAT_MODEL }
   const CLAUDE = { provider: 'anthropic' as const, model: CLAUDE_MODEL }
   const usageRows: Array<{
     feature: string
@@ -1644,14 +1646,14 @@ Before release, the export coordinator runs the pre-departure checklist — a ve
   }> = [
     {
       feature: 'chat',
-      ...LLAMA,
+      ...GPT,
       usage: { inputTokens: 1120, outputTokens: 240 },
       daysAgo: 13,
       hour: 10,
     },
     {
       feature: 'chat',
-      ...LLAMA,
+      ...GPT,
       usage: { inputTokens: 1860, outputTokens: 310 },
       daysAgo: 12,
       hour: 15,
@@ -1665,7 +1667,7 @@ Before release, the export coordinator runs the pre-departure checklist — a ve
     },
     {
       feature: 'agent:summarize-text',
-      ...LLAMA,
+      ...GPT,
       usage: { inputTokens: 1710, outputTokens: 360 },
       daysAgo: 10,
       hour: 11,
@@ -1679,14 +1681,14 @@ Before release, the export coordinator runs the pre-departure checklist — a ve
     },
     {
       feature: 'agent:research-topic',
-      ...LLAMA,
+      ...GPT,
       usage: { inputTokens: 6420, outputTokens: 910 },
       daysAgo: 8,
       hour: 14,
     },
     {
       feature: 'chat',
-      ...LLAMA,
+      ...GPT,
       usage: { inputTokens: 2210, outputTokens: 355 },
       daysAgo: 7,
       hour: 10,
@@ -1714,28 +1716,28 @@ Before release, the export coordinator runs the pre-departure checklist — a ve
     },
     {
       feature: 'agent:summarize-text',
-      ...LLAMA,
+      ...GPT,
       usage: { inputTokens: 1745, outputTokens: 342 },
       daysAgo: 4,
       hour: 3,
     },
     {
       feature: 'chat',
-      ...LLAMA,
+      ...GPT,
       usage: { inputTokens: 412, outputTokens: 221 },
       daysAgo: 3,
       hour: 5,
     },
     {
       feature: 'chat',
-      ...LLAMA,
+      ...GPT,
       usage: { inputTokens: 701, outputTokens: 168 },
       daysAgo: 3,
       hour: 5,
     },
     {
       feature: 'agent:research-topic',
-      ...LLAMA,
+      ...GPT,
       usage: { inputTokens: 5880, outputTokens: 864 },
       daysAgo: 2,
       hour: 6,

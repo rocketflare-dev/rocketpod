@@ -55,7 +55,7 @@ describe('skill directories', () => {
     expect(skillDirProblem('orders', 'orders-admin')).toBeNull()
     expect(skillDirProblem('orders', 'order')).toMatch(/not namespaced/)
     expect(skillDirProblem('orders', 'ordersx')).toMatch(/not namespaced/)
-    expect(skillDirProblem('orders', 'rf-plugin')).toMatch(/not namespaced/)
+    expect(skillDirProblem('orders', 'rp-plugin')).toMatch(/not namespaced/)
     expect(skillDirProblem('orders', 'Orders')).toMatch(/must be a directory name/)
     expect(skillDirProblem('orders', 42)).toMatch(/must be a directory name/)
   })
@@ -128,7 +128,7 @@ describe('SKILL.md frontmatter', () => {
 describe('undeclared skill directories', () => {
   it("are the ones in a plugin's namespace that it does not declare", () => {
     expect(
-      undeclaredSkillDirs('orders', ['orders'], ['orders', 'orders-extra', 'rf-plugin', 'other'])
+      undeclaredSkillDirs('orders', ['orders'], ['orders', 'orders-extra', 'rp-plugin', 'other'])
     ).toEqual(['orders-extra'])
   })
 
@@ -151,7 +151,7 @@ describe('the manifest field', () => {
     expect(skillProblems(['orders', 'orders-admin'])).toEqual([])
     expect(skillProblems(undefined)).toEqual([])
     expect(skillProblems('orders')[0].problem).toMatch(/array of strings/)
-    expect(skillProblems(['rf-plugin'])[0].problem).toMatch(/not namespaced/)
+    expect(skillProblems(['rp-plugin'])[0].problem).toMatch(/not namespaced/)
     expect(skillProblems(['orders', 'orders'])[0].problem).toMatch(/twice/)
   })
 
@@ -215,7 +215,7 @@ const write = (root: string, rel: string, text: string) => {
 
 /**
  * A host the script can write to: this checkout's `scripts/`, its ledger, its barrels, the kit's
- * own `rf-plugin` skill (so a collision with a kit skill is real), and a `.rocketflare.json` for an
+ * own `rp-plugin` skill (so a collision with a kit skill is real), and a `.rocketflare.json` for an
  * app called Acme with no plugin surfaces — a vendored plugin's files are not copied, so recording
  * it would make every `check` fail on its missing anchor.
  */
@@ -239,7 +239,7 @@ function makeHost({
   for (const rel of [
     'package.json',
     'docs/plugin-api.md',
-    '.claude/skills/rf-plugin/SKILL.md',
+    '.claude/skills/rp-plugin/SKILL.md',
     ...Object.values(BARRELS).map(b => b.file),
     'apps/web/package.json',
     'apps/cli/package.json',
@@ -452,23 +452,23 @@ describe('pnpm plugin, with skills, end to end', () => {
       ])
     )
     // The kit's own skills are nobody's plugin's.
-    expect(ids.some(i => i.includes('rf-plugin'))).toBe(false)
+    expect(ids.some(i => i.includes('rp-plugin'))).toBe(false)
   })
 
   it('refuses a skill directory that already exists — the kit’s or anyone else’s', () => {
     const host = makeHost()
-    // `rf` is a legal id and `rf-plugin` is in its namespace, so only the collision stops it.
+    // `rp` is a legal id and `rp-plugin` is in its namespace, so only the collision stops it.
     const kitClash = run(host, [
       'add',
-      makePlugin({ id: 'rf', skills: ['rf-plugin'] }),
+      makePlugin({ id: 'rp', skills: ['rp-plugin'] }),
       '--local',
       '--apply',
       '--allow-dirty',
     ])
     expect(kitClash.status).toBe(7)
-    expect(kitClash.out).toContain('.claude/skills/rf-plugin/')
-    expect(readFileSync(path.join(host, '.claude/skills/rf-plugin/SKILL.md'), 'utf8')).toBe(
-      readFileSync(path.join(REPO_ROOT, '.claude/skills/rf-plugin/SKILL.md'), 'utf8')
+    expect(kitClash.out).toContain('.claude/skills/rp-plugin/')
+    expect(readFileSync(path.join(host, '.claude/skills/rp-plugin/SKILL.md'), 'utf8')).toBe(
+      readFileSync(path.join(REPO_ROOT, '.claude/skills/rp-plugin/SKILL.md'), 'utf8')
     )
 
     write(host, '.claude/skills/orders/SKILL.md', skillMd('orders'))

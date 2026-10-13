@@ -25,7 +25,7 @@ Engine and add your user to the `docker` group. Confirm the tool works, then car
 
 ## Part 1 — First run (local) `[ready]`
 
-> **The short way.** `bash scripts/bootstrap.sh` (or `/rf-setup` in Claude Code; `pnpm bootstrap` once
+> **The short way.** `bash scripts/bootstrap.sh` (or `/rp-setup` in Claude Code; `pnpm bootstrap` once
 > Node and pnpm exist) does 1.1–1.7 in one go — ten steps, one `✔ n/10 <name> <what it verified>`
 > line each, a `✖` line plus a `fix:` hint on the first failure — and ends with the browser open at
 > `http://localhost:3000/login?as=owner@example.test`. macOS or Linux (Windows: WSL2). Re-runnable on
@@ -162,7 +162,7 @@ the kit today, so the bootstrap step reports `no defaultPlugins declared — not
 
 A plugin ships **no migration**: the host runs `pnpm db:generate`; a cron it registers is scheduled
 by the worker, and a var it declares goes into `.env.example`. A plugin declaring Cloudflare
-`bindings` is refused. `/rf-plugin` drives all of it and always shows the plan before anything is written.
+`bindings` is refused. `/rp-plugin` drives all of it and always shows the plan before anything is written.
 
 ### 1.5 Seed
 ```bash
@@ -241,7 +241,7 @@ as the CLI.
 ### 1.7 CLI first run
 The bootstrap already did this once: its `8/9 cli` step ran `pnpm cli whoami` with the seed's
 one-time key (first run only — a re-run finds the key exists and skips; not with `--no-dev`, which
-`/rf-setup` uses — run `pnpm cli login` yourself then). To use the CLI yourself, with `pnpm dev` still
+`/rp-setup` uses — run `pnpm cli login` yourself then). To use the CLI yourself, with `pnpm dev` still
 running, in a second terminal:
 ```bash
 pnpm cli login --server http://localhost:3001   # opens the browser; sign in, pick the tenant
@@ -545,7 +545,7 @@ origin or a deployed host. It is an ordinary Bearer key: every query it makes is
 tenant by the cubes and it is revoked in the same place. Verify: the CLI's `meta` lists
 `ActivityEvents`, `TenantActivityDaily`, `TenantUsers`, `Users`.
 
-Writing one of your own: `/rf-plugin`, or `apps/web/src/plugins/CLAUDE.md` and
+Writing one of your own: `/rp-plugin`, or `apps/web/src/plugins/CLAUDE.md` and
 `apps/web/src/plugins/example-feature/` — the vendored reference plugin, which exists to be read
 and then deleted.
 

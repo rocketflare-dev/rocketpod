@@ -7,7 +7,7 @@
  */
 import type { TokenUsage } from '@rocketpod/shared/ai/chat'
 import type { AiProvider, ThinkingSetting } from '@rocketpod/shared/ai/config'
-import type { DocumentConverter, PlatformAi } from '../../../platform/types'
+import type { DocumentConverter } from '../../../platform/types'
 
 export type ContentBlock =
   | { type: 'text'; text: string }
@@ -94,17 +94,10 @@ export interface RequestDefaults {
 export type { MarkdownConversion, MarkdownDocumentInput } from '../../../platform/types'
 
 /**
- * The platform's model runner (`src/platform/types.ts` `PlatformAi`; Workers AI on the Worker,
- * `RecordingAi` in tests): `run` for the embeddings/chat adapters, `toMarkdown` for conversion.
- */
-export type WorkersAiBinding = PlatformAi
-
-/**
  * What the AI services read from the platform (`Platform` satisfies it). Optional: an install with
- * no model runner still chats on a provider key, and one with no converter indexes text uploads.
+ * no converter still indexes text uploads.
  */
 export interface AiEnv {
-  readonly ai?: PlatformAi | null
   readonly converter?: DocumentConverter | null
 }
 

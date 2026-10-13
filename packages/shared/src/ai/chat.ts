@@ -6,7 +6,7 @@
  */
 import { z } from 'zod'
 import { paginationQuerySchema } from '../pagination'
-import { aiProviderSchema } from './config'
+import { aiProviderSchema, recordedAiProviderSchema } from './config'
 
 export const chatRoleSchema = z.enum(['user', 'assistant', 'system', 'tool'])
 export type ChatRole = z.infer<typeof chatRoleSchema>
@@ -35,7 +35,7 @@ export const conversationSchema = z.object({
   tenantId: z.string().uuid(),
   userId: z.string().uuid(),
   title: z.string(),
-  provider: aiProviderSchema,
+  provider: recordedAiProviderSchema,
   model: z.string(),
   createdAt: z.coerce.date(),
   updatedAt: z.coerce.date(),
@@ -51,7 +51,7 @@ export const messageSchema = z.object({
   toolCalls: z.array(toolCallRecordSchema).nullable().optional(),
   usage: tokenUsageSchema.nullable().optional(),
   /** What answered this turn. Null on a user row, and on assistant rows written before 0.2. */
-  provider: aiProviderSchema.nullable().optional(),
+  provider: recordedAiProviderSchema.nullable().optional(),
   model: z.string().nullable().optional(),
   createdAt: z.coerce.date(),
 })
@@ -123,7 +123,7 @@ export const CHAT_COMPACTION_MIN_CHARS = 2_000
 
 /** One model's share of a thread. A thread is not pinned to a model, so there may be several. */
 export const conversationModelUsageSchema = z.object({
-  provider: aiProviderSchema.nullable(),
+  provider: recordedAiProviderSchema.nullable(),
   model: z.string().nullable(),
   turns: z.number().int().nonnegative(),
   usage: tokenUsageSchema,

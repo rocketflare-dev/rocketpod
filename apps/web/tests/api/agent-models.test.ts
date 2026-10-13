@@ -10,7 +10,7 @@ import {
   agentModelAssignmentSchema,
   agentModelsListResponseSchema,
 } from '@rocketpod/shared/ai/agent-models'
-import { aiConfigSchema, WORKERS_AI_CHAT_MODEL } from '@rocketpod/shared/ai/config'
+import { aiConfigSchema } from '@rocketpod/shared/ai/config'
 import { describe, expect, it } from 'vitest'
 import { resolveChat } from '@/api/services/ai/resolve'
 import { loadConfig } from '@/config'
@@ -23,7 +23,7 @@ import {
 } from '../helpers/auth'
 import { setupTestDatabase } from '../helpers/db'
 import { json, request } from '../helpers/request'
-import { createTestEnv } from '../mocks/bindings'
+import { createTestEnv, FAKE_CHAT_MODEL } from '../mocks/bindings'
 
 const db = setupTestDatabase()
 const env = createTestEnv({ ANTHROPIC_API_KEY: '' })
@@ -186,11 +186,12 @@ describe('/api/ai/agent-models', () => {
       })
     ).toMatchObject({ source: 'agent', provider: 'anthropic', model: 'claude-opus-4-1' })
     items = (await list(a.cookie)).items
-    // No key and no row, but the test env carries the AI binding: the Workers AI floor answers.
+    // No Anthropic key and no row, but the test env carries the platform OpenAI-compatible keys
+    // (the fake model endpoint): that tier answers.
     expect(items.find(i => i.promptKey === 'chat')?.effective).toEqual({
       source: 'platform',
-      provider: 'workers_ai',
-      model: WORKERS_AI_CHAT_MODEL,
+      provider: 'openai_compatible',
+      model: FAKE_CHAT_MODEL,
     })
   })
 

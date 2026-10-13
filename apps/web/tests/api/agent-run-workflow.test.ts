@@ -45,7 +45,7 @@ import { agentRunEffects, agentRuns, aiSpans, aiUsage, chunks, documents } from 
 import { FakeChatClient, type FakeScript } from '../helpers/ai'
 import { createTestTenantWithUser } from '../helpers/auth'
 import { setupTestDatabase } from '../helpers/db'
-import { createTestEnv, stubs, type TestEnv } from '../mocks/bindings'
+import { createTestEnv, FAKE_EMBEDDINGS_MODEL, stubs, type TestEnv } from '../mocks/bindings'
 import { createFakeStep, type FakeStepOptions } from '../mocks/step'
 
 const state: { client: ChatClient | null } = { client: null }
@@ -376,7 +376,7 @@ describe('the agent run (runAgentRun)', () => {
       source: 'agent:summarize-text',
       status: 'indexed',
       chunkCount: 1,
-      embeddingModel: '@cf/baai/bge-m3',
+      embeddingModel: FAKE_EMBEDDINGS_MODEL,
     })
     expect(
       await db

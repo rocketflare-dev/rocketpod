@@ -801,7 +801,7 @@ describe('scripts/plugin.mjs, end to end', () => {
   it.skipIf(!subject)(
     'exports a plugin, adds it back under a fresh id, and writes nothing without --apply',
     () => {
-      const dir = mkdtempSync(path.join(tmpdir(), 'rf-plugin-'))
+      const dir = mkdtempSync(path.join(tmpdir(), 'rp-plugin-'))
       try {
         expect(plugin(['export', subject as string, dir]).status).toBe(0)
         expect(existsSync(path.join(dir, PLUGIN_MANIFEST_FILE))).toBe(true)
@@ -858,7 +858,7 @@ describe('scripts/plugin.mjs, end to end', () => {
   )
 
   it.skipIf(!subject)('refuses to add a plugin that is already installed, by id', () => {
-    const dir = mkdtempSync(path.join(tmpdir(), 'rf-plugin-'))
+    const dir = mkdtempSync(path.join(tmpdir(), 'rp-plugin-'))
     try {
       expect(plugin(['export', subject as string, dir]).status).toBe(0)
       const again = plugin(['add', dir, '--local'])
@@ -870,7 +870,7 @@ describe('scripts/plugin.mjs, end to end', () => {
   })
 
   it('refuses a source with no plugin manifest', () => {
-    const dir = mkdtempSync(path.join(tmpdir(), 'rf-plugin-'))
+    const dir = mkdtempSync(path.join(tmpdir(), 'rp-plugin-'))
     try {
       const r = plugin(['add', dir])
       expect(r.status).toBe(5)

@@ -90,7 +90,7 @@
   },
   "upgrade": {
     "command": "pnpm kit:upgrade --to {to} --apply",
-    "skill": ".claude/skills/rf-upgrade/SKILL.md",
+    "skill": ".claude/skills/rp-upgrade/SKILL.md",
     "notes": "docs/upgrades/{version}.md",
     "doneMarker": "LAUNCH-UPGRADE:"
   },

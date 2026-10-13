@@ -229,8 +229,8 @@ export const EXCLUDED_PATHS = Object.freeze([
   'scripts/rename.mjs', // the tool must keep working after it has run
   'scripts/lib/rename-lib.mjs',
   'scripts/lib/rename-lib.d.mts',
-  '.claude/skills/rf-adapt/SKILL.md', // the skill that drives this tool — written in the kit's terms
-  '.claude/skills/rf-adapt/checklist.md',
+  '.claude/skills/rp-adapt/SKILL.md', // the skill that drives this tool — written in the kit's terms
+  '.claude/skills/rp-adapt/checklist.md',
   // The provenance file names the KIT, not the app: its repo URL, version and surface manifest
   // must survive verbatim or `pnpm kit:upgrade` loses the thing it descends from. `rename.mjs`
   // writes its `app` block itself, at the end of the pass.
@@ -250,13 +250,13 @@ export const EXCLUDED_PATHS = Object.freeze([
 /**
  * Excluded whole directories, matched by prefix. `docs/upgrades/` holds the kit's release notes —
  * an app accumulates them verbatim as a record of what it has absorbed, so they keep talking about
- * the kit's names. `.claude/skills/rf-upgrade/` drives the tool and names its files literally.
+ * the kit's names. `.claude/skills/rp-upgrade/` drives the tool and names its files literally.
  * `apps/web/tests/kit-only/` is the kit's OWN tests (`kitOnly` in `.rocketflare.json`): they assert
  * on the kit's token strings, and `scripts/rename.mjs` deletes them before the pass anyway.
  */
 export const EXCLUDED_PREFIXES = Object.freeze([
   'docs/upgrades/',
-  '.claude/skills/rf-upgrade/',
+  '.claude/skills/rp-upgrade/',
   'apps/web/tests/kit-only/',
 ])
 

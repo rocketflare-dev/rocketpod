@@ -78,7 +78,7 @@ A pnpm workspace; `CLAUDE.md` is the map and every significant directory has its
   `lib/`; and the upgrade path: `upgrade.mjs`, `release.mjs`, `release-check.mjs`
 - 📂 `.claude/rules/` — layer conventions (api, database, ui, cli, testing, code-quality,
   cloudflare), loaded by path when you or a coding agent touch that layer; `.claude/skills/` — the
-  `/rf-setup`, `/rf-preflight`, `/rf-adapt`, `/rf-provision` and `/rf-upgrade` slash commands
+  `/rp-setup`, `/rp-preflight`, `/rp-adapt`, `/rp-deploy` and `/rp-upgrade` slash commands
 
 ### <a name="what-a-change-must-include"></a> What a change must include
 
@@ -87,7 +87,7 @@ The repo's **non-negotiables** are listed in `CLAUDE.md`; the ones contributors 
 - **The gate is green**: `pnpm gate` before every commit (it starts the test database itself).
   `typecheck` regenerates `apps/web/worker-configuration.d.ts` — commit it if it changed.
 - **A behaviour change adds an entry to `docs/upgrades/unreleased.md`.** People are running copies
-  of this kit that were detached and renamed; they absorb your change by running `/rf-upgrade`,
+  of this kit that were detached and renamed; they absorb your change by running `/rp-upgrade`,
   which is guided by those notes. A change with no note never reaches them. `docs/upgrades/README.md`
   has the shape, and CI fails a pull request that touches `apps/**` or `packages/**` without one.
 - **Never rewrite released history.** Every copy pins a kit commit in its `.rocketflare.json`; a

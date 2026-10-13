@@ -49,7 +49,7 @@ export const documentIndexPayloadSchema = z.object({
 })
 export type DocumentIndexPayload = z.infer<typeof documentIndexPayloadSchema>
 
-/** Convert an uploaded file (R2 original → text via Workers AI `toMarkdown`) then index it (D18). */
+/** Convert an uploaded file (stored original → text via the platform converter) then index it (D18). */
 export const documentConvertPayloadSchema = z.object({
   tenantId: z.string().uuid(),
   documentId: z.string().uuid(),

@@ -18,7 +18,7 @@ import { chunks, documents } from '@/db/schema'
 import type { JobBatch } from '@/platform/types'
 import { createTestTenantWithUser } from '../helpers/auth'
 import { setupTestDatabase } from '../helpers/db'
-import { createTestEnv, stubs, type TestEnv } from '../mocks/bindings'
+import { createTestEnv, FAKE_EMBEDDINGS_MODEL, stubs, type TestEnv } from '../mocks/bindings'
 
 const db = setupTestDatabase()
 
@@ -113,7 +113,11 @@ describe('document.convert', () => {
       { name: file.filename, type: 'application/pdf', size: file.sizeBytes },
     ])
     const row = await rowOf(doc.id)
-    expect(row).toMatchObject({ status: 'indexed', embeddingModel: '@cf/baai/bge-m3', error: null })
+    expect(row).toMatchObject({
+      status: 'indexed',
+      embeddingModel: FAKE_EMBEDDINGS_MODEL,
+      error: null,
+    })
     expect(row?.content).toContain('# report.pdf')
     expect(row?.content).toContain('The volcano erupted.')
     expect(row?.chunkCount).toBeGreaterThan(0)

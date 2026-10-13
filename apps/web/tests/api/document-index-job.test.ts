@@ -13,7 +13,7 @@ import { chunks, documents } from '@/db/schema'
 import type { JobBatch } from '@/platform/types'
 import { createTestTenantWithUser } from '../helpers/auth'
 import { setupTestDatabase } from '../helpers/db'
-import { createTestEnv, stubs } from '../mocks/bindings'
+import { createTestEnv, FAKE_EMBEDDINGS_MODEL, stubs } from '../mocks/bindings'
 
 const db = setupTestDatabase()
 
@@ -79,7 +79,11 @@ describe('document.index', () => {
     expect(msg.retry).not.toHaveBeenCalled()
     expect(close).toHaveBeenCalledTimes(1)
     const [row] = await db.select().from(documents).where(eq(documents.id, doc.id))
-    expect(row).toMatchObject({ status: 'indexed', embeddingModel: '@cf/baai/bge-m3', error: null })
+    expect(row).toMatchObject({
+      status: 'indexed',
+      embeddingModel: FAKE_EMBEDDINGS_MODEL,
+      error: null,
+    })
     expect(row?.chunkCount).toBeGreaterThan(1)
     const pieces = await db
       .select()

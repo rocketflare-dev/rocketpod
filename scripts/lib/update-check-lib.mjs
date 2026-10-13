@@ -118,7 +118,7 @@ export function updateMessage({ current, latest, summaries }) {
   const unlisted = summaries.length - listed.length
   if (unlisted > 0) lines.push(`- …and ${unlisted} earlier release(s).`)
   lines.push(
-    'Tell the user this ONCE, in one or two sentences, at the start of your first reply — then carry on with what they asked. Suggest `/rf-upgrade` to see what applies to this app (it plans before it changes anything). Do not start an upgrade unless they ask. To silence this check: ROCKETPOD_UPDATE_CHECK=0.'
+    'Tell the user this ONCE, in one or two sentences, at the start of your first reply — then carry on with what they asked. Suggest `/rp-upgrade` to see what applies to this app (it plans before it changes anything). Do not start an upgrade unless they ask. To silence this check: ROCKETPOD_UPDATE_CHECK=0.'
   )
   return lines.join('\n')
 }

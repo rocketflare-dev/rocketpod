@@ -44,7 +44,7 @@ const SCOPES: { scope: AiScope; title: string; description: string }[] = [
   {
     scope: 'embeddings',
     title: 'Embedding providers',
-    description: 'Turn text into vectors for search. Workers AI needs no key.',
+    description: 'Turn text into vectors for search (1024 dimensions).',
   },
   {
     scope: 'decisions',

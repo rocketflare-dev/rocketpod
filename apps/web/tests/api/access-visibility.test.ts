@@ -33,24 +33,22 @@ import {
 } from '../helpers/auth'
 import { setupTestDatabase } from '../helpers/db'
 import { json, request } from '../helpers/request'
-import { createTestEnv, type TestEnv } from '../mocks/bindings'
+import { createTestEnv, RecordingAi, type TestEnv } from '../mocks/bindings'
 
 const db = setupTestDatabase()
 
 /** Deterministic vectors keyed on a word, so the dense half is exercised rather than mocked away. */
 function keywordEnv(): TestEnv {
-  return createTestEnv({
-    ai: {
-      run: async (_model: string, inputs: { text?: string[] }) => ({
-        data: (inputs.text ?? ['']).map(text => {
-          const vector = new Array(1024).fill(0)
-          vector[0] = text.toLowerCase().includes('payroll') ? 1 : 0
-          vector[1] = 1
-          return vector
-        }),
-      }),
-    } as unknown as TestEnv['ai'],
+  const ai = new RecordingAi()
+  ai.respond = (_model, inputs) => ({
+    data: ((inputs.text as string[] | undefined) ?? ['']).map(text => {
+      const vector = new Array(1024).fill(0)
+      vector[0] = text.toLowerCase().includes('payroll') ? 1 : 0
+      vector[1] = 1
+      return vector
+    }),
   })
+  return createTestEnv({ ai })
 }
 
 interface Reader {

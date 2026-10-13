@@ -28,7 +28,7 @@ endpoint), locally as well as deployed.
   costs, and that seam is one file (`apps/web/src/db/client.ts`). This one would be every binding.
 - **A fork, but not a clean-room one.** Phase 1 (§4) lands in the **kit**. It makes the seams
   platform-neutral so that no Cloudflare type escapes them. The fork then replaces adapters and the
-  entry point, and keeps every interface name. That is what keeps `/rf-upgrade` working: a later
+  entry point, and keeps every interface name. That is what keeps `/rp-upgrade` working: a later
   kit release that touches routes, services, the UI or the CLI ports into the fork just as it ports
   into any copy. A release aimed at tomls, provisioning or Durable Objects lands on a surface the
   fork deleted, and the manifest already knows to skip those (§6).
@@ -306,11 +306,11 @@ stays engine-neutral:
   - SETUP 1.3–1.10, 2.5 and Part 3
   - DEPLOY
   - `.claude/rules/cloudflare.md` → `runtime.md`, plus the wrangler mentions in `api.md`, `database.md`, `testing.md`, `ui.md` and `code-quality.md`
-  - the skills `rf-preflight`, `rf-setup`, `rf-adapt` (+ checklist), `rf-plugin` and `rf-upgrade/porting.md`
+  - the skills `rp-preflight`, `rp-setup`, `rp-adapt` (+ checklist), `rp-plugin` and `rp-upgrade/porting.md`
   - CLAUDE.md
   - Released `docs/upgrades/*` notes are never rewritten.
 - **Upgrades:** `.rocketflare.json` keeps tracking the kit commit. The deleted Cloudflare surfaces
-  are recorded as removed, so `/rf-upgrade` skips their anchors, and toml changes stay in the
+  are recorded as removed, so `/rp-upgrade` skips their anchors, and toml changes stay in the
   manual bucket that `scripts/lib/upgrade-lib.mjs` already has. The fork has its own version line.
 
 ## 7. Decisions and risks
@@ -362,5 +362,5 @@ stays engine-neutral:
   connected to the other replica.
 - **k8s (kind + Helm):** the migrate Job runs once; the daily cron fires once with three `worker`
   replicas; a rolling restart drops no jobs (SIGTERM drain).
-- **Upgrades:** `/rf-upgrade` against the next kit release skips the deleted Cloudflare surfaces
+- **Upgrades:** `/rp-upgrade` against the next kit release skips the deleted Cloudflare surfaces
   and ports the rest.

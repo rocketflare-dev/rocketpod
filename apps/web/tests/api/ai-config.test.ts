@@ -4,11 +4,7 @@
  * it inside the scope; delete; list never leaks a key; member 403 on writes / 200 on reads; 401
  * unauthenticated; tenant isolation; readiness tenant / platform / none; provider validation 400s.
  */
-import {
-  aiConfigSchema,
-  aiReadinessSchema,
-  WORKERS_AI_CHAT_MODEL,
-} from '@rocketpod/shared/ai/config'
+import { aiConfigSchema, aiReadinessSchema } from '@rocketpod/shared/ai/config'
 import { and, eq } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
 import { decrypt } from '@/api/auth/oauth-encryption'
@@ -24,7 +20,7 @@ import {
 } from '../helpers/auth'
 import { setupTestDatabase } from '../helpers/db'
 import { json, request } from '../helpers/request'
-import { createTestEnv } from '../mocks/bindings'
+import { createTestEnv, FAKE_CHAT_MODEL, FAKE_EMBEDDINGS_MODEL } from '../mocks/bindings'
 
 const db = setupTestDatabase()
 
@@ -160,14 +156,16 @@ describe('POST /api/ai/config', () => {
             json: {
               scope: 'embeddings',
               label: 'Vectors',
-              provider: 'workers_ai',
-              model: '@cf/baai/bge-m3',
+              provider: 'openai_compatible',
+              baseUrl: 'https://embeddings.example.test/v1',
+              model: 'bge-m3',
+              apiKey: 'sk-embeddings-0123456789abcdef',
             },
           }
         )
       )
     )
-    expect(emb).toMatchObject({ scope: 'embeddings', isDefault: true, hasCredential: false })
+    expect(emb).toMatchObject({ scope: 'embeddings', isDefault: true, hasCredential: true })
   })
 
   it('typesafe serves the decisions scope only, and decisions takes nothing else (D37)', async () => {
@@ -325,7 +323,11 @@ describe('GET /api/ai/config + DELETE', () => {
       defaultMaxOutputTokens: number
     }>(await request('/api/ai/config/providers', { headers: a.cookie }))
     expect(body.defaultMaxOutputTokens).toBe(16384)
-    expect(body.items.find(p => p.id === 'workers_ai')?.scopes).toEqual(['chat', 'embeddings'])
+    expect(body.items.find(p => p.id === 'openai_compatible')?.scopes).toEqual([
+      'chat',
+      'embeddings',
+    ])
+    expect(body.items.find(p => p.id === 'workers_ai')).toBeUndefined()
     expect(body.items.find(p => p.id === 'anthropic_compatible')?.presets.length).toBeGreaterThan(0)
   })
 })
@@ -368,7 +370,7 @@ describe('GET /api/ai/config/readiness', () => {
       model: 'claude-sonnet-4-5',
     })
 
-    // The AI binding makes BOTH scopes ready with no key at all (chat = the Workers AI floor).
+    // The test env's platform keys (the fake model endpoint) make BOTH scopes ready.
     r = aiReadinessSchema.parse(
       await json(
         await request(
@@ -381,14 +383,14 @@ describe('GET /api/ai/config/readiness', () => {
     expect(r.embeddings).toEqual({
       ready: true,
       source: 'platform',
-      provider: 'workers_ai',
-      model: '@cf/baai/bge-m3',
+      provider: 'openai_compatible',
+      model: FAKE_EMBEDDINGS_MODEL,
     })
     expect(r.chat).toEqual({
       ready: true,
       source: 'platform',
-      provider: 'workers_ai',
-      model: WORKERS_AI_CHAT_MODEL,
+      provider: 'openai_compatible',
+      model: FAKE_CHAT_MODEL,
     })
 
     await request(

@@ -27,7 +27,7 @@ The detailed adapter design already exists in `docs/SELF-HOSTED.md` (untracked i
 - npm: the CLI publishes under its own name (`rocketpod` / `@rocketpod/cli`, both free), with its own
   release workflow. `@rocketpod/shared` stays private, as shared is in the kit.
 - `gh repo create rocketflare-dev/rocketpod --private` happens only when you say so (M0 commits locally).
-- The rename uses rocketflare's own `scripts/rename.mjs` (`/rf-adapt rocketpod`). It produces the
+- The rename uses rocketflare's own `scripts/rename.mjs` (`/rp-adapt rocketpod`). It produces the
   `@rocketpod/*` scope, the CLI bin `rocketpod`, the `~/.rocketpod/config.json` config path and
   the DB names.
 - Copy `docs/SELF-HOSTED.md` into the fork as `docs/DESIGN-SELFHOSTED.md`, the design of record. Remove
@@ -40,7 +40,7 @@ The detailed adapter design already exists in `docs/SELF-HOSTED.md` (untracked i
 - Delete the upgrade and release machinery that only makes sense for a kit:
   - `.rocketflare.json`, `scripts/upgrade.mjs`, `scripts/kit-update-check.mjs`
   - the release-site nudge and `docs/upgrades/*`
-  - the `rf-upgrade` skill
+  - the `rp-upgrade` skill
   - the `kit-only` vitest project
 - Keep `scripts/release*.mjs` and a fresh `CHANGELOG.md` for Rocketpod's own versioning.
 - `launch.kit.json` and `kit-check.mjs` go if you're not shipping Rocketpod as a Launch kit (to confirm).
@@ -169,7 +169,7 @@ version, and keep the adapter thin enough that either the engine or the fallback
 ### M6. Storage, small adapters and AI (3–4 d)
 
 **Status: done (2026-10-12).** `apps/web/src/node/storage.ts` (S3), `limits.ts` (rate limits and
-locks over `rate_limits`/`operation_locks`, migration `0018_kit-platform-limits`), `converter.ts`
+locks over `rate_limits`/`operation_locks`, now part of the `0000_rocketpod-baseline` migration), `converter.ts`
 (`unpdf`, `mammoth`, HTML/XML/text); platform `AI_*` and `EMBEDDINGS_BASE_URL`/`EMBEDDINGS_MODEL`
 in `services/ai/resolve.ts`; `tests/api/node-platform-adapters.test.ts`. **Deviation:** MinIO's
 images are no longer pullable anonymously, so the dev and test compose files run the **Versity S3
@@ -227,11 +227,18 @@ to MinIO, AWS S3, R2 and GCS. Excel and OpenDocument uploads are not converted o
   and kubeconform (18 resources, k8s 1.30) only. `pnpm dev` already moved to Node in M6b.
 
 ### M8. Tooling, plugins, docs and skills (4–6 d, the long tail)
+
+Split in two. **M8a — done:** code and skills — the `workers_ai` provider removed (history rows stay
+readable through `RECORDED_AI_PROVIDERS`), the upload type gate (`DocumentConverter.contentTypes` →
+415), the `rp-*` skills and the new `rp-deploy`, `plugin check` green, and the drizzle chain squashed
+into `0000_rocketpod-baseline` + `0001_plugin-example-feature-0.1.0` (schema dump identical to the
+old 19-file chain, column order aside). **M8b — open:** the docs rewrite (the bullet below).
+
 - **Bootstrap:** remove the cloudflare step and the `--offline/--online` toggle; ask for an AI key instead.
 - **Provisioning:** delete `pnpm provision`, `cf-provision.sh`, `scripts/provision/*`, deployer and
   `cfld`, plus their `tests/config/*` tests.
 - **Skills:** replace `rf-provision` with a `rp-deploy` skill for Compose/Helm, values and a secrets
-  checklist. Rename the `rf-*` skills to `rp-*` and update `rf-setup`, `rf-preflight` and `rf-plugin`.
+  checklist. Rename the `rf-*` skills to `rp-*` and update `rp-setup`, `rp-preflight` and `rp-plugin`.
 - **Plugins (D31):** drop `bindings[]` and the toml writes in `scripts/plugin.mjs` and
   `scripts/lib/plugin-lib.mjs`. `crons` become pg-boss schedules and `vars` go to the ConfigMap. The
   analytics and example-feature plugins should install unchanged. `defaultPlugins` is empty from

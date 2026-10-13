@@ -2,10 +2,10 @@
  * The single read seam for "which AI client does this tenant get" (D17). Resolution order:
  *   chat:       tenant default `ai_configs(scope='chat')` → platform `ANTHROPIC_API_KEY` →
  *               platform `AI_API_KEY` (OpenAI-compatible at `AI_BASE_URL`, else OpenAI; model
- *               `AI_MODEL`) → `workers_ai` (`WORKERS_AI_CHAT_MODEL`) if `env.ai` (Worker only) → 503
- *   embeddings: tenant default `ai_configs(scope='embeddings')` → `workers_ai` if `env.ai`
- *               (Worker only) → `EMBEDDINGS_API_KEY` (OpenAI-compatible at `EMBEDDINGS_BASE_URL`,
- *               else OpenAI; model `EMBEDDINGS_MODEL`) → 503
+ *               `AI_MODEL`) → 503
+ *   embeddings: tenant default `ai_configs(scope='embeddings')` → `EMBEDDINGS_API_KEY`
+ *               (OpenAI-compatible at `EMBEDDINGS_BASE_URL`, else OpenAI; model
+ *               `EMBEDDINGS_MODEL`) → 503
  *   decisions:  tenant default `ai_configs(scope='decisions')` (TypeSafe) → platform
  *               `TYPESAFE_API_KEY` → the chat model on prompt key `agent-decide` (D37, the
  *               uncalibrated `llm_self_report` fallback) → 503 from `resolveChat`
@@ -25,11 +25,7 @@ import type {
   AiScope,
   AiScopeReadiness,
 } from '@rocketpod/shared/ai/config'
-import {
-  DEFAULT_CHAT_MODELS,
-  DEFAULT_MODELS,
-  WORKERS_AI_CHAT_MODEL,
-} from '@rocketpod/shared/ai/config'
+import { DEFAULT_CHAT_MODELS, DEFAULT_MODELS } from '@rocketpod/shared/ai/config'
 import type { DecisionMethod } from '@rocketpod/shared/ai/decisions'
 import type { PromptKey } from '@rocketpod/shared/ai/prompts'
 import { and, eq } from 'drizzle-orm'
@@ -160,7 +156,6 @@ export async function chatClientFromRow(
     apiKey: await credentialOf(row, cfg),
     baseUrl: row.baseUrl,
     defaults: { serviceTier: row.serviceTier, thinking: row.thinking },
-    ai: env.ai,
     fetch: fetchImpl,
   })
 }
@@ -216,8 +211,7 @@ export interface PlatformChat {
 /**
  * Platform order: the operator's `ANTHROPIC_API_KEY` (a deliberate choice) → the operator's
  * OpenAI-compatible `AI_API_KEY` (M6 — OpenRouter, vLLM, Ollama… at `AI_BASE_URL`; OpenAI itself
- * without one) → the `AI` binding (zero key, billed to the Cloudflare account; the Worker only) →
- * nothing. The ONE definition `resolveChat`, `readiness` and the agent-models list all read, so
+ * without one) → nothing. The ONE definition `resolveChat`, `readiness` and the agent-models list all read, so
  * the three can never disagree.
  */
 export function platformChat(cfg: AppConfig, env: AiEnv): PlatformChat | null {
@@ -230,16 +224,7 @@ export function platformChat(cfg: AppConfig, env: AiEnv): PlatformChat | null {
     }
   }
   const openAiCompatible = platformOpenAiChat(cfg)
-  if (openAiCompatible) return openAiCompatible
-  if (env.ai) {
-    const ai = env.ai
-    return {
-      provider: 'workers_ai',
-      model: WORKERS_AI_CHAT_MODEL,
-      build: () => createChatClient({ provider: 'workers_ai', ai }),
-    }
-  }
-  return null
+  return openAiCompatible
 }
 
 export async function embeddingsClientFromRow(
@@ -253,7 +238,6 @@ export async function embeddingsClientFromRow(
     model: row.model,
     apiKey: await credentialOf(row, cfg),
     baseUrl: row.baseUrl,
-    ai: env.ai,
     fetch: fetchImpl,
   })
 }
@@ -377,15 +361,6 @@ export async function resolveEmbeddings(
       configId: row.id,
     }
   }
-  if (env.ai) {
-    const model = DEFAULT_MODELS.workers_ai
-    return {
-      client: createEmbeddingsClient({ provider: 'workers_ai', model, ai: env.ai }),
-      provider: 'workers_ai',
-      model,
-      source: 'platform',
-    }
-  }
   const keyed = platformKeyEmbeddings(cfg)
   if (keyed) {
     return {
@@ -426,21 +401,14 @@ export async function readiness(
       : none
   const embeddings: AiScopeReadiness = embRow
     ? { ready: true, source: 'tenant', provider: embRow.provider, model: embRow.model }
-    : env.ai
+    : platformEmbeddings
       ? {
           ready: true,
           source: 'platform',
-          provider: 'workers_ai',
-          model: DEFAULT_MODELS.workers_ai,
+          provider: platformEmbeddings.provider,
+          model: platformEmbeddings.model,
         }
-      : platformEmbeddings
-        ? {
-            ready: true,
-            source: 'platform',
-            provider: platformEmbeddings.provider,
-            model: platformEmbeddings.model,
-          }
-        : none
+      : none
   const decisions: AiScopeReadiness = decisionsRow
     ? { ready: true, source: 'tenant', provider: decisionsRow.provider, model: decisionsRow.model }
     : cfg.TYPESAFE_API_KEY

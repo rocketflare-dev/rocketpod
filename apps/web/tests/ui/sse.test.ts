@@ -218,7 +218,7 @@ describe('runChatTurn', () => {
           {
             type: AguiEventType.CUSTOM,
             name: KIT_CUSTOM_EVENTS.notice,
-            value: { code: 'workers_ai_no_token_streaming' },
+            value: { code: 'history_summarised' },
           },
         ])
       )
@@ -228,7 +228,7 @@ describe('runChatTurn', () => {
       content: 'Hi',
       onEvent: () => {},
     })
-    expect(result.notice).toBe('workers_ai_no_token_streaming')
+    expect(result.notice).toBe('history_summarised')
     // No RUN_FINISHED and no RUN_ERROR: the protocol's "the client went away".
     expect(result.completed).toBe(false)
     expect(result.error).toBeUndefined()

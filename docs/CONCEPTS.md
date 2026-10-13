@@ -486,7 +486,7 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   `document-content.ts` is the one text reader behind both
   the viewer and `get_document`. Agent tools resolve the requester's access at execute time.
   **External ids (D34)**: `documents.external_id` is unique per `(tenant_id, source)` (partial
-  index, `0016`); an ingest carrying one is an upsert — one `ON CONFLICT` statement, grants
+  index); an ingest carrying one is an upsert — one `ON CONFLICT` statement, grants
   replaced, chunks rebuilt, a replaced original removed from R2 — so a connector's re-sync never
   duplicates. Plugins reach it through `ingestDocument` (§16).
 - **Usage**: one `ai_usage` row per call, costed at write time from the one price table
@@ -509,7 +509,7 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   strips prompts, completions and tool I/O from both sinks; `pruneAiSpans` on the nightly cron keeps
   `OBSERVABILITY_SPAN_RETENTION_DAYS` (14). Read back through `GET /api/traces[/:id]` (`read
   Trace`, admin+ — spans hold other people's prompts) and `rocketpod traces list|show`; the
-  `rf-traces` skill teaches an agent to debug from the span tree. Switch recipes: `docs/DEPLOY.md`
+  `rp-traces` skill teaches an agent to debug from the span tree. Switch recipes: `docs/DEPLOY.md`
   § Tracing.
 
   **D32 decisions** (design grilling, 2026-09-25): our own OTLP exporter behind the existing seam —
@@ -543,7 +543,7 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   `--compare` exits 1 on a per-case, per-judge drop past `--threshold` (0.1). `pnpm eval:view`
   prints the score diff between two runs, then serves the vitest-evals report UI (runs, cases,
   transcripts, judge rationales). The optional `evals.yml` workflow runs it on manual dispatch or a
-  `run-evals` label, outside the gate. How-to: `docs/EVALS.md`; the `rf-evals` skill drives it.
+  `run-evals` label, outside the gate. How-to: `docs/EVALS.md`; the `rp-evals` skill drives it.
 - **Feedback and promotion (D33)**: thumbs on assistant messages and run output
   (`POST /api/feedback`, `create Feedback` for every member, on an answer they can READ — another
   member's thread is a 404, admins included). One row per `(tenant, target, user)` in
@@ -560,7 +560,7 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   own vitest-4 package rather than a workspace-wide vitest upgrade or a home-grown runner · targets
   in-process, through the real route and runtime · no in-app eval UI (JSON runs + the report UI) ·
   datasets are code; promotion from real traffic and thumbs · the judge goes through the resolver,
-  with a `--judge-model` override · in core, not a plugin · the `rf-evals` skill is a first-class
+  with a `--judge-model` override · in core, not a plugin · the `rp-evals` skill is a first-class
   deliverable. The prompt key is `evals-judge` (keys are kebab-case); the ledger feature is
   `evals.judge`.
 - **Rejected**: Cloudflare's Agents SDK. Per-instance SQLite sits outside RLS, the tenant FK cascade
@@ -700,7 +700,7 @@ cycle). Detail: `packages/shared/CLAUDE.md`.
   (`scripts/kit-update-check.mjs`, in `.claude/settings.json`) compares `kit.version` with the
   newest tag at `kit.repo` (`git ls-remote`, cached a day in the git-ignored
   `.claude/kit-update-check.json`; a failed check an hour) and hands Claude one message to relay
-  once per session, with the CHANGELOG summaries and a pointer to `/rf-upgrade`. Copies only, a
+  once per session, with the CHANGELOG summaries and a pointer to `/rp-upgrade`. Copies only, a
   fresh `startup` only, never in CI, `ROCKETPOD_UPDATE_CHECK=0` to silence; any failure is
   silence.
 - **The kit reminds its own maintainers too**: a `PreToolUse` hook on `git commit` —
@@ -726,7 +726,7 @@ without a `subdir` (`--subdir` refuses an empty value), which no default plugin 
 A fresh agent can clone and run `bash scripts/bootstrap.sh` with zero credentials and land signed in
 on a populated demo workspace. From there it must be able to:
 
-- rename the copy (`/rf-adapt`)
+- rename the copy (`/rp-adapt`)
 - log in by magic link and through the CLI
 - invite a member, switch tenants, approve an access request, including under `single` mode
 - see live refresh from a second browser and queued email
@@ -775,7 +775,7 @@ the Bearer path; flags cannot gate pre-tenant surfaces.
 **A plugin is a git repository COPIED into an app, never an npm package (D31)**, translated through
 `applyReplacements()` like kit code. Only first-party plugins for now: installing one is as trusting
 as merging a PR. A plugin repo mirrors the host tree and ships **no migration, no toml and no
-`package.json`**. Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rf-plugin`,
+`package.json`**. Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
 `docs/plugin-api.md`.
 
 - **Outbound**: four published entries (server, UI, shared, CLI). Nothing reaches past them, in
@@ -854,7 +854,7 @@ as merging a PR. A plugin repo mirrors the host tree and ships **no migration, n
   `"skills"`; `add` copies each to `.claude/skills/<dir>/` (the one place outside its roots a
   plugin may write) and records it on the surface, `upgrade` REPLACES it (never patches — an agent's
   instructions are the plugin's outright), `remove` deletes it. `<dir>` is `<id>` or `<id>-*` and
-  its SKILL.md `name:` equals it, so a plugin skill can never shadow a kit `rf-*` one; an existing
+  its SKILL.md `name:` equals it, so a plugin skill can never shadow a kit `rp-*` one; an existing
   directory is a refusal. `plugin check` fails a declared skill that is missing, misnamed or
   undescribed, and a directory in the plugin's namespace it does not declare. `.claude/` in a
   plugin repository stays that repository's own tooling. `example-feature` ships one.

@@ -551,7 +551,7 @@ export function noteProblems(
   if (expectPrevious !== undefined && (data.previous ?? 'null') !== expectPrevious) {
     problems.push(
       say(
-        `previous is '${data.previous}', expected '${expectPrevious}' — the chain /rf-upgrade walks must be unbroken`
+        `previous is '${data.previous}', expected '${expectPrevious}' — the chain /rp-upgrade walks must be unbroken`
       )
     )
   }

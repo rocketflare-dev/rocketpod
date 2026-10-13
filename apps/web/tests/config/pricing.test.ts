@@ -27,7 +27,8 @@ describe('priceFor', () => {
   it('knows nothing about a self-hosted or unlisted model', () => {
     expect(priceFor('openai_compatible', 'llama-on-my-laptop')).toBeNull()
     expect(priceFor('anthropic', 'claude-9-imaginary')).toBeNull()
-    expect(priceFor('workers_ai', '@cf/some/new-model')).toBeNull()
+    // A provider Rocketpod dropped still parses on old rows, and simply has no price.
+    expect(priceFor('workers_ai', '@cf/baai/bge-m3')).toBeNull()
   })
 
   it('records when the rates were last checked', () => {
@@ -56,12 +57,12 @@ describe('estimateCostMicrocents', () => {
   })
 
   it('falls back to the input rate for a provider with no cache tier', () => {
-    const withCache = estimateCostMicrocents('workers_ai', '@cf/baai/bge-m3', {
+    const withCache = estimateCostMicrocents('openai', 'text-embedding-3-small', {
       inputTokens: 0,
       outputTokens: 0,
       cacheReadTokens: 1_000_000,
     })
-    const asInput = estimateCostMicrocents('workers_ai', '@cf/baai/bge-m3', {
+    const asInput = estimateCostMicrocents('openai', 'text-embedding-3-small', {
       inputTokens: 1_000_000,
       outputTokens: 0,
     })

@@ -200,13 +200,13 @@ describe('Chat page', () => {
           {
             type: AguiEventType.CUSTOM,
             name: KIT_CUSTOM_EVENTS.notice,
-            value: { code: 'workers_ai_no_token_streaming' },
+            value: { code: 'history_summarised' },
           },
         ]),
     })
     await typeAndSend('Anything indexed?')
     await waitFor(() =>
-      expect(screen.getByText(/cannot stream token by token/)).toBeInTheDocument()
+      expect(screen.getByText(/earlier part is included as a summary/)).toBeInTheDocument()
     )
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })

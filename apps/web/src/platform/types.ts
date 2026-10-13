@@ -251,16 +251,14 @@ export type MarkdownConversion =
   | { name: string; mimeType: string; format: 'markdown' | 'text'; tokens: number; data: string }
   | { name: string; mimeType: string; format: 'error'; error: string }
 
-/** PDF/Office → markdown, for `document.convert`. */
-export type DocumentConverter = (document: MarkdownDocumentInput) => Promise<MarkdownConversion>
-
 /**
- * The platform's built-in model runner (Workers AI today): `run` for the embeddings/chat adapters,
- * `toMarkdown` for document conversion. Optional: an install with a provider key never needs it.
+ * PDF/Office → text, for `document.convert`. `contentTypes` is the contract the upload route
+ * checks BEFORE storing anything: a `convert`-kind upload whose type is not in it is refused (415)
+ * rather than accepted and failed later by the job.
  */
-export interface PlatformAi {
-  run(model: string, inputs: Record<string, unknown>): Promise<unknown>
-  toMarkdown?(document: MarkdownDocumentInput): Promise<MarkdownConversion>
+export interface DocumentConverter {
+  readonly contentTypes: ReadonlySet<string>
+  convert(document: MarkdownDocumentInput): Promise<MarkdownConversion>
 }
 
 // ---- Request lifetime -----------------------------------------------------------------------
@@ -276,20 +274,18 @@ export interface WaitUntil {
 // ---- The bundle -----------------------------------------------------------------------------
 
 export interface Platform {
-  /** The background-job producer (`JOBS_QUEUE`). */
+  /** The background-job producer (pg-boss). */
   readonly jobs: JobsQueue | null
-  /** Object storage for uploads (`FILES`). */
+  /** Object storage for uploads (S3-compatible). */
   readonly storage: StorageService | null
-  /** Socket fan-out and the `/ws` upgrade (`NOTIFICATIONS_HUB`). */
+  /** Socket fan-out and the `/ws` upgrade (LISTEN/NOTIFY). */
   readonly realtime: RealtimeHub | null
-  /** Durable agent runs (`AGENT_RUN_WORKFLOW`). */
+  /** Durable agent runs (OpenWorkflow). */
   readonly runs: RunEngine | null
   /** Per-IP throttling; absent = no limit. */
   readonly rateLimiter: RateLimiter | null
   /** Per-operation mutex; absent = the operation simply runs. */
   readonly locks: Locks | null
-  /** The platform model runner; absent = provider keys only. */
-  readonly ai: PlatformAi | null
   /** Document → markdown; absent = only text-like uploads are indexable. */
   readonly converter: DocumentConverter | null
 }
@@ -302,6 +298,5 @@ export const EMPTY_PLATFORM: Platform = Object.freeze({
   runs: null,
   rateLimiter: null,
   locks: null,
-  ai: null,
   converter: null,
 })

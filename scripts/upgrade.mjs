@@ -23,7 +23,7 @@
  * It never applies a kit migration (port the schema, then `pnpm db:generate` — the kit's snapshot
  * chain would tell drizzle your own tables do not exist), never writes a resource id into a
  * wrangler toml, and never deletes a file without `--apply-deletes`. Resolving rejects and making
- * the judgement calls is the agent's job: `.claude/skills/rf-upgrade/`.
+ * the judgement calls is the agent's job: `.claude/skills/rp-upgrade/`.
  *
  * Installed plugins (D31) are reported but never touched: `classifyPath` drops every file a
  * `kind: 'plugin'` surface owns as `skipped-plugin-owned`, because the plugin has its own
@@ -97,7 +97,7 @@ export const USAGE = `usage: node scripts/upgrade.mjs [--to <ref>] [--from <ref>
   --dry-run              resolve and classify, write nothing at all
   --force                run on a dirty git tree, and past an installed plugin that does not
                          support the target kit version
-  --json                 print the plan as JSON on stdout (what /rf-upgrade reads)
+  --json                 print the plan as JSON on stdout (what /rp-upgrade reads)
   -h, --help`
 
 export function parseArgs(argv) {

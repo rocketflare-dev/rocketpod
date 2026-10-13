@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * A Claude Code `SessionStart` hook: once per session, tell the person when the Rocketpod kit
- * this app was made from has a newer release, and point them at `/rf-upgrade`.
+ * this app was made from has a newer release, and point them at `/rp-upgrade`.
  *
  * It runs only in a COPY of the kit (`.rocketflare.json` with an `app` block), only on a fresh
  * `startup` (not `resume`, `clear` or `compact`), never in CI, and never with

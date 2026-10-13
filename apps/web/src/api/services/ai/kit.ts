@@ -289,7 +289,7 @@ export async function callStructuredTool<T>(
       return parsed.data
     }
     // No call: keep what the model said instead — the one clue a person has when a provider
-    // without `tool_choice` (Workers AI) answers in prose.
+    // that ignores `tool_choice` answers in prose.
     lastIssues = parsed
       ? parsed.error.issues
       : {

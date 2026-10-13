@@ -1,7 +1,7 @@
 /**
  * The release notes under `docs/upgrades/` are the instruction set a copy of the kit follows to
  * absorb a later release. They are only useful if the chain is unbroken and the shape is
- * predictable, because `scripts/upgrade.mjs` and the `/rf-upgrade` skill both read them
+ * predictable, because `scripts/upgrade.mjs` and the `/rp-upgrade` skill both read them
  * mechanically. This file is what keeps them that way — including the guard that a release cannot
  * be cut without one. The `config` project: no database.
  */

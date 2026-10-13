@@ -351,7 +351,8 @@ const PDF = 'application/pdf'
 const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
 
 describe('document converter (Node)', () => {
-  const convert = createNodeConverter()
+  const converter = createNodeConverter()
+  const convert = converter.convert
 
   it('extracts a PDF’s text', async () => {
     const out = await convert({
@@ -402,8 +403,15 @@ describe('document converter (Node)', () => {
     expect(corrupt).toMatchObject({ format: 'error' })
   })
 
+  it('declares exactly the types it reads, so the upload route can refuse the rest', () => {
+    expect([...converter.contentTypes].sort()).toEqual(
+      ['application/pdf', 'application/xml', DOCX, 'text/html'].sort()
+    )
+    expect(converter.contentTypes.has('application/vnd.ms-excel')).toBe(false)
+  })
+
   it('is the Node platform’s converter', () => {
-    expect(typeof createNodePlatform(config).converter).toBe('function')
+    expect(createNodePlatform(config).converter?.contentTypes).toBe(converter.contentTypes)
   })
 })
 
@@ -422,7 +430,7 @@ function recordingFetch() {
   return { calls, impl }
 }
 
-describe('platform AI without Workers AI', () => {
+describe('platform AI keys', () => {
   const noAi = { ai: null, converter: null }
   const base = {
     ...env,

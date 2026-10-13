@@ -6,7 +6,7 @@
  * changes provider. Per-turn history lives on `messages`. `lastMessageAt` orders the list; `title`
  * is set from the first user message.
  */
-import type { AiProvider } from '@rocketpod/shared/ai/config'
+import type { RecordedAiProvider } from '@rocketpod/shared/ai/config'
 import { relations } from 'drizzle-orm'
 import { index, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core'
 import { tenantRef, timestamps } from './_helpers'
@@ -23,7 +23,7 @@ export const conversations = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     title: text('title').notNull().default('New conversation'),
-    provider: text('provider').$type<AiProvider>().notNull(),
+    provider: text('provider').$type<RecordedAiProvider>().notNull(),
     model: text('model').notNull(),
     lastMessageAt: timestamp('last_message_at', { withTimezone: true }),
     /** Rolling summary of every message up to and including `summarisedThroughId`. */

@@ -7,9 +7,9 @@
  *
  * Two decisions worth knowing before you edit it:
  *
- * - **A loop that ends without the terminal tool is salvaged, not failed.** The zero-key floor is
- *   Workers AI, which has no `tool_choice` (a model that answers in prose is a live failure mode,
- *   not an edge case), so `no_tool_call` / `max_turns` falls back to ONE `callStructuredTool` over
+ * - **A loop that ends without the terminal tool is salvaged, not failed.** Small and
+ *   self-hosted models often ignore `tool_choice` (a model that answers in prose is a live failure
+ *   mode, not an edge case), so `no_tool_call` / `max_turns` falls back to ONE `callStructuredTool` over
  *   the transcript — the same forced-tool + prose-JSON recovery the rest of the kit uses. Only if
  *   that also fails does the run fail, carrying the model's own words in the error details.
  * - **Citations are filtered to what search actually returned.** Every `documentId` the tools
@@ -62,7 +62,7 @@ export const INDEX_FINDING_MAX_CHARS = 10_000
 
 /**
  * Per-turn output cap. `AGENT_MAX_OUTPUT_TOKENS` (16 384) is a per-agent ceiling, not a sensible
- * per-turn ask: a research answer is a page of prose, and a 24B model on the Workers AI floor is
+ * per-turn ask: a research answer is a page of prose, and a small (24B) model is
  * being asked to reserve most of its window for output it will never produce.
  */
 export const ANSWER_MAX_TOKENS = 4_096

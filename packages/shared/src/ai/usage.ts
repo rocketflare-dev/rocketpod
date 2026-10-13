@@ -6,7 +6,7 @@
  * null and is counted in `unpricedCalls`, so a partial total says so instead of pretending.
  */
 import { z } from 'zod'
-import { aiProviderSchema } from './config'
+import { recordedAiProviderSchema } from './config'
 
 export const aiUsageSchema = z.object({
   id: z.string().uuid(),
@@ -14,7 +14,7 @@ export const aiUsageSchema = z.object({
   userId: z.string().uuid().nullable(),
   /** What spent it: a prompt key (`chat`, `summarize-text`) or a feature name (`connection-test`). */
   feature: z.string(),
-  provider: aiProviderSchema,
+  provider: recordedAiProviderSchema,
   model: z.string(),
   inputTokens: z.number().int().nonnegative(),
   outputTokens: z.number().int().nonnegative(),
@@ -27,7 +27,7 @@ export const aiUsageSchema = z.object({
 export type AiUsage = z.infer<typeof aiUsageSchema>
 
 export const aiUsageRowSummarySchema = z.object({
-  provider: aiProviderSchema,
+  provider: recordedAiProviderSchema,
   model: z.string(),
   feature: z.string(),
   calls: z.number().int().nonnegative(),

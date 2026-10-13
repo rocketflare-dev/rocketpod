@@ -18,7 +18,7 @@ both kits. Rocketflare releases are **ported by hand**: read Rocketflare's
 Cloudflare. Record each one in the table below so the next port knows its baseline.
 
 **Rocketpod is itself a kit.** Copies of Rocketpod upgrade from Rocketpod releases through
-`pnpm kit:upgrade` and `/rf-upgrade`, exactly as Rocketflare copies do. `.rocketflare.json` and
+`pnpm kit:upgrade` and `/rp-upgrade`, exactly as Rocketflare copies do. `.rocketflare.json` and
 `rocketflare-plugin.json` keep their names on purpose: they are the plugin ecosystem's fixed
 filenames, so a plugin that uses only the neutral plugin context installs in either kit.
 

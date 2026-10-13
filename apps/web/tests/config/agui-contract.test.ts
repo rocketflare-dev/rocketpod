@@ -119,7 +119,7 @@ const CUSTOM_SAMPLES: Record<string, unknown> = {
   [KIT_CUSTOM_EVENTS.usage]: { usage: USAGE },
   [KIT_CUSTOM_EVENTS.agentStep]: { key: 'search', label: 'Searching', status: 'running' },
   [KIT_CUSTOM_EVENTS.agentRetry]: { message: 'rate limited', attempt: 1 },
-  [KIT_CUSTOM_EVENTS.notice]: { code: 'workers_ai_no_token_streaming' },
+  [KIT_CUSTOM_EVENTS.notice]: { code: 'history_summarised' },
   [KIT_CUSTOM_EVENTS.document]: {
     card: {
       id: '55555555-5555-4555-8555-555555555555',

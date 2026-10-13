@@ -32,7 +32,7 @@ manual: false
 | Field | Meaning |
 |---|---|
 | `version` | must equal the filename stem and the root `package.json` version at the tag |
-| `previous` | the note this one follows; `null` only on the baseline. The chain must be unbroken — it is what `/rf-upgrade` walks |
+| `previous` | the note this one follows; `null` only on the baseline. The chain must be unbroken — it is what `/rp-upgrade` walks |
 | `breaking` | an adopter has to change their own code, not just accept ours |
 | `migrations` | human descriptions of the schema change, **never file names**. An adopter never copies a kit migration; they port the schema and run `pnpm db:generate`. Several read better as a block sequence (`migrations:` then one `  - "…"` per line) than crammed into one inline list |
 | `areas` | `api` · `ui` · `shared` · `db` · `cli` · `config` · `docs` — what to read first |

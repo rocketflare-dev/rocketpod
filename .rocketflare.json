@@ -1,5 +1,5 @@
 {
-  "$purpose": "Provenance for this copy of the Rocketpod starter kit: which kit version and commit it came from, the rename applied to it, and the manifest of replaceable surfaces. `pnpm kit:upgrade` and the /rf-upgrade skill read this file to port later kit improvements forward without recreating anything you deleted.",
+  "$purpose": "Provenance for this copy of the Rocketpod starter kit: which kit version and commit it came from, the rename applied to it, and the manifest of replaceable surfaces. `pnpm kit:upgrade` and the /rp-upgrade skill read this file to port later kit improvements forward without recreating anything you deleted.",
   "$doNotDelete": "Deleting or renaming this file breaks upgrades. Recovering it means working out by hand which kit commit you started from and running `node scripts/upgrade.mjs --adopt <ref>`. It holds no secrets and is safe to commit.",
   "kit": {
     "id": "rocketpod",
@@ -182,9 +182,9 @@
     {
       "id": "feature-evals",
       "kind": "optional-feature",
-      "label": "Developer-run eval suites (apps/evals, pnpm eval, the rf-evals skill)",
+      "label": "Developer-run eval suites (apps/evals, pnpm eval, the rp-evals skill)",
       "anchor": "apps/evals/kit/index.ts",
-      "paths": ["apps/evals/**", ".claude/skills/rf-evals/**", "docs/EVALS.md"],
+      "paths": ["apps/evals/**", ".claude/skills/rp-evals/**", "docs/EVALS.md"],
       "registries": ["package.json#eval", "pnpm-workspace.yaml"]
     },
     {
@@ -204,7 +204,7 @@
     "pnpm-lock.yaml",
     "CHANGELOG.md",
     "docs/ADAPTING.md",
-    ".claude/skills/rf-adapt/**",
+    ".claude/skills/rp-adapt/**",
     "scripts/install.sh",
     "scripts/rename.mjs",
     "scripts/lib/rename-lib.mjs",

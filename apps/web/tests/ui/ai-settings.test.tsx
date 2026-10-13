@@ -46,16 +46,16 @@ const PROVIDERS = [
     suggestedModels: { chat: [], embeddings: [] },
   },
   {
-    id: 'workers_ai',
-    name: 'Cloudflare Workers AI',
+    id: 'openai_compatible',
+    name: 'OpenAI-compatible',
     scopes: ['embeddings'],
-    needsApiKey: false,
-    needsBaseUrl: false,
+    needsApiKey: true,
+    needsBaseUrl: true,
     supportsThinking: false,
     supportsServiceTier: false,
-    defaultModel: '@cf/baai/bge-m3',
+    defaultModel: 'bge-m3',
     presets: [],
-    suggestedModels: { chat: [], embeddings: ['@cf/baai/bge-m3'] },
+    suggestedModels: { chat: [], embeddings: ['bge-m3'] },
   },
 ]
 
@@ -165,20 +165,20 @@ describe('Settings → AI', () => {
     expect(screen.getByText(/fully qualified/)).toBeInTheDocument()
   })
 
-  it("offers a provider's models as a dropdown, closed for Workers AI and open elsewhere", async () => {
+  it("offers a provider's models as a dropdown, closed for a fixed catalog and open elsewhere", async () => {
     // A `<datalist>` is filtered by whatever is already in the input, so a field prefilled with the
     // provider's default model showed one option. The picker is a real select.
-    const workersAi = {
+    const closedCatalog = {
       ...PROVIDERS[2],
       scopes: ['chat', 'embeddings'],
-      defaultModel: '@cf/zai-org/glm-4.7-flash',
+      defaultModel: 'catalog-small',
       modelsFixed: true,
       suggestedModels: {
-        chat: ['@cf/zai-org/glm-4.7-flash', '@cf/nvidia/nemotron-3-120b-a12b'],
-        embeddings: ['@cf/baai/bge-m3'],
+        chat: ['catalog-small', 'catalog-large'],
+        embeddings: ['bge-m3'],
       },
     }
-    mount({ '/api/ai/config/providers': { items: [PROVIDERS[0], workersAi] } })
+    mount({ '/api/ai/config/providers': { items: [PROVIDERS[0], closedCatalog] } })
     fireEvent.click(await screen.findByRole('button', { name: 'Add chat provider' }))
 
     // Anthropic: every suggestion offered, plus an escape, because a model id is whatever the
@@ -191,17 +191,19 @@ describe('Settings → AI', () => {
         .map(o => (o as HTMLOptionElement).value)
     ).toEqual(['claude-sonnet-4-5', 'claude-opus-4-1', expect.stringContaining('other')])
 
-    fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'workers_ai' } })
-    const cf = screen.getByLabelText('Model')
-    // Workers AI ids are a closed catalog: the list and nothing else.
+    fireEvent.change(screen.getByLabelText('Provider'), {
+      target: { value: 'openai_compatible' },
+    })
+    const fixed = screen.getByLabelText('Model')
+    // A closed catalog (`modelsFixed`): the list and nothing else.
     expect(
-      within(cf)
+      within(fixed)
         .getAllByRole('option')
         .map(o => (o as HTMLOptionElement).value)
-    ).toEqual(workersAi.suggestedModels.chat)
-    expect(cf).toHaveValue('@cf/zai-org/glm-4.7-flash')
-    fireEvent.change(cf, { target: { value: '@cf/nvidia/nemotron-3-120b-a12b' } })
-    expect(screen.getByLabelText('Model')).toHaveValue('@cf/nvidia/nemotron-3-120b-a12b')
+    ).toEqual(closedCatalog.suggestedModels.chat)
+    expect(fixed).toHaveValue('catalog-small')
+    fireEvent.change(fixed, { target: { value: 'catalog-large' } })
+    expect(screen.getByLabelText('Model')).toHaveValue('catalog-large')
 
     // Back to an open provider, and "Other" reveals a free-text field starting empty.
     fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'anthropic' } })

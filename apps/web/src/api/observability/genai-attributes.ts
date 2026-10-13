@@ -123,8 +123,6 @@ export function genAiProvider(provider: string): string {
     case 'openai':
     case 'openai_compatible':
       return 'openai'
-    case 'workers_ai':
-      return 'cloudflare.workers_ai'
     default:
       return provider
   }

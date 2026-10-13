@@ -4,8 +4,8 @@
  * `storage.ts`, null unless `STORAGE_DRIVER=s3` is fully configured), the rate limiter and
  * operation locks (Postgres — `limits.ts`) and the document converter (`converter.ts`). A null
  * member is the configuration state the app already answers for (503 `storage_not_configured`,
- * a no-op realtime nudge, a run that cannot start). `ai` stays null: Workers AI has no Node
- * counterpart, and the provider keys (`ANTHROPIC_API_KEY`, `AI_*`, `EMBEDDINGS_*`) cover it.
+ * a no-op realtime nudge, a run that cannot start). Models are reached through the provider keys
+ * (`ANTHROPIC_API_KEY`, `AI_*`, `EMBEDDINGS_*`), not a platform member.
  */
 import type { AppConfig } from '../config'
 import {

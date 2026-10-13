@@ -7,6 +7,8 @@ node_modules/
 
 # Secrets — never commit. `.env.example` and `.env.test` (dummy values) ARE committed.
 **/.env
+# A deployment's local Helm values (rp-deploy) carry hostnames and, sometimes, secrets.
+deploy/values.local.yaml
 **/.env.*
 !**/.env.example
 !**/.env.test

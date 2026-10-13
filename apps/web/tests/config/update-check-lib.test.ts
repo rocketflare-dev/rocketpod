@@ -192,7 +192,7 @@ describe('updateMessage', () => {
     expect(message.match(/^- \d/gm)).toHaveLength(MAX_LISTED)
     expect(message).toContain('…and 2 earlier release(s)')
     expect(message).toContain('ONCE')
-    expect(message).toContain('/rf-upgrade')
+    expect(message).toContain('/rp-upgrade')
     expect(message).toContain('ROCKETPOD_UPDATE_CHECK=0')
   })
 })

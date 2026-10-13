@@ -373,7 +373,7 @@ export function pluginRoots(id) {
  * `skills/<dir>/` in its OWN tree — never `.claude/`, which stays the plugin repository's own
  * tooling — and `add` copies each DECLARED one to `.claude/skills/<dir>/`, where Claude Code finds
  * it. The directory is the skill's name, so it is namespaced exactly like a table or a job type:
- * `<id>` or `<id>-<suffix>`, which is what keeps it from ever colliding with a kit `rf-*` skill.
+ * `<id>` or `<id>-<suffix>`, which is what keeps it from ever colliding with a kit `rp-*` skill.
  */
 export const SKILLS_ROOT = '.claude/skills/'
 
@@ -504,7 +504,7 @@ export function classifyPluginFile(relPath, id, { skills = [] } = {}) {
   // A skill is copied OUT of the plugin's roots, into `.claude/skills/<dir>/` — the one place
   // outside them a plugin may write, and only for a directory its manifest names. An undeclared
   // one is refused rather than skipped: shipping a skill nobody declared is how a plugin would
-  // claim `.claude/skills/rf-plugin/`.
+  // claim `.claude/skills/rp-plugin/`.
   if (relPath.startsWith('skills/')) {
     const [, dir, ...rest] = relPath.split('/')
     if (dir && rest.length > 0 && skills.includes(dir)) {

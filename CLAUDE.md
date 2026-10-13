@@ -6,18 +6,19 @@ Node server built to run in a container (`apps/web`), a CLI (`apps/cli`), privat
 
 > **How it works**: `docs/CONCEPTS.md` — one section per subsystem with its known gaps. **Check it
 > before assuming a capability exists; update it when you change one.**
-> **Setup**: asked for setup help → run `/rf-setup` (it drives `scripts/bootstrap.sh --no-dev`, then
+> **Setup**: asked for setup help → run `/rp-setup` (it drives `scripts/bootstrap.sh --no-dev`, then
 > starts the server): show each `✔ n/10` line, stop on failure. By hand: `SETUP.md` Part 1.
-> **Fresh copy?** `/rf-adapt <slug>`, then `docs/ADAPTING.md`. `/rf-setup`, `/rf-adapt`, `/rf-preflight`,
-> `/rf-traces`, `/rf-evals` and `/rf-plugin` you may run yourself. Deploying (container image,
-> Compose, Helm) is `docs/ROADMAP.md` M7 — there is no deploy command yet.
+> **Fresh copy?** `/rp-adapt <slug>`, then `docs/ADAPTING.md`. `/rp-setup`, `/rp-adapt`, `/rp-preflight`,
+> `/rp-traces`, `/rp-evals` and `/rp-plugin` you may run yourself. **Deploying** (image, Compose,
+> Helm — `docs/DEPLOY.md`) is `/rp-deploy`: it renders and checks locally, and asks the user before
+> it pushes an image, touches a cluster or creates anything billed.
 > **Plugins** (D31, `docs/CONCEPTS.md` §16): a plugin is a git repository copied in, wired through five
-> barrels — `pnpm plugin add|upgrade|remove|list|check`, driven by `/rf-plugin`, which always shows the
+> barrels — `pnpm plugin add|upgrade|remove|list|check`, driven by `/rp-plugin`, which always shows the
 > plan before `--apply`. It imports the host only through the DECLARED entries (`docs/plugin-api.md`,
 > generated and diff-checked) and receives everything else as injected context. `.rocketflare.json`'s `defaultPlugins` is what a fresh clone installs
 > (bootstrap step `6/10 plugins`).
 > **Copies of the kit upgrade.** `.rocketflare.json` records the kit version, the app's names and the
-> manifest of replaceable surfaces; `/rf-upgrade` ports later releases into a copy and never
+> manifest of replaceable surfaces; `/rp-upgrade` ports later releases into a copy and never
 > recreates a surface whose anchor file is gone. **A behaviour change here needs an entry in
 > `docs/upgrades/unreleased.md` in the same commit** — CI fails without one, and the tag gate refuses
 > a release with no note. `pnpm kit:release <version>` writes the release assets.
@@ -117,11 +118,12 @@ docker-compose.yml the self-contained stack; deploy/ holds compose.single.yml, c
 launch.kit.json    the Launch kit contract (D36), Cloudflare-shaped; kept schema-valid, its `worker` and
                    `release` blocks describe nothing here (`$runtime`)
 docs/upgrades/     one porting note per kit release (+ unreleased.md) — CHANGELOG.md is the index
-.claude/skills/    rf-setup · rf-preflight · rf-adapt (+ checklist.md) ·
-                   rf-how-do-i (+ example-orders.md) · rf-upgrade (+ porting.md — port later kit releases) ·
-                   rf-plugin (+ reference.md — install/upgrade/remove a plugin, D31) ·
-                   rf-traces (debug a run from its span tree; pick a tracing backend, D32) ·
-                   rf-evals (+ reference.md — author, run, compare, harvest, baseline, improve; D33)
+.claude/skills/    rp-setup · rp-preflight · rp-adapt (+ checklist.md) ·
+                   rp-how-do-i (+ example-orders.md) · rp-upgrade (+ porting.md — port later kit releases) ·
+                   rp-plugin (+ reference.md — install/upgrade/remove a plugin, D31) ·
+                   rp-traces (debug a run from its span tree; pick a tracing backend, D32) ·
+                   rp-evals (+ reference.md — author, run, compare, harvest, baseline, improve; D33) ·
+                   rp-deploy (Compose or Helm, the secrets checklist, never prints a secret)
 ```
 
 **`packages/shared`.** Private, no build: `@rocketpod/shared/<module>` → `./src/<module>.ts` (incl. `ai/*`,

@@ -1,6 +1,6 @@
 /**
- * `document.convert` (D7, D18): an uploaded original in R2 → text (Workers AI `toMarkdown`, or a
- * UTF-8 decode for text types) → the same `indexDocument` every other path uses. The message
+ * `document.convert` (D7, D18): an uploaded original in object storage → text (the platform
+ * `DocumentConverter`, or a UTF-8 decode for text types) → the same `indexDocument` every other path uses. The message
  * carries only ids; the row and the `files` row say where the bytes are. A permanent conversion
  * refusal (`ConversionFailedError`) marks the row `failed` and is ACKED — retrying a corrupt PDF
  * cannot help; a thrown binding or provider error marks it `failed` and throws so the consumer

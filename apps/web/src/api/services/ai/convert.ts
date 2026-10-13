@@ -1,14 +1,13 @@
 /**
  * Document → text for the knowledge base (D18 uploads). Text-like types (`kind: 'text'` in
  * `DOCUMENT_UPLOAD_TYPES`) are decoded as UTF-8 here and never need a model. Everything else goes
- * through the platform's `converter` (Workers AI Markdown Conversion on the Worker — PDF, Word,
- * Excel, OpenDocument, HTML, XML). The converter is OPTIONAL in code: without it a
- * binary upload is a 503 `conversion_not_configured` at the route (before any byte is stored),
- * text uploads keep working. Conversion of documents is free on Workers AI (images, which the
- * allowlist excludes, are the billed case), so removing `[ai]` stays the only spend switch.
+ * through the platform's `converter` (on Node: PDF, Word, HTML, XML — `src/node/converter.ts`),
+ * which declares the types it reads in `contentTypes`. The converter is OPTIONAL in code: without
+ * it a binary upload is a 503 `conversion_not_configured` at the route, and a type it does not
+ * declare is a 415 — both before any byte is stored; text uploads keep working.
  *
  * `ConversionFailedError` is PERMANENT (the platform answered `format: 'error'` — a corrupt or
- * unsupported file); anything thrown by the binding itself is transient and left for the queue's
+ * unsupported file); anything thrown by the converter itself is transient and left for the queue's
  * retry.
  */
 import { resolveDocumentUploadType } from '@rocketpod/shared/ai/embeddings'
@@ -21,7 +20,7 @@ export class ConversionFailedError extends Error {
   }
 }
 
-/** `true` when the content type needs `toMarkdown`; `false` for text-like types decoded inline. */
+/** `true` when the content type needs the converter; `false` for text-like types decoded inline. */
 export function needsConversion(contentType: string): boolean {
   return resolveDocumentUploadType('', contentType)?.kind === 'convert'
 }
@@ -29,6 +28,11 @@ export function needsConversion(contentType: string): boolean {
 /** `true` when this server can convert binary uploads (the platform has a `converter`). */
 export function canConvert(env: AiEnv): boolean {
   return Boolean(env.converter)
+}
+
+/** `true` when the platform's converter declares `contentType` (`DocumentConverter.contentTypes`). */
+export function converterSupports(env: AiEnv, contentType: string): boolean {
+  return env.converter?.contentTypes.has(contentType) ?? false
 }
 
 /** UTF-8 decode with the BOM dropped and CRLF normalised — what a pasted text would look like. */
@@ -55,10 +59,10 @@ export async function convertToText(
   if (!needsConversion(input.contentType)) {
     return { text: await decodeText(input.blob), format: 'text' }
   }
-  const convert = env.converter
-  if (!convert)
+  const converter = env.converter
+  if (!converter)
     throw new ConversionFailedError('Document conversion is not configured on this server')
-  const result = await convert({ name: input.name, blob: input.blob })
+  const result = await converter.convert({ name: input.name, blob: input.blob })
   if (result.format === 'error') {
     throw new ConversionFailedError(`Conversion failed: ${result.error}`)
   }

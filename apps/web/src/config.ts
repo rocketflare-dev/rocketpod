@@ -188,8 +188,7 @@ const coreConfigSchema = z.object({
   /**
    * D18: give the chat box the knowledge tools (`search_knowledge`, `get_document`,
    * `list_documents`), so it answers from the workspace's own material. It costs more tokens per
-   * turn and, on Workers AI — which has no tool-call event stream — the reply stops arriving token
-   * by token. `false` is the operator's way back to a tool-free chat.
+   * turn. `false` is the operator's way back to a tool-free chat.
    */
   CHAT_KNOWLEDGE_TOOLS: optionalBoolean(true),
   /**
@@ -207,7 +206,7 @@ const coreConfigSchema = z.object({
   /**
    * D17: characters of stored history a chat turn may replay. The real constraint is the model's
    * context window and the tenant picks the model, so this is the knob rather than a message count
-   * — 24 000 chars is roughly 6 000 tokens, which leaves room on the 24k-token Workers AI floor.
+   * — 24 000 chars is roughly 6 000 tokens, which leaves room on a small (24k-token) model.
    * Raise it for a long-context provider. Anything older is trimmed and folded into the thread's
    * rolling summary by the `chat.compact` job.
    */

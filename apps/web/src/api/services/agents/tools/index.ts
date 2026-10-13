@@ -8,7 +8,7 @@
  * that says only "nothing found" makes a model invent. An app appends its own tools to
  * `buildAgentTools`; an agent on `runToolLoop` passes `[...ctx.tools, ...own, terminal]`.
  *
- * Every numeric input is `z.coerce.number()`: small models — the Workers AI floor among them — hand
+ * Every numeric input is `z.coerce.number()`: small models hand
  * back tool arguments with the numbers as strings (`"offset": "29525"`), and rejecting that wastes
  * a turn on a validation error the model often cannot diagnose. Coerce what is unambiguous; keep
  * the bounds.

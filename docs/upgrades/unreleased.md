@@ -3,7 +3,7 @@ version: unreleased
 previous: 0.1.0
 date: null
 breaking: true
-migrations: ["pgboss schema + queues (pg-boss, installed by pnpm db:migrate)", "openworkflow schema (OpenWorkflow, installed by pnpm db:migrate)", "rate_limits and operation_locks tables (Node rate limiter and locks)"]
+migrations: ["pgboss schema + queues (pg-boss, installed by pnpm db:migrate)", "openworkflow schema (OpenWorkflow, installed by pnpm db:migrate)", "rate_limits and operation_locks tables (Node rate limiter and locks)", "the kit's drizzle chain squashed into 0000_rocketpod-baseline + 0001_plugin-example-feature-0.1.0"]
 areas: [api, db, config, shared, docs, tooling]
 touches_surfaces: []
 requires_surfaces: []
@@ -62,6 +62,12 @@ Every runtime capability is now a neutral `Platform`, a Node entry (`src/node/se
 - Helm chart `deploy/helm/rocketpod`: `web` and `worker` Deployments, a migrate `pre-install,pre-upgrade` Job, Service, optional Ingress, PodDisruptionBudgets, a ConfigMap (`config:`) and Secret (`secrets:`, or `existingSecret`) whose keys are exactly `src/config.ts`'s (`tests/config/packaging.test.ts`), non-root read-only pods.
 - `.github/workflows/image.yml` builds the image on every PR and push (pushes `ghcr.io/<owner>/rocketpod` on a version tag) and lints, renders and kubeconform-checks the chart. `docs/DEPLOY.md` is the container runbook (Compose, Helm, secrets, Postgres and PgBouncer requirements, scaling, rollback).
 
+- Code and skills (M8a): the `workers_ai` provider is gone — `AI_PROVIDERS`, the settings catalog, the client adapter, pricing, `DEFAULT_MODELS.workers_ai`, `WORKERS_AI_CHAT_MODEL`, the `workers_ai_no_token_streaming` notice, `Platform.ai` and `PlatformAi`. History contracts (`ai_usage`, conversations, messages, the chat-stats model breakdown) parse `recordedAiProviderSchema`, which still accepts `workers_ai`, so old rows stay readable; `priceFor` takes a `RecordedAiProvider`.
+- `DocumentConverter` is an object, `{ contentTypes, convert }`: the upload route refuses a `convert`-kind type the converter does not declare with 415 `unsupported_media_type` (`UnsupportedConversionTypeError`) before anything is stored. `DOCUMENT_UPLOAD_TYPES` drops `.xlsx`, `.xls`, `.odt` and `.ods` (no converter reads them), so the UI's accept list follows.
+- The test env's model runner is a recording OpenAI-compatible endpoint (`RecordingAi`, `FAKE_MODELS_BASE_URL`) reached through `fetch`; `createTestEnv()` points `AI_*` and `EMBEDDINGS_*` at it, and `ai: null` leaves them to `process.env`.
+- Skills are `rp-*` (`rp-setup`, `rp-preflight`, `rp-adapt`, `rp-how-do-i`, `rp-upgrade`, `rp-plugin`, `rp-traces`, `rp-evals`), plus the new `rp-deploy` — Compose or Helm, the secrets checklist, and a stop before anything that pushes, touches a cluster or bills.
+- The drizzle migration chain is squashed: `0000_rocketpod-baseline.sql` is the whole kit schema and `0001_plugin-example-feature-0.1.0.sql` the vendored plugin's table (so `plugin check` still finds the plugin's migration). A schema dump of a database built from them equals one built from the old 19-file chain, column order aside.
+
 ## How to apply
 
 1. Copy `apps/web/src/platform/` and `apps/web/src/api/middleware/platform.ts`, and register `platformMiddleware` after `configMiddleware` in `apps/web/src/api/index.ts`.
@@ -92,6 +98,10 @@ Every runtime capability is now a neutral `Platform`, a Node entry (`src/node/se
 25. Remove `bindings` and `workerExports` from every plugin manifest of your own, and reach the capability through `ctx.platform`.
 26. Take the kit's `Dockerfile`, `.dockerignore`, `docker-compose.yml`, `deploy/` and `.github/workflows/image.yml`, then replace `rocketpod` in image names, the chart name and the compose database/bucket names with your app's.
 27. Take the kit's `apps/web/scripts/build-server.mjs` and `apps/web/scripts/migrate-all.ts`, and the `.ts`-only CLI guard at the bottom of `apps/web/scripts/db-roles.ts` and `apps/web/scripts/migrate.ts`.
+28. Rename every `.claude/skills/rf-*` you took from the kit to `rp-*` (directory and `name:`), copy `.claude/skills/rp-deploy/`, and add `deploy/values.local.yaml` to `.gitignore`.
+29. Take the kit's `apps/web/src/api/services/ai/client.ts`, `providers.ts`, `resolve.ts` and `packages/shared/src/ai/{config,pricing,usage,chat,agui}.ts`; re-point any config row of yours that names `workers_ai` at another provider.
+30. Take the kit's `DocumentConverter` shape (`apps/web/src/platform/types.ts`), `apps/web/src/node/converter.ts`, `apps/web/src/api/services/ai/{convert,ingest}.ts` and `DOCUMENT_UPLOAD_TYPES`.
+31. Keep your own `apps/web/migrations/` chain — do not copy the kit's baseline into a database that already ran migrations.
 
 ## Conflicts to expect
 
@@ -99,7 +109,7 @@ Every runtime capability is now a neutral `Platform`, a Node entry (`src/node/se
 - `apps/web/tests/mocks/bindings.ts` → `TestEnv` gained the `Platform` view → keep yours alongside.
 - `apps/web/src/db/client.ts` → the neon half is gone → take the kit's file whole; a copy never edits it.
 - `scripts/lib/test-plan.mjs` / `apps/web/tests/config/gate.test.ts` → one driver, no conformance second pass → take the kit's.
-- `apps/web/migrations/` → a copy with its own migrations numbered after 0017 → regenerate the rate-limit and lock migration with `pnpm db:generate` instead of copying the kit's.
+- `apps/web/migrations/` → the kit's chain is now one baseline (plus the example plugin's migration) → keep your own chain and generate the rate-limit and lock migration with `pnpm db:generate`; never copy the kit's baseline over it.
 
 - `apps/web/tests/mocks/bindings.ts` → rewritten as an in-memory `Platform` → take the kit's whole, then re-add any fake of your own.
 
@@ -123,3 +133,5 @@ Every runtime capability is now a neutral `Platform`, a Node entry (`src/node/se
 16. `pnpm dev` prints `web: listening on :3001` and `dev ready`; `http://localhost:3000` renders and dev-login signs in.
 17. `docker compose up -d --build` leaves `migrate` exited 0 and `web`/`worker` healthy; `http://localhost:3001/readyz` answers 200 and the UI renders.
 18. `pnpm web test:config` passes `tests/config/packaging.test.ts`.
+19. `pnpm web test:api` passes `tests/api/document-upload.test.ts`, including the 415 for a type the converter does not declare.
+20. `pnpm plugin check` passes, and `pnpm db:generate` reports no schema changes.

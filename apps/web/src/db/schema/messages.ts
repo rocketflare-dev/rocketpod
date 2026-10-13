@@ -9,7 +9,7 @@
  * rule: a thread is always fetched by its id after an ownership check on `conversations`.
  */
 import type { ChatRole, TokenUsage, ToolCallRecord } from '@rocketpod/shared/ai/chat'
-import type { AiProvider } from '@rocketpod/shared/ai/config'
+import type { RecordedAiProvider } from '@rocketpod/shared/ai/config'
 import { relations } from 'drizzle-orm'
 import { index, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core'
 import { tenantRef } from './_helpers'
@@ -40,7 +40,7 @@ export const messages = pgTable(
      * What actually answered this turn. Nullable: null on a user row, and on every assistant row
      * written before these columns existed — a stats surface must render "unknown", never guess.
      */
-    provider: text('provider').$type<AiProvider>(),
+    provider: text('provider').$type<RecordedAiProvider>(),
     model: text('model'),
     /** The OTLP trace of the turn that produced this assistant row (D32); null on a user row. */
     traceId: text('trace_id'),

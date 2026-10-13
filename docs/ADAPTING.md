@@ -20,13 +20,13 @@ git remote add origin git@github.com:<you>/myapp.git
 Or the one-liner — `curl -fsSL https://rocketpod.example.com/install.sh | bash -s -- myapp` (read
 `scripts/install.sh` first: it clones, detaches exactly as above with the kit commit recorded in the
 first message, then execs `scripts/bootstrap.sh`). Either way, `bash scripts/bootstrap.sh` (or
-`/rf-setup`) is the first run — `SETUP.md` Part 1 as one command.
+`/rp-setup`) is the first run — `SETUP.md` Part 1 as one command.
 
 Why: you are about to rename packages, delete examples and rewrite docs; a fork or a shared history
 only invites merge conflicts with a kit that will keep evolving independently.
 
 **Detached is not frozen.** `.rocketflare.json` at the root records which kit version and commit this
-copy came from, and `/rf-adapt` writes your names into it. Later, `/rf-upgrade` (or `pnpm
+copy came from, and `/rp-adapt` writes your names into it. Later, `/rp-upgrade` (or `pnpm
 kit:upgrade`) fetches the kit into a throwaway mirror, translates its diff into your names, drops
 everything belonging to a part you deleted, and hands you the rest to apply — guided by the release
 notes in `docs/upgrades/`. So delete freely in §2 below: an upgrade never recreates what you removed.
@@ -43,10 +43,10 @@ it like any other file except its `kit` block, which names the kit the app came 
 Pick an app slug (`myapp`, lowercase, digits, hyphens; starts with a letter), a package scope
 (`@myapp`) and a display name.
 
-**`/rf-adapt <slug> ["Name"] [--domain <apex>] [--colour <#hex>]`** in Claude Code, or by hand
+**`/rp-adapt <slug> ["Name"] [--domain <apex>] [--colour <#hex>]`** in Claude Code, or by hand
 `node scripts/rename.mjs --dry-run <slug> ["Display Name"] [--domain …] [--colour …]` then the same
 without `--dry-run`, performs the mechanical rows below in one pass and reports the careful ones —
-`.claude/skills/rf-adapt/checklist.md` walks those six, lettered (a)–(f) as in the **Script** column.
+`.claude/skills/rp-adapt/checklist.md` walks those six, lettered (a)–(f) as in the **Script** column.
 The script walks every text file git knows about (tracked and untracked, `.gitignore` honoured;
 `pnpm-lock.yaml`, `LICENSE`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, the two svgs,
 the tool itself, its test and the adapt skill are skipped; the `rocketflare-dev` org and every

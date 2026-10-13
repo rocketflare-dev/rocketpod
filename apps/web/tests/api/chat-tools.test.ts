@@ -10,7 +10,7 @@
  *
  * Also here: the tool loop's turn cap is the chat cap and not `AGENT_MAX_TURNS`, the AG-UI tool
  * sequence reaches the client, `messages.toolCalls` is persisted, `CHAT_KNOWLEDGE_TOOLS=false`
- * sends no tools at all, and the Workers AI notice.
+ * sends no tools at all.
  */
 import { KIT_CUSTOM_EVENTS } from '@rocketpod/shared/ai/agui'
 import { CHAT_MAX_TOOL_TURNS, conversationSchema } from '@rocketpod/shared/ai/chat'
@@ -29,7 +29,7 @@ import { createTestEnv, stubs, type TestEnv } from '../mocks/bindings'
 
 const state: {
   client: FakeChatClient | null
-  provider: 'anthropic_compatible' | 'workers_ai'
+  provider: 'anthropic_compatible'
 } = { client: null, provider: 'anthropic_compatible' }
 
 vi.mock('@/api/services/ai/resolve', async importOriginal => {
@@ -236,24 +236,5 @@ describe('chat with the knowledge tools', () => {
     const snapshot = frames.find(f => f.type === 'STATE_SNAPSHOT')
     expect(snapshot?.type === 'STATE_SNAPSHOT' && snapshot.snapshot.tools).toEqual([])
     expect(aguiTypes(frames)).not.toContain('TOOL_CALL_START')
-  })
-
-  it('warns once that Workers AI cannot stream token by token with tools on', async () => {
-    const a = await actor()
-    state.provider = 'workers_ai'
-    const env = embeddingEnv()
-    script([{ text: 'Hi' }])
-    const conv = await conversation(a.cookie, env)
-    const frames = await aguiFrames(await send(a.cookie, env, conv.id, 'hello'))
-    expect(customEvent(frames, KIT_CUSTOM_EVENTS.notice)).toEqual({
-      code: 'workers_ai_no_token_streaming',
-    })
-
-    // Not raised when there are no tools to slow down.
-    const quiet = embeddingEnv({ CHAT_KNOWLEDGE_TOOLS: 'false' })
-    script([{ text: 'Hi' }])
-    const conv2 = await conversation(a.cookie, quiet)
-    const frames2 = await aguiFrames(await send(a.cookie, quiet, conv2.id, 'hello'))
-    expect(customEvent(frames2, KIT_CUSTOM_EVENTS.notice)).toBeUndefined()
   })
 })

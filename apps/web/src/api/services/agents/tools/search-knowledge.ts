@@ -42,9 +42,9 @@ export const SEARCH_KNOWLEDGE_TOOL = KNOWLEDGE_TOOLS.search
 /**
  * Per passage: a whole ~3 200-char chunk fits, but no more. The budgets below are the compromise
  * between "the model can actually read the material" and "the transcript stays inside a small
- * model's context": the kit's zero-key floor is Workers AI Mistral Small, and a tool result of
- * ~4 000 tokens per turn compounds over a loop until the next call stalls. Raise them for a
- * long-context provider; do not raise them and keep the Workers AI floor.
+ * model's context": a small (24B, 24k-token) model is a supported chat provider, and a tool result
+ * of ~4 000 tokens per turn compounds over a loop until the next call stalls. Raise them for a
+ * long-context provider; do not raise them and keep a small model.
  */
 export const PASSAGE_MAX_CHARS = 3_400
 /** Total passage text in one answer (~2 200 tokens) — hits past it are dropped and reported. */

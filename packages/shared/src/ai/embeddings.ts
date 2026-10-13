@@ -98,9 +98,10 @@ export type SearchResponse = z.infer<typeof searchResponseSchema>
 
 /**
  * What `POST /api/ai/documents/upload` accepts. `text` types are decoded as UTF-8 and indexed like
- * pasted text; `convert` types go through Workers AI Markdown Conversion (`env.AI.toMarkdown`) in
- * the `document.convert` job. Images are deliberately absent: their conversion runs two AI models
- * and bills, and OCR is not a v1 promise. Extend per app.
+ * pasted text; `convert` types go through the platform's `DocumentConverter` in the
+ * `document.convert` job, and the upload is refused (415) when the converter does not declare the
+ * type. Spreadsheets, OpenDocument and images are absent because the Node converter cannot read
+ * them; add one here together with a converter that declares it. Extend per app.
  */
 export const DOCUMENT_UPLOAD_TYPES = {
   'text/plain': { extensions: ['.txt', '.text'], kind: 'text', label: 'Text' },
@@ -112,22 +113,6 @@ export const DOCUMENT_UPLOAD_TYPES = {
     extensions: ['.docx'],
     kind: 'convert',
     label: 'Word',
-  },
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': {
-    extensions: ['.xlsx'],
-    kind: 'convert',
-    label: 'Excel',
-  },
-  'application/vnd.ms-excel': { extensions: ['.xls'], kind: 'convert', label: 'Excel' },
-  'application/vnd.oasis.opendocument.text': {
-    extensions: ['.odt'],
-    kind: 'convert',
-    label: 'OpenDocument',
-  },
-  'application/vnd.oasis.opendocument.spreadsheet': {
-    extensions: ['.ods'],
-    kind: 'convert',
-    label: 'OpenDocument',
   },
   'text/html': { extensions: ['.html', '.htm'], kind: 'convert', label: 'HTML' },
   'application/xml': { extensions: ['.xml'], kind: 'convert', label: 'XML' },
@@ -304,7 +289,7 @@ export const DOCUMENT_EXCERPT_CHARS = 320
  * The compact representation of a document — the Knowledge list, a Search result header, a chat
  * or agent citation. **`excerpt` is the first `DOCUMENT_EXCERPT_CHARS` characters of the text,
  * whitespace-collapsed — not a summary and not a thumbnail**: there is no `documents.summary`
- * column and no server-side rasterisation on Workers, so a converted PDF's excerpt is usually its
+ * column and no server-side rasterisation, so a converted PDF's excerpt is usually its
  * cover page, and it is `null` while a document is `pending` or `failed`.
  */
 export const documentCardSchema = z.object({

@@ -10,7 +10,6 @@ import {
   DEFAULT_MODELS,
   type ProviderPreset,
   presetsFor,
-  WORKERS_AI_CHAT_MODEL,
 } from '@rocketpod/shared/ai/config'
 
 export interface ProviderInfo {
@@ -33,49 +32,13 @@ export interface ProviderInfo {
   suggestedModels: Readonly<Record<AiScope, readonly string[]>>
   /**
    * `true` when the list above IS the catalog, so the form offers those ids and no free text
-   * (Workers AI). Everywhere else a model id is whatever the endpoint calls it, so the picker keeps
+   * (a provider with a closed model catalog; none of the built-in ones today). Everywhere else a model id is whatever the endpoint calls it, so the picker keeps
    * an "other" escape. It is a form affordance, never a validation rule: a stored row naming a
    * model that has since left the list is still shown and still saveable, because the alternative
    * is a config silently rewritten to a model its owner did not choose.
    */
   modelsFixed?: boolean
 }
-
-/**
- * Every Workers AI text-generation model that declares BOTH `function_calling` (catalog property)
- * and `tool_choice` (input schema), cheapest first.
- *
- * **One list, three jobs**: the models the settings picker offers for a Workers AI chat config, the
- * models `client.ts` may send a real `tool_choice` to (`workersAiSupportsToolChoice`), and the
- * models it may stream tools to (`workersAiStreamsTools`). They are the same set deliberately — a
- * model without `tool_choice` falls back to asking in the prompt and unwrapping prose JSON, which
- * is a failure mode rather than a choice worth offering. Separate lists would be separate things to
- * keep in step, and the day they disagreed the picker would recommend a model the runtime cannot
- * constrain.
- *
- * A model absent from it is still usable: a stored config naming one works, stays editable and
- * stays priced. The picker is an affordance, never a validation rule.
- *
- * Hand-kept, because nothing here may depend on a network call. To re-derive: take
- * `wrangler ai models list --json` filtered on the `function_calling` property, keep those whose
- * `wrangler ai models schema <model>` declares `tool_choice` under `input.oneOf[].properties`,
- * drive each through a two-turn tool loop to confirm it streams (nothing documents the stream
- * shape), and price it in `@rocketpod/shared/ai/pricing` from the catalog's own `price` property
- * — an unpriced model shows on the Usage page as an `unpricedCall`.
- */
-export const WORKERS_AI_TOOL_CHOICE_MODELS = [
-  WORKERS_AI_CHAT_MODEL,
-  '@cf/google/gemma-4-26b-a4b-it',
-  '@cf/zai-org/glm-5.3-flash',
-  '@cf/deepseek-ai/deepseek-v4-flash-0731',
-  '@cf/qwen/qwen3.8-27b',
-  '@cf/nvidia/nemotron-3-120b-a12b',
-  '@cf/moonshotai/kimi-k2.6',
-  '@cf/moonshotai/kimi-k2.7-code',
-  '@cf/deepseek-ai/deepseek-v4-pro-0813',
-  '@cf/zai-org/glm-5.2',
-  '@cf/zai-org/glm-5.3',
-] as const
 
 export const PROVIDERS: readonly ProviderInfo[] = [
   {
@@ -142,26 +105,6 @@ export const PROVIDERS: readonly ProviderInfo[] = [
     defaultModel: DEFAULT_MODELS.openai_compatible,
     presets: presetsFor('openai_compatible'),
     suggestedModels: { chat: [], embeddings: [], decisions: [] },
-  },
-  {
-    id: 'workers_ai',
-    name: 'Cloudflare Workers AI',
-    scopes: ['chat', 'embeddings'],
-    needsApiKey: false,
-    needsBaseUrl: false,
-    supportsThinking: false,
-    supportsServiceTier: false,
-    defaultModel: DEFAULT_MODELS.workers_ai,
-    presets: [],
-    // Workers AI ids are a closed catalog, so the picker offers the list and nothing else — unlike
-    // a vendor endpoint, there is no "the id my account was given" case to leave room for.
-    modelsFixed: true,
-    suggestedModels: {
-      // The capability list IS the picker list — see WORKERS_AI_TOOL_CHOICE_MODELS above.
-      chat: WORKERS_AI_TOOL_CHOICE_MODELS,
-      embeddings: ['@cf/baai/bge-m3', '@cf/baai/bge-large-en-v1.5'],
-      decisions: [],
-    },
   },
   {
     // D37: typed judgments with probabilities, never text — so `decisions` is its ONLY scope, and

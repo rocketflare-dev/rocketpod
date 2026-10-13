@@ -25,7 +25,7 @@ async function seedThread(
   const { user, tenant } = await createTestTenantWithUser(db, role)
   const [conversation] = await db
     .insert(conversations)
-    .values({ tenantId: tenant.id, userId: user.id, provider: 'workers_ai', model: 'seed-model' })
+    .values({ tenantId: tenant.id, userId: user.id, provider: 'openai', model: 'seed-model' })
     .returning()
   if (!conversation) throw new Error('no conversation')
   let at = Date.now()
@@ -39,8 +39,8 @@ async function seedThread(
       createdAt: new Date(at),
       ...(turn.role === 'assistant'
         ? {
-            provider: 'workers_ai' as const,
-            model: turn.model ?? '@cf/zai-org/glm-4.7-flash',
+            provider: 'openai' as const,
+            model: turn.model ?? 'gpt-4.1-mini',
             usage: { inputTokens: 100, outputTokens: 20 },
           }
         : {}),
@@ -111,8 +111,12 @@ describe('GET /api/chat/conversations/:id/stats', () => {
     expect(stats.context.headroomChars).toBe(stats.context.budgetChars - 1000)
     expect(stats.compaction.pendingMessages).toBe(0)
     expect(stats.turns).toEqual({ user: 1, assistant: 1, toolCalls: 0 })
-    // The zero-key floor resolves, so the panel can name what answers next.
-    expect(stats.next).toMatchObject({ ready: true, provider: 'workers_ai', source: 'platform' })
+    // The platform keys resolve (the test env's fake endpoint), so the panel can name what answers next.
+    expect(stats.next).toMatchObject({
+      ready: true,
+      provider: 'openai_compatible',
+      source: 'platform',
+    })
     expect(stats.next.knowledgeTools.length).toBeGreaterThan(0)
 
     // The breakdown is disjoint and complete, and it includes what is sent every turn regardless
@@ -157,9 +161,9 @@ describe('GET /api/chat/conversations/:id/stats', () => {
     const env = createTestEnv()
     const { conversation, cookie } = await seedThread('owner', [
       { role: 'user', chars: 10 },
-      { role: 'assistant', chars: 10, model: '@cf/zai-org/glm-4.7-flash' },
+      { role: 'assistant', chars: 10, model: 'gpt-4.1-mini' },
       { role: 'user', chars: 10 },
-      { role: 'assistant', chars: 10, model: '@cf/some/unlisted-model' },
+      { role: 'assistant', chars: 10, model: 'unlisted-model' },
     ])
     const stats = conversationStatsSchema.parse(
       await json(
@@ -238,8 +242,8 @@ describe('summariseByModel', () => {
         tenantId: tenant.id,
         role: 'assistant',
         content: 'new',
-        provider: 'workers_ai',
-        model: '@cf/zai-org/glm-4.7-flash',
+        provider: 'openai',
+        model: 'gpt-4.1-mini',
         usage: { inputTokens: 20, outputTokens: 2 },
       },
     ])

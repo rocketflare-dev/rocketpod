@@ -447,7 +447,7 @@ function main(argv) {
   out(
     `Preserved as upstream: the rocketflare-dev org and its repos (the kit, plugins, the neon-proxy image, plugin CI), ${KIT.preserved.join(', ')}. Not touched by design: ` +
       'LICENSE, CONTRIBUTING.md, CODE_OF_CONDUCT.md, SECURITY.md, the two svgs, this tool, ' +
-      'the rf-adapt skill and .rocketflare.json (it names the kit, and gets an `app` block instead).',
+      'the rp-adapt skill and .rocketflare.json (it names the kit, and gets an `app` block instead).',
     ''
   )
 

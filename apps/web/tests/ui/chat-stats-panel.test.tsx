@@ -51,8 +51,8 @@ const stats = (over: object = {}) => ({
   conversationId: CONVERSATION_ID,
   next: {
     ready: true,
-    provider: 'workers_ai',
-    model: '@cf/zai-org/glm-4.7-flash',
+    provider: 'openai_compatible',
+    model: 'glm-4.7-flash',
     source: 'platform',
     maxOutputTokens: 16_384,
     knowledgeTools: ['search_knowledge', 'get_document', 'list_documents'],
@@ -108,7 +108,7 @@ describe('ChatStatsPanel', () => {
     renderWithProviders(<ChatStatsPanel conversationId={CONVERSATION_ID} onClose={() => {}} />, {
       session: makeSession(),
     })
-    expect(await screen.findByText('@cf/zai-org/glm-4.7-flash')).toBeInTheDocument()
+    expect(await screen.findByText('glm-4.7-flash')).toBeInTheDocument()
     expect(screen.getByText('1,000 / 24,000')).toBeInTheDocument()
     expect(screen.getByText('$0.01')).toBeInTheDocument()
     // Nothing is owed, so the trigger is not offered.

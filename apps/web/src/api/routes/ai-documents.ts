@@ -172,7 +172,7 @@ aiDocumentsRouter.post('/upload', uploadBodyLimit, async c => {
   if (!type) {
     throw new ApiError(
       415,
-      'Unsupported document type: upload a PDF, Word, Excel, OpenDocument, HTML, XML, CSV, JSON, Markdown or text file',
+      'Unsupported document type: upload a PDF, Word, HTML, XML, CSV, JSON, Markdown or text file',
       'unsupported_media_type',
       { contentType: file.type || null, filename: file.name ?? null }
     )

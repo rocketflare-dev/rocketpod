@@ -10,8 +10,7 @@ import { z } from 'zod'
 /**
  * v1 provider set. `anthropic_compatible` = Anthropic wire format behind a bearer token
  * (Fireworks, Moonshot presets); `openai_compatible` = `/v1/chat/completions` + `/v1/embeddings`
- * behind a bearer token (any vLLM/Ollama/proxy). `workers_ai` is the zero-key binding — embeddings
- * AND chat, the floor every workspace can fall back to. `typesafe` is TypeSafe's Jev (D37): typed
+ * behind a bearer token (any vLLM/Ollama/proxy). `typesafe` is TypeSafe's Jev (D37): typed
  * judgments with probabilities, never text — it serves the `decisions` scope and nothing else.
  * Append values LAST — a Postgres enum cannot use a value in the migration that adds it.
  */
@@ -20,11 +19,21 @@ export const AI_PROVIDERS = [
   'anthropic_compatible',
   'openai',
   'openai_compatible',
-  'workers_ai',
   'typesafe',
 ] as const
 export const aiProviderSchema = z.enum(AI_PROVIDERS)
 export type AiProvider = z.infer<typeof aiProviderSchema>
+
+/**
+ * Providers a RECORD may name: every configurable provider plus the ones Rocketpod dropped.
+ * `workers_ai` was Rocketflare's zero-key Cloudflare binding; Rocketpod has no Cloudflare, so it
+ * cannot be configured, but `ai_usage`, `conversations` and `messages` rows written before the fork
+ * still name it and must stay readable. Contracts that describe history parse with this schema;
+ * contracts that describe what can be configured or called parse with `aiProviderSchema`.
+ */
+export const RECORDED_AI_PROVIDERS = [...AI_PROVIDERS, 'workers_ai'] as const
+export const recordedAiProviderSchema = z.enum(RECORDED_AI_PROVIDERS)
+export type RecordedAiProvider = z.infer<typeof recordedAiProviderSchema>
 
 /**
  * Which client a config feeds: the chat/completion client, the embeddings client, or the
@@ -160,35 +169,19 @@ export const DEFAULT_MODELS: Record<AiProvider, string> = {
   anthropic_compatible: 'accounts/fireworks/models/gpt-oss-120b',
   openai: 'text-embedding-3-small',
   openai_compatible: '',
-  workers_ai: '@cf/baai/bge-m3',
   typesafe: 'jev-latest',
 }
-
-/**
- * The zero-key chat floor: Workers AI's Llama 3.3 70B (fp8, fast) — function calling, `messages`
- * input, 24k context. `resolveChat` lands here when no tenant row and no platform key exist, so a
- * fresh workspace can chat with nothing configured.
- *
- * Why not the smaller Mistral Small 3.1 (the previous default, still in the picker): the floor
- * has to run the AGENTS, not just the chat box, and a 24B model handles a multi-turn tool loop
- * over real documents poorly — it stalls or answers in prose where a tool call was required.
- * The 70B is meaningfully better at that for roughly 4× the output price (still cents), and
- * output is the small half of an agent's token bill. An operator who wants the cheaper floor sets
- * Mistral Small as a tenant chat provider (no key needed) or comments `[ai]` out of both tomls.
- */
-export const WORKERS_AI_CHAT_MODEL = '@cf/zai-org/glm-4.7-flash'
 
 /** Chat defaults for providers whose `DEFAULT_MODELS` entry is an embeddings model. */
 export const DEFAULT_CHAT_MODELS: Partial<Record<AiProvider, string>> = {
   openai: 'gpt-4.1-mini',
-  workers_ai: WORKERS_AI_CHAT_MODEL,
 }
 
 /** What a new config for `(provider, scope)` lands on — `DEFAULT_MODELS` is per provider, not per scope. */
 export const defaultModelFor = (provider: AiProvider, scope: AiScope): string =>
   (scope === 'chat' ? DEFAULT_CHAT_MODELS[provider] : undefined) ?? DEFAULT_MODELS[provider]
 
-/** Embedding dimension every provider is reduced to (D18); `bge-m3` is natively 1024. */
+/** Embedding dimension every provider is reduced to (D18): `dimensions: 1024` is sent on every call. */
 export const EMBEDDING_DIM = 1024
 
 export interface ProviderPreset {

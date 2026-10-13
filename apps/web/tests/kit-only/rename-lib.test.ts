@@ -274,8 +274,8 @@ describe('exclusions', () => {
       'scripts/rename.mjs',
       'scripts/lib/rename-lib.mjs',
       'scripts/lib/rename-lib.d.mts',
-      '.claude/skills/rf-adapt/SKILL.md',
-      '.claude/skills/rf-adapt/checklist.md',
+      '.claude/skills/rp-adapt/SKILL.md',
+      '.claude/skills/rp-adapt/checklist.md',
       '.rocketflare.json',
     ]) {
       expect(EXCLUDED_PATHS, p).toContain(p)
@@ -286,7 +286,7 @@ describe('exclusions', () => {
     for (const d of ['node_modules', 'dist', '.git']) expect(EXCLUDED_DIRS).toContain(d)
     expect(isExcluded('apps/web/node_modules/x/package.json')).toBe(true)
     expect(isExcluded('apps/web/dist/ui/index.html')).toBe(true)
-    expect(isExcluded('apps/web/migrations/0000_cute_violations.sql')).toBe(false)
+    expect(isExcluded('apps/web/migrations/0000_rocketpod-baseline.sql')).toBe(false)
     expect(isExcluded('apps/web/migrations/meta/0000_snapshot.json')).toBe(false)
     expect(isExcluded('apps/web/wrangler.staging.toml')).toBe(false)
   })

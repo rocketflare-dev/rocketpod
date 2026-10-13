@@ -28,7 +28,6 @@ export const AI_PROVIDER_VALUES = [
   'anthropic_compatible',
   'openai',
   'openai_compatible',
-  'workers_ai',
   'typesafe',
 ] as const satisfies readonly AiProvider[]
 export const AI_SCOPE_VALUES = [
@@ -49,7 +48,7 @@ export const aiConfigs = pgTable(
     /** Endpoint override for the `*_compatible` providers (and regional Anthropic proxies). */
     baseUrl: text('base_url'),
     model: text('model').notNull(),
-    /** Encrypted API key / bearer token; null for `workers_ai` (binding, no key). */
+    /** Encrypted API key / bearer token; null when the provider takes none. */
     apiKeyEnc: text('api_key_enc'),
     isDefault: boolean('is_default').notNull().default(false),
     /** `{ enabled, budgetTokens? }` — off by default and sent explicitly (cost, D17). */

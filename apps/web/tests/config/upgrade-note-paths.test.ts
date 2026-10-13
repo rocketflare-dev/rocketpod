@@ -2,7 +2,7 @@
  * `scripts/upgrade.mjs` end to end, over a two-release fixture kit: the release-note paths the
  * report and `plan.json` print must exist IN THE COPY. They used to print the kit's own path,
  * `docs/upgrades/X.Y.Z.md`, which a copy does not have until `--apply` writes it — so an agent
- * (Launch's unattended kit upgrade, `/rf-upgrade`) that read the report before applying failed its
+ * (Launch's unattended kit upgrade, `/rp-upgrade`) that read the report before applying failed its
  * first Read every time. A plan run copies each note to `.upgrade/work/<version>/notes/`; that is
  * the path to print. Real git, local repos only — no network.
  */

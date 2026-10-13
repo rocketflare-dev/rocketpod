@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Canonical file: scripts/install.sh in https://github.com/rocketflare-dev/rocketflare — a byte
-# copy is served from https://rocketpod.example.com/install.sh. It does nothing the README's clone path
-# does not: clone, detach the kit's history (README / docs/ADAPTING.md §0), then hand over to
-# scripts/bootstrap.sh. No sudo, no version-manager downloads, no writes outside the target dir.
+# scripts/install.sh in https://github.com/rocketflare-dev/rocketpod, served raw from GitHub. It
+# does nothing the README's clone path does not: clone, detach the kit's history (README /
+# docs/ADAPTING.md §0), then hand over to scripts/bootstrap.sh. No sudo, no version-manager
+# downloads, no writes outside the target dir.
 #
-#   curl -fsSL https://rocketpod.example.com/install.sh | bash -s -- [dir] [bootstrap options]
+#   curl -fsSL https://raw.githubusercontent.com/rocketflare-dev/rocketpod/main/scripts/install.sh \
+#     | bash -s -- [dir] [bootstrap options]
 #
 # Default dir: rocketpod-app. Piped through `bash -s`, stdin is the script, so the interactive
 # bootstrap is re-attached to /dev/tty when there is one; otherwise it runs --no-dev --yes.

@@ -2,9 +2,9 @@
 
 Multi-tenant SaaS starter for internal tools and B2B products, a **pnpm workspace**: Hono API + React UI in one
 Node server built to run in a container (`apps/web`), a CLI (`apps/cli`), private zod contracts
-(`packages/shared`). A hard fork of Rocketflare 0.19.0 with no Cloudflare dependency (D41,
-`docs/FORK.md`): Postgres for everything stateful, an S3-compatible store for files. `AGENTS.md`
-symlinks here.
+(`packages/shared`). A hard fork of Rocketflare 0.19.0 (0.20.0 ported since) with no Cloudflare
+dependency (D41, `docs/FORK.md`): Postgres for everything stateful, an S3-compatible store for
+files. `AGENTS.md` symlinks here.
 
 > **How it works**: `docs/CONCEPTS.md` — one section per subsystem with its known gaps. **Check it
 > before assuming a capability exists; update it when you change one.**
@@ -39,7 +39,9 @@ symlinks here.
 - **Async / realtime**: pg-boss jobs + cron, `ws` on `/ws` with LISTEN/NOTIFY fan-out, S3-compatible
   storage (`STORAGE_*`), OpenWorkflow durable agent runs — all on Postgres but the object store
 - **AI**: `services/ai/resolve` (`agent_models` → tenant `ai_configs` → platform key — `ANTHROPIC_API_KEY`
-  or `AI_*` (OpenAI-compatible); zero key → 503); Anthropic / OpenAI-compatible chat streamed as **AG-UI**
+  or `AI_*` (OpenAI-compatible); zero key → 503); Anthropic / OpenAI (Responses API) /
+  OpenAI-compatible chat (per-model request rules: `packages/shared/src/ai/models.ts`; defaults
+  `claude-haiku-5-5` / `gpt-6-luna`) streamed as **AG-UI**
   (`@ag-ui/core` pinned; SSE or protobuf; `POST /api/agui/run` is the protocol endpoint), chat calls
   the knowledge tools, agents on the run engine (projected to AG-UI on read) with typed
   decisions (`ctx.decide`, D37: TypeSafe's Jev as the `decisions` scope, else the chat model),
@@ -50,7 +52,7 @@ symlinks here.
 - **Analytics**: not core — the `analytics` PLUGIN (D31), not installed by default until a
   Rocketpod-compatible release exists (`defaultPlugins` is empty, `docs/ROADMAP.md` → Next)
 - **UI**: React 18 + Vite, DaisyUI 5 / Tailwind v4, React Router 6, TanStack Query 5; served by the Node server from `dist/ui`
-- **CLI**: commander + chalk + open; `tsx` in dev, `tsc` → `dist/cli.js` (bin `rocketpod`)
+- **CLI**: commander + chalk + open; `tsx` in dev, esbuild → `dist/cli.js` (bin `rocketpod`)
 - **Tests**: vitest projects `api` · `api-isolated` · `driver` · `ui` · `config` · `kit-only` (the kit's own
   tests, `apps/web/tests/kit-only/`, deleted by the rename — never in a copy) (Postgres :5533, the
   S3 gateway :7433; `driver` is the seam's conformance suite); cli; the eval kit's unit tests (`apps/evals/tests`). Evals themselves are
@@ -61,7 +63,7 @@ symlinks here.
 
 ```bash
 pnpm bootstrap · pnpm preflight  # first run in one go / read-only check
-pnpm dev:db:up && pnpm db:migrate  # Postgres on the first free port from :5432 → DATABASE_URL; role → migrations → grants
+pnpm dev:db:up && pnpm db:migrate  # Postgres (first free port from :5432) + S3 gateway (:7070) → .env; role → migrations → grants
 pnpm seed [--demo] && pnpm dev  # tenant/users/key (+ populated workspace); Node :3001 (tsx watch) + vite :3000 (strict ports)
 pnpm build && node apps/web/dist/server.js [web|worker|all]  # the production server
 docker compose up -d --build  # the whole stack from the image: postgres, s3, migrate, web, worker (docs/DEPLOY.md)
@@ -69,7 +71,7 @@ helm upgrade --install rocketpod deploy/helm/rocketpod -f values.yaml  # Kuberne
 pnpm dev:stop · pnpm dev:status · pnpm dev:db:status  # kill this repo's dev tree / port holders / every dev database
 pnpm cli login --server http://localhost:3001  # browser → ~/.rocketpod/config.json, then whoami
 pnpm gate [step…] · pnpm gate --list [--json]  # THE gate: lint → typecheck → test → build (CI's one job, Launch's ship gate)
-pnpm test  # every package; starts the test DB; the whole suite, driver conformance included
+pnpm test  # every package; starts the test DB (:5533) + S3 gateway (:7433); the whole suite, driver conformance included
 TEST_DATABASE_BRANCH=gate-… pnpm test  # a sandbox gate: no Docker, the whole suite on a gate branch over TCP (CONCEPTS §4)
 pnpm eval [suite] [--model x] [--compare] · pnpm eval:baseline · pnpm eval:view  # real-model evals (D33, docs/EVALS.md)
 pnpm lint · pnpm typecheck · pnpm build  # workspace-wide
@@ -125,7 +127,8 @@ docs/upgrades/     one porting note per kit release (+ unreleased.md) — CHANGE
                    rp-plugin (+ reference.md — install/upgrade/remove a plugin, D31) ·
                    rp-traces (debug a run from its span tree; pick a tracing backend, D32) ·
                    rp-evals (+ reference.md — author, run, compare, harvest, baseline, improve; D33) ·
-                   rp-deploy (Compose or Helm, the secrets checklist, never prints a secret)
+                   rp-deploy (Compose or Helm, the secrets checklist, never prints a secret) ·
+                   example-feature (demo the reference plugin)
 ```
 
 **`packages/shared`.** Private, no build: `@rocketpod/shared/<module>` → `./src/<module>.ts` (incl. `ai/*`,
@@ -137,7 +140,8 @@ written justification, and `apps/web/tests/config/shared-imports.test.ts` enforc
 **`apps/cli`.** `login` opens `GET /auth/cli?redirect_uri=http://127.0.0.1:<port>/callback`; the server
 mints a tenant API key `cli:<host>` → `?key=&tenant_id=&tenant_name=`; stored `0600` in
 `~/.rocketpod/config.json` (`ROCKETPOD_API_KEY`/`ROCKETPOD_URL` for CI). Also `logout|whoami|status|config`,
-`members|keys|activity list --json` (`.claude/rules/cli.md`)
+`members|keys|activity|groups|features list --json`, `groups members`, `traces list|show`,
+`feedback list`, `evals promote` (`.claude/rules/cli.md`)
 
 ## Config model
 
@@ -148,10 +152,10 @@ schema; single auto-joins the one tenant) · `SIGNUP_MODE` (`open|invite_only|ap
 `BOOTSTRAP_ADMIN_EMAILS` seeds the first admin) · `TENANT_SCOPE_MODE` (`off|enforce`, `docs/RLS.md`) ·
 **database**: `DATABASE_URL` (secret), `DATABASE_POOL_MAX` (10), `DATABASE_LISTEN_URL` (realtime
 LISTEN; direct or session-mode when PgBouncer runs in transaction mode), `DATABASE_DRIVER`
-(`postgres` only) · **server**: `SERVER_MODE`/first arg (`web|worker|all`), `PORT`,
-`TRUSTED_PROXY_HOPS` (proxies appending `X-Forwarded-For`, 0) · **work**: `JOBS_CONCURRENCY` (2),
-`JOBS_POLL_INTERVAL_SECONDS` (2), `RUNS_CONCURRENCY` (4), `AGENT_INTERRUPT_TIMEOUT`,
-`AGENT_MAX_OUTPUT_TOKENS`, `AGENT_MAX_TURNS` · **storage**: `STORAGE_DRIVER` (`s3`),
+(`postgres` only) · **server**: `SERVER_MODE`/first arg (`web|worker|all`), `PORT` (3001),
+`TRUSTED_PROXY_HOPS` (proxies appending `X-Forwarded-For`, 0) · secret `OAUTH_ENCRYPTION_KEY` ·
+**work**: `JOBS_CONCURRENCY` (2), `JOBS_POLL_INTERVAL_SECONDS` (2), `RUNS_CONCURRENCY` (4),
+`AGENT_INTERRUPT_TIMEOUT`, `AGENT_MAX_OUTPUT_TOKENS`, `AGENT_MAX_TURNS` · **storage**: `STORAGE_DRIVER` (`s3`),
 `STORAGE_ENDPOINT`, `STORAGE_REGION`, `STORAGE_BUCKET`, `STORAGE_FORCE_PATH_STYLE`, secrets
 `STORAGE_ACCESS_KEY_ID`/`STORAGE_SECRET_ACCESS_KEY` · **AI**: secrets `ANTHROPIC_API_KEY`,
 `AI_API_KEY` (+ `AI_BASE_URL`, `AI_MODEL` — OpenAI-compatible), `EMBEDDINGS_API_KEY` (+
@@ -192,7 +196,7 @@ code-quality.md · runtime.md. Runbooks: `docs/DEPLOY.md` · `docs/RLS.md`
   comments hold no other credentials; the CLI never prints a full key; `gitleaks` in CI
 - **`process` and Node server APIs only in `apps/web/src/node/`** (`node:fs`, `node:http`,
   `@hono/node-server`…), and nothing else imports `src/node/` — `platform-seam.test.ts` fails it;
-  `process.env` is read only there and in `src/config.ts`. Never add `pg` to app code
+  `process.env` is read only there (`server.ts` hands it to `loadConfig`). Never add `pg` to app code
 - **Release = root version**: git tag == root `package.json` `version` (ships the image + cli)
 - **Docs in sync**: a behaviour change updates CONCEPTS / SETUP / DEPLOY / rules in the same PR,
   **and adds an entry to `docs/upgrades/unreleased.md`** — copies of the kit absorb changes by

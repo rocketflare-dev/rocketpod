@@ -88,7 +88,7 @@ postgres.js — the one driver (D35); don't pass `--driver` (`postgres` is accep
 | 0 | every step passed | go to step 3 |
 | 1 | a step failed | show the tail of the output, fix the cause, re-run the same command (idempotent). A failing `6/10 plugins` is the one worth reading closely: re-run with `--no-plugins` to get a working app, then install the plugin with `/rp-plugin`, where the plan is shown before anything is written |
 | 2 | usage error | check `$ARGUMENTS` against the hint above and re-run |
-| 3 | a prerequisite is missing | install it, then re-run: Node 24 via `nvm install` (reads `.nvmrc`) or `fnm use`; pnpm via `corepack enable`; Docker via Docker Desktop, or `brew install colima docker && colima start` on macOS, or Docker Engine + the `docker` group on Linux. If Docker can't run here (a sandbox), ask the user for a Postgres URL (a Neon branch) and re-run with `--db-url` |
+| 3 | a prerequisite is missing | install it, then re-run: Node 24 via `nvm install` (reads `.nvmrc`) or `fnm use`; pnpm via `corepack enable`; Docker via Docker Desktop, or `brew install colima docker && colima start` on macOS, or Docker Engine + the `docker` group on Linux. If Docker can't run here (a sandbox), ask the user for a Postgres URL (any reachable Postgres with pgvector) and re-run with `--db-url` |
 | 4 | a dev port is held by another checkout | the DATABASE port is chosen automatically (`scripts/dev-db.mjs` takes the next free one), so this is :3000/:3001 (or `DEV_UI_PORT`/`DEV_API_PORT`): run `pnpm dev:status` and `pnpm dev:db:status`, show the user the other path/pid, and let THEM decide — stop it there, or move this checkout with `DEV_UI_PORT`/`DEV_API_PORT` in `apps/web/.env` plus `APP_URL` on the new UI port (SETUP.md 1.6) — never kill another checkout's processes |
 
 
@@ -127,9 +127,9 @@ open "want me to do anything else?". Offer these, in this order, with the first 
 |---|---|
 | **Show me around** | Walk the seeded app: **Chat** (streams a reply — needs `ANTHROPIC_API_KEY` or `AI_API_KEY` in `apps/web/.env`), **Agents** (`summarize-text`, watch the timeline fill), **Knowledge → Search** (the demo documents are indexed), **Analytics** (the seeded Organisation Overview). Drive it with them; one screen at a time |
 | **Check it really works** | `pnpm test:db:up && pnpm test` (ephemeral Postgres on :5533) — which runs the analytics plugin's own tests too, including the two-tenant cube isolation one — then the SETUP.md 1.6 analytics check, `pnpm cli analytics check-facts` |
-| **Make it mine** | `/rp-adapt <slug>` — the rename (package scope, Worker, database, CLI, theme). Ask for the slug if they have not said one |
+| **Make it mine** | `/rp-adapt <slug>` — the rename (package scope, image, database, CLI, theme). Ask for the slug if they have not said one |
 | **Add a capability** | `/rp-plugin` — install a plugin (a git repository copied in, with a plan you read first), or audit what is installed with `pnpm plugin list` / `pnpm plugin check` |
-| **Deploy it** | Not built yet: the container image, Compose and Helm are `docs/ROADMAP.md` M7. Say so; `pnpm build && node apps/web/dist/server.js all` is the production server today |
+| **Deploy it** | `/rp-deploy` — the container image on Docker Compose (`docker-compose.yml`, `deploy/compose.single.yml`) or the Helm chart (`deploy/helm/rocketpod`), runbook `docs/DEPLOY.md`; it stops for the user before any push, paid resource or live cluster |
 
 Leave the dev stack running unless they ask you to stop it (`pnpm dev:stop`). If they pick
 something not on the list, just do that — the list is a starting point, not a gate.

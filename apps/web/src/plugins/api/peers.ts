@@ -10,7 +10,7 @@
  * `apps/web/src/plugins/server.ts`, which imports every installed plugin, which imports this
  * module — a cycle, whichever way round the app is entered. Evaluated at MODULE scope, one side
  * finds `serverPlugins` still `undefined`, and the failure is `undefined.flatMap` at IMPORT time:
- * the Worker never starts, and which entry point loses the race depends on nothing a reader can
+ * the server never starts, and which entry point loses the race depends on nothing a reader can
  * see. Read at CALL time, live bindings make it always defined. The kit learned this extracting
  * analytics (`docs/CONCEPTS.md` §16, "What Phase C measured") and `services/access.ts` carries the
  * same note.

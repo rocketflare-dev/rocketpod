@@ -263,7 +263,7 @@ Not milestones of the port — the work that follows it, in rough order:
 
 - **First release** — `pnpm kit:release 0.1.0`, then create `rocketflare-dev/rocketpod` and push the
   tag (user-confirmed: it publishes the repository and, through `image.yml`, the image).
-- **CLI on npm** — there is no publish workflow: add one (on a tag, `apps/cli` built with `tsc`,
+- **CLI on npm** — there is no publish workflow: add one (on a tag, `apps/cli` built with esbuild,
   published as `rocketpod` or `@rocketpod/cli`; `@rocketpod/shared` stays private, so the CLI must
   bundle what it imports from it).
 - **Analytics without Cloudflare** — a release of the analytics plugin in `rocketflare-plugins` with

@@ -36,11 +36,11 @@ pnpm cli traces show <traceId | runId | messageId> [--full] [--json]
 
 ```
 invoke_agent research-topic   ERROR …            ← root: the run / turn / job, its input and output
-  └ execute#0                                     ← one per Workflow step (runs only), retries included
+  └ execute#0                                     ← one per run step (runs only), retries included
     └ chat claude-sonnet-5  1200→340 tok  2.1s    ← one per model call: tokens in→out, finish reason
     └ execute_tool search_knowledge  0.4s         ← one per tool call: in: args · out: result
       └ retrieval search_chunks                   ← hybrid search: query in, hits (doc, seq, score) out
-        └ embeddings @cf/baai/bge-m3              ← the query embedding
+        └ embeddings text-embedding-3-small       ← the query embedding
 ```
 
 - Chat turns are `invoke_agent chat` with the generations and tools directly beneath (no step span).

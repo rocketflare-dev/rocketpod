@@ -21,7 +21,8 @@ Either port moves with `DEV_UI_PORT` / `DEV_API_PORT` (`scripts/lib/dev-ports.mj
   appears. Components use DaisyUI semantic classes (`bg-base-200`, `text-primary`) or the kit's
   surface/border/text tokens (`--surface-panel`, `--border-subtle`, `.text-muted`); **never
   `bg-blue-50`-style palette utilities**
-- `apps/web/tests/ui/contrast.test.ts` gates the emitted tokens (WCAG); if you change a colour, run it
+- No test gates colour contrast: if you change a colour, check WCAG AA by hand (text 4.5:1,
+  controls and focus ring 3:1)
 - `ThemeToggle` sets `data-theme` on `<html>`; the DOM attribute is the state, mirrored to
   `localStorage['theme']` and validated on read (`index.html` pre-hydration script)
 - Tailwind v4 content scanning: `index.css` starts with `@import "tailwindcss" source(none)` and then
@@ -61,7 +62,7 @@ Either port moves with `DEV_UI_PORT` / `DEV_API_PORT` (`scripts/lib/dev-ports.mj
 - One hook file per resource in `hooks/use<Resource>.ts`; query keys from the central `queryKeys`
   factory in `lib/query-keys.ts` — never inline key arrays. `lib/queryClient.ts` holds the client
   and its global `QueryCache.onError`
-- `queryOptions()` factories in `lib/query-options.ts` for anything used by more than one component
+- `queryOptions()` factories beside the hook (`hooks/use<Resource>.ts`) for anything used by more than one component
 - Mutations invalidate via `queryKeys`; error toast on by default (`showToast`)
 - **Polling rules** (Phase 3b): poll only while the server still owes an answer, with the decision as a
   pure function on the cached row — `refetchInterval: q => runPollInterval(q.state.data?.status)`

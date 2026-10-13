@@ -43,8 +43,8 @@ entry (`src/node/platform.ts`) and read as `c.get('platform')` / `ctx.platform`:
 | `storage` | any S3-compatible store (`src/node/storage.ts`, `STORAGE_*`) |
 | `rateLimiter`, `locks` | Postgres tables `rate_limits`, `operation_locks` (`src/node/limits.ts`) |
 | `converter` | unpdf / mammoth (`src/node/converter.ts`) |
-| `ai` | none ships — the provider keys (`ANTHROPIC_API_KEY`, `AI_*`, `EMBEDDINGS_*`) cover AI |
 
+There is no `ai` member: the provider keys (`ANTHROPIC_API_KEY`, `AI_*`, `EMBEDDINGS_*`) cover AI.
 A null member is a configuration state the callers already answer (503 `*_not_configured`, a no-op
 nudge), never a crash.
 

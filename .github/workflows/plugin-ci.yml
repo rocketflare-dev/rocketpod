@@ -8,7 +8,7 @@ name: Plugin CI
 #
 #   jobs:
 #     ci:
-#       uses: rocketflare-dev/rocketflare/.github/workflows/plugin-ci.yml@main
+#       uses: rocketflare-dev/rocketpod/.github/workflows/plugin-ci.yml@main
 #
 # and it: reads the plugin's declared `minKit`, pairs it with the newest kit release, and for each
 # of those two clones that kit, installs the plugin into it from this checkout — after the plugins

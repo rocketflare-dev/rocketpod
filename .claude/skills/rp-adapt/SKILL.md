@@ -1,6 +1,6 @@
 ---
 name: rp-adapt
-description: Rename a fresh copy of the kit to your app (package scope, worker, database, CLI, themes, domain), then walk the rows that need a human
+description: Rename a fresh copy of the kit to your app (package scope, image, database, CLI, themes, domain), then walk the rows that need a human
 argument-hint: "<slug> [\"Display Name\"] [--domain example.com] [--colour #hex]"
 ---
 
@@ -80,8 +80,8 @@ pnpm gate
 
 `pnpm gate` runs lint, typecheck, test and build, and starts the test database itself (Docker must
 be running). Expect every step green, including
-`tests/config/platform-seam.test.ts` (no Cloudflare) and `tests/ui/contrast.test.ts` (if the
-colour changed). A failing `typecheck` almost always means an `@<old-scope>/shared` import the
+`tests/config/platform-seam.test.ts` (no Cloudflare); no test checks contrast, so re-check it by
+hand if the colour changed. A failing `typecheck` almost always means an `@<old-scope>/shared` import the
 pass could not see — `grep -rn "@rocketpod/" apps packages --include=*.ts --include=*.tsx`
 should be empty.
 

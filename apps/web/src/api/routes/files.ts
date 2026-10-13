@@ -1,6 +1,6 @@
 /**
  * `/api/files` (D23): upload / download / delete over the `StorageService` seam. Objects live in
- * R2 under a tenant prefix; the `files` row is the index and the ONLY thing the browser can name
+ * object storage (S3) under a tenant prefix; the `files` row is the index and the ONLY thing the browser can name
  * (`/api/files/:id`). Every query filters by the auth context's `tenantId` — a file uploaded in
  * one organisation is a 404 in another, including avatars (known gap: the person's `avatarUrl`
  * is global, the object is not). Bytes stream through the Worker with `Cache-Control: private`.

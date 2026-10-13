@@ -26,6 +26,10 @@ history, and make it your own — you will rename, delete and rewrite freely, an
 here. Cut loose is not cut off: your copy keeps a `.rocketflare.json` saying where it came from, and
 `/rp-upgrade` ports later kit releases into it without recreating anything you deleted.
 
+**Requirements.** macOS or Linux (Windows through WSL2), Node 24 (`.nvmrc`), pnpm 10 (`corepack
+enable`), Docker with Compose for the local Postgres and S3 gateway — or `--db-url` to use a
+Postgres you already run. Deployed, any Postgres 17 with pgvector and any S3-compatible bucket.
+
 **Ask your coding agent.** Open the copy in Claude Code and type **`/rp-setup`** — it checks the
 toolchain, starts Postgres, migrates, seeds the demo workspace and leaves you signed in, showing one
 verification line per step. Then **`/rp-adapt <slug> "Your App"`** renames the kit to your app.
@@ -36,7 +40,8 @@ app, with the plan shown before anything is written. Later, when the kit has mov
 **One command.** Read [`scripts/install.sh`](scripts/install.sh) first — it is short — then:
 
 ```bash
-curl -fsSL https://rocketpod.example.com/install.sh | bash -s -- myapp   # clone → detach → bash scripts/bootstrap.sh
+curl -fsSL https://raw.githubusercontent.com/rocketflare-dev/rocketpod/main/scripts/install.sh \
+  | bash -s -- myapp   # clone → detach → bash scripts/bootstrap.sh
 ```
 
 **By hand**, if you would rather see each step (macOS or Linux; Windows through WSL2):
@@ -46,9 +51,10 @@ git clone https://github.com/rocketflare-dev/rocketpod.git myapp && cd myapp
 rm -rf .git && git init && git add -A && git commit -m "Start from Rocketpod"   # your history starts here
 git remote add origin git@github.com:<you>/myapp.git                              # your own repo, when ready
 
-bash scripts/bootstrap.sh          # checks Node 24 / pnpm 10 / Docker, generates the local secret, starts
-                                   # Postgres, migrates, seeds demo data, starts the app and opens the
-                                   # browser signed in as the demo owner. Re-runnable.
+bash scripts/bootstrap.sh          # checks Node 24 / pnpm 10 / Docker, generates the local secret,
+                                   # starts Postgres + an S3 gateway, migrates, seeds demo data, starts
+                                   # the app and opens the browser signed in as the demo owner.
+                                   # Re-runnable.
                                    #   --no-demo  seed the bare tenant and users only (plain `pnpm seed`)
                                    #   --db-url <url>  no Docker: use an existing Postgres
 ```
@@ -118,7 +124,7 @@ you removed. [`CHANGELOG.md`](CHANGELOG.md) is what you would be catching up on.
 - **File storage** on any S3-compatible store (AWS S3, R2, MinIO, GCS…) behind a `StorageService` seam: tenant-prefixed keys, bytes streamed through the server, an indexed `files` table, per-scope MIME and size limits, avatars wired end-to-end (upload UI → `/api/files/:id` with ETag/304).
 
 ### AI layer
-- **Tiered provider resolution** — per-agent model assignment → the tenant's own provider (keys encrypted at rest, tested from Settings → AI) → a platform Anthropic key → a platform OpenAI-compatible key (OpenRouter, vLLM, Ollama…) → a clean 503. Providers: Anthropic, Anthropic-compatible (Fireworks, Moonshot presets), OpenAI, OpenAI-compatible.
+- **Tiered provider resolution** — per-agent model assignment → the tenant's own provider (keys encrypted at rest, tested from Settings → AI) → a platform Anthropic key → a platform OpenAI-compatible key (OpenRouter, vLLM, Ollama…) → a clean 503. Providers: Anthropic, Anthropic-compatible (Fireworks, Moonshot presets), OpenAI (the Responses API), OpenAI-compatible; per-model request rules (`packages/shared/src/ai/models.ts`) keep each call to what that model accepts, and the defaults are `claude-haiku-5-5` / `gpt-6-luna`.
 - **Streamed chat** — conversations and messages persisted per user, SSE frames with a shared event contract, auto-titles, prompt caching breakpoints, extended thinking off unless a tenant turns it on.
 - **Prompt registry** — prompts are code with `{{variables}}`; tenants override them in Settings → Prompts and revert with one click.
 - **Agents** — `POST /api/agents/runs` enqueues and answers 202; runs are exclusive per tenant and agent via a partial unique index, emit a durable event timeline, cancel cooperatively, ask a human and wait, and reconcile against the run engine on read. The `summarize-text` example shows structured output through a forced tool call; an Agents page shows live timelines.
@@ -137,16 +143,16 @@ not installed by default until a container-ready release exists (`docs/CONCEPTS.
 
 ### CLI
 - `rocketpod login` opens the browser, completes sign-in and tenant selection in the app, and receives a tenant API key on a loopback callback — stored `0600` in `~/.rocketpod/config.json`, never printed in full.
-- `whoami`, `status`, `members list`, `keys list`, `activity list`, `traces list|show` (the AI span tree of a run or chat turn, admin+), `feedback list` and `evals promote` (turn a thumbs-down into an eval case, admin+), `config`; `--json` prints only the parsed response so output pipes into `jq`; `ROCKETPOD_API_KEY` / `ROCKETPOD_URL` replace the config file in CI.
+- `whoami`, `status`, `members list`, `groups list|members`, `features list`, `keys list`, `activity list`, `traces list|show` (the AI span tree of a run or chat turn, admin+), `feedback list` and `evals promote` (turn a thumbs-down into an eval case, admin+), `config`; `--json` prints only the parsed response so output pipes into `jq`; `ROCKETPOD_API_KEY` / `ROCKETPOD_URL` replace the config file in CI.
 - Every response is parsed with the same zod schema the server validated with; exit codes distinguish "not logged in" (2) and "forbidden" (3) from other errors (1).
 
 ### Developer experience
 - **Contracts first** — `packages/shared` holds the zod schemas the API validates with and the UI and CLI parse with; consumed as TypeScript source, no build step.
 - **Release = root version** — tag = root `package.json` version; a tag pushes the image to `ghcr.io/rocketflare-dev/rocketpod`, and CI lints and validates the Helm chart.
-- **Tests that mean something** — API tests drive the real Hono app against a real Postgres; queue consumers, the agent-run body and cron tasks are plain functions tested directly, and the Node adapters run against real Postgres and an S3 gateway; UI tests in jsdom; a config project checks the no-Cloudflare guard, permissions and dashboard templates with no database.
+- **Tests that mean something** — API tests drive the real Hono app against a real Postgres; queue consumers, the agent-run body and cron tasks are plain functions tested directly, and the Node adapters run against real Postgres and an S3 gateway; UI tests in jsdom; a config project checks the no-Cloudflare guard, packaging parity, the env schema and permissions with no database.
 - **Agent-readable** — `CLAUDE.md` (also `AGENTS.md`), path-scoped rules in `.claude/rules/`, a `CLAUDE.md` in every significant directory, and `docs/CONCEPTS.md` describing each subsystem, its invariant and its known gaps.
 - **Plugins** — a feature can be a separate git repository copied in (never npm-installed, exactly like the kit): five barrels take one line each, and a plugin contributes contracts, tables with RLS policies, routes, jobs, agent tools, lifecycle hooks, lazy pages, nav items and CLI commands without a core file naming it. In the other direction it imports the kit only through declared entries — a family of injected execution contexts, versioned as `PLUGIN_API` and documented in a generated, diff-checked `docs/plugin-api.md` — so the plugin surface can stand still while kit internals move. `pnpm plugin check` is an exhaustive audit whose every finding carries the file, the line and the exact edit, and CI runs the same command; `example-feature` is the vendored reference plugin, and it is meant to be deleted.
-- **Design tokens** — two DaisyUI themes whose brand values live in one header block; a contrast test gates the emitted tokens.
+- **Design tokens** — two DaisyUI themes whose brand values live in one header block, with the WCAG AA contrast floors each token must meet written beside them.
 
 ## Layout
 
@@ -154,7 +160,7 @@ not installed by default until a container-ready release exists (`docs/CONCEPTS.
 rocketpod/          workspace root: package.json (scripts delegate via pnpm -r / --filter),
 │                     pnpm-workspace.yaml, biome.json, tsconfig.base.json, CLAUDE.md, docs/, .github/
 ├── apps/web/         @rocketpod/web — Node server (Hono API) + React UI; src/node/, migrations/, scripts/, tests/
-├── apps/cli/         @rocketpod/cli — `rocketpod` CLI: login, logout, whoami, status, members/keys/activity list, traces list|show, feedback list, evals promote, config
+├── apps/cli/         @rocketpod/cli — `rocketpod` CLI: login, logout, whoami, status, members/keys/activity list, groups list|members, features list, traces list|show, feedback list, evals promote, config
 ├── apps/evals/       @rocketpod/evals — developer-run eval suites (vitest-evals): `pnpm eval`, never part of the gate
 └── packages/shared/  @rocketpod/shared — PRIVATE zod contracts, error envelope, pagination, permission types;
                       consumed as TypeScript source through the workspace link (no build step)
@@ -169,7 +175,7 @@ production server). Root `scripts/` holds the first-run tooling: `bootstrap.sh` 
 
 ## Not included (by design)
 
-Billing and subscriptions, Vectorize (vectors live in pgvector under the tenant predicate), OCR of
+Billing and subscriptions, a separate vector database (vectors live in pgvector under the tenant predicate), OCR of
 images (document conversion covers PDF/Office/HTML, not pictures), reranking, prompt versioning,
 reporting/export, and any product domain. Each is a documented extension point in `docs/CONCEPTS.md`; the subsystem sections
 there list every known gap.
@@ -185,16 +191,18 @@ there list every known gap.
 | [`docs/DEPLOY.md`](docs/DEPLOY.md) | running it in production: the image, Docker Compose, the Helm chart, secrets, external Postgres and S3, scaling |
 | [`docs/FORK.md`](docs/FORK.md) | how Rocketpod relates to Rocketflare, and which Rocketflare releases have been ported |
 | [`docs/RLS.md`](docs/RLS.md) | tenant isolation posture and how to turn row-level security on |
+| [`docs/EVALS.md`](docs/EVALS.md) | writing and running evals for chat and agents (`pnpm eval`) |
+| [`docs/DESIGN-SELFHOSTED.md`](docs/DESIGN-SELFHOSTED.md) · [`docs/ROADMAP.md`](docs/ROADMAP.md) | the design of the Postgres-backed adapters that replaced Cloudflare, and what comes next |
 | `.claude/rules/*.md` | layer conventions (api, database, ui, cli, testing, code-quality, runtime) — auto-loaded by path |
 | `.claude/skills/` | the slash commands a coding agent drives: `/rp-setup` (first run), `/rp-preflight` (read-only diagnosis), `/rp-adapt` (rename + checklist), `/rp-how-do-i` (coaching for a new feature — asks, plans, writes `docs/features/<slug>.md`, never the code), `/rp-upgrade` (port later kit releases into your copy), `/rp-plugin` (install, upgrade, remove or audit a plugin), `/rp-traces` (debug a run or chat turn from its span tree; pick or switch a tracing backend), `/rp-evals` (write, run and interpret evals; compare models or prompts; turn thumbs-down into cases) — an agent may run those when you ask in plain words — and `/rp-deploy` (Compose or Helm), which renders and checks locally and asks you before it pushes an image, touches a cluster or creates anything billed |
 
 ## Provenance
 
-Forked from Rocketflare 0.19.0 (`docs/FORK.md`), itself extracted from two internal applications:
-one contributed the structure, docs system, auth, tenancy and AI layer; the other the platform
-substrate and the analytics layer. Rocketpod replaced that substrate's Cloudflare pieces with
-Postgres-backed equivalents (`docs/DESIGN-SELFHOSTED.md`). The decisions are recorded, subsystem by
-subsystem, in [`docs/CONCEPTS.md`](docs/CONCEPTS.md).
+Forked from Rocketflare 0.19.0, with 0.20.0 ported since (`docs/FORK.md`). Rocketflare itself was
+extracted from two internal applications: one contributed the structure, docs system, auth, tenancy
+and AI layer; the other the platform substrate and the analytics layer. Rocketpod replaced that
+substrate's Cloudflare pieces with Postgres-backed equivalents (`docs/DESIGN-SELFHOSTED.md`). The
+decisions are recorded, subsystem by subsystem, in [`docs/CONCEPTS.md`](docs/CONCEPTS.md).
 
 ## Contributing
 

@@ -17,7 +17,7 @@ pnpm gate
 Lint, typecheck, test, build — the same command a copy's CI runs as its one job and Launch's ship
 gate runs in a sandbox (`pnpm gate --list` for the steps, `pnpm gate test` for one of them,
 `--keep-going` to see every failure at once). `pnpm test` inside it starts the test database
-itself and runs the driver conformance pass under both drivers (docs/CONCEPTS.md §4).
+itself and runs the driver conformance suite (`tests/driver/`) under postgres.js (docs/CONCEPTS.md §4).
 `typecheck` is `tsc --noEmit` in every package; nothing is generated.
 
 ## Style (Biome 2, `biome.json`)
@@ -38,7 +38,7 @@ itself and runs the driver conformance pass under both drivers (docs/CONCEPTS.md
   imports nothing from `apps/web` or `apps/cli` — it must bundle for the browser; `apps/cli` never
   imports `apps/web`
 - Runtime capabilities are typed by the `Platform` interfaces (`src/platform/types.ts`) and config by
-  `Config` (`src/config.ts`); do not hand-write an `Env` interface
+  `AppConfig` (`src/config.ts`); do not hand-write an `Env` interface
 - Infer types from zod schemas (`z.infer`) rather than duplicating interfaces
 
 ## Contracts first

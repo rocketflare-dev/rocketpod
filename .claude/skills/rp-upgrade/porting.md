@@ -45,8 +45,8 @@ silently dropped because *"the kit changed nothing here"* and *"the kit is not a
 anything here"* are different answers, and only the second one means "go and run
 `pnpm plugin upgrade <id>`".
 
-The two diffs meet in exactly one place: **the six barrels**
-(`apps/web/src/plugins/{server,ui,schema,worker-exports}.ts`,
+The two diffs meet in exactly one place: **the five barrels**
+(`apps/web/src/plugins/{server,ui,schema}.ts`,
 `packages/shared/src/plugins/index.ts`, `apps/cli/src/plugins/index.ts`). They are the kit's own
 files, so a kit release may change them — but each installed plugin has written one line into each
 it uses, and it names
@@ -106,8 +106,9 @@ summary, because `.env` itself is git-ignored and they have to add it by hand.
 
 ## `package.json`
 
-`manual` on purpose. The root `version` is the **app's** release version — `docs/DEPLOY.md` gates
-deploys on `tag == root version` — so porting the kit's bump would break their release flow. Take
+`manual` on purpose. The root `version` is the **app's** release version — its version tag is what
+`.github/workflows/image.yml` publishes as the image tag — so porting the kit's bump would break
+their release flow. Take
 the dependency changes, leave the version, then `pnpm install` so the lockfile follows.
 
 ## Registries

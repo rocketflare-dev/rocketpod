@@ -1,4 +1,4 @@
-# Workflows (D5, D7)
+# Durable agent runs (D5, D7, D41)
 
 `agent-run-body.ts` — `runAgentRun(params, step, { env, platform })`, the agent run's durable body
 against the neutral `Step` (`src/platform/types.ts`). OpenWorkflow drives it on Node
@@ -8,8 +8,8 @@ Shape: `step.do('claim')` → a LOOP of `step.do('execute#N', { retries: { limit
 '10 seconds', backoff: 'exponential' }, timeout: '10 minutes' })` and, whenever that returns
 `awaiting_input`, `step.waitForEvent('resume#N', { type: AGENT_RESUME_EVENT, timeout:
 cfg.AGENT_INTERRUPT_TIMEOUT })` → `step.do('finish')`. The bodies are plain functions in
-`../services/agents/runtime.ts` (tests call them with `{ db, env }`); the class only wires steps and
-opens/closes ONE DB client per step (`withStepDatabase`, awaited `close()` in `finally`). Step return
+`../services/agents/runtime.ts` (`claimStep` / `executeRun` / `finishStep`, called with a `db` and the
+`Platform`); `runAgentRun` only wires steps and opens/closes ONE DB client per step (`withStepDatabase`, awaited `close()` in `finally`). Step return
 values are small serialisable objects (ids + status), never rows. Tracing (D32): `execute#N`
 passes `{ round }` so the attempt's span is named for its step, and only `finish` passes `{ cfg }`
 to `finishStep`, which records the run's root span — one root per run, so the `expire#N` call
@@ -27,16 +27,16 @@ Three more things the loop holds:
   written by the resolve route, which also flips `awaiting_input → running` BEFORE it wakes the
   instance (decision 2). `execute#N+1` re-enters `run()` from the top and reads it. That is what
   lets `nudgeOrRestartInstance` create a fresh instance when the old one is gone — a new instance
-  has no event to replay and needs none. `AGENT_RESUME_EVENT` is a constant because a `.` in the
-  type is `workflow.invalid_event_type` (T8).
+  has no event to replay and needs none. `AGENT_RESUME_EVENT` (`'agent-resume'`) is a constant, with no `.`,
+  a rule inherited from Rocketflare's engine (`workflow.invalid_event_type`, T8).
 - **The `try/catch` around `execute` lives inside the loop and clears `outcome`** — a previous
   round's `awaiting_input` falling through to `finish` would say the run is parked when it is not.
 - **`MAX_INTERRUPT_ROUNDS` (32)** ends a runaway agent `failed`. A correctness guard, not a capacity
-  one: the step budget is 10,000 and a round costs two steps.
+  one: OpenWorkflow allows 1,000 step attempts a run and a round costs two steps.
 
 **The whole tool loop lives in the ONE `execute` step by decision, not by omission** — one `step.do`
 per model turn was investigated and rejected (`docs/CONCEPTS.md` §9 Known gaps). Steps do not nest,
-so it needs `run()` outside a step, and Workflows replays everything outside a step. Wall clock per
+so it needs `run()` outside a step, and the engine replays everything outside a step. Wall clock per
 step is unlimited, so a long run is a bigger `timeout`, not more steps.
 
 Rules: idempotent steps (the `agent_runs` row is the claim); cooperative cancel (poll the row between
@@ -54,8 +54,8 @@ which is how the expiry path is driven. `names` is every step name in call order
 ## On Node: OpenWorkflow (D41)
 
 `src/node/runs.ts` runs `runAgentRun` (`agent-run-body.ts`) on OpenWorkflow, through
-`openWorkflowStep`. The body must stay engine-neutral, and two rules keep it correct on both
-engines:
+`openWorkflowStep`. The body must stay engine-neutral (only the `Step` interface), and two rules
+keep it correct on OpenWorkflow:
 
 - **Every `catch` around a step rethrows engine control flow first**:
   `if (step.isControlFlow?.(err)) throw err`. OpenWorkflow parks a run by THROWING out of

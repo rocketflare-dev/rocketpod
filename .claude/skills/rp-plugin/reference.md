@@ -99,7 +99,7 @@ Field notes, in the order they bite:
 - **`anchor`** is the path the manifest is copied to inside a host, and that copy is written by
   `pnpm plugin add` from the source manifest. **Do not hand-edit it**: a plugin's version exists
   once, which is what stops an anchor left behind failing every install of a correct release.
-- **`registries`** are the six host barrels, listed so `pnpm kit:upgrade` can flag a kit change to
+- **`registries`** are the five host barrels, listed so `pnpm kit:upgrade` can flag a kit change to
   one of them as `touches-plugin-registry` — the kit CAN move ground under a plugin.
 - **`dependencies`** are installed into the HOST's packages (`pnpm --dir apps/web add …`). A plugin
   ships no `package.json` of its own into a host.
@@ -159,7 +159,7 @@ where the complaint is AT a place in a file, never fabricated. Per installed plu
   `## Surface ledger` provides. This is the compatibility check, and unlike the two version numbers
   it replaced it cannot go stale: `uses` is derived from the plugin's own imports and the ledger is
   generated from the kit's own source. Each finding names the symbol and its replacement import;
-- for each of the six barrels, the **line and the half agree both ways** — a barrel that names a
+- for each of the five barrels, the **line and the half agree both ways** — a barrel that names a
   plugin half that is not on disk, and a half on disk that no barrel names;
 - no **`*.rej`** anywhere under its directories ("an upgrade left work behind");
 - **its skills, both ways**: every declared skill has `.claude/skills/<dir>/SKILL.md` whose
@@ -172,8 +172,8 @@ where the complaint is AT a place in a file, never fabricated. Per installed plu
 - **every declared dependency is really in the host `package.json`** — `plugin add --apply` runs
   `pnpm --dir <pkg> add`, and until now nothing ever looked again, so an install that failed
   part-way left a plugin whose imports cannot resolve while every other check read as clean;
-- **no Cloudflare declaration** — a manifest with `bindings` or `workerExports` fails as
-  `<id>:cloudflare-only`;
+- **no Cloudflare declaration** — a manifest with `bindings` or `workerExports` fails on that
+  field, with the fix "use the plugin context (ctx.platform)";
 - when it declares tenant-scoped tables, **a tenant-isolation test exists** under
   `src/plugins/<id>/tests/api/`. This is the kit's one non-negotiable that the kit itself cannot
   write, and it is structural: it proves such a test EXISTS, not that it is right, and the message

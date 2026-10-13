@@ -2,7 +2,7 @@
 
 Zod schemas + inferred types used by BOTH the API and the UI (D13). Contracts first: a new or
 changed API surface starts here, then the route `validate()`s with it, then the UI parses the
-response with the same schema. `pnpm test:config` covers the pure parts.
+response with the same schema. `pnpm web test:config` covers the pure parts.
 
 ## Naming
 
@@ -17,7 +17,8 @@ response with the same schema. `pnpm test:config` covers the pure parts.
 `auth.ts` session/login · `tenants.ts` roles, slugs, members, invitations · `access-requests.ts` ·
 `permissions.ts` actions/subjects/`AppAbility`/packed rules (matrix lives in `apps/web/src/permissions/`) ·
 `api-keys.ts` · `tenant-settings.ts` · `user-settings.ts` · `notifications.ts` · `admin.ts` ·
-`activity.ts` · `errors.ts` envelope + codes · `pagination.ts` ·
+`activity.ts` · `errors.ts` envelope + codes · `pagination.ts` · `gate.ts` (`gateListSchema` — the
+`pnpm gate --list --json` contract) ·
 `features.ts` (D30) — the feature-flag registry (`CORE_FEATURE_FLAGS`, now EMPTY — the kit's demo
 flag is the `example-feature` PLUGIN — merged with each plugin's `SharedPlugin.features` into
 `FEATURE_FLAGS`, keyed on `FEATURES`/`FeatureName` from `permissions.ts`, where `CORE_FEATURES` is
@@ -86,8 +87,8 @@ non-empty), `AgentMeta<Input, Output>`
 were conventional and are now contracts), `agentRunWithEventsSchema` (`+ interrupts[]`, `artifacts[]`),
 `ACTIVE_RUN_STATUSES` vs `CLAIMABLE_RUN_STATUSES` (a parked run holds the exclusive slot but is NOT
 claimable — the resolve route flips it back to `running` first), `AGENT_RESUME_EVENT` +
-`WORKFLOW_EVENT_TYPE_PATTERN` (Workflows event names allow only letters, digits, `-`, `_`; a `.` is
-`workflow.invalid_event_type`, which no Node test would catch), `MAX_INTERRUPT_ROUNDS`, the
+`WORKFLOW_EVENT_TYPE_PATTERN` (event names are letters, digits, `-`, `_` only — a rule kept from
+Rocketflare's engine, where a `.` was `workflow.invalid_event_type`), `MAX_INTERRUPT_ROUNDS`, the
 `RUN_STREAM_*` cadence constants, the example's `summarizeTextInput/OutputSchema` ·
 `interrupts.ts` — human-in-the-loop (issue #17): `AGENT_INTERRUPT_KINDS` (`approval · choice · input ·
 form`, closed), `agentInterruptSpecSchema` (the TYPED `spec` column — an untyped jsonb blob called
@@ -139,8 +140,8 @@ rendering all share · `usage.ts` — `aiUsageSchema`, `aiUsageSummarySchema`,
 `estimateCostMicrocents`; the ONE place to correct rates, unknown model → null, never a guess. `errors.ts` codes added: `ai_not_configured`,
 `agent_runs_not_configured`, `agent_run_active`; `permissions.ts` subjects added: `AiConfig`, `Prompt`,
 `Conversation`, `AgentRun`, `Document` — plus whatever an installed PLUGIN declares in
-`SharedPlugin.subjects` (the analytics plugin's `Dashboard` and `Analytics`, D19 + D31, which is
-where its contracts live too: `@rocketpod/shared/plugins/analytics/index`). Known gap:
+`SharedPlugin.subjects` (e.g. the analytics plugin's `Dashboard` and `Analytics` when installed —
+none is by default — D19 + D31, whose contracts live in `@rocketpod/shared/plugins/analytics/index`). Known gap:
 `GET /api/ai/config/providers` has no schema here (the catalog is server data in
 `apps/web/src/api/services/ai/providers.ts`; the UI keeps a permissive one).
 
@@ -174,7 +175,7 @@ entry in `api/services/access.ts` — never infer "restricted" from the presence
   (pinned, zod-only, no platform APIs) in `src/ai/agui.ts` alone**. NEVER import from
   `apps/web/src/api`, `apps/web/src/db`, `apps/web/src/ui` or `apps/cli` — this package bundles into the browser and the CLI.
   `@ag-ui/core` is on the list because it satisfies that reason AND because AG-UI is a wire format:
-  server and UI must parse the SAME runtime schema, so a loose mirror (the `analytics.ts` precedent,
+  server and UI must parse the SAME runtime schema, so a loose mirror (the analytics plugin's precedent,
   where nothing needs to validate a `DashboardConfig`) would mean two sources of truth. A fifth
   dependency needs the same written justification here and in the root `CLAUDE.md`;
   `apps/web/tests/config/shared-imports.test.ts` is the check

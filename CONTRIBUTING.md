@@ -48,7 +48,7 @@ Node 24 (`.nvmrc`), pnpm 10 (`corepack enable` reads `packageManager`), Docker; 
 
 ```bash
 git clone https://github.com/rocketflare-dev/rocketpod.git && cd rocketpod
-bash scripts/bootstrap.sh        # toolchain → install → .env → Postgres → migrate → seed --demo → pnpm dev, signed in
+bash scripts/bootstrap.sh        # toolchain → install → .env → Postgres + S3 → migrate → plugins → seed --demo → … → pnpm dev, signed in
 pnpm test                        # the full suite; starts a throwaway Postgres on :5533 and an S3 gateway on :7433
 ```
 
@@ -76,7 +76,8 @@ A pnpm workspace; `CLAUDE.md` is the map and every significant directory has its
 - 📂 `deploy/` — the Helm chart and the compose overrides; the root `Dockerfile` and
   `docker-compose.yml` build and run the image
 - 📂 `scripts/` — first-run tooling: `bootstrap.sh` / `bootstrap.mjs`, `install.sh`, `rename.mjs`,
-  `lib/`; and the upgrade path: `upgrade.mjs`, `release.mjs`, `release-check.mjs`
+  `lib/`; the gate and test runner: `gate.mjs`, `test.mjs`; plugins: `plugin.mjs`; and the
+  upgrade path: `upgrade.mjs`, `release.mjs`, `release-check.mjs`
 - 📂 `.claude/rules/` — layer conventions (api, database, ui, cli, testing, code-quality,
   runtime), loaded by path when you or a coding agent touch that layer; `.claude/skills/` — the
   `/rp-*` slash commands (`/rp-setup`, `/rp-preflight`, `/rp-adapt`, `/rp-deploy`, `/rp-upgrade`…)
@@ -176,15 +177,15 @@ Maintainers only.
 1. `pnpm kit:release X.Y.Z`, then `node scripts/release-check.mjs --tag X.Y.Z` and the gate.
 2. `git commit -am "Release X.Y.Z" && git tag -m "Release X.Y.Z" X.Y.Z && git push origin main X.Y.Z`.
    The tag has to be annotated because tags are signed. `image.yml` builds and pushes
-   `ghcr.io/rocketflare-dev/rocketpod:X.Y.Z`, and `notify-plugins.yml` pings the plugin repositories.
+   `ghcr.io/rocketflare-dev/rocketpod:X.Y.Z`, and `notify-plugins.yml` sends the plugin repositories a `rocketpod-released` dispatch.
 3. The CLI is meant to publish to npm as `rocketpod` / `@rocketpod/cli`; there is no publish
    workflow yet (`docs/ROADMAP.md` → Next), so that step is manual or skipped.
 
 ### <a name="architecture-guidelines"></a> Architecture guidelines
 
 - **One image, three modes.** Everything ships as one container image running `web`, `worker` or
-  `all`; `process.env` is read only in `src/config.ts` and `src/node/`, and runtime capabilities are
-  reached through the `Platform` seam (`src/platform/types.ts`), never imported from an adapter.
+  `all`; `process.env` is read only in `src/node/` (which hands it to `loadConfig` in
+  `src/config.ts`), and runtime capabilities are reached through the `Platform` seam (`src/platform/types.ts`), never imported from an adapter.
 - **Postgres is the truth.** Realtime events are nudges that make the UI re-query; job and run state
   lives in rows; vectors live in pgvector under the tenant predicate.
 - **Drizzle only, parameters only.** SQL goes through Drizzle or the `sql` tag with bound parameters;

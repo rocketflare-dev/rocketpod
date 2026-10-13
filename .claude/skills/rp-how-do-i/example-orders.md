@@ -135,7 +135,7 @@ place inside a host.
 What the kit does **not** give you: multi-step or conditional approval (two approvers, thresholds by
 amount) is yours to design; there is no workflow engine behind `status`. Nor is there money —
 currency, rounding and tax are application concerns the kit has no opinion on. And on the plugin
-side: no third-party trust model (a plugin has full Worker and database access — installing one is
+side: no third-party trust model (a plugin has full server and database access — installing one is
 as trusting as merging a pull request), no cross-plugin foreign-key tooling, and no `many()`
 back-reference from a core table onto `orders_orders`. Say all of it out loud rather than letting
 someone discover it in week three.

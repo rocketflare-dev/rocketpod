@@ -1,6 +1,6 @@
 /**
  * Object storage helpers (D23) over the neutral `StorageService` (`src/platform/types.ts`; the
- * Worker's adapter over R2 is `src/platform/cloudflare/storage.ts`). Routes read it as
+ * S3 adapter is `src/node/storage.ts`). Routes read it as
  * `c.get('platform').storage`, so a test can pass an in-memory bucket and an app can swap the
  * backend without touching callers. Keys are tenant-prefixed
  * (`tenants/<tenantId>/<scope>/<uuid>-<name>`) so one prefix scopes a whole tenant for listing
@@ -65,7 +65,7 @@ export function buildStorageKey({ tenantId, scope, name, id }: StorageKeyInput):
   return `tenants/${tenantId}/${scope}/${id ?? newId()}-${sanitizeFilename(name)}`
 }
 
-/** Keys deleted per round trip. Under R2's 1 000-key `delete` cap, with room to spare. */
+/** Keys deleted per round trip. Under S3's 1 000-key `DeleteObjects` cap, with room to spare. */
 export const PURGE_PAGE_SIZE = 500
 
 /** The prefix that scopes every object of a tenant (or one scope of it). */
@@ -111,7 +111,7 @@ export interface StoreUploadInput {
   tenantId: string
   ownerUserId: string
   scope: FileScope
-  /** The multipart part — a Blob carries its length, which R2 needs. */
+  /** The multipart part — a Blob carries its length, which the S3 upload needs. */
   file: Blob
   /** The client's filename (sanitised here). */
   filename: string

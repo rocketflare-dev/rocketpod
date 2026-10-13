@@ -7,7 +7,7 @@
  * read the shell's environment. A tunnel's origin arrives as `APP_URL` (`--var`). Runs BEFORE
  * csrf so preflights are answered.
  * WebSocket upgrades (`/ws`, D8) bypass it: CORS does not govern the handshake (the route checks
- * membership), and the DO's 101 response has immutable headers that `cors()` would try to set.
+ * membership), and the 101 upgrade response must leave untouched (`node/realtime.ts` owns the socket).
  */
 import { cors } from 'hono/cors'
 import { createMiddleware } from 'hono/factory'

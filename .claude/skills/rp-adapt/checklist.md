@@ -53,7 +53,8 @@ cannot: `docker rm -f <old>-dev-postgres && docker volume rm <old>-dev-data` (sa
 `-test-postgres`). Then `pnpm dev:db:up && pnpm db:migrate` builds a fresh database under the new
 names. Also `apps/web/.env` — the script renames its `DATABASE_URL` when the file exists;
 confirm it reads `postgresql://<snake>:<snake>_pass@localhost:5432/<snake>_dev`. Decide the
-embedding dimension now if you will not use the default `@cf/baai/bge-m3`.
+embedding dimension now if your embeddings model cannot answer 1024 dimensions (the default,
+OpenAI's `text-embedding-3-small`, is asked for 1024).
 
 ## (c) Docker names — done by the script, confirm once
 
@@ -102,12 +103,12 @@ dark theme's `--color-primary`, both `--color-primary-content` values (text on t
 grep -n "color-primary\|surface-active\|focus-ring\|dc-primary-rgb\|tone-primary" apps/web/src/ui/index.css
 pnpm web test:ui
 ```
-Expect the new hex where the script said, and `tests/ui/contrast.test.ts` green (WCAG AA: text
-4.5:1, controls and focus ring 3:1).
+Expect the new hex where the script said and the UI tests green. No test checks contrast, so
+check WCAG AA by hand (text 4.5:1, controls and focus ring 3:1).
 
 **What to change.** Ask the user for their palette. Change the values in `index.css` only (the
 `/* blue-600 */`-style comments beside them are now stale — update or drop them). Re-run
-`pnpm web test:ui` after every change; a failing contrast test names the token and the ratio.
+`pnpm web test:ui` after every change and re-check the contrast ratios yourself.
 
 ## (f) Logo — report only
 
@@ -150,8 +151,8 @@ Expect: `No plugins installed.` (then there is nothing to do here), or one line 
 **empty** grep — every kit token translated — and `✔ n plugin(s) check out`.
 
 **What to change.** Nothing, normally. A surviving `@rocketpod/…` import means the rename could
-not see that file: fix it by hand, then `pnpm typecheck`. Never edit the six barrels
-(`apps/web/src/plugins/{server,ui,schema,worker-exports}.ts`,
+not see that file: fix it by hand, then `pnpm typecheck`. Never edit the five barrels
+(`apps/web/src/plugins/{server,ui,schema}.ts`,
 `packages/shared/src/plugins/index.ts`, `apps/cli/src/plugins/index.ts`) to make something pass — `pnpm plugin` writes those lines, and
 `check` comparing them to the tree is what proves the install is real. If `check` reports a missing
 migration for a plugin's tables, that is (b)'s fresh database, not a rename problem: `pnpm

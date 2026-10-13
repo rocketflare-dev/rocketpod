@@ -2,17 +2,18 @@
 
 A plugin is a **separate git repository copied into an app** — never installed from npm, exactly
 like the kit itself — that contributes contracts, schema, routes, jobs, agents, UI and CLI commands.
-This directory is the host half: the types, the two web barrels, and every installed plugin's tree.
+This directory is the host half: the types, the plugin API (`api/`), the three web barrels, and
+every installed plugin's tree.
 `docs/CONCEPTS.md` §16 is the decision record; `example-feature/` is the worked example.
 
-The whole seam is **six barrel lines**. Installing a plugin is writing them; removing it is
+The whole seam is **five barrel lines**. Installing a plugin is writing them; removing it is
 deleting them. Nothing else in the kit ever names a plugin, which is what makes both reversible.
 
 | Barrel | Exports | Read by |
 |---|---|---|
 | `packages/shared/src/plugins/index.ts` | `SHARED_PLUGINS` / `sharedPlugins` | the five composers: `ai/agents.ts`, `jobs.ts`, `permissions.ts`, `features.ts`, `realtime.ts` — plus `apps/web/src/config.ts` |
-| `server.ts` | `SERVER_PLUGINS` / `serverPlugins` | `api/index.ts`, `utils/routes/api-prefixes.ts`, `queues/jobs.ts`, `scheduled.ts`, `agents/registry.ts`, `agents/tools/index.ts`, `prompts.ts`, `permissions/abilities.ts`, `utils/db/tenant-helpers.ts`, `services/access.ts`, `scripts/seed.ts`, the `rls-coverage` and unscoped-allowlist tests (never `db/schema/rls.ts` — a cycle) |
-| `ui.ts` | `UI_PLUGINS` / `uiPlugins` | `App.tsx`, `SideNav.tsx`, `SettingsLayout.tsx`, `lib/query-keys.ts`, `pages/agents/forms/index.ts` |
+| `server.ts` | `SERVER_PLUGINS` / `serverPlugins` | `api/index.ts`, `utils/routes/api-prefixes.ts`, `queues/jobs.ts`, `scheduled.ts`, `agents/registry.ts`, `agents/tools/index.ts`, `prompts.ts`, `permissions/abilities.ts`, `utils/db/tenant-helpers.ts`, `services/access.ts`, `plugins/api/peers.ts`, `scripts/seed.ts`, the `rls-coverage` and unscoped-allowlist tests (never `db/schema/rls.ts` — a cycle) |
+| `ui.ts` | `UI_PLUGINS` / `uiPlugins` | `App.tsx`, `SideNav.tsx`, `Home.tsx`, `SettingsLayout.tsx`, `lib/query-keys.ts`, `pages/agents/forms/index.ts` |
 | `schema.ts` | one `export *` per plugin | one `export *` line in `db/schema/index.ts` (position irrelevant — a duplicated name is TS2308) |
 | `apps/cli/src/plugins/index.ts` | `CLI_PLUGINS` / `cliPlugins` | `cli.ts` |
 
@@ -110,7 +111,7 @@ in the host. Each half is checked where it is written; only the merge is cast.
 ## Installing, upgrading and removing one
 
 `pnpm plugin` (`scripts/plugin.mjs`) does all of it, and **every command prints its plan and stops
-until `--apply`** — installing a plugin gives it full Worker and database access, so it is as
+until `--apply`** — installing a plugin gives it full server-process and database access, so it is as
 trusting as merging a pull request, and the plan is what a person says yes to.
 
 ```bash
@@ -122,7 +123,7 @@ pnpm plugin list · pnpm plugin check · pnpm plugin export <id> <dir>
 ```
 
 `add --apply` copies the three trees (translated into this app's names by the same token map the
-rename used), copies the plugin's release notes to `docs/plugins/<id>/upgrades/`, writes the six
+rename used), copies the plugin's release notes to `docs/plugins/<id>/upgrades/`, writes the five
 barrel lines, installs the dependencies the manifest declares, and records the surface — in
 `.rocketflare.json`, or in the git-ignored `.rocketflare.local.json` sidecar with `--local` and
 always inside the kit itself. Exit codes: 0 ok · 1 error · 2 usage · 3 unreachable with no cached
@@ -154,7 +155,7 @@ own tooling — `.github/`, `.claude/`, `scripts/`, `package.json`, `.gitignore`
 copied nor refused, because a plugin repo needs a CI workflow (half of decision 5) and a copy of
 `release.mjs` to cut a release with.
 
-`remove` deletes the trees, the six lines and the surface, then `pnpm db:generate` emits the
+`remove` deletes the trees, the five lines and the surface, then `pnpm db:generate` emits the
 `DROP TABLE`s — which is correct here; the kit's warning is about importing a foreign SNAPSHOT, not
 about your own barrel shrinking. `--archive` first writes a `--custom` migration copying each table
 into schema `archive`. Orphaned tables are not a stable state.

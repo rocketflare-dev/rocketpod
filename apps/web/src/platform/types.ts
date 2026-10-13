@@ -2,12 +2,12 @@
  * The platform seam (M1, `docs/DESIGN-SELFHOSTED.md` §4): every capability the app takes from its
  * runtime, as a neutral interface. Routes, services, queue handlers, cron tasks and the agent-run
  * body depend on THESE — never on a Cloudflare binding type. The entry point builds one `Platform`
- * (`src/platform/cloudflare/` from the Worker `env` today; Node adapters from M2 on) and the app
+ * (`src/node/platform.ts` and its siblings — the Node adapters in `src/node/`) and the app
  * reads it with `c.get('platform')`; background contexts are handed the same object.
  *
  * Every member is nullable: a missing capability is a configuration state the callers already
  * handle (503 `storage_not_configured`, a no-op nudge, no rate limit), not a crash.
- * `tests/config/platform-seam.test.ts` keeps Cloudflare types out of everything but the adapters.
+ * `tests/config/platform-seam.test.ts` keeps Cloudflare types out of the tree.
  */
 import type { JobEnvelope } from '@rocketpod/shared/jobs'
 import type { RealtimeEvent } from '@rocketpod/shared/realtime'

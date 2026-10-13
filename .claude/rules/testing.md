@@ -102,7 +102,7 @@ and chart to its own build and `src/config.ts` — a copy must keep those in ste
   (vitest's 5 s stays the tripwire for a genuinely slow test), 12 on a remote gate branch. `TEST_LATENCY_FACTOR` raises it (never lowers it) on a slow
   machine — a coding sandbox running a test by hand; anything but a positive number throws. No test carries a numeric budget of its own: a test that is slow only on a slow link is
   walking to a limit query by query, so it LOWERS that limit — `runStreamBody`'s injectable
-  `maxMs`, `AgentRunWorkflow.maxInterruptRounds` — and asserts the behaviour at it
+  `maxMs`, `runAgentRun`'s `maxInterruptRounds` — and asserts the behaviour at it
 - Per-file `apps/web/tests/api-setup.ts` closes clients after each file (connection budget: forks × pools)
 - **One driver (D35), one seam.** `.env.test` sets `DATABASE_DRIVER=postgres`; the `driver`
   project proves the seam through a per-request client and through a view of the Node process
@@ -140,14 +140,14 @@ a fake `WebSocket` factory left set) is on you.
 
   ```ts
   const message = { id: crypto.randomUUID(), timestamp: new Date(), body, attempts: 1, ack: vi.fn(), retry: vi.fn() }
-  const batch = { queue: 'rocketpod-jobs', messages: [message], ackAll: vi.fn(), retryAll: vi.fn() } as unknown as MessageBatch<unknown>
+  const batch = { queue: 'rocketpod-jobs', messages: [message], ackAll: vi.fn(), retryAll: vi.fn() } as unknown as JobBatch
   await processJobsBatch(batch, { env, config: loadConfig(env), logger: fakeLogger(), createDb: () => ({ db, close }) })
   ```
 
   `createDb` lets the test hand in the shared pool with a `close` spy (assert it was called once per
   message). Assert on DB rows and `ack`/`retry` — valid → `ack`, invalid envelope → `ack` and no
   retry, handler threw → `retry({ delaySeconds: backoffSeconds(attempts) })`. The dispatcher
-  `queue(batch, env, ctx)` is tested the same way with the two queue names (`queue-dispatch.test.ts`)
+  `queue(batch, env)` is tested the same way with the two queue names (`queue-dispatch.test.ts`)
 - Node adapters run against the real services in `api-isolated`: `node-server.test.ts` (probes,
   SPA fallback, drain), `node-jobs.test.ts` (pg-boss round trip, retry → DLQ, cron once across two
   workers), `node-runs.test.ts` (OpenWorkflow create → complete, park → resume, timeout, terminate,
@@ -157,14 +157,14 @@ a fake `WebSocket` factory left set) is on you.
   the converter). Route tests for `/ws` stop at `hub.accept` (`stubs(env).hub.accepted`)
 - Nudges: `stubs(env).hub.broadcasts` after `waitOnExecutionContext(ctx)` — assert the tenant id,
   the method and the event `type`; `realtime-nudges.test.ts` covers the kit's emitters
-- Workflow (`agent-run-workflow.test.ts`, `// @vitest-isolate` because it mocks the resolve seam):
-  the step bodies are plain exported functions in `services/agents/runtime.ts` — `claimStep(db, env,
-  logger, params)`, `executeRun(db, cfg, env, logger, params)`, `finishStep(db, env, logger, params,
-  outcome?)` — call them directly against Postgres, or instantiate `new AgentRunWorkflow(ctx, env)`
-  with `createTestEnv()` and drive `run({ payload: { runId, tenantId } }, createFakeWorkflowStep().step)`;
+- Run body (`agent-run-workflow.test.ts`, `// @vitest-isolate` because it mocks the resolve seam):
+  the step bodies are plain exported functions in `services/agents/runtime.ts` — `claimStep(db, platform,
+  logger, params)`, `executeRun(db, cfg, platform, logger, params)`, `finishStep(db, platform, logger, params,
+  outcome?)` — call them directly against Postgres, or drive `runAgentRun({ runId, tenantId },
+  createFakeStep().step, { env, platform })` (`api/workflows/agent-run-body.ts`) with `createTestEnv()`;
   assert on `calls` (`claim`, `execute#0` with its `retries`/`timeout` config, then `resume#0` /
   `expire#0` / `execute#1` for a parked run, `finish`) and on the `agent_runs` / `agent_run_events`
-  rows. **Assert the step NAMES are distinct** — the platform replays a repeated name's recorded
+  rows. **Assert the step NAMES are distinct** — the engine replays a repeated name's recorded
   result, which reads as "the agent ignored my approval", and only `names` can catch it. Test the claim-row gate: `claimRun` on a settled row returns
   `null` and `claimStep` returns `false`; a cancel while `queued` never reaches `execute`
 - AI seam: `vi.mock('@/api/services/ai/resolve', async importOriginal => ({ ...(await importOriginal()),
@@ -254,7 +254,7 @@ a fake `WebSocket` factory left set) is on you.
 ## UI tests
 
 `apps/web/tests/ui/setup.ts` (jest-dom). `renderWithProviders()` gives QueryClient + Auth + Ability + Router.
-Shallow component tests; mock `fetch` where needed, no MSW. `contrast.test.ts` gates the design tokens.
+Shallow component tests; mock `fetch` where needed, no MSW. No test gates colour contrast.
 Polling hooks (`agents-page`, `run-page`, `documents-page`): test the pure decision
 (`runPollInterval(status)` over `runOwesAnswer`, so a parked run polls NEVER), not `refetchInterval`
 with fake timers; `run-page` mounts inside `WebSocketProvider` with the `FakeSocket` to prove an
@@ -287,8 +287,7 @@ the database up (`pnpm test:db:up`, or any earlier `pnpm test`): `pnpm web test:
 driver project alone, and single projects through the web package: `pnpm web test:api` ·
 `pnpm web test:ui` · `pnpm web test:config` ·
 `pnpm web test:kit-only` (the kit only) ·
-`pnpm test:coverage`. `REQUIRE_PROVISIONED=1 pnpm --filter @rocketpod/web test:config` is what CI runs
-before a deploy.
+`pnpm test:coverage`.
 
 ## CLI tests (`apps/cli/tests`)
 
@@ -331,10 +330,10 @@ the whole rule, and it is why neither half duplicates the other.
 - **A structural check must read comment-free code, or it validates prose.** The rule is for anyone
   writing one, because the failure mode is invisible — a green check that proves nothing. Three in
   `scripts/lib/plugin-lib.mjs` were silently substring-matching: `workerExports` over raw source,
-  satisfied by a class named only in a comment; `onTenantDeleted` through `.includes(...)`, which
+  satisfied by a class named only in a comment (that check left with the Cloudflare runtime); `onTenantDeleted` through `.includes(...)`, which
   passed on a fixture that plainly broke the rule; `isolationEvidence` through regexes a header
-  paragraph or a commented-out `createTestTenant(db)` satisfied. `stripComments` runs first in all
-  three now, and each requires a real DECLARATION (`declaresProperty`) rather than a mention
+  paragraph or a commented-out `createTestTenant(db)` satisfied. `stripComments` runs first in the
+  survivors now, and each requires a real DECLARATION (`declaresProperty`) rather than a mention
 - **A plugin's api test MUST carry a tenant-isolation case.** Its tables are tenant-scoped like any
   other and the kit's own suites cannot see them:
   `src/plugins/example-feature/tests/api/example-feature.test.ts` is the template — tenant B can

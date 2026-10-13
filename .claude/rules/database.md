@@ -56,11 +56,11 @@ predicate**, not SQL injection — the app role can `set_config` itself.
   import), because shared may import only zod, so its `dashboardConfigSchema` is loose and the
   precise type lives on the web side (D19, D31)
 - `relations()` for type-safe joins; no polymorphic FKs
-- Encrypted-at-rest columns (`oauth_providers.access_token`, `ai_configs.credentials`) are `text`
-  written only through `token-crypto.ts`
+- Encrypted-at-rest columns (`oauth_providers.access_token_enc`, `ai_configs.api_key_enc`) are `text`
+  written only through `api/auth/oauth-encryption.ts`
 - pgvector (D18): `chunks.embedding` is `vector('embedding', { dimensions: EMBEDDING_DIM })` with
-  `EMBEDDING_DIM` imported from `@rocketpod/shared/ai/config` (1024 — the native width of the default
-  embeddings model `@cf/baai/bge-m3`; the `openai*` adapters request `dimensions: 1024` so every
+  `EMBEDDING_DIM` imported from `@rocketpod/shared/ai/config` (1024 — the default embeddings model is
+  OpenAI's `text-embedding-3-small`, and the `openai*` adapters request `dimensions: 1024` so every
   provider fits the column). **The constant must match the model the default resolver picks**; a
   different width is a NEW table (or a fresh migration on an empty table), never an `ALTER`, and every
   existing chunk must be re-embedded (`documents.content` is kept for exactly that). ANN index:
@@ -130,7 +130,7 @@ predicate**, not SQL injection — the app role can `set_config` itself.
 ## Connection
 
 - `apps/web/src/db/client.ts`: `openDatabase(env) → { db, close }` — the ONLY way app code opens a
-  database (middleware, `streamDatabase`, queue consumer, cron, workflow steps, the span store).
+  database (middleware, `streamDatabase`, queue consumer, cron, run steps, the span store).
   `env` is the config. `Database = PgDatabase<PgQueryResultHKT, typeof schema>`,
   and a transaction `tx` IS a `Database` — no cast
 - Driver: `DATABASE_DRIVER` (`postgres`, missing = `postgres`; `loadConfig` refuses the removed

@@ -49,7 +49,7 @@ pgvector; S3, R2, GCS, MinIO…). The chart bundles neither.
 ## 1. Docker Compose
 
 1. **Image.** `docker build -t rocketpod:local .` (≈ 255 MB), or a published
-   `ghcr.io/rocketflare-dev/rocketpod:<version>` in `ROCKETPOD_IMAGE`.
+   `ghcr.io/<owner>/rocketpod:<version>` in `ROCKETPOD_IMAGE`.
 2. **Settings.** `cp deploy/compose.env.example .env` at the repository root (check it is ignored),
    then fill it from the user's answers. Generate `OAUTH_ENCRYPTION_KEY` and replace the default
    `POSTGRES_PASSWORD` / `STORAGE_*` credentials for anything reachable from another machine.
@@ -61,8 +61,8 @@ pgvector; S3, R2, GCS, MinIO…). The chart bundles neither.
    Then verify, quoting each result:
    ```bash
    docker compose ps                                  # migrate exited 0; web + worker healthy
-   curl -fsS localhost:${WEB_PORT:-3001}/readyz        # {"ok":true…}
-   docker compose logs worker | grep -i "magic link"  # the first admin's sign-in link (no RESEND key)
+   curl -fsS localhost:${WEB_PORT:-3001}/readyz        # {"status":"ready"}
+   docker compose logs web | grep -i "magic link"     # the first admin's sign-in link (no RESEND key)
    ```
 5. **Managed services instead:** set `DATABASE_URL` / `STORAGE_*` in `.env` and remove `postgres` /
    `s3` and their `depends_on` from the user's copy of `docker-compose.yml`.
@@ -102,13 +102,13 @@ Walk it as a table of **set / missing / not needed** — never values:
 | `OAUTH_ENCRYPTION_KEY` (32+ chars) | OAuth/OIDC sign-in and tenant AI keys at rest |
 | `ANTHROPIC_API_KEY` or `AI_API_KEY` (+ `AI_BASE_URL`/`AI_MODEL`) | chat and agents |
 | `EMBEDDINGS_API_KEY` (+ `EMBEDDINGS_BASE_URL`/`EMBEDDINGS_MODEL`, 1024-dim) | knowledge uploads and search |
-| `RESEND_API_KEY` | delivering magic links and invitations (otherwise logged by the worker) |
+| `RESEND_API_KEY` | delivering magic links and invitations (otherwise logged — magic links by `web`, queued invitations by `worker`) |
 | `GOOGLE_*`, `MICROSOFT_*`, `OIDC_CLIENT_SECRET` | the matching sign-in buttons |
 | `TYPESAFE_API_KEY`, `LANGFUSE_*`, `OTEL_EXPORTER_OTLP_HEADERS` | optional: Jev decisions, trace export |
 
 ## End of turn
 
 End with `AskUserQuestion`, not a paragraph. The choices after a deploy are: **sign in as the first
-admin** (the magic link from the worker's log or email), **set up email** (`RESEND_API_KEY`),
+admin** (the magic link from the `web` log or email), **set up email** (`RESEND_API_KEY`),
 **add AI keys**, or **wire tracing** (`/rp-traces`). After a dry run (render only), the choice is
 whether to install now.

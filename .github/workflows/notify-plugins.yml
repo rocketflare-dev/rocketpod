@@ -5,6 +5,12 @@ name: Notify plugins
 # declares a `minKit` floor against had moved — its CI would first discover a break whenever
 # someone next happened to push to it, which for a stable plugin can be months.
 #
+# **Rocketpod sends its OWN event, `rocketpod-released`, never Rocketflare's `kit-released`.** The
+# plugin ecosystem is shared, and a plugin repository that tests against Rocketflare on
+# `kit-released` would otherwise read a Rocketpod tag as a Rocketflare release and clone the wrong
+# kit. A plugin repository opts in to Rocketpod by handling `rocketpod-released` (its payload names
+# `kit_repo`); until one does, the dispatch is accepted and ignored.
+#
 # Two triggers, because they fail in different directions. The dispatch is immediate and precise
 # but depends on a token and on the receiving repository still existing; the weekly schedule is the
 # backstop that keeps working when the dispatch silently stops. Neither deploys anything.
@@ -38,8 +44,9 @@ jobs:
           for repo in rocketflare-dev/rocketflare-plugins; do
             echo "::group::dispatch → $repo"
             gh api "repos/$repo/dispatches" \
-              -f event_type=kit-released \
+              -f event_type=rocketpod-released \
               -F "client_payload[kit_ref]=$KIT_REF" \
+              -F "client_payload[kit_repo]=https://github.com/${{ github.repository }}.git" \
               || echo "::warning::could not dispatch to $repo — is the token scoped to it?"
             echo "::endgroup::"
           done

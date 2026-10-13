@@ -18,7 +18,7 @@ declared `uses` is checked against. `docs/CONCEPTS.md` §16 is the design;
 `apps/web/src/plugins/CLAUDE.md` is the seam; `reference.md` beside this file is the manifest shape,
 the exit codes and what each command verifies.
 
-**The rule that matters most:** installing a plugin gives it full Worker and database access, so it
+**The rule that matters most:** installing a plugin gives it full server and database access, so it
 is as trusting as merging a pull request. Every command prints a plan and stops. **You show the
 plan to the user and get an explicit yes before you ever type `--apply`.** Never chain the two.
 

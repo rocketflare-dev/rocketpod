@@ -34,7 +34,8 @@ filesystem, so a read-only root filesystem works (`/tmp` is mounted for librarie
   endpoint that returns **1024-dimension** vectors. No key → those features answer 503 and the rest
   of the app works.
 - **Email** for magic links and invitations: `RESEND_API_KEY`. Without it the link is logged by the
-  process that sends it — the **worker** (`email.send` is a job).
+  process that sends it: a magic link by **web** (sent inline — a person is waiting), an invitation
+  by **worker** (`email.send` is a job).
 
 ## Docker Compose
 
@@ -45,7 +46,7 @@ filesystem, so a read-only root filesystem works (`/tmp` is mounted for librarie
 ```bash
 docker compose up -d --build          # builds rocketpod:local once (the migrate service builds it)
 open http://localhost:3001
-docker compose logs -f worker         # magic links land here while RESEND_API_KEY is empty
+docker compose logs -f web worker     # magic links (web) and invitations (worker) without RESEND_API_KEY
 docker compose down                   # keeps the volumes; `down -v` deletes the data
 ```
 

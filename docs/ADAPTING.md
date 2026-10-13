@@ -13,7 +13,7 @@ rm -rf .git && git init && git add -A && git commit -m "Start from Rocketpod"
 git remote add origin git@github.com:<you>/myapp.git
 ```
 
-Or the one-liner — `curl -fsSL https://rocketpod.example.com/install.sh | bash -s -- myapp` (read
+Or the one-liner — `curl -fsSL https://raw.githubusercontent.com/rocketflare-dev/rocketpod/main/scripts/install.sh | bash -s -- myapp` (read
 `scripts/install.sh` first: it clones, detaches exactly as above with the kit commit recorded in the
 first message, then execs `scripts/bootstrap.sh`). Either way, `bash scripts/bootstrap.sh` (or
 `/rp-setup`) is the first run — `SETUP.md` Part 1 as one command.

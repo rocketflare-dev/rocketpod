@@ -10,14 +10,14 @@ pnpm --filter @rocketpod/cli typecheck · test · build   # vitest node env, no 
 
 ## Layout
 
-- `src/cli.ts` — commander wiring + the ONE error → exit-code mapper (`0 ok · 1 · 2 not logged in · 3 forbidden`)
+- `src/cli.ts` — commander wiring + the ONE error → exit-code mapper (`exitCodeFor` in `src/errors.ts`: `0 ok · 1 · 2 not logged in · 3 forbidden`)
 - `src/context.ts` — `createContext({ server, json })` → `{ store, config, log, out, fetch, open }`; `requireClient` / `publicClient`
 - `src/config.ts` — `~/.rocketpod/config.json` (0700/0600), `ENV_PREFIX`, `DEFAULT_SERVER_URL`, `redactKey`
 - `src/api.ts` — `createApiClient` → `request/get/post/del`, envelope → `CliApiError { status, code, body }`
 - `src/auth.ts` — loopback `127.0.0.1:8765–8770/callback`, `/auth/cli?redirect_uri=`, 5-min timeout, `/api/me`
 - `src/commands/*.ts` — thin `run<X>(ctx, opts)`; `src/utils/{brand,logger,output}.ts`
 - `src/plugins/{index.ts,types.ts}` + `src/plugins/<id>/index.ts` (D31) — the `CLI_PLUGINS` barrel
-  and the `CliPlugin` type. `cli.ts` calls each `register(program, action)` LAST, so a plugin's
+  and the `CliPlugin` type; `src/plugins/api.ts` is the only kit surface a plugin's commands import. `cli.ts` calls each `register(program, action)` LAST, so a plugin's
   commands sit under its id and can never shadow a kit one
 
 ## Rules

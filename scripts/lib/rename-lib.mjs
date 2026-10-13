@@ -537,3 +537,94 @@ export function parseArgs(argv) {
   }
   return { ...opts, slug, display }
 }
+
+// ---------------------------------------------------------------------------- local port blocks
+
+/**
+ * Every copy gets its own local ports, so the kit, Rocketflare and any number of apps can each run
+ * `pnpm test` and a dev database on one machine at once. A copy's ports are one 100-port BLOCK
+ * between 5600 and 6999 — above both kits' (Postgres 5432–5533, S3 7070–7433) — chosen from a hash
+ * of the slug (two apps rarely start in the same block) and moved on when the test ports are
+ * already held on this machine. Inside a block the offsets mirror the kit's shape: the test
+ * Postgres, then the dev Postgres range, then the test and dev S3 gateways.
+ */
+export const PORT_BLOCK_FIRST = 5600
+export const PORT_BLOCK_SIZE = 100
+export const PORT_BLOCK_COUNT = 14
+/** The kit's own test ports — what the pass rewrites to the copy's block. */
+export const KIT_TEST_PORTS = Object.freeze({ db: 5533, s3: 7433 }) // rename: keep
+
+/** The four ports of the block that starts at `base`. */
+export function portsForBlock(base) {
+  return {
+    base,
+    testDb: base + 33,
+    devDbStart: base + 40,
+    testS3: base + 70,
+    devS3Start: base + 80,
+  }
+}
+
+/** FNV-1a over the slug — stable, so re-running the rename lands in the same block. */
+export function slugHash(slug) {
+  let hash = 0x811c9dc5
+  for (const ch of slug) {
+    hash ^= ch.codePointAt(0)
+    hash = Math.imul(hash, 0x01000193) >>> 0
+  }
+  return hash
+}
+
+/**
+ * The copy's block: the slug's own, else the next one whose two TEST ports are free on this machine
+ * (`isFree(port)` is injected; the dev ranges are scanned at run time by `scripts/dev-db.mjs`).
+ * Null when every block is taken.
+ */
+export function choosePortBlock(slug, isFree) {
+  const first = slugHash(slug) % PORT_BLOCK_COUNT
+  for (let i = 0; i < PORT_BLOCK_COUNT; i += 1) {
+    const ports = portsForBlock(
+      PORT_BLOCK_FIRST + ((first + i) % PORT_BLOCK_COUNT) * PORT_BLOCK_SIZE
+    )
+    if (isFree(ports.testDb) && isFree(ports.testS3)) return ports
+  }
+  return null
+}
+
+/** A port written as a port: after `:`, a quote, `(`, `=`, a backtick or whitespace — never inside a uuid or a hash. */
+const portPattern = port => new RegExp(`(?<=[:\\s"'(=\`])${port}(?=[\\s"'):,\`/.\\]]|$)`, 'gm')
+
+/**
+ * Rewrite the kit's test ports to the copy's, line by line. A line carrying `rename: keep` is left
+ * alone (the lists of OTHER kits' ports must keep naming them).
+ */
+export function rewritePorts(text, ports) {
+  let count = 0
+  const swap = (line, from, to) =>
+    line.replace(portPattern(from), () => {
+      count += 1
+      return String(to)
+    })
+  const out = text
+    .split('\n')
+    .map(line =>
+      line.includes('rename: keep')
+        ? line
+        : swap(swap(line, KIT_TEST_PORTS.db, ports.testDb), KIT_TEST_PORTS.s3, ports.testS3)
+    )
+    .join('\n')
+  return { text: out, count }
+}
+
+/** Point the two dev-range starts in `scripts/lib/bootstrap-lib.mjs` at the copy's block. */
+export function rewriteDevPortStarts(source, ports) {
+  return source
+    .replace(
+      /export const DEV_DB_PORT_START = \d+/,
+      `export const DEV_DB_PORT_START = ${ports.devDbStart}`
+    )
+    .replace(
+      /export const DEV_S3_PORT_START = \d+/,
+      `export const DEV_S3_PORT_START = ${ports.devS3Start}`
+    )
+}

@@ -256,9 +256,10 @@ per-PR previews; no public tunnel for OAuth callbacks in dev (use your own, e.g.
 
 **Known gaps:** the RLS spike has not been run; no read replicas; three pools per process (above); the process pool turns named
 prepared statements on, so a PgBouncer in TRANSACTION mode in front of the Node server needs
-1.21+ (`max_prepared_statements`) — there is no switch to turn them off yet; the TEST database is
-pinned to 5533 (Rocketflare's is 5433, so the two kits test side by side), so two checkouts of
-Rocketpod cannot run `pnpm test` at once (each app has its own Compose project, `<slug>-test`). `--db-url` with a loopback URL (a native Postgres) still looks like this
+1.21+ (`max_prepared_statements`) — there is no switch to turn them off yet; the TEST database's port
+is fixed per app, not per checkout: the kit's is 5533 (Rocketflare's 5433), and the rename gives
+every copy its own port block (`choosePortBlock`, rename row (g)), so the kits and any number of
+apps run `pnpm test` side by side — but two clones of the SAME app still share one test port. `--db-url` with a loopback URL (a native Postgres) still looks like this
 checkout's Docker database to preflight and `dev:db:*`, and a re-run of the bootstrap without the
 flag checks for Docker again. The remote target's safety check still names Neon (`*.neon.tech`,
 the `ep-…` endpoint) — the one hosted branch provider the gate-branch binding knows.

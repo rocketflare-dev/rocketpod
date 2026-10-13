@@ -13,6 +13,7 @@ import {
   applyColour,
   applyReplacements,
   CLASS_IDS,
+  choosePortBlock,
   deriveNames,
   EXCLUDED_DIRS,
   EXCLUDED_PATHS,
@@ -21,14 +22,20 @@ import {
   isExcluded,
   KIT,
   KIT_MANIFEST_FILE,
+  PORT_BLOCK_COUNT,
+  PORT_BLOCK_FIRST,
+  PORT_BLOCK_SIZE,
   parseArgs,
+  portsForBlock,
   prefixGuard,
   REDACTED_KEY_MARGIN,
   readIntConstant,
   readStringConstant,
   renameKitManifest,
   restartAppVersion,
+  rewriteDevPortStarts,
   rewriteIntConstant,
+  rewritePorts,
   rewritePrefixComments,
   topLevelObjectSpan,
   validateSlug,
@@ -483,5 +490,81 @@ describe('renameKitManifest (launch.kit.json, kept by every copy)', () => {
     const out = renameKitManifest(plain, names)
     expect(out.total).toBe(0)
     expect(out.text).toBe(plain)
+  })
+})
+
+describe('local port blocks — every copy gets its own ports', () => {
+  const all = () => true
+  const KIT_PORTS = [5432, 5433, 5533, 7070, 7433]
+
+  it('lays a block out above both kits, and the last block still ends below 7000', () => {
+    const first = portsForBlock(PORT_BLOCK_FIRST)
+    expect(first).toEqual({
+      base: 5600,
+      testDb: 5633,
+      devDbStart: 5640,
+      testS3: 5670,
+      devS3Start: 5680,
+    })
+    const last = portsForBlock(PORT_BLOCK_FIRST + (PORT_BLOCK_COUNT - 1) * PORT_BLOCK_SIZE)
+    expect(last.devS3Start + 19).toBeLessThan(7000)
+    for (let k = 0; k < PORT_BLOCK_COUNT; k += 1) {
+      const b = portsForBlock(PORT_BLOCK_FIRST + k * PORT_BLOCK_SIZE)
+      for (const port of [b.testDb, b.testS3, b.devDbStart, b.devS3Start])
+        expect(KIT_PORTS).not.toContain(port)
+    }
+  })
+
+  it('is stable per slug, spreads different slugs, and skips a block whose test ports are taken', () => {
+    const a = choosePortBlock('acme-crm', all)
+    expect(choosePortBlock('acme-crm', all)).toEqual(a)
+    const bases = new Set(
+      ['acme-crm', 'my-app', 'invoices', 'ops-portal', 'zeta'].map(
+        s => choosePortBlock(s, all)?.base
+      )
+    )
+    expect(bases.size).toBeGreaterThan(1)
+    const held = new Set([a?.testDb])
+    const moved = choosePortBlock('acme-crm', p => !held.has(p))
+    expect(moved?.base).not.toBe(a?.base)
+    expect(choosePortBlock('acme-crm', () => false)).toBeNull()
+  })
+
+  it('rewrites a port written as a port, never digits inside a uuid or a hash, and honours rename: keep', () => {
+    const ports = portsForBlock(5800)
+    const text = [
+      'DATABASE_URL=postgresql://test:test@localhost:5533/my_app_test',
+      '      - "5533:5432"',
+      '      - "7433:7070"',
+      'STORAGE_ENDPOINT=http://localhost:7433',
+      'the test database (:5533) and `5533`',
+      'export const TEST_DB_PORT = 5533',
+      'id: "a1b2c3d4-5533-4e5f-8a9b-7433c0ffee00"',
+      'sha512-ab5533cd7433ef==',
+      'export const KIT_TEST_DB_PORTS = [5433, 5533] // rename: keep',
+    ].join('\n')
+    const { text: out, count } = rewritePorts(text, ports)
+    expect(out.split('\n')).toEqual([
+      'DATABASE_URL=postgresql://test:test@localhost:5833/my_app_test',
+      '      - "5833:5432"',
+      '      - "5870:7070"',
+      'STORAGE_ENDPOINT=http://localhost:5870',
+      'the test database (:5833) and `5833`',
+      'export const TEST_DB_PORT = 5833',
+      'id: "a1b2c3d4-5533-4e5f-8a9b-7433c0ffee00"',
+      'sha512-ab5533cd7433ef==',
+      'export const KIT_TEST_DB_PORTS = [5433, 5533] // rename: keep',
+    ])
+    expect(count).toBe(7)
+  })
+
+  it('moves the two dev range starts in bootstrap-lib', () => {
+    const src = readFileSync(
+      path.join(__dirname, '../../../../scripts/lib/bootstrap-lib.mjs'),
+      'utf8'
+    )
+    const out = rewriteDevPortStarts(src, portsForBlock(6100))
+    expect(out).toContain('export const DEV_DB_PORT_START = 6140')
+    expect(out).toContain('export const DEV_S3_PORT_START = 6180')
   })
 })

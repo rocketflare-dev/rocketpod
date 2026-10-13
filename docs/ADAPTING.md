@@ -42,7 +42,7 @@ Pick an app slug (`myapp`, lowercase, digits, hyphens; starts with a letter), a 
 **`/rp-adapt <slug> ["Name"] [--domain <apex>] [--colour <#hex>]`** in Claude Code, or by hand
 `node scripts/rename.mjs --dry-run <slug> ["Display Name"] [--domain …] [--colour …]` then the same
 without `--dry-run`, performs the mechanical rows below in one pass and reports the careful ones —
-`.claude/skills/rp-adapt/checklist.md` walks those six, lettered (a)–(f) as in the **Script** column.
+`.claude/skills/rp-adapt/checklist.md` walks those eight, lettered (a)–(h) as in the **Script** column.
 The script walks every text file git knows about (tracked and untracked, `.gitignore` honoured;
 `pnpm-lock.yaml`, `LICENSE`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, the two svgs,
 the tool itself, its test and the adapt skill are skipped; the `rocketflare-dev` org and every
@@ -81,6 +81,8 @@ or nothing resolves.
 | `admin@rocketpod.example.com` | `apps/web/scripts/seed.ts` (the seeded global admin), the dev quick-login list in `apps/web/src/ui/pages/Login.tsx`, `SETUP.md` | `admin@myapp.local` | automatic (`domain`) |
 | brand colour variables | the header block of `apps/web/src/ui/index.css` (the only place hex values live) | your palette — then `pnpm web test:ui` (contrast gate) | `--colour` rewrites the LIGHT theme's primary hex only (`--color-primary`, `--surface-active`, `--focus-ring`, `--dc-primary-rgb`, `<meta name="theme-color">`); the dark primary, `-content` colours and `--tone-primary-*` tints reported as (e) |
 | `LogoMark` | `apps/web/src/ui/components/shared/LogoMark.tsx`, `apps/web/src/ui/public/logo.svg` + favicons | your mark | not touched — reported as (f) |
+| local ports — test Postgres `5533`, test S3 `7433`, dev ranges from `5432` / `7070` | `apps/web/docker-compose.test.yml`, `apps/web/.env.test`, `scripts/lib/bootstrap-lib.mjs` (`TEST_DB_PORT`, `DEV_DB_PORT_START`, `TEST_S3_PORT`, `DEV_S3_PORT_START`), CI and the docs | the app's own block between 5600 and 6999 (test Postgres `+33`, dev Postgres from `+40`, test S3 `+70`, dev S3 from `+80`), so it never collides with the kit, Rocketflare or another app | automatic — chosen from the slug and checked free on this machine; reported as (g) |
+| `deploy/helm/rocketpod/` | the Helm chart directory | `deploy/helm/myapp/` | automatic (moved; its contents and every path to it follow `bare`); reported as (h) |
 | `EMBEDDING_DIM` (1024) | `packages/shared/src/ai/config.ts` (imported by `apps/web/src/db/schema/chunks.ts` and the `openai*` embeddings adapter) — only if your embeddings model cannot return 1024 dimensions; see §3 "Changing the embedding model or dimension" | before the first migration, never after | not touched — the decision is flagged in (b) |
 
 Then, from the root: `pnpm install && pnpm gate`. `packaging.test.ts` will tell you if the image,

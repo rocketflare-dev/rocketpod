@@ -174,14 +174,26 @@ export function extractSeedKey(stdout) {
  * port and container name from it. A second checkout on the same machine therefore
  * gets its own port and its own container instead of colliding on 5432. */
 
+/**
+ * This checkout's local port BLOCK. The kit's own are below; `scripts/rename.mjs` gives every copy
+ * a fresh, higher block of its own (`choosePortBlock` in `rename-lib.mjs`: 5600–6999, one block per
+ * app), rewriting the test ports wherever they are written down (compose, `.env.test`, CI, docs)
+ * and the two dev range starts here. So the kit, Rocketflare and any number of copies can each run
+ * `pnpm test` and a dev database on one machine at the same time.
+ */
 /** Test Postgres (`docker-compose.test.yml`, `.env.test`, CI) — never hand it to a dev database. */
 export const TEST_DB_PORT = 5533
+/** First port the dev database tries (`scripts/dev-db.mjs`); 20 are scanned. */
+export const DEV_DB_PORT_START = 5432
+/** Test S3 gateway (`docker-compose.test.yml`, `.env.test`). */
+export const TEST_S3_PORT = 7433
+/** First port the dev S3 gateway tries; 20 are scanned. */
+export const DEV_S3_PORT_START = 7070
 /**
- * Rocketflare's test Postgres. The two kits keep different test ports so both can run `pnpm test`
- * on one machine; a Rocketpod dev database must not take Rocketflare's either, or the next
- * Rocketflare test run finds its port held.
+ * Test ports a dev database must never take, whoever owns them: Rocketflare's (5433) and the
+ * Rocketpod kit's (5533). A dev database on one would block that kit's next `pnpm test`.
  */
-export const ROCKETFLARE_TEST_DB_PORT = 5433
+export const KIT_TEST_DB_PORTS = [5433, 5533] // rename: keep
 
 /**
  * The port to publish Postgres on: `preferred` when it is still available (a re-run must not
@@ -192,9 +204,9 @@ export const ROCKETFLARE_TEST_DB_PORT = 5433
 export function chooseDevDbPort({
   preferred,
   isAvailable,
-  start = 5432,
+  start = DEV_DB_PORT_START,
   count = 20,
-  skip = [TEST_DB_PORT, ROCKETFLARE_TEST_DB_PORT],
+  skip = [TEST_DB_PORT, ...KIT_TEST_DB_PORTS],
 }) {
   const blocked = new Set(skip)
   if (preferred && !blocked.has(preferred) && isAvailable(preferred)) return preferred

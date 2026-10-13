@@ -25,6 +25,10 @@ export function extractSeedKey(stdout: string): string | undefined
 
 
 export const TEST_DB_PORT: number
+export const DEV_DB_PORT_START: number
+export const TEST_S3_PORT: number
+export const DEV_S3_PORT_START: number
+export const KIT_TEST_DB_PORTS: number[]
 export interface ChooseDevDbPortOptions {
   /** The port already in use by this checkout (from `.env`), kept when still available. */
   preferred?: number | null

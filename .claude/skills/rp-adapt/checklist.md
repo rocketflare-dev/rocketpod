@@ -1,6 +1,6 @@
 # Adapt — the rows that need a person
 
-`scripts/rename.mjs` prints these as "Careful rows (a)–(f)" and fixes what is mechanical. Walk
+`scripts/rename.mjs` prints these as "Careful rows (a)–(h)" and fixes what is mechanical. Walk
 them in order after the rename has run, then (g) — which the script does not print — when this app
 has a plugin installed. Paths are repository-relative; `<slug>` / `<snake>` /
 `<UPPER>` are the names the script printed on its first line (`my-app` / `my_app` / `MY_APP`).
@@ -162,3 +162,30 @@ db:generate --name plugin-<id>-<version>` then `pnpm db:migrate`.
 
 When all six — seven with a plugin installed — are done: `pnpm gate`, commit, then update `docs/ADAPTING.md` §1 (or delete the table) so the next reader
 knows the rename happened.
+
+## (g) Local ports — done by the script
+
+**What to check.** The report names this app's port block (between 5600 and 6999): test Postgres,
+test S3, and where the dev Postgres and dev S3 ranges start. The block is chosen from the slug and
+checked free on this machine, so the app, the kit and Rocketflare can each run `pnpm test` and a
+dev database at the same time.
+
+**How to check.**
+```
+grep -n "PORT" scripts/lib/bootstrap-lib.mjs | head -8
+grep -n "ports:" -A2 apps/web/docker-compose.test.yml
+```
+
+**What to change.** Nothing, normally. If the report warned that every block was taken, free a
+port and re-run the rename, or set `TEST_DB_PORT` / `TEST_S3_PORT` and their mentions by hand.
+
+## (h) Helm chart — done by the script
+
+**What to check.** `deploy/helm/<slug>/` exists and `deploy/helm/rocketpod/` does not; the chart's
+`name` and every path to it already say the slug.
+
+**How to check.**
+```
+ls deploy/helm/   # then `pnpm gate`: packaging.test.ts reads the chart from its new path
+```
+

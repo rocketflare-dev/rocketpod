@@ -27,10 +27,13 @@ import { fileURLToPath } from 'node:url'
 import {
   checkoutTag,
   chooseDevDbPort,
+  DEV_DB_PORT_START,
+  DEV_S3_PORT_START,
   databaseUrlPort,
   databaseUrlTarget,
   isLocalDatabaseUrl,
   readDevVars,
+  TEST_S3_PORT,
   upsertDevVar,
   withDatabaseUrlPort,
 } from '../../../scripts/lib/bootstrap-lib.mjs'
@@ -42,9 +45,6 @@ const DEV_VARS_EXAMPLE = path.join(WEB_DIR, '.env.example')
 const SERVICE = 'postgres-dev'
 /** The S3 gateway beside it (M6) — uploads on the Node server. */
 const S3_SERVICE = 's3-dev'
-const S3_PORT_START = 7070
-/** The test stack's S3 gateway (`docker-compose.test.yml`). */
-const TEST_S3_PORT = 7433
 
 /** This checkout's compose project — unique per path, so two checkouts never share containers. */
 const PROJECT = `rocketpod-dev-${checkoutTag(WEB_DIR)}`
@@ -105,11 +105,15 @@ async function resolvePort() {
   if (!isLocalDatabaseUrl(url)) return { port: preferred, url, moved: false, external: true }
   const ours = oursPorts()
   const free = new Map()
-  for (let p = 5432; p < 5452; p += 1) free.set(p, await portIsFree(p))
+  for (let p = DEV_DB_PORT_START; p < DEV_DB_PORT_START + 20; p += 1) {
+    free.set(p, await portIsFree(p))
+  }
   const isAvailable = port => ours.has(port) || free.get(port) === true
   const port = chooseDevDbPort({ preferred, isAvailable })
   if (port === null) {
-    console.error('dev-db: no free port in 5432–5451 for the dev database')
+    console.error(
+      `dev-db: no free port in ${DEV_DB_PORT_START}–${DEV_DB_PORT_START + 19} for the dev database`
+    )
     process.exit(1)
   }
   return {
@@ -130,7 +134,7 @@ function writeDevVars(values) {
   return true
 }
 
-const composeEnv = (port, url, s3Port = S3_PORT_START) => ({
+const composeEnv = (port, url, s3Port = DEV_S3_PORT_START) => ({
   ...process.env,
   COMPOSE_PROJECT_NAME: PROJECT,
   DEV_DB_PORT: String(port),
@@ -175,12 +179,14 @@ async function resolveS3Port() {
   }
   const ours = oursPorts()
   const free = new Map()
-  for (let p = S3_PORT_START; p < S3_PORT_START + 20; p += 1) free.set(p, await portIsFree(p))
+  for (let p = DEV_S3_PORT_START; p < DEV_S3_PORT_START + 20; p += 1) {
+    free.set(p, await portIsFree(p))
+  }
   const isAvailable = port => ours.has(port) || free.get(port) === true
   return chooseDevDbPort({
     preferred,
     isAvailable,
-    start: S3_PORT_START,
+    start: DEV_S3_PORT_START,
     count: 20,
     skip: [TEST_S3_PORT],
   })

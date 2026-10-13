@@ -38,7 +38,7 @@ node scripts/rename.mjs --dry-run $ARGUMENTS
 ```
 
 Expect exit 0, a table of `file → replacements per token class` ending in a `TOTAL` row, then the
-six careful rows (a)–(f) and a "nothing written" line. Show the user the header line (the derived
+eight careful rows (a)–(h) and a "nothing written" line. Show the user the header line (the derived
 `slug · snake · UPPER · domain`), the TOTAL row, and the careful rows. Confirm the derived names
 are what they want — the display name and domain in particular — then ask: **apply?**
 
@@ -65,7 +65,7 @@ lines) at the end. Expect `wrote N files.`, the install and biome output, then t
 
 ## 4. Walk the checklist
 
-Open `checklist.md` (this directory) and go through rows (a)–(f) **one at a time**, in order —
+Open `checklist.md` (this directory) and go through rows (a)–(h) **one at a time**, in order —
 then (g) if `pnpm plugin list` printed anything. For each: say what to check, run the "how to check"
 command, show the result, and either confirm "nothing to do" or make the change the row describes —
 with the user's yes for anything that is a design choice (colour, logo, domain). Rows (a), (c), (d)
@@ -97,5 +97,5 @@ Tell the user:
   real ones** — not now.
 
 Then **end the turn with `AskUserQuestion`** rather than a paragraph — the same as `/rp-setup` does.
-The choices after a rename are: **run it** (`/rp-setup`, or `SETUP.md` Part 1 by hand), **walk the six careful rows** (`checklist.md` beside this
+The choices after a rename are: **run it** (`/rp-setup`, or `SETUP.md` Part 1 by hand), **walk the eight careful rows** (`checklist.md` beside this
 file), or **stop here**.

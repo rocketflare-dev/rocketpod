@@ -17,6 +17,8 @@
  *   (d) environments — nothing account-scoped is named after the app — reported
  *   (e) `--colour` rewrites the light theme's primary hex; the rest of the palette is yours — reported
  *   (f) `LogoMark` / `logo.svg` / `favicon.svg` are a human choice — reported
+ *   (g) local ports: the copy gets its own block (test Postgres + S3, dev ranges) — rewritten, reported
+ *   (h) the Helm chart directory `deploy/helm/<kit>` moves to `deploy/helm/<slug>` — moved, reported
  *
  * First it DELETES the kit's own tests — every file under a `kitOnly` glob in `.rocketflare.json`
  * (`apps/web/tests/kit-only/**`) — and unwires their vitest project from the package.json scripts:
@@ -38,6 +40,7 @@ import {
   lstatSync,
   readdirSync,
   readFileSync,
+  renameSync,
   rmdirSync,
   rmSync,
   writeFileSync,
@@ -50,20 +53,27 @@ import {
   applyColour,
   applyReplacements,
   CLASS_IDS,
+  choosePortBlock,
   deriveNames,
   isBinary,
   isExcluded,
   KIT,
   KIT_MANIFEST_FILE,
   OPT_IN_IGNORED_PATHS,
+  PORT_BLOCK_COUNT,
+  PORT_BLOCK_FIRST,
+  PORT_BLOCK_SIZE,
   parseArgs,
+  portsForBlock,
   prefixGuard,
   REDACTED_KEY_MARGIN,
   readIntConstant,
   readStringConstant,
   renameKitManifest,
   restartAppVersion,
+  rewriteDevPortStarts,
   rewriteIntConstant,
+  rewritePorts,
   rewritePrefixComments,
   USAGE,
 } from './lib/rename-lib.mjs'
@@ -76,6 +86,8 @@ const INDEX_CSS = 'apps/web/src/ui/index.css'
 const INDEX_HTML = 'apps/web/src/ui/index.html'
 const MIGRATIONS_DIR = 'apps/web/migrations/'
 const DEV_VARS = 'apps/web/.env'
+const BOOTSTRAP_LIB = 'scripts/lib/bootstrap-lib.mjs'
+const HELM_DIR = 'deploy/helm'
 // The two package.json files that could wire the kit-only vitest project into a script.
 const PACKAGE_JSONS = ['package.json', 'apps/web/package.json']
 
@@ -105,6 +117,32 @@ function runningContainers() {
  * `.rocketflare.json`, or null when it is missing or unreadable. Read as plain JSON, like
  * `stampManifest`: the rename grows no dependency on `manifest.mjs`.
  */
+/**
+ * Which of `ports` are free on this machine right now — bound on `0.0.0.0` (as compose publishes)
+ * by a child process, because this script is synchronous. A port that cannot be probed counts as
+ * taken.
+ */
+function freePorts(ports) {
+  const probe = `
+    const { createServer } = require('node:net')
+    const ports = ${JSON.stringify(ports)}
+    const free = []
+    const next = i => {
+      if (i === ports.length) return console.log(JSON.stringify(free))
+      const server = createServer()
+      server.once('error', () => next(i + 1))
+      server.once('listening', () => server.close(() => { free.push(ports[i]); next(i + 1) }))
+      server.listen(ports[i], '0.0.0.0')
+    }
+    next(0)`
+  const run = spawnSync(process.execPath, ['-e', probe], { encoding: 'utf8' })
+  try {
+    return new Set(JSON.parse(run.stdout))
+  } catch {
+    return new Set()
+  }
+}
+
 function readKitManifest() {
   const file = path.join(REPO_ROOT, '.rocketflare.json')
   try {
@@ -274,6 +312,29 @@ function main(argv) {
     edits.set('CHANGELOG.md', restarted.changelog)
   }
 
+  // ------------------------------------------------------------- local ports
+  // The copy's own port block (rename-lib `choosePortBlock`): the kit's test ports are rewritten
+  // wherever they are written down, and the dev ranges start inside the block — so this app, the
+  // kit and any other copy can each run `pnpm test` and a dev database on one machine at once.
+  const candidates = Array.from({ length: PORT_BLOCK_COUNT }, (_, k) =>
+    portsForBlock(PORT_BLOCK_FIRST + k * PORT_BLOCK_SIZE)
+  ).flatMap(block => [block.testDb, block.testS3])
+  const free = freePorts(candidates)
+  const ports = choosePortBlock(names.slug, port => free.has(port))
+  let portRewrites = 0
+  if (ports) {
+    for (const rel of candidateFiles(new Set(kitOnly))) {
+      if (rel.startsWith(MIGRATIONS_DIR)) continue
+      const buf = edits.has(rel) ? null : readFileSync(path.join(REPO_ROOT, rel))
+      if (buf && isBinary(buf)) continue
+      const result = rewritePorts(current(rel), ports)
+      if (result.count === 0) continue
+      portRewrites += result.count
+      edits.set(rel, result.text)
+    }
+    edits.set(BOOTSTRAP_LIB, rewriteDevPortStarts(current(BOOTSTRAP_LIB), ports))
+  }
+
   // ------------------------------------------------------------- careful rows
   const report = []
   // (a) API-key display handles
@@ -411,6 +472,26 @@ function main(argv) {
       'favicon.svg still carry the kit mark — replace the paths in all three yourself (not touched).'
   )
 
+  // (g) ports
+  report.push(
+    ports
+      ? `(g) Local ports: this app's block is ${ports.base}–${ports.base + 99} — test Postgres :${ports.testDb}, ` +
+          `test S3 :${ports.testS3}, dev Postgres from :${ports.devDbStart}, dev S3 from :${ports.devS3Start} ` +
+          `(${portRewrites} test-port mentions rewritten; dev starts in ${BOOTSTRAP_LIB}). The kit keeps 5533/7433 and ` +
+          'Rocketflare 5433, so all of them can run `pnpm test` side by side.'
+      : '(g) Local ports: WARNING — every port block (5600–6999) has its test ports taken on this machine; ' +
+          "the kit's ports are kept. Free one and re-run, or edit TEST_DB_PORT / TEST_S3_PORT and their mentions by hand."
+  )
+  // (h) Helm chart directory
+  const oldChart = `${HELM_DIR}/${KIT.slug}`
+  const newChart = `${HELM_DIR}/${names.slug}`
+  const moveChart = names.slug !== KIT.slug && existsSync(path.join(REPO_ROOT, oldChart))
+  if (moveChart) {
+    report.push(
+      `(h) Helm chart: ${oldChart}/ → ${newChart}/ (the chart's name and every path to it follow the slug).`
+    )
+  }
+
   // ------------------------------------------------------------- output
   if (args.dryRun) {
     out(renderTable(rows), '')
@@ -463,6 +544,7 @@ function main(argv) {
     written += 1
   }
   for (const rel of kitOnly) removeWithEmptyParents(rel)
+  if (moveChart) renameSync(path.join(REPO_ROOT, oldChart), path.join(REPO_ROOT, newChart))
   stampManifest(names)
   out(`wrote ${written} files, deleted ${kitOnly.length} kit-only test file(s).`, '')
 

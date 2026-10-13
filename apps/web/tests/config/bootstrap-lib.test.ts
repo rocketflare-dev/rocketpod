@@ -16,6 +16,7 @@ import {
   bootstrapStepPlan,
   checkoutTag,
   chooseDevDbPort,
+  DEV_DB_PORT_START,
   databaseUrlPort,
   databaseUrlTarget,
   describeAi,
@@ -25,12 +26,14 @@ import {
   isLocalDatabaseUrl,
   isNeonDatabaseUrl,
   isPostgresUrl,
+  KIT_TEST_DB_PORTS,
   localDriverFor,
   parseBootstrapArgs,
   parseBootstrapSkip,
   parseNvmrc,
   planDefaultPlugins,
   readDevVars,
+  TEST_DB_PORT,
   upsertDevVar,
   versionAtLeast,
   withDatabaseUrlPort,
@@ -212,33 +215,51 @@ describe('extractSeedKey', () => {
 })
 
 describe('chooseDevDbPort', () => {
+  // Relative to the checkout's own block: a renamed copy moves DEV_DB_PORT_START and TEST_DB_PORT
+  // (scripts/rename.mjs), and these must hold there too.
   const all = () => true
+  const start = DEV_DB_PORT_START
+  const blocked = new Set([TEST_DB_PORT, ...KIT_TEST_DB_PORTS])
+  /** The first port after `from` in the scanned range that is not a test port. */
+  const nextAfter = (from: number) => {
+    let port = from + 1
+    while (blocked.has(port)) port += 1
+    return port
+  }
 
   it('keeps the port already in use by this checkout — a re-run must not move a live database', () => {
-    expect(chooseDevDbPort({ preferred: 5437, isAvailable: all })).toBe(5437)
+    expect(chooseDevDbPort({ preferred: start + 5, isAvailable: all })).toBe(start + 5)
   })
 
   it('takes the next free port when the preferred one is held by another checkout', () => {
-    const taken = new Set([5432])
-    expect(chooseDevDbPort({ preferred: 5432, isAvailable: p => !taken.has(p) })).toBe(5434)
+    const taken = new Set([start])
+    expect(chooseDevDbPort({ preferred: start, isAvailable: p => !taken.has(p) })).toBe(
+      nextAfter(start)
+    )
   })
 
   it('never hands out the test port, even when it is free and preferred', () => {
-    expect(chooseDevDbPort({ preferred: 5533, isAvailable: all })).toBe(5432)
-    expect(chooseDevDbPort({ preferred: null, isAvailable: p => p === 5533 })).toBeNull()
+    expect(chooseDevDbPort({ preferred: TEST_DB_PORT, isAvailable: all })).toBe(start)
+    expect(chooseDevDbPort({ preferred: null, isAvailable: p => p === TEST_DB_PORT })).toBeNull()
   })
 
-  it("never hands out Rocketflare's test port either, so both kits can test on one machine", () => {
-    expect(chooseDevDbPort({ preferred: 5433, isAvailable: all })).toBe(5432)
-    expect(chooseDevDbPort({ preferred: null, isAvailable: p => p === 5433 })).toBeNull()
+  it("never hands out either kit's test port (Rocketflare 5433, Rocketpod 5533)", () => {
+    for (const port of KIT_TEST_DB_PORTS) {
+      expect(chooseDevDbPort({ preferred: port, isAvailable: all })).toBe(start)
+      expect(chooseDevDbPort({ preferred: null, isAvailable: p => p === port })).toBeNull()
+    }
+    // Scanned from 5432 (the kit), the walk steps over 5433 rather than handing it out.
+    expect(chooseDevDbPort({ preferred: null, start: 5432, isAvailable: p => p !== 5432 })).toBe(
+      5434
+    )
   })
 
-  it('starts from 5432 when there is nothing to prefer', () => {
-    expect(chooseDevDbPort({ preferred: null, isAvailable: all })).toBe(5432)
+  it('starts from DEV_DB_PORT_START when there is nothing to prefer', () => {
+    expect(chooseDevDbPort({ preferred: null, isAvailable: all })).toBe(start)
   })
 
   it('returns null when the whole range is taken, rather than a colliding port', () => {
-    expect(chooseDevDbPort({ preferred: 5432, isAvailable: () => false })).toBeNull()
+    expect(chooseDevDbPort({ preferred: start, isAvailable: () => false })).toBeNull()
   })
 })
 

@@ -145,3 +145,20 @@ export interface ParsedArgs {
   display: string | undefined
 }
 export function parseArgs(argv: string[]): ParsedArgs | { error: string } | { help: true }
+
+export interface PortBlock {
+  base: number
+  testDb: number
+  devDbStart: number
+  testS3: number
+  devS3Start: number
+}
+export const PORT_BLOCK_FIRST: number
+export const PORT_BLOCK_SIZE: number
+export const PORT_BLOCK_COUNT: number
+export const KIT_TEST_PORTS: Readonly<{ db: number; s3: number }>
+export function portsForBlock(base: number): PortBlock
+export function slugHash(slug: string): number
+export function choosePortBlock(slug: string, isFree: (port: number) => boolean): PortBlock | null
+export function rewritePorts(text: string, ports: PortBlock): { text: string; count: number }
+export function rewriteDevPortStarts(source: string, ports: PortBlock): string

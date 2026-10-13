@@ -11,8 +11,7 @@ paths:
 # Database Patterns
 
 Drizzle ORM over PostgreSQL (any Postgres deployed, Docker locally). **One driver (D35, narrowed in
-Rocketpod): `postgres.js`** — the Node entry's process pool, or Hyperdrive on the Worker until
-M6b. Never add `pg`. **No driver import outside
+Rocketpod): `postgres.js`** — the Node entry's process pool. Never add `pg`. **No driver import outside
 `apps/web/src/db/client.ts` and `apps/web/scripts/lib/sql.ts`** (+ `migrate.ts`'s migrators) —
 `tests/config/driver-results.test.ts` fails one in `src/`. All domain data is tenant-scoped.
 
@@ -36,12 +35,12 @@ Every table with a `tenantId` MUST include `tenantIsolation('<table>')` in its `
 without one goes in `RLS_EXCLUDED_TABLES` (`apps/web/src/db/schema/rls.ts`) with the reason.
 `apps/web/tests/api/rls-coverage.test.ts` fails CI either way until you do. The policies are `FOR ALL TO
 rocketpod_app` with `USING` and `WITH CHECK` on `tenant_id = nullif(current_setting('app.tenant_id',
-true), '')::uuid`. `apps/web/scripts/db-roles.ts` creates `rocketpod_app` `NOLOGIN` via SQL (never a
-`neon_superuser`), so policies resolve while nothing can connect as the role.
+true), '')::uuid`. `apps/web/scripts/db-roles.ts` creates `rocketpod_app` `NOLOGIN`, `NOBYPASSRLS`
+via SQL, so policies resolve while nothing can connect as the role.
 
 `TENANT_SCOPE_MODE`: `off` (default — `withTenantScope(db, tenantId, fn)` is `fn(db)`) · `enforce`
 (`db.transaction` + `set_config('app.tenant_id', $1, true)` on an app-role connection that is not
-wired yet — `APP_DATABASE_URL` for the Node pool, `HYPERDRIVE_APP` on the Worker; needs the spike
+wired yet — `APP_DATABASE_URL` for a second Node pool; needs the spike
 in docs/RLS.md to pass first). Threat model stated honestly: RLS catches a **forgotten
 predicate**, not SQL injection — the app role can `set_config` itself.
 
@@ -132,15 +131,16 @@ predicate**, not SQL injection — the app role can `set_config` itself.
 
 - `apps/web/src/db/client.ts`: `openDatabase(env) → { db, close }` — the ONLY way app code opens a
   database (middleware, `streamDatabase`, queue consumer, cron, workflow steps, the span store).
-  `env` is `{ ...config, HYPERDRIVE }`. `Database = PgDatabase<PgQueryResultHKT, typeof schema>`,
+  `env` is the config. `Database = PgDatabase<PgQueryResultHKT, typeof schema>`,
   and a transaction `tx` IS a `Database` — no cast
 - Driver: `DATABASE_DRIVER` (`postgres`, missing = `postgres`; `loadConfig` refuses the removed
-  `neon` with the fix). URL: `PREVIEW_DATABASE_URL ?? HYPERDRIVE.connectionString ?? DATABASE_URL`
+  `neon` with the fix). URL: `PREVIEW_DATABASE_URL ?? DATABASE_URL`
 - **Node** (`src/node/server.ts`): `installProcessPool(config, { max: DATABASE_POOL_MAX, prepare:
   true })` once per process; every `openDatabase` for that URL is then a VIEW of the pool whose
   `close()` is a no-op. The pool closes once, on shutdown, after the defer set drains
-- **Worker** (until M6b): postgres.js `max: 1`, `prepare: false`, `fetch_types: false` per
-  request/invocation — Hyperdrive is the pool — closed in `waitUntil` or `finally`
+- pg-boss and OpenWorkflow keep their own small pools, and a `web`/`all` process one more
+  dedicated `LISTEN` connection (`DATABASE_LISTEN_URL`) — size `max_connections` for all of them
+  (`docs/CONCEPTS.md` §4)
 - `db.transaction(tx => …)` for multi-table writes (invite accept, tenant create). Keep them short:
   a transaction holds a pooled connection nobody else can use until it commits
 - No `LISTEN/NOTIFY`, session advisory locks or session `SET` on the request path — the connection
@@ -166,25 +166,30 @@ predicate**, not SQL injection — the app role can `set_config` itself.
   transaction-scoped form (`SET LOCAL`, `set_config(…, true)`, `pg_advisory_xact_lock`). The guard
   fails it
 - Scripts (`apps/web/scripts/lib/sql.ts` `openScriptSql`) and test fixtures (`getScriptDatabase(url,
-  process.env)`) read `DATABASE_DRIVER` from the ENVIRONMENT only (`.env` via dotenv, never the
-  toml) and refuse anything but `postgres`
+  process.env)`) read `DATABASE_DRIVER` from the ENVIRONMENT only (`.env` via dotenv) and refuse
+  anything but `postgres`
 
 ## Migrations
 
 1. Edit `apps/web/src/db/schema/*` → 2. `pnpm db:generate` → 3. **read the SQL** → 4. `pnpm db:migrate`.
 
-`db:migrate` = `db-roles --phase=role` → `migrate.ts` → `db-roles --phase=grants`. Role first
+`db:migrate` = `db-roles --phase=role` → `migrate.ts` (drizzle, then the `pgboss` and
+`openworkflow` schemas) → `db-roles --phase=grants`; the image runs the same sequence as
+`node dist/migrate.js`. Role first
 because a policy's `TO rocketpod_app` needs the role to exist; grants after because `REVOKE` can only name
 tables that exist. Both halves are idempotent. `db:migrate:ci` is the same without dotenv (env from
-the GitHub Environment). `apps/web/scripts/migrate.ts` rewrites a Neon `-pooler` host to the direct host so
-DDL never hits a pooled backend.
+the environment). Point the migration at a DIRECT connection, never a transaction-mode pooler —
+DDL and the libraries' schema installs need a real session (`migrate.ts` rewrites a Neon `-pooler`
+host to the direct host itself; any other pooler is yours to bypass).
 
-Never hand-edit an applied migration or `apps/web/migrations/meta/`. Custom SQL (an extension, a fact table)
+Rocketpod starts from ONE baseline (`0000_rocketpod-baseline.sql`, plus one per vendored plugin);
+everything after it is generated. Never hand-edit an applied migration or `apps/web/migrations/meta/`. Custom SQL (an extension, a fact table)
 is a generated file edited before it is applied, journal intact.
 
 Tests migrate a throwaway database on 5433 from `apps/web/tests/setup.ts` — never a hosted one.
-The one exception is `pnpm test` with `TEST_DATABASE_BRANCH` set: a throwaway Neon GATE branch a
-sandbox orchestrator names and binds to the URL (`docs/CONCEPTS.md` §4, "Ephemeral test database").
+The one exception is `pnpm test` with `TEST_DATABASE_BRANCH` set: a throwaway hosted GATE branch a
+sandbox orchestrator names and binds to the URL — the safety check knows Neon's branch shape
+(`docs/CONCEPTS.md` §4, "Ephemeral test database").
 
 ## Plugins (D31) — a plugin's tables
 

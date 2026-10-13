@@ -1,7 +1,7 @@
 # UI (React SPA)
 
 React 18 + Vite + React Router 6 + TanStack Query 5 + zustand; DaisyUI 5 on Tailwind v4. Dev: Vite on
-:3000 proxies `/api`,`/auth`,`/ws` (+ an installed plugin's own prefixes) → :3001 (`DEV_UI_PORT` / `DEV_API_PORT` move them, `scripts/lib/dev-ports.mjs`). Prod: `dist/ui` via the `ASSETS` binding.
+:3000 proxies `/api`,`/auth`,`/ws` (+ an installed plugin's own prefixes) → :3001 (`DEV_UI_PORT` / `DEV_API_PORT` move them, `scripts/lib/dev-ports.mjs`). Prod: `dist/ui` served by the Node server (`src/node/assets.ts`).
 
 ## Layout
 
@@ -193,7 +193,7 @@ A `CUSTOM kit.notice` renders
   `interrupts` + `artifacts`, reconciled server-side). A `deduplicated: true` 202 is a SUCCESS
   (an exclusive agent already had an active run — toast, open that run); 503
   `agent_runs_not_configured` is the modal's business (`isAgentRunsNotConfigured` → `EmptyState`
-  naming `AGENT_RUN_WORKFLOW`, no toast); everything else re-toasts. The UI never sends `?strict=1`.
+  explaining the deployment has no run engine, no toast); everything else re-toasts. The UI never sends `?strict=1`.
 - **Freshness = nudge + poll.** The runs family root is `['agent-run']` (`queryKeys.agentRuns`),
   the `entity` string in the server's `entity.changed { entity: 'agent-run', id }` nudge, so the
   generic `WebSocketProvider` invalidation already covers it — no hook watches the socket or the
@@ -308,7 +308,7 @@ A `CUSTOM kit.notice` renders
   issues map back onto the fields through the one `pages/agents/issues.ts`).
 - **Leaving the page never touches the run**; Cancel is the explicit button (`POST …/cancel`, shown
   while `isRunActive`). Once `cancelRequestedAt` is set it stays ENABLED as "Force cancel" — the
-  second press makes the server terminate the Workflow instance and settle the row, so a run that
+  second press makes the server terminate the run instance and settle the row, so a run that
   stopped polling never strands the user (and never blocks an exclusive agent). `SteerComposer`
   posts `POST …/steering` while the run is active; the note is an event row, so the timeline shows
   it where it happened and the runtime delivers it once. Requested-by is "You" / short id / "system"

@@ -1,10 +1,10 @@
 /**
- * Drizzle over postgres.js — the one driver (Rocketpod M2; Rocketflare's Neon serverless driver is
- * gone, `docs/FORK.md`). Two ways to hold a connection:
+ * Drizzle over postgres.js — the one driver (D35, narrowed in Rocketpod; Rocketflare's Neon
+ * serverless driver is gone, `docs/FORK.md`). Two ways to hold a connection:
  *
  * - **Per request** (`openDatabase` with no process pool installed): a client per request or
- *   invocation, closed with the handle (middleware/database.ts). The Worker path: Hyperdrive is
- *   the real pool, so `max: 1` and `prepare: false` (transaction-mode pooler).
+ *   invocation, closed with the handle (middleware/database.ts) — tests and scripts. `max: 1` and
+ *   `prepare: false` by default, safe behind a transaction-mode pooler.
  * - **Per process** (`installProcessPool`, the Node entry `src/node/server.ts`): ONE postgres.js
  *   pool shared by every request in the process. `openDatabase` then hands out a view of it whose
  *   `close()` is a no-op; the pool is ended once, on shutdown.
@@ -34,10 +34,10 @@ export interface DatabaseHandle {
 }
 
 export interface CreateDatabaseOptions {
-  /** Connections per client. 1 in the Worker (Hyperdrive), 5 for scripts/tests, more for a pool. */
+  /** Connections per client. 1 per request, 5 for scripts/tests, `DATABASE_POOL_MAX` for the process pool. */
   max?: number
   /**
-   * Named prepared statements. Off by default: Hyperdrive and other transaction-mode poolers do not
+   * Named prepared statements. Off by default: transaction-mode poolers (PgBouncer < 1.21) do not
    * support them across queries. A process pool connected straight to Postgres may turn them on.
    */
   prepare?: boolean
@@ -135,7 +135,7 @@ export function openDatabase(
 export function createDatabase(url: string, options: CreateDatabaseOptions = {}): DatabaseHandle {
   const client = postgres(url, {
     max: options.max ?? 1,
-    // Hyperdrive and other transaction-mode poolers do not support named prepared
+    // Transaction-mode poolers (PgBouncer < 1.21) do not support named prepared
     // statements across queries; unnamed (per-query) is the safe default.
     prepare: options.prepare ?? false,
     // Skips the startup round-trip that lists custom types; the kit only uses builtins

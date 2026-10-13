@@ -1,8 +1,8 @@
 # Agent runtime (D7, D17)
 
-The pg-boss agent runtime ported onto Cloudflare Workflows. One table (`agent_runs`), one event log
-(`agent_run_events`), one Workflow class (`AgentRunWorkflow`, `../../workflows/agent-run.ts`), one
-registry. "Routes enqueue, never run."
+The agent runtime, run durably by OpenWorkflow (`src/node/runs.ts`) through the platform's
+`RunEngine`. One table (`agent_runs`), one event log (`agent_run_events`), one run body
+(`runAgentRun`, `../../workflows/agent-run-body.ts`), one registry. "Routes enqueue, never run."
 
 | File | Role |
 |---|---|

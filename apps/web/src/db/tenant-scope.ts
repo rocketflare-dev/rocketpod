@@ -2,8 +2,8 @@
  * Tenant scoping (D1). `off` (default): predicates-only, `fn` gets the handle it was given.
  * `enforce`: run `fn` inside a transaction that first sets the transaction-local GUC
  * `app.tenant_id`, so RLS policies (schema/rls.ts) apply on a connection that is NOT the
- * table owner. Transaction-local because every path is pooled (the Node process pool, Hyperdrive,
- * a hosted pooler) — session state would leak into the next request on that connection (03 §3.6).
+ * table owner. Transaction-local because every path is pooled (the Node process pool, a hosted
+ * pooler) — session state would leak into the next request on that connection (03 §3.6).
  *
  * Ported from the Node reference app's `src/db/tenant-scope.ts` without the AsyncLocalStorage-pinned
  * connection: there is no connection to pin here, the transaction IS the scope.

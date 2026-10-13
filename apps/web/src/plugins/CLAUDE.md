@@ -49,7 +49,7 @@ in the host. Each half is checked where it is written; only the merge is cast.
   across a plugin boundary**, in either direction, except the five barrel lines;
   `tests/config/plugins.test.ts` is the check. (`plugin.json` is the surface ANCHOR, read by the
   tooling, never imported.)
-- **It declares no Cloudflare `bindings` and no `workerExports`.** This kit has no Worker (M6b):
+- **It declares no Cloudflare `bindings` and no `workerExports`.** This kit has no Worker (D41):
   `pnpm plugin` refuses either at install and `plugin check` fails one on an installed plugin. A
   plugin reaches jobs, storage, realtime, durable runs, rate limits and locks through `ctx.platform`.
 - **It ships no migration.** The HOST generates it once the schema barrel line exists:
@@ -133,12 +133,11 @@ requirement is unmet · 7 the target path exists.
 as by a person and prose an agent may skim is not a control:
 
 - **declarative** — nobody does it; the tooling does. These do not appear in the plan at all. The
-  barrel lines, a declared binding, cron, route prefix or `[vars]` key, and a Durable Object's
-  `[[migrations]]` tag are all here, which is why the plan is short.
+  barrel lines and a declared cron or route prefix are all here, which is why the plan is short.
 - **agent** — an instruction PLUS the assertion that proves it ran. Every one carries `run`,
   `expect` and `assert`.
-- **human** — a decision the tooling stops for: a secret's VALUE, a migration containing `DROP`,
-  `--archive`, retiring a Durable Object namespace, deleting a live Cloudflare resource.
+- **human** — a decision the tooling stops for: a secret's VALUE (and where the deployment keeps
+  it), a migration containing `DROP`, `--archive`, deleting state outside Postgres.
 
 `--json` emits the same plan as data, with `kind` on every step, so a human step is a field rather
 than a sentence in a paragraph. `pnpm plugin check --json` does the same for the audit.
@@ -185,9 +184,9 @@ test** when it declares tenant-scoped tables; and **its skills both ways** — e
 Two of those deserve their reason stated. The isolation test is the kit's one non-negotiable that
 the kit itself cannot write — `docs/CONCEPTS.md` §16 and `.claude/rules/testing.md` both require
 it *because the kit cannot* — and the check is structural, so it proves such a test EXISTS rather
-than that it is right, and says so in the message. And a `durable_object` is state the FK cascade
-cannot reach: a deleted tenant's DO state outlives it, and no other check can see that, because
-its tables are gone and everything else reads as clean.
+than that it is right, and says so in the message. (Rocketflare's second reason — a
+`durable_object` binding's state outliving the tenant — is moot here: a Cloudflare declaration is
+refused outright.)
 
 **There is no longer a tier a plugin opts into.** The audit used to warn rather than fail for a
 plugin that declared no `requires.pluginApi`, because a released plugin could not retroactively
@@ -224,7 +223,7 @@ the last two are not optional:
 4. `docs/CONCEPTS.md` §16 and the matching `.claude/rules/*.md`, in the same commit.
 
 Slots deliberately NOT on the interface: anything that would let a plugin change what a role may do
-(`cannot`), write a migration, or edit a toml. Cross-plugin registries go through
+(`cannot`), write a migration, or edit deployment config. Cross-plugin registries go through
 `ServerPlugin.extensions` (`Record<string, readonly unknown[]>`) — `unknown[]` at the core boundary
 is the point: the owning plugin narrows with zod and fails loudly, and the kit stays ignorant of
 what anyone means by a "cube".

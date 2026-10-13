@@ -1,8 +1,8 @@
 /**
  * Per-request database handle (D35): `openDatabase(config)`, `c.set('db')`,
  * and the handle is closed in `executionCtx.waitUntil` AFTER the response. On Node the handle is a
- * view of the process pool and closing it is a no-op (`installProcessPool`); on the Worker it is
- * a client of its own over Hyperdrive, so nothing is kept across requests. `finally`, not post-`next()`: a throwing handler
+ * view of the process pool and closing it is a no-op (`installProcessPool`); without one (tests,
+ * scripts) it is a client of its own, so nothing is kept across requests. `finally`, not post-`next()`: a throwing handler
  * must not leak a socket.
  *
  * Test mechanism (no hooks in src/): tests call `app.request(path, init, env, ctx)` with a real

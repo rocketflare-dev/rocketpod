@@ -8,7 +8,7 @@
  * actually watches, so it stays where they are already looking.
  *
  * Cancel stays CLICKABLE once a cancel has been asked for — the second press forces it (the server
- * terminates the Workflow instance and settles the row), so a run whose loop stopped polling can
+ * terminates the run instance and settles the row), so a run whose loop stopped polling can
  * never strand somebody on "Cancelling…" or hold an exclusive agent's only slot forever.
  */
 import type { AgentRun } from '@rocketpod/shared/ai/agents'

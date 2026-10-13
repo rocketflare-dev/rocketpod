@@ -2,7 +2,9 @@
 
 Multi-tenant SaaS starter for internal tools and B2B products, a **pnpm workspace**: Hono API + React UI in one
 Node server built to run in a container (`apps/web`), a CLI (`apps/cli`), private zod contracts
-(`packages/shared`). No Cloudflare dependency (M6b, `docs/FORK.md`). `AGENTS.md` symlinks here.
+(`packages/shared`). A hard fork of Rocketflare 0.19.0 with no Cloudflare dependency (D41,
+`docs/FORK.md`): Postgres for everything stateful, an S3-compatible store for files. `AGENTS.md`
+symlinks here.
 
 > **How it works**: `docs/CONCEPTS.md` — one section per subsystem with its known gaps. **Check it
 > before assuming a capability exists; update it when you change one.**
@@ -46,12 +48,12 @@ Node server built to run in a container (`apps/web`), a CLI (`apps/cli`), privat
   `apps/evals`, vitest-evals on vitest 4, `pnpm eval`, never in the gate) + thumbs feedback →
   `rocketpod evals promote`
 - **Analytics**: not core — the `analytics` PLUGIN (D31), not installed by default until a
-  Rocketpod-compatible release exists (`defaultPlugins` is empty, ROADMAP M8)
+  Rocketpod-compatible release exists (`defaultPlugins` is empty, `docs/ROADMAP.md` → Next)
 - **UI**: React 18 + Vite, DaisyUI 5 / Tailwind v4, React Router 6, TanStack Query 5; served by the Node server from `dist/ui`
 - **CLI**: commander + chalk + open; `tsx` in dev, `tsc` → `dist/cli.js` (bin `rocketpod`)
 - **Tests**: vitest projects `api` · `api-isolated` · `driver` · `ui` · `config` · `kit-only` (the kit's own
-  tests, `apps/web/tests/kit-only/`, deleted by the rename — never in a copy) (Postgres :5433;
-  `driver` is the seam's conformance suite); cli; the eval kit's unit tests (`apps/evals/tests`). Evals themselves are
+  tests, `apps/web/tests/kit-only/`, deleted by the rename — never in a copy) (Postgres :5433, the
+  S3 gateway :7433; `driver` is the seam's conformance suite); cli; the eval kit's unit tests (`apps/evals/tests`). Evals themselves are
   `pnpm eval`, outside the gate
 - **Lint**: Biome 2 at the root (single quotes, `asNeeded` semicolons, 100 cols)
 
@@ -77,14 +79,15 @@ pnpm kit:upgrade [--to X.Y.Z] [--apply] · pnpm kit:release X.Y.Z  # port a kit 
 ```
 
 Local env lives in `apps/web/.env` (`.env.example` is the template). No
-`RESEND_API_KEY` → magic-link URLs are logged; no AI key → chat/agents 503; zero creds locally.
+`RESEND_API_KEY` → magic-link URLs are logged; no AI key → chat/agents/indexing 503 (there is no
+zero-key AI); the gate needs no credentials (tests use an in-process fake model endpoint).
 
 ## Architecture
 
 ```
 apps/web/          @rocketpod/web — .env(.example), .env.test, docker-compose.{dev,test}.yml,
 │                  drizzle.config.ts, migrations/, scripts/, tests/
-│  src/node/       the Node entry (M2): server.ts (modes, probes, shutdown) · platform.ts · assets.ts
+│  src/node/       the Node entry: server.ts (modes, probes, shutdown) · platform.ts · assets.ts
 │                  (static + SPA fallback) · defer.ts (waitUntil) · jobs{,-schema}.ts (pg-boss) · runs{,-schema}.ts (OpenWorkflow agent runs)
 │                  · realtime.ts (ws + NOTIFY) · storage.ts (S3) · limits.ts · converter.ts — `dist/server.js`
 │  src/platform/   types.ts — the Platform interfaces every capability is read through
@@ -96,8 +99,7 @@ apps/web/          @rocketpod/web — .env(.example), .env.test, docker-compose.
 │  src/ui/         React app
 │  src/plugins/    D31 seam: types.ts, api/ (the context family a plugin imports) + the
 │                  server/ui/schema barrels (one line per installed plugin)
-│                  + each plugin's tree — `example-feature/` vendored as the reference one, and
-│                  `analytics/` (cubes, dashboards, fact tables) once the default set is installed
+│                  + each plugin's tree — `example-feature/` vendored as the reference one
 │                  (per-dir CLAUDE.md: permissions, db/schema, api/*, ui, plugins, plugins/<id>)
 apps/cli/          @rocketpod/cli — src/cli.ts, commands/*, api.ts (only fetch site), config.ts, login.ts,
                    plugins/ (CLI_PLUGINS barrel + each plugin's commands)
@@ -105,7 +107,7 @@ apps/evals/        @rocketpod/evals — vitest-evals suites over apps/web in-pro
                    suites/, datasets/*.jsonl, baselines/; `pnpm eval` only, never the gate (docs/EVALS.md)
 packages/shared/   @rocketpod/shared — src/*.ts zod contracts, errors, pagination, permissions,
                    plugins/ (SharedPlugin + the SHARED_PLUGINS barrel + each plugin's contracts) (CLAUDE.md)
-scripts/           bootstrap.sh → bootstrap.mjs (9 steps), install.sh (curl one-liner), rename.mjs,
+scripts/           bootstrap.sh → bootstrap.mjs (10 steps), install.sh (curl one-liner), rename.mjs,
                    upgrade.mjs (port a kit release into a copy), release{,-check}.mjs, changelog-nudge.mjs
                    (PreToolUse on a commit: missing porting note),
                    kit-update-check.mjs (SessionStart: tells a copy about a newer kit release),
@@ -139,19 +141,28 @@ mints a tenant API key `cli:<host>` → `?key=&tenant_id=&tenant_name=`; stored 
 
 ## Config model
 
-Environment variables (`apps/web/.env` locally), read via `loadConfig(env)`: `APP_ENV` (`development|staging|production`) ·
-`TENANCY_MODE` (`multi|single` — same schema; single auto-joins the one tenant) ·
-`SIGNUP_MODE` (`open|invite_only|approval`; `BOOTSTRAP_ADMIN_EMAILS` seeds the first admin) ·
-`TENANT_SCOPE_MODE` (`off|enforce`, `docs/RLS.md`) · `DATABASE_DRIVER` (`postgres` only, D35; missing =
-`postgres`; `neon` is refused) · `DATABASE_POOL_MAX` (Node pool size, 10) · `TRUSTED_PROXY_HOPS`
-(proxies appending `X-Forwarded-For` in front of the Node server, 0) · `AGENT_MAX_OUTPUT_TOKENS` · `AGENT_MAX_TURNS` ·
-`CHAT_KNOWLEDGE_TOOLS` (`true|false` — chat may call the knowledge tools) ·
-`CHAT_HISTORY_MAX_CHARS` (history a turn replays; older turns are summarised by `chat.compact`) ·
+Environment variables — `apps/web/.env` locally; deployed, the compose `.env` or the chart's
+`config` (ConfigMap) / `secrets` (Secret or `existingSecret`) — read once via `loadConfig(env)`:
+`APP_ENV` (`development|staging|production`) · `APP_URL` · `TENANCY_MODE` (`multi|single` — same
+schema; single auto-joins the one tenant) · `SIGNUP_MODE` (`open|invite_only|approval`;
+`BOOTSTRAP_ADMIN_EMAILS` seeds the first admin) · `TENANT_SCOPE_MODE` (`off|enforce`, `docs/RLS.md`) ·
+**database**: `DATABASE_URL` (secret), `DATABASE_POOL_MAX` (10), `DATABASE_LISTEN_URL` (realtime
+LISTEN; direct or session-mode when PgBouncer runs in transaction mode), `DATABASE_DRIVER`
+(`postgres` only) · **server**: `SERVER_MODE`/first arg (`web|worker|all`), `PORT`,
+`TRUSTED_PROXY_HOPS` (proxies appending `X-Forwarded-For`, 0) · **work**: `JOBS_CONCURRENCY` (2),
+`JOBS_POLL_INTERVAL_SECONDS` (2), `RUNS_CONCURRENCY` (4), `AGENT_INTERRUPT_TIMEOUT`,
+`AGENT_MAX_OUTPUT_TOKENS`, `AGENT_MAX_TURNS` · **storage**: `STORAGE_DRIVER` (`s3`),
+`STORAGE_ENDPOINT`, `STORAGE_REGION`, `STORAGE_BUCKET`, `STORAGE_FORCE_PATH_STYLE`, secrets
+`STORAGE_ACCESS_KEY_ID`/`STORAGE_SECRET_ACCESS_KEY` · **AI**: secrets `ANTHROPIC_API_KEY`,
+`AI_API_KEY` (+ `AI_BASE_URL`, `AI_MODEL` — OpenAI-compatible), `EMBEDDINGS_API_KEY` (+
+`EMBEDDINGS_BASE_URL`, `EMBEDDINGS_MODEL`; 1024 dims), `TYPESAFE_API_KEY` · `CHAT_KNOWLEDGE_TOOLS`
+(`true|false`) · `CHAT_HISTORY_MAX_CHARS` (older turns summarised by `chat.compact`) ·
 `FEATURES_ENABLED` (D30 — comma-separated feature keys this deployment ships at all; fail-closed,
 consulted only for a flag marked `environmentGated`; the rollout state itself lives in Postgres) ·
 `OIDC_ISSUER`/`OIDC_CLIENT_ID`/`OIDC_LABEL`/`OIDC_SCOPES`/`AUTH_OIDC_ONLY`/`OIDC_TRUST_EMAIL`
-(optional SSO through any OIDC issuer, declared only when used — `SETUP.md` 2.3b; secret
-`OIDC_CLIENT_SECRET`).
+(optional SSO, `SETUP.md` 2.3b; secret `OIDC_CLIENT_SECRET`) · tracing `OBSERVABILITY_*`,
+`OTEL_EXPORTER_OTLP_*`, `LANGFUSE_*`. `src/config.ts` is the full list;
+`tests/config/packaging.test.ts` holds the chart to it.
 
 Rules (auto-loaded by path): `.claude/rules/api.md` · database.md · ui.md · cli.md · testing.md ·
 code-quality.md · runtime.md. Runbooks: `docs/DEPLOY.md` · `docs/RLS.md`
@@ -174,12 +185,15 @@ code-quality.md · runtime.md. Runbooks: `docs/DEPLOY.md` · `docs/RLS.md`
   `waitUntil`; concurrency is a DB claim row, never a `Map`; SSE routes use `streamDatabase(c)`
 - **No Cloudflare**: no wrangler/miniflare/workerd/`@cloudflare/*` package, no `cloudflare:*`
   import, no Workers type, no binding read off an env — `platform-seam.test.ts` fails any
-- **Secrets** never in git or a response (`hasCredential`); `.env` comments hold no other
-  credentials; the CLI never prints a full key; `gitleaks` in CI
+- **Config, compose and chart agree**: a var or secret added to `src/config.ts` goes into
+  `.env.example` and the chart's `config`/`secrets` (compose when it needs it) in the same change —
+  `packaging.test.ts` fails otherwise; the Dockerfile ships exactly what `build-server.mjs` emits
+- **Secrets** never in git, a committed values file or a response (`hasCredential`); `.env`
+  comments hold no other credentials; the CLI never prints a full key; `gitleaks` in CI
 - **`process` and Node server APIs only in `apps/web/src/node/`** (`node:fs`, `node:http`,
   `@hono/node-server`…), and nothing else imports `src/node/` — `platform-seam.test.ts` fails it;
   `process.env` is read only there and in `src/config.ts`. Never add `pg` to app code
-- **Release = root version**: git tag == root `package.json` `version` (ships web + cli)
+- **Release = root version**: git tag == root `package.json` `version` (ships the image + cli)
 - **Docs in sync**: a behaviour change updates CONCEPTS / SETUP / DEPLOY / rules in the same PR,
   **and adds an entry to `docs/upgrades/unreleased.md`** — copies of the kit absorb changes by
   reading those notes, so a change with no note never reaches them (CI and the tag gate enforce it)

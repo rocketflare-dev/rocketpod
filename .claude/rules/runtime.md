@@ -15,7 +15,7 @@ paths:
 One image, one Node 24 process per container, in one of three modes (`src/node/server.ts`):
 `web` (Hono on `@hono/node-server`, the UI from `dist/ui`, `/ws`, `/healthz` + `/readyz`),
 `worker` (pg-boss jobs and cron, OpenWorkflow agent runs) or `all` (both — dev and small installs).
-There is **no Cloudflare dependency** (M6b): no wrangler, no Workers types, no tomls, no bindings,
+There is **no Cloudflare dependency** (D41): no wrangler, no Workers types, no tomls, no bindings,
 and `tests/config/platform-seam.test.ts` fails any that come back. Design:
 `docs/DESIGN-SELFHOSTED.md`; milestones: `docs/ROADMAP.md`.
 
@@ -72,4 +72,4 @@ nudge), never a crash.
 `pnpm dev` (Node under `tsx watch` :3001 + Vite :3000) · `pnpm web dev:api` (the server alone,
 unfiltered) · `pnpm build` (`vite build` + `scripts/build-server.mjs` → `dist/server.js`) ·
 `node dist/server.js [web|worker|all]` · `pnpm db:migrate` (app migrations + the `pgboss` and
-`openworkflow` schemas). Container image, Compose and Helm: ROADMAP M7.
+`openworkflow` schemas). Container image, Compose and Helm: `docs/DEPLOY.md`.

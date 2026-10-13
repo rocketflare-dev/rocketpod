@@ -18,7 +18,7 @@ worker loops. Keeping the entry out of `api/index.ts` is what lets tests drive
 1. `app.onError(errorHandler)` / `app.notFound` — every failure below, including config validation, gets the JSON envelope
 2. `requestLogger` (hono-pino) — request id exists for everything after
 3. `configMiddleware` — `loadConfig(c.env)`; everything below reads `c.get('config')`, **never `c.env` for config**
-4. `securityHeaders` — after `next()`; **returns a 101 untouched** (the DO's upgrade response has immutable headers; re-wrapping it drops the socket). ONE second branch: a response a route opted in with `c.set('embeddable', true)` gets `X-Frame-Options: SAMEORIGIN` + `EMBEDDABLE_CONTENT_SECURITY_POLICY` (`frame-ancestors 'self'`) instead of `DENY` + `'none'`, so the document viewer can frame a PDF. **Only a route that has PROVED the content type may set the flag** (`routes/files.ts`: `isEmbeddableMimeType(row.contentType)`, set BEFORE the `If-None-Match` 304 early return, or a revalidation from inside the `<object>` kills the embed) — never a path allowlist, never a global policy change; both policies are built from one `CSP_BASE` so they cannot drift
+4. `securityHeaders` — after `next()`; **returns a 101 untouched** (an upgrade response must reach the server as-is; re-wrapping it drops the socket). ONE second branch: a response a route opted in with `c.set('embeddable', true)` gets `X-Frame-Options: SAMEORIGIN` + `EMBEDDABLE_CONTENT_SECURITY_POLICY` (`frame-ancestors 'self'`) instead of `DENY` + `'none'`, so the document viewer can frame a PDF. **Only a route that has PROVED the content type may set the flag** (`routes/files.ts`: `isEmbeddableMimeType(row.contentType)`, set BEFORE the `If-None-Match` 304 early return, or a revalidation from inside the `<object>` kills the embed) — never a path allowlist, never a global policy change; both policies are built from one `CSP_BASE` so they cannot drift
 5. `jsonBodyLimit` (1 MB) on `/api/*` and `/auth/*` — **skipped for the `UPLOAD_PATHS`** (`/api/files`, `/api/ai/documents/upload` — `isUploadPath`); each upload route mounts `uploadBodyLimit` (`MAX_UPLOAD_BYTES + 64 KB` multipart overhead) on its own `POST` and enforces the exact per-file cap in the handler
 6. `cors` — before CSRF so preflights are answered; **bypassed for WebSocket upgrades** (`Upgrade: websocket` — CORS does not govern the handshake, the route checks membership)
 7. `csrf` — cookie-only, no DB, cheap rejection (GET `/ws` is a safe method, no exemption needed)
@@ -63,15 +63,15 @@ Auth is per-mount, not global: the public surface is enumerable and small.
 - `TENANCY_MODE=single` (D25): routes that only make sense multi-tenant (`create-org`, `delete-org`, `/select-tenant`, `/admin/tenants` list) return 404 `tenancy_mode_single`; use the `requireMultiTenant` helper, don't inline the check
 - **A READ stream is not a write stream, and the terminal convention INVERTS** (issue #7,
   `services/agents/run-stream.ts`). `chat-turn.ts` emits `RUN_ERROR` when its body throws, and it is
-  right to: there the stream IS the run. A route that merely TAILS something durable — a Workflow in
-  another isolate — owns nothing, so **it emits no `RUN_ERROR` for its own failure**; it logs and
+  right to: there the stream IS the run. A route that merely TAILS something durable — a run executing in
+  a worker process — owns nothing, so **it emits no `RUN_ERROR` for its own failure**; it logs and
   closes. Closing with no terminal event means *reconnect*, uniformly, for a redeploy, an idle cap, a
   duration cap, a transport error and a client abort. Three rules come with it: **the SSE `id:` goes
   on the LAST frame of a row's group and on no other frame in it** (one durable row is not one AG-UI
   event — a `text` row is `START → CONTENT → END`; put the cursor on the first frame and a mid-group
   drop leaves the client holding a message that never closes, for ever, with no error, while
   replaying a whole group is free because every id in it derives from the row id); **never
-  `reconcileRun` — or any other Workflow/DO subrequest — inside the loop**, only once, before the
+  `reconcileRun` — or any other run-engine call — inside the loop**, only once, before the
   first frame; and **never write a `: ping` comment frame when the negotiated transport is binary**,
   because it is not a valid protobuf frame and poisons everything after it. `?afterSeq=` beats
   `Last-Event-ID` when both arrive (an explicit client must win over a stale browser value), a
@@ -79,7 +79,7 @@ Auth is per-mount, not global: the public surface is enumerable and small.
 - **`reconcileRun` costs a Workflow subrequest, so a caller that can PROVE the run is alive does not
   make one.** Keeping it out of the stream loop is only half the rule: a client re-reading a run on
   every new event puts the same loop on the read path instead. `reconcileRun(db, env, run, {
-  lastEventAt })` returns the row untouched — before the binding is touched at all — when the run
+  lastEventAt })` returns the row untouched — before the run engine is asked at all — when the run
   wrote a durable event inside `RECONCILE_LIVENESS_MS` (30 s), because a run that emitted two
   seconds ago has not had its instance vanish, which is the only thing this function is for. The
   argument is **optional and opted into per call site**, never a default: a route that already has
@@ -125,9 +125,9 @@ failures surface as the JSON envelope on this route.
   documents only. `searchChunks(db, cfg, env, scope, request)` and the three `document-content.ts`
   readers take the scope, not a tenant id. `fullAccessScope(tenantId)` is for maintenance paths only
 - **Agents read knowledge through `ctx.tools`** (`services/agents/tools/`): `search_knowledge` = `searchChunks` bound to the run's `tenantId` (whole passages, grouped by document, each located by `passage`/`charOffset`), `get_document` = a tenant-scoped `{ offset, maxChars }` window over `documents.content`, `list_documents` = what is indexed. An agent that uses `runToolLoop` includes `ctx.tools`. **A tool answer is JSON the model can act on**: never a bare "nothing found" — a dead end carries `error` + `hint` and, where it helps, the documents that DO exist (`listKnowledgeDocuments`), and a nearest-neighbour ranking says so (`note`) rather than implying relevance. Add kit-wide tools in `buildAgentTools` (`tools/index.ts`), never by importing `searchChunks` into an agent
-- **Agents: routes enqueue, never run.** `POST /api/agents/runs` → `enqueueRun(db, c.get('platform'), …)` (validate → `queued` row → `AGENT_RUN_WORKFLOW.create({ id: runId })` → 202). Missing binding → `AgentRunsNotConfiguredError` (503 `agent_runs_not_configured`). Never call an agent's `run()` from a route. Reads go through `settleOnRead`; cancel through `requestCancel` (cooperative — the run polls `checkCancelled()` — escalating to a forced terminate + settle when a cancel was already requested; pass `c.get('platform')` so it can)
+- **Agents: routes enqueue, never run.** `POST /api/agents/runs` → `enqueueRun(db, c.get('platform'), …)` (validate → `queued` row → `platform.runs.create({ id: runId })` → 202). No run engine → `AgentRunsNotConfiguredError` (503 `agent_runs_not_configured`). Never call an agent's `run()` from a route. Reads go through `settleOnRead`; cancel through `requestCancel` (cooperative — the run polls `checkCancelled()` — escalating to a forced terminate + settle when a cancel was already requested; pass `c.get('platform')` so it can)
 - **A route also PARKS and RESUMES a run** (issue #17). `POST /runs/:id/interrupts/:interruptId` is `update AgentRun` PLUS the agent's `approvers` policy (`'requester' | 'admin'`, via `canAnswer`), validates the body with `interruptPayloadSchema(spec)` — the SAME function the UI validated its draft with — then `resolveInterrupt` (a **compare-and-set on `status = 'pending'`**, so two people answering at once is one 200 and one 409 `interrupt_not_pending`, never a lost decision), `resumeRun` and only THEN `nudgeOrRestartInstance`. **The answer is the transition**: flip the row first, wake the instance second, and `sendEvent` carries `{ interruptId }` only — a payload on the wire would be a second source of truth that can disagree with the audit row. `instance.not_found` there is recovered, not failed: start `<runId>-r1`. `POST /runs/:id/steering` appends a note to a live run (409 on a settled one); `GET /api/agents/interrupts` is the tenant-wide inbox, returning `canAnswer` PER ITEM rather than filtering
-- **`GET /runs/:id` reads the log, THEN settles, THEN reads the asks — the order is the contract.** Reading the interrupts before the settle returns a `pending` ask beside a `cancelled` run, which is a screen nobody can act on. And `reconcileRun` only touches the binding when the row has been quiet for `RECONCILE_LIVENESS_MS`: a run that emitted a durable event seconds ago is alive by definition, and a Workflow subrequest per reader per tick to be told so is what that guard removes
+- **`GET /runs/:id` reads the log, THEN settles, THEN reads the asks — the order is the contract.** Reading the interrupts before the settle returns a `pending` ask beside a `cancelled` run, which is a screen nobody can act on. And `reconcileRun` only asks the run engine when the row has been quiet for `RECONCILE_LIVENESS_MS`: a run that emitted a durable event seconds ago is alive by definition, and an engine query per reader per tick to be told so is what that guard removes
 - **A step retry OR a resume re-enters the agent from the top**, so `run()` must be safe to re-run: side effects (an ingest, a ledger write, tokens) go through `ctx.once(key, fn)` — once per `(run, key)`, guaranteed by the unique index on `agent_run_effects`, result stored as jsonb so **return ids, not rows** (at-least-once with a recorded result, not exactly-once). A `runToolLoop` agent passes `resume: await ctx.checkpoint.load()` + `onCheckpoint: ctx.checkpoint.save` so the retry continues the conversation instead of re-paying for it, and rebuilds any state it derived from tool results DURING the loop out of the resumed transcript. A checkpoint that will not parse is `null` — the run starts fresh, never fails
 - **`ctx.interrupt({ key, spec })` is how an agent asks a person**, and its `key` is MANDATORY and must be stable across attempts — `UNIQUE (run_id, key)` is what makes the re-entered `run()` find the ANSWER instead of asking again, forever. Derive it from an entity id, a step name or the question; never a counter or a clock. Everything after it is on the far side of a park that may last days and span a deploy, so it goes behind `ctx.once`. A declined `approval` throws `InterruptDeclinedError` (the run settles `cancelled`, `error` NULL); `choice`/`input`/`form` resolve `cancelled` and hand the refusal to the model. For a tool the MODEL calls, the gate is on the TOOL (`Tool.requiresApproval` / `requiresApprovalWhen(input)`), enforced by `runToolLoop` before any handler runs — and that loop MUST be passed `approvals: ctx.approvals` and `runApproved: ctx.once`, or the gate is re-asked and the approved call runs twice. `ctx.artifact({ key, title, data })` upserts what the run PRODUCED (the table is the store, the event row only its position); `ctx.steering()` delivers notes exactly once and is folded in through `beforeTurn`
 - **Workflow steps open their own DB client** (`withStepDatabase` in `api/workflows/agent-run.ts`) and close it in `finally`; step bodies are plain functions in `services/agents/runtime.ts` (`claimStep`, `executeRun`, `finishStep`) so tests call them with `{ db, env }`. Everything in a step is awaited — nudges through `createStepRealtime().settle()`, events through `emit` — there is no `waitUntil`. Every terminal write names `ACTIVE_RUN_STATUSES`; the CLAIM names the narrower `CLAIMABLE_RUN_STATUSES`, and `finishStep`'s "still active at the end → fail it" backstop keeps a third, narrower list still — widening that one turns every parked run into a `failed` row
@@ -222,7 +222,7 @@ A plugin is a separate git repository copied into the app that contributes throu
 - **`mounts` are spread LAST into the mount table of `api/index.ts`**, so the enumerable auth
   surface stays one list. An entry is the same tuple a kit mount is — `['/api/<id>', router,
   middleware?]` — and the prefix is `/api/<id>` by convention, which is what stops two plugins
-  claiming one path. A prefix the Worker owns OUTSIDE `/api` also goes in `apiPrefixes`, or the SPA
+  claiming one path. A prefix the server owns OUTSIDE `/api` also goes in `apiPrefixes`, or the SPA
   catch-all answers `index.html` for it
 - **A feature flag gates the MOUNT, not each route** — `requireFeature('<id>')` as the third element,
   exactly like a kit surface, answering 404 `feature_disabled`. Never `access Feature:<id>`: a global
@@ -244,12 +244,11 @@ A plugin is a separate git repository copied into the app that contributes throu
   invite accept, so nothing a tenant NEEDS may arrive only that way. `seedDemo` gets a `demoId`
   already namespaced with the plugin's id; fixed ids + `onConflictDoNothing`, as everywhere
 - **`onTenantDeleted` is for state the FK cascade cannot reach**, and nothing else: a plugin's
-  TABLES are already gone. It runs from the `tenant.purge` job with the tenant id and `env`, so a
-  plugin reaches its own R2 prefix, KV keys or Durable Object through the bindings rather than a
-  global. **DO state is purgeable only because instance names are DERIVED**: nothing enumerates the
-  instances of a namespace, so a plugin declares a FINITE key set derived from the tenant id and the
-  purge loops the declared keys, never instances (`NotificationsHub`'s `idFromName(tenantId)` is
-  already that shape). One DO per ROW cannot be purged under this rule; the escape hatch is a
+  TABLES are already gone. It runs from the `tenant.purge` job with the tenant id and the platform,
+  so a plugin reaches its own storage prefix or external system through `ctx.platform` rather than
+  a global. **Out-of-Postgres state is purgeable only because its names are DERIVED**: a plugin
+  declares a FINITE key set derived from the tenant id and the purge loops the declared keys,
+  never an enumeration. State keyed per ROW cannot be purged under this rule; the escape hatch is a
   purge-intent ledger — a table carrying `tenant_id` with NO foreign key, so it survives the cascade
   (`access_requests.requested_tenant_id` is the precedent) — and it is **deferred until somebody
   needs it**, deliberately not built
@@ -272,9 +271,9 @@ A plugin is a separate git repository copied into the app that contributes throu
 
 Plain modules, signature `(db, cfg, logger, …args)` — dependencies are passed, never imported as
 process globals. No service reads `c.env`, `process.env` or a module-level `config`. A service that
-needs a runtime capability (jobs, storage, AI, runs) takes it as a parameter typed from the
-neutral `Platform` (`src/platform/types.ts`), never a Cloudflare type. The two
-Phase 2 shapes: services that **queue** take the binding after the logger —
+needs a runtime capability (jobs, storage, runs, realtime) takes it as a parameter typed from the
+neutral `Platform` (`src/platform/types.ts`), never an adapter type. The two shapes: services that
+**queue** take the queue after the logger —
 `createInvitation(db, cfg, logger, jobs, input)`, `decideAccessRequest(db, cfg, logger, jobs,
 input)` (`jobs: JobsQueue`, a structural slice so tests pass a `RecordingQueue`); services that
 **nudge** take `realtime?: Realtime` as a trailing optional parameter (`updateTenant(db, tenantId,
@@ -284,11 +283,12 @@ patch, realtime?)`, `notify(db, input, realtime?)`) or inside their `input` (`ch
 
 ## Config
 
-`apps/web/src/config.ts`: one zod schema over the runtime env, `loadConfig(env)` memoised per isolate by env
-identity, called at the top of `fetch`, `queue` and `scheduled`. `APP_ENV` (`development | staging |
-production`) is the environment discriminator — `NODE_ENV` is a Node concept and exists only in test
-scripts. **`process.env` is forbidden in `apps/web/src/`** (the compat flag would populate it from `[vars]`,
-but that hides the binding dependency and is dead in tests).
+`apps/web/src/config.ts`: one zod schema over the runtime env, `loadConfig(env)` memoised per env
+object — the Node entry builds that object once from `process.env`, tests pass their own.
+`APP_ENV` (`development | staging | production`) is the environment discriminator — `NODE_ENV`
+exists only in test scripts. **`process.env` is read only in `src/config.ts` and `src/node/`**
+(`platform-seam.test.ts`); everything else reads `c.get('config')` or the `cfg` it is handed, so
+tests can drive any configuration without touching the process.
 
 ## Background work: enqueue, never run
 
@@ -296,9 +296,9 @@ A route never runs long work. Rule (05 §1.4):
 
 | Work | Use | How |
 |---|---|---|
-| fire-and-forget, < 30 s total | `JOBS_QUEUE` | producer `enqueueJob(queue, input)` / `enqueueJobs` in `apps/web/src/api/services/jobs.ts` (validates `jobInputSchema` from `@rocketpod/shared/jobs`, stamps `{ id, enqueuedAt }`); consumer `processJobsBatch(batch, { env, config, logger })` in `apps/web/src/api/queues/jobs.ts` dispatching on `type` to `queues/handlers/*`; `apps/web/src/api/queue.ts` routes `batch.queue` by prefix (`isJobsQueue`) |
-| multi-step, retries, minutes+ (agent runs) | `AGENT_RUN_WORKFLOW` — `AgentRunWorkflow` (`api/workflows/agent-run.ts`) | `enqueueRun` (`services/agents/runs.ts`): the `agent_runs` row first, then `create({ id: runId })` — the instance id STARTS as the run id and becomes `<runId>-rN` if a park has to be restarted; the row is the claim (`UPDATE … WHERE status IN (queued,running) RETURNING` — `CLAIMABLE_RUN_STATUSES`); exclusive = a partial unique index over the WIDER `ACTIVE_RUN_STATUSES` (a parked run holds the slot), dedupe returns the active run; steps `claim → execute#N (retries 2, 10 min) → resume#N \| expire#N → finish` |
-| periodic | `[triggers] crons` | `apps/web/src/api/scheduled.ts` `SCHEDULED_TASKS` dispatches on `event.cron`; each task try/caught; one DB client per run. `0 4 * * *` → `pruneExpired`, plus every installed plugin's `scheduledTasks` (the analytics plugin's `15 * * * *`). **A plugin declares the TASK and the kit's tomls declare the EXPRESSION** — a task under an expression no toml carries never runs |
+| fire-and-forget, < 30 s total | `platform.jobs` (pg-boss) | producer `enqueueJob(queue, input)` / `enqueueJobs` in `apps/web/src/api/services/jobs.ts` (validates `jobInputSchema` from `@rocketpod/shared/jobs`, stamps `{ id, enqueuedAt }`); consumer `processJobsBatch(batch, { env, config, logger })` in `apps/web/src/api/queues/jobs.ts` dispatching on `type` to `queues/handlers/*`; `apps/web/src/api/queue.ts` routes `batch.queue` by prefix (`isJobsQueue`); `src/node/jobs.ts` feeds it from pg-boss |
+| multi-step, retries, minutes+ (agent runs) | `platform.runs` (OpenWorkflow) — `runAgentRun` (`api/workflows/agent-run-body.ts`) | `enqueueRun` (`services/agents/runs.ts`): the `agent_runs` row first, then `create({ id: runId })` — the requested id STARTS as the run id (OpenWorkflow's `idempotencyKey`) and becomes `<runId>-rN` if a park has to be restarted; the row is the claim (`UPDATE … WHERE status IN (queued,running) RETURNING` — `CLAIMABLE_RUN_STATUSES`); exclusive = a partial unique index over the WIDER `ACTIVE_RUN_STATUSES` (a parked run holds the slot), dedupe returns the active run; steps `claim → execute#N (retries 2, 10 min) → resume#N \| expire#N → finish` |
+| periodic | pg-boss schedules | `apps/web/src/api/scheduled.ts` `SCHEDULED_TASKS` dispatches on `event.cron`; each task try/caught; one DB client per run. `0 4 * * *` → `pruneExpired`, plus every installed plugin's `scheduledTasks`. The worker schedules every registered expression at start (UTC) and drops stale ones — the registry is the only declaration |
 
 Jobs rules (D7):
 
@@ -311,39 +311,39 @@ Jobs rules (D7):
   handler that throws is retried, one that returns is acked
 - Poison policy: an envelope that fails `jobEnvelopeSchema` is logged and **`ack()`ed** (retrying
   cannot make it valid). Handler error → `retry({ delaySeconds: backoffSeconds(attempts) })`, 30 s
-  doubling to a 15 min cap; the toml's `max_retries = 3` ends it. Unknown queue → `ackAll()`.
-  On Node (pg-boss, `src/node/jobs.ts`) the same function runs; the queue's policy (same curve,
-  jittered up to 2×, 3 retries, then `rocketpod-jobs-dlq`) picks the delay, so `retry()`'s figure
-  is advisory there
+  doubling to a 15 min cap — but the queue's policy (same curve, jittered up to 2×, 3 retries,
+  then `rocketpod-jobs-dlq`) picks the actual delay, so `retry()`'s figure is a floor. Unknown
+  queue → `ackAll()`
 - Missing jobs queue → `JobsQueueNotConfiguredError` (503 `jobs_not_configured`), never a silent
   inline fallback. Queued in
   the kit: `tenant.purge`, and invitation (create/bulk/resend) and access-request-decided emails. The **magic-link email
   stays inline** — a person is waiting on it
 - **`tenant.purge` is the out-of-database half of deleting a tenant.** The FK cascade is complete
-  inside Postgres and reaches nothing else, so `deleteTenant` proves the queue binding BEFORE the
+  inside Postgres and reaches nothing else, so `deleteTenant` proves the jobs queue BEFORE the
   `DELETE` (a deployment that cannot purge must fail while the tenant still exists), then enqueues
   with the tenant id and slug — the row is gone, so the payload is all the handler will ever have.
   The handler runs every plugin's `onTenantDeleted` first (each try/caught, so it cannot fail the
   job) and then `purgeTenantObjects`, which pages `tenants/<id>/` with `listPage` + `deleteMany`. A
-  missing `FILES` binding is ACKED with a log — no binding, no objects, and no retry can conjure one
+  missing storage is ACKED with a log — no store, no objects, and no retry can conjure one
   — which is deliberately the opposite of `document.convert`, where the bytes exist and are
-  unreachable. An R2 error throws and is retried: the alternative is a tenant's files living on for
+  unreachable. A storage error throws and is retried: the alternative is a tenant's files living on for
   ever because one list call timed out. Everything in it is idempotent, which is what makes that
   retry free
 - `example-feature.ping` is the smoke job and it belongs to the `example-feature` PLUGIN (D31), not to the kit: `POST /api/example-feature/ping` (or `rocketpod example-feature ping`) enqueues it, then watch the server log (`pnpm dev`). The shape to copy is `apps/web/src/plugins/example-feature/jobs/ping.ts`
 - `chat.compact` (D17) folds the messages outside a conversation's `CHAT_HISTORY_MAX_CHARS` budget into `conversations.summary`; the window comes from the same pure `selectHistoryWindow` the route uses, and the write is a compare-and-set on `summarised_through_id` so two deliveries cannot lose an update. `document.index` (D18) re-indexes a `documents` row from its stored `content` (`handlers/document-index.ts` → `indexDocument`); the message carries ids only. `ingestText` enqueues it for texts over 50 chunks
 
-Side effects that can outlive the response (email, tracing flush, DO nudge, `sql.end()`) go in
+Side effects that can outlive the response (email, tracing flush, realtime nudge) go in
 `c.executionCtx.waitUntil(...)` — in routes via `defer()` from `withAuth` — never awaited inline and
-never dropped on the floor.
+never dropped on the floor. On Node that is the tracked defer set (`src/node/defer.ts`), drained on
+SIGTERM.
 
 ## Realtime (D8)
 
 Routes never touch the realtime hub directly. `apps/web/src/api/services/realtime.ts` is the
 **only** caller: `nudge(realtime, event)` (tenant-wide), `nudgeUser(realtime, userId, event)`,
-`nudgeUsers(realtime, userIds, event)`, over the platform's `Broadcaster` (`c.get('platform').realtime`; on the Worker
-`src/platform/cloudflare/realtime.ts` → `idFromName(tenantId)` → typed RPC stub — `broadcast`,
-`broadcastToUser`, `broadcastToUsers` → `{ delivered }`). `realtime` is the `Realtime` (`{ defer,
+`nudgeUsers(realtime, userIds, event)`, over the platform's `Broadcaster` (`c.get('platform').realtime`, `src/node/realtime.ts` — a
+`pg_notify` publish every pod's listener delivers to its local sockets; `{ delivered }` is always
+0). `realtime` is the `Realtime` (`{ defer,
 hub }`) returned by `withAuth()`; every nudge goes through `defer`/`waitUntil`, is never awaited on
 the response path and is a no-op without a hub. Build events with
 `realtimeEvent(type, tenantId, payload?)`; types and the query-key invalidation map
@@ -353,9 +353,10 @@ the truth, WebSocket is a nudge." Emit **after** the transaction commits (`accep
 its two nudges past the `db.transaction`).
 
 `GET /ws` (`routes/ws.ts`): not an upgrade → 426 `upgrade_required`; no cookie → 401; not a member
-of `?tenantId` (or the session tenant) → 403; suspended → 403 `tenant_suspended`; else forward to the
-tenant's DO stub with `X-Tenant-Id` / `X-User-Id` / `X-Session-Id`. The DO trusts those headers
-**only** because it is reachable solely through the binding — never expose it another way.
+of `?tenantId` (or the session tenant) → 403; suspended → 403 `tenant_suspended`; no hub → 503
+`realtime_not_configured`; else `hub.accept(request, { tenantId, userId, sessionId })`. The hub
+trusts that identity **only** because this route is its sole caller — the server completes the
+handshake only when the route accepted (`src/node/server.ts`).
 
 ## Runtime APIs
 

@@ -99,7 +99,7 @@ lists them together and a plugin can never shadow `login`.
 - **It owns no second copy of the contract**: it calls the plugin's own routes through
   `requireClient(ctx).request(...)` and parses with the same `@rocketpod/shared/plugins/<id>`
   schema the server validated with. `example-feature ping` POSTs the route that enqueues rather than
-  building an envelope, so producer validation and the `JOBS_QUEUE` binding stay on the server
+  building an envelope, so producer validation and the jobs queue stay on the server
 - `--json` on every list, key prefixes only, chalk to stdout and diagnostics to stderr — the rules
   above apply unchanged. The two shipped examples are
   `apps/cli/src/plugins/example-feature/index.ts`: `example-feature ping` (a write) and

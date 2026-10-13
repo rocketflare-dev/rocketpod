@@ -4,7 +4,7 @@ Everything needed to take this kit from a fresh copy to a configured, deployed a
 the parts in order; **every step ends with a verification line — do not move on until it passes.**
 
 **This file is instructions, not design.** What the kit does and why is in
-[`docs/CONCEPTS.md`](docs/CONCEPTS.md); the Cloudflare topology is in [`docs/DEPLOY.md`](docs/DEPLOY.md);
+[`docs/CONCEPTS.md`](docs/CONCEPTS.md); running it in containers is [`docs/DEPLOY.md`](docs/DEPLOY.md);
 code conventions are in `.claude/rules/`. If this is a freshly copied kit, do
 [`docs/ADAPTING.md`](docs/ADAPTING.md) §1 (renames) before Part 1.
 
@@ -29,22 +29,19 @@ Engine and add your user to the `docker` group. Confirm the tool works, then car
 > Node and pnpm exist) does 1.1–1.7 in one go — ten steps, one `✔ n/10 <name> <what it verified>`
 > line each, a `✖` line plus a `fix:` hint on the first failure — and ends with the browser open at
 > `http://localhost:3000/login?as=owner@example.test`. macOS or Linux (Windows: WSL2). Re-runnable on
-> a half-done machine: it inspects before it acts and never overwrites a value you wrote. Flags:
-> `--offline` (no Cloudflare account: comments the `[ai]` block out of both tomls), `--online`
-> (restore it), `--no-demo` (plain `pnpm seed`), `--no-plugins` (do not install `defaultPlugins`,
-> §1.4b), `--no-dev` (stop after step 8 and print what to run next), `--no-open`,
-> `--as <email>`, `--yes`, `--verbose`, `--db-url <url>` (an existing Postgres instead of Docker,
-> §1.4); `--check` is `pnpm preflight`. `--offline` / `--online` are accepted and ignored (Rocketflare's
-> Workers AI toggle; step 8 now reports which AI provider keys `.env` holds).
+> a half-done machine: it inspects before it acts and never overwrites a value you wrote. Steps:
+> `toolchain`, `install`, `secrets`, `database`, `migrate`, `plugins`, `seed`, `ai` (reports which AI
+> provider keys `.env` holds; never fails), `cli`, `dev`. Flags: `--no-demo` (plain `pnpm seed`),
+> `--no-plugins` (do not install `defaultPlugins`, §1.4b), `--no-dev` (stop after step 8 and print
+> what to run next), `--no-open`, `--as <email>`, `--yes`, `--verbose`, `--db-url <url>` (an
+> existing Postgres instead of Docker, §1.4); `--check` is `pnpm preflight`.
 > **A caller that did part of the work itself** (a coding sandbox): `--no-install` skips step 2 (it
 > still checks `tsx` is installed); `ROCKETPOD_BOOTSTRAP_SKIP=<steps>` leaves out any of
 > `toolchain,install,secrets,database,migrate,plugins,seed,ai` (each line then reads
-> `skipped (ROCKETPOD_BOOTSTRAP_SKIP)`; an unknown name is exit `2`; a skipped `cloudflare`
-> leaves both tomls untouched); `ROCKETPOD_ALLOW_ROOT=1` lets it run as root. None is for a
+> `skipped (ROCKETPOD_BOOTSTRAP_SKIP)`; an unknown name is exit `2`); `ROCKETPOD_ALLOW_ROOT=1` lets it run as root. None is for a
 > person's own machine.
 > Exit codes: `0` ok · `1` a step failed · `2` usage · `3` prerequisite missing · `4` port/container
-> held by another checkout · `5` Cloudflare login required
-> (`node scripts/bootstrap.mjs --help`).
+> held by another checkout (`node scripts/bootstrap.mjs --help`).
 > The numbered steps below are what it runs — for doing it by hand, or for debugging one step.
 
 ### 1.1 Toolchain
@@ -54,7 +51,7 @@ corepack enable && pnpm -v   # 10.x — from package.json packageManager
 docker info >/dev/null && echo docker-ok
 ```
 Verify: three lines — `v24.*`, `10.*`, `docker-ok`. `pnpm preflight` is the same check as one
-read-only command (toolchain, `.env`, Postgres, Cloudflare login, `pnpm dev:status`; exit 3
+read-only command (toolchain, `.env`, Postgres, AI provider keys, `pnpm dev:status`; exit 3
 when anything is missing) — `bash scripts/bootstrap.sh` installs Node through an fnm/nvm that is
 already present and pnpm through corepack, and never pipes a URL into a shell.
 
@@ -72,7 +69,7 @@ cp apps/web/.env.example apps/web/.env
 openssl rand -hex 32   # → OAUTH_ENCRYPTION_KEY in apps/web/.env
 ```
 The only secret `.env` needs is `OAUTH_ENCRYPTION_KEY` (≥ 32 characters); the bootstrap
-generates it (`3/9 secrets`), by hand it is the `openssl` line above.
+generates it (`3/10 secrets`), by hand it is the `openssl` line above.
 Verify: `grep -c '^[A-Z_]*=.\+' apps/web/.env` is at least 2 (`DATABASE_URL` and
 `OAUTH_ENCRYPTION_KEY` are set). Leave every optional key blank for now — each
 feature degrades gracefully (Part 2). `.env` is git-ignored; never paste other environments'
@@ -88,11 +85,11 @@ pnpm db:migrate       # db-roles --phase=role → migrations → db-roles --phas
 Verify: `db:up` prints the port it chose; `db:check` prints the server version; `db:migrate` ends
 with the applied migration count and no `role "rocketpod_app" does not exist` error.
 
-**Object storage (M6, the Node server).** `dev:db:up` also starts the S3 gateway beside Postgres
-(Versity S3 Gateway, bucket `rocketpod-dev`, first free port from :7070, sticky like the database's)
-and writes the `STORAGE_*` lines into `apps/web/.env`. Point `STORAGE_ENDPOINT` at any other
-S3-compatible store (AWS S3, R2's S3 endpoint, MinIO) and `dev:db:up` leaves it alone; blank
-`STORAGE_DRIVER` turns uploads off (503). The Worker ignores all of these and uses R2.
+**Object storage.** `dev:db:up` also starts the S3 gateway beside Postgres (Versity S3 Gateway,
+bucket `rocketpod-dev`, first free port from :7070, sticky like the database's) and writes the
+`STORAGE_*` lines into `apps/web/.env`. Point `STORAGE_ENDPOINT` at any other S3-compatible store
+(AWS S3, Cloudflare R2's S3 endpoint, MinIO) and `dev:db:up` leaves it alone (a `STORAGE_ENDPOINT`
+on localhost is treated as its own gateway and rewritten); blank `STORAGE_DRIVER` turns uploads off (503).
 
 **The port is chosen, not fixed.** `dev:db:up` runs `apps/web/scripts/dev-db.mjs`, which gives this
 checkout its own compose project, container and port: it keeps the port already in `DATABASE_URL`
@@ -109,21 +106,24 @@ driver was removed, and `DATABASE_DRIVER=neon` is refused). The bootstrap writes
 `DATABASE_DRIVER=postgres` to `.env`. Verify: `pnpm db:check` prints `Connected to …
 (postgres driver)`.
 
+`db:migrate` also installs the `pgboss` (jobs, cron) and `openworkflow` (agent runs) schemas — the
+server never creates them at boot.
+
 Why three steps: a policy's `TO rocketpod_app` needs the role
 before migrations; the `REVOKE`s need the tables after. With `APP_DATABASE_URL` unset the role is
 created `NOLOGIN` and RLS stays inert ([`docs/RLS.md`](docs/RLS.md)).
 
 **No Docker: use an existing database.** Where Docker is not available (a coding sandbox with a
-Neon branch, a shared dev server), point the bootstrap at the database you already have:
+hosted branch, a shared dev server), point the bootstrap at the database you already have:
 ```bash
-bash scripts/bootstrap.sh --no-dev --db-url "postgresql://user:pass@ep-x.neon.tech/neondb?sslmode=require"
+bash scripts/bootstrap.sh --no-dev --db-url "postgresql://user:pass@db.example.com/app?sslmode=require"
 ```
 It still runs ten steps. `1/10 toolchain` skips the Docker checks, and `3/10 secrets` writes the URL
 to `DATABASE_URL` in `apps/web/.env` (reached over TCP, `postgres`). `4/10 database` doesn't start a container; it waits for
 `db:check` to answer (`external <host>/<db> · Connected to …`). `7/10 seed` runs with
 `SEED_ALLOW_REMOTE=1`, because the seed refuses a non-local host otherwise. The seed always prints
 `seeding <host>/<db>`, never the credentials. The database needs the pgvector extension available
-(Neon has it). Afterwards `pnpm dev` uses that URL unchanged, `pnpm dev:db:up` reports there is
+(most managed Postgres offers it). Uploads then need `STORAGE_*` pointed at a reachable S3 store. Afterwards `pnpm dev` uses that URL unchanged, `pnpm dev:db:up` reports there is
 nothing to start, and `pnpm preflight` skips its Docker checks while `DATABASE_URL` points off this
 machine. `--db-url` can't be combined with `--check`. A loopback URL (`localhost`, `127.0.0.1`)
 still counts as this checkout's Docker database to `pnpm preflight` and `dev:db:*`. The URL, password
@@ -135,7 +135,7 @@ pnpm plugin list                  # what is installed (id, version, repo, when)
 pnpm plugin check                 # audit them: exit 1 with one line per failure
 ```
 A **plugin** is a git repository copied into this app — never an npm package — that contributes
-contracts, schema, routes, jobs, agents, UI and CLI commands through six barrel files
+contracts, schema, routes, jobs, agents, UI and CLI commands through five barrel files
 (`docs/CONCEPTS.md` §16), importing the host only through the declared entries
 (`docs/plugin-api.md`) and receiving everything else as injected context. `.rocketflare.json`'s `defaultPlugins` lists the ones a fresh clone should
 have; the bootstrap's `6/10 plugins` step installs each one that is not already there with
@@ -158,7 +158,8 @@ pnpm db:generate --name plugin-<id>-<version> && pnpm db:migrate   # the HOST's 
 
 Verify: `pnpm plugin list` shows a line per plugin (the kit ships the vendored `example-feature`),
 and `pnpm plugin check` prints `✔ n plugin(s) check out` and exits 0. `defaultPlugins` is `[]` in
-the kit today, so the bootstrap step reports `no defaultPlugins declared — nothing to install`.
+the kit today (the analytics plugin's published release still declares Cloudflare bindings), so the
+bootstrap step reports `no defaultPlugins declared — nothing to install`.
 
 A plugin ships **no migration**: the host runs `pnpm db:generate`; a cron it registers is scheduled
 by the worker, and a var it declares goes into `.env.example`. A plugin declaring Cloudflare
@@ -211,27 +212,10 @@ press **Sign in** on the confirm page, land on Home. Shortcut (dev only): `http:
 through `/auth/dev-login` on load — honoured only when the server reports `devLogin`
 (`APP_ENV=development`) and for the four seeded accounts, so an arbitrary address does nothing.
 
-**Analytics check** (still in 1.6 — same terminal pair). Analytics is a PLUGIN from 0.6.0
-(`docs/CONCEPTS.md` §8, §16) and the bootstrap's `plugins` step installs it, so this works on a
-fresh clone unless you ran `--no-plugins`:
-```bash
-pnpm cli analytics check-facts       # fact-table freshness; exits 1 when any table is stale
-pnpm cli analytics refresh-facts     # enqueue a rebuild for this organisation
-```
-Verify: `check-facts` prints `analytics_tenant_activity_daily_facts … fresh` and exits 0.
-`refresh-facts` returns a job id, and the `pnpm dev` log shows the consumer running it (mode `all`
-runs the worker in-process). The `15 * * * *` cron is the normal, cross-tenant path and the worker
-schedules it with pg-boss. Then, signed in, open
-**Analytics** in the nav: the seeded **Organisation Overview** page renders with live member and
-activity numbers. By hand, `curl -b <cookie> localhost:3001/api/analytics/pages` lists one page with
-`templateKey: "tenant-overview"`, and an unauthenticated `curl -i localhost:3001/cubejs-api/v1/meta`
-is a JSON 401, never HTML. `GET /api/analytics/facts/status` (owner/admin) shows the same freshness
-as the CLI.
-
-**With `--no-plugins` there is no analytics at all** — no nav item, no `/api/analytics`, no
-`/cubejs-api`, no `/mcp`, and no drizzle-cube in either bundle. That is the kit's bare shape, and
-`pnpm plugin add https://github.com/rocketflare-dev/rocketflare-plugin-analytics.git@1.0.2 --apply`
-(then `pnpm db:generate --name plugin-analytics-1.0.2 && pnpm db:migrate`) is how it comes back.
+**Analytics** is a plugin (`docs/CONCEPTS.md` §8, §16) and is not installed by default in
+Rocketpod: its published release still declares Cloudflare bindings, which `pnpm plugin add`
+refuses. Until a container-ready release exists there is no `/api/analytics`, `/cubejs-api` or
+`/mcp`, and no dashboards.
 
 > **Cookie note.** The session cookie is `__Host-session`, and the `__Host-` prefix *requires* the
 > `Secure` flag even in development. Chrome and Firefox treat `http://localhost` as a secure context so
@@ -239,7 +223,7 @@ as the CLI.
 > use an HTTPS tunnel (§1.10) or another browser.
 
 ### 1.7 CLI first run
-The bootstrap already did this once: its `8/9 cli` step ran `pnpm cli whoami` with the seed's
+The bootstrap already did this once: its `9/10 cli` step ran `pnpm cli whoami` with the seed's
 one-time key (first run only — a re-run finds the key exists and skips; not with `--no-dev`, which
 `/rp-setup` uses — run `pnpm cli login` yourself then). To use the CLI yourself, with `pnpm dev` still
 running, in a second terminal:
@@ -265,13 +249,15 @@ scripts, `ROCKETPOD_API_KEY` + `ROCKETPOD_URL` in the environment replace the co
 ```bash
 pnpm test             # starts Postgres on :5433 (apps/web/docker-compose.test.yml), then every package:
                       # web api + api-isolated + driver (real DB), ui (jsdom), config (no DB); cli
-# No Docker (a coding sandbox's gate): the same command against a throwaway Neon GATE branch over
+                      # (the S3 gateway on :7433 starts beside it)
+# No Docker (a coding sandbox's gate): the same command against a throwaway hosted GATE branch over
 # TCP — DATABASE_URL + TEST_DATABASE_BRANCH=gate-<short>-<n> + TEST_DATABASE_ENDPOINT=ep-…
-# (docs/CONCEPTS.md §4). It refuses any other remote database.
+# (docs/CONCEPTS.md §4; the safety check knows Neon's branch shape). It refuses any other remote
+# database.
 ```
 Verify: all projects green — including every installed plugin's own tests, which run in the host's
 projects (`src/plugins/*/tests/{api,ui,config}`). The analytics plugin's `cube-isolation.test.ts`
-is the one to watch: two tenants, every cube, disjoint rows.
+is the one to watch, once installed: two tenants, every cube, disjoint rows.
 `apps/web/tests/config/platform-seam.test.ts` proves no Cloudflare dependency came back.
 Single web projects: `pnpm web test:api`, `pnpm web test:ui`, `pnpm web test:config`.
 
@@ -281,35 +267,30 @@ pnpm gate
 ```
 Verify: exits 0. This is the pre-commit gate for the whole workspace — lint, typecheck, test,
 build, stopping at the first failure (`--keep-going` runs them all, `pnpm gate --list` shows them)
-— and the one job a copy's CI runs. `typecheck` regenerates
-`apps/web/worker-configuration.d.ts` (commit it if it changed) and `build` produces
-`apps/web/dist/{ui,api}` and `apps/cli/dist/cli.js`. The Worker bundle is large — drizzle-cube's
-adapter carries its MCP transport, `docs/DEPLOY.md` "Bundle size" — and `pnpm install` prints one
-`@duckdb/node-api` peer warning; neither is a problem.
+— and the one job a copy's CI runs. `build` produces `apps/web/dist/ui`, the two server bundles
+`apps/web/dist/{server,migrate}.js` and `apps/cli/dist/cli.js`.
 
 ### 1.10 Public URL via tunnel
 
-Removed in Rocketpod (M6b): `pnpm dev:tunnel` and `cfld` were Cloudflare tooling. Any tunnel that
-forwards to :3000 works; set `PUBLIC_URL` so Vite allows the host. See `docs/ROADMAP.md` M7/M8.
+OAuth providers and webhooks need a public HTTPS origin. Any tunnel that forwards to :3000 works
+(`cloudflared tunnel --url http://localhost:3000`, `ngrok http 3000`, Tailscale Funnel…): set
+`APP_URL` in `apps/web/.env` to the tunnel's origin (redirect URIs, magic links and the CSRF
+allow-list derive from it) and `DEV_ALLOWED_HOSTS=<tunnel host>` so Vite answers for it, then
+restart `pnpm dev`. Verify: the tunnel URL renders the login page and a magic link sent from it
+opens on the tunnel host.
 
 ## Part 2 — External services `[config]`
 
 None of these block local development. Each states what happens when it is absent. Every value —
-secret or not — is an environment variable: `apps/web/.env` locally, the deployment's environment
-(and secret store) when deployed.
-
-> **Not yet rewritten for Rocketpod (ROADMAP M8).** Where this part still says `[vars]`, "both
-> tomls", `wrangler secret put`, `wrangler dev` or Workers AI, read: an environment variable, the
-> server log, and an AI provider key (`ANTHROPIC_API_KEY` / `AI_*` / `EMBEDDINGS_*`) — there is no
-> Workers AI binding and no zero-key AI floor.
+secret or not — is an environment variable: `apps/web/.env` locally; deployed, the root `.env` for
+Compose or the chart's `config` (ConfigMap) / `secrets` (Secret, or your `existingSecret`) for Helm
+(`docs/DEPLOY.md`). A secret never goes into a committed values file.
 
 ### 2.1 Email — Resend
 1. resend.com → verify your sending domain (SPF/DKIM)
 2. Create an API key → `RESEND_API_KEY`
 3. `EMAIL_FROM` in the environment (`apps/web/.env` locally): a verified sender,
    `App <noreply@mail.example.com>`
-
-(The scripted `pnpm provision email` was Cloudflare provisioning and was removed in M6b.)
 
 Absent: magic links, invitations and admin notifications are logged, never sent. Verify: request a
 magic link — it arrives by email.
@@ -348,9 +329,8 @@ One generic OpenID Connect issuer per deployment, beside or instead of the butto
    `OIDC_LABEL` (button text, default "Single sign-on"), `OIDC_SCOPES` (default
    `openid email profile`), `AUTH_OIDC_ONLY=true` (the login page shows only the "Continue with <label>"
    button — signing in is still a click, never an automatic redirect — and hides every other method; the magic-link endpoint stays live for invitations — it hides, it does
-   not disable), `OIDC_TRUST_EMAIL=true` (see Entra below). Locally these go in `.env`; deployed, everything but the secret is a
-   `[vars]` entry in **both** tomls (commented templates are there) and `OIDC_CLIENT_SECRET` is a
-   Worker secret (3.5)
+   not disable), `OIDC_TRUST_EMAIL=true` (see Entra below). Locally these go in `.env`; deployed,
+   everything but the secret is plain config and `OIDC_CLIENT_SECRET` is a secret (Part 3)
 3. Issuer notes:
    - **Keycloak**: `OIDC_ISSUER=https://<host>/realms/<realm>`; "Client authentication" on for a
      confidential client. A `groups` mapper is optional — the claim is read, not stored
@@ -379,91 +359,71 @@ with nobody to approve it (`SIGNUP_MODE=invite_only` default). Verify: `/admin` 
 
 ### 2.5 AI — chat, agents, embeddings
 Resolution (`docs/CONCEPTS.md` §9): a per-agent assignment → the tenant's default provider in
-Settings → AI → the platform `ANTHROPIC_API_KEY` → **Workers AI through the `AI` binding**. That last
-tier means **chat and agents work on a fresh workspace with nothing configured**: Settings → AI shows
-chat readiness `Cloudflare Workers AI · glm-4.7-flash · platform default`. Read the
-cost line before relying on it, then pick any of these:
+Settings → AI → the platform `ANTHROPIC_API_KEY` → the platform `AI_API_KEY` → 503
+`ai_not_configured`. **There is no zero-key default**: with nothing configured, chat, agents and
+document indexing answer 503 and everything else works. Pick any of these:
 
-0. **Zero-key default — Workers AI.** Nothing to do; `wrangler dev` proxies the binding to your
-   logged-in Cloudflare account and a deployed Worker uses its own. **Every call is billed to that
-   account** (10 000 free neurons a day on any plan, then metered — GLM-4.7-Flash is about
-   $0.06 / $0.40 per million input / output tokens); the `ai_usage` ledger counts the tokens. The
-   floor is a model that can run the AGENTS, not just the chat box, so it needs real tool use: this
-   one accepts `tool_choice`, carries tool calls in its event stream (so chat still streams token by
-   token with tools on) and has a 131k context window, which is what stops one over-eager search
-   poisoning the next turn. To make
-   the kit zero-spend instead, comment the `[ai]` block out of BOTH tomls (the parity test keeps them
-   in sync) — chat then answers 503 until a key or tenant provider exists. Any tenant can still add
-   Workers AI explicitly as a chat provider (no key) to pick another model — cheaper and weaker,
-   `@cf/mistralai/mistral-small-3.1-24b-instruct`, or anything else with function calling. Verify: `curl -b <cookie>
-   localhost:3001/api/ai/config/readiness` → `"chat":{"ready":true,"source":"platform","provider":"workers_ai"…}`
-   and `/chat` streams a reply.
-1. **Platform key (optional).** `ANTHROPIC_API_KEY=` in `apps/web/.env` (deployed:
-   `wrangler secret put`, Part 3). Every tenant without its own chat provider then uses it with
-   `claude-sonnet-4-5` — it ranks above Workers AI. Verify: Settings → AI (as owner/admin) shows chat
-   readiness `Anthropic · claude-sonnet-4-5 · platform default`; `curl -b <cookie>
-   localhost:3001/api/ai/config/readiness` → `"chat":{…,"source":"platform","provider":"anthropic"…}`.
-1b. **OpenAI-compatible platform key (M6).** `AI_API_KEY=` with `AI_BASE_URL=` (OpenRouter, vLLM,
+1. **Platform Anthropic key.** `ANTHROPIC_API_KEY=` in `apps/web/.env` (deployed: a secret, Part 3).
+   Every tenant without its own chat provider then uses `claude-sonnet-4-5`. Verify: Settings → AI
+   (as owner/admin) shows chat readiness `Anthropic · claude-sonnet-4-5 · platform default`;
+   `curl -b <cookie> localhost:3001/api/ai/config/readiness` →
+   `"chat":{…,"source":"platform","provider":"anthropic"…}`.
+2. **Platform OpenAI-compatible key.** `AI_API_KEY=` with `AI_BASE_URL=` (OpenRouter, vLLM,
    Ollama… including `/v1`) and `AI_MODEL=`; without `AI_BASE_URL` the key is OpenAI's own
-   (`AI_MODEL` defaults to `gpt-4.1-mini`). It ranks after `ANTHROPIC_API_KEY` and before Workers AI.
-   **On the Node server this or a tenant provider is required** — there is no Workers AI there.
-   Verify: readiness reads `"source":"platform","provider":"openai_compatible"` (or `openai`).
-2. **Tenant provider (no platform key).** Settings → AI → *Add provider*: scope `chat`, a label (it is
+   (`AI_MODEL` defaults to `gpt-4.1-mini`). It ranks after `ANTHROPIC_API_KEY`. The floor is a
+   model that can run the AGENTS, not just the chat box: pick one with real tool calling. Verify:
+   readiness reads `"source":"platform","provider":"openai_compatible"` (or `openai`).
+3. **Tenant provider (no platform key).** Settings → AI → *Add provider*: scope `chat`, a label (it is
    the upsert key — renaming later means delete + re-add), provider `anthropic` / `anthropic_compatible`
    (Fireworks, Moonshot presets; base URL required) / `openai` / `openai_compatible`, model, API key
    (encrypted with `OAUTH_ENCRYPTION_KEY`, never shown again — the row reports `hasCredential`). The
    first row in a scope becomes the default. Press **Test connection** before saving (a 10-token
    completion; 10 per minute per IP). Verify: the test reports `ok` and a latency; readiness reads
    `tenant`.
-3. **Local mock — develop with no key at all.** Run any OpenAI-compatible server (Ollama, vLLM, a
-   proxy) and add an `openai_compatible` chat config with its base URL **including `/v1`**
-   (e.g. `http://localhost:11434/v1`), the model name it serves, and **any non-empty placeholder as
-   the API key** (the adapter refuses an empty key; a local server ignores the bearer). Chat, the
-   `summarize-text` agent and the usage table all work against it. Verify: `/chat` streams a reply.
+4. **Local model — develop with no paid key.** Run any OpenAI-compatible server (Ollama, vLLM, a
+   proxy) and point option 2 at it (`AI_BASE_URL=http://localhost:11434/v1`, `AI_MODEL=<model>`,
+   **any non-empty `AI_API_KEY`** — the adapter refuses an empty key; a local server ignores the
+   bearer), or add it as an `openai_compatible` tenant config. Verify: `/chat` streams a reply.
 
-Absent everywhere (no `[ai]` binding, no key, no tenant provider): `/chat` shows "configure AI";
-`POST /api/chat/conversations` and the agent's `execute` step answer 503 `ai_not_configured` (the
-agent enqueue itself still returns 202 and the run settles `failed`). Thinking is OFF unless a config
-enables it with a budget (cost decision).
+Absent everywhere: `/chat` shows "configure AI"; `POST /api/chat/conversations` and the agent's
+`execute` step answer 503 `ai_not_configured` (the agent enqueue itself still returns 202 and the run
+settles `failed`). Thinking is OFF unless a config enables it with a budget (cost decision).
 
-**Embeddings** (documents / hybrid search, `index: true` on the example agent): the `AI` Workers AI
-binding (both tomls, and `wrangler dev` emulates it) is the zero-key default — `@cf/baai/bge-m3`,
-1024-dim. Alternatives: an `embeddings`-scope tenant config (`openai`, `openai_compatible`,
-`workers_ai`) or `EMBEDDINGS_API_KEY` for platform OpenAI `text-embedding-3-small` (reduced to 1024
-dims) — or, with `EMBEDDINGS_BASE_URL` + `EMBEDDINGS_MODEL`, any OpenAI-compatible endpoint whose model
-honours `dimensions: 1024` (M6; on the Node server, where Workers AI does not exist, this or a tenant
-row is the only way to index). Verify: `POST /api/ai/documents/ingest` `{ "title": "t", "text": "hello world" }` → `status:
-"indexed"`; `pnpm web db:check` reports the pgvector extension installed. Changing the dimension is a
-new table (`docs/ADAPTING.md` §3).
+**Embeddings** (documents / hybrid search, `index: true` on the example agent): an
+`embeddings`-scope tenant config (`openai`, `openai_compatible`), or `EMBEDDINGS_API_KEY` for
+platform OpenAI `text-embedding-3-small` (reduced to 1024 dims) — or, with `EMBEDDINGS_BASE_URL` +
+`EMBEDDINGS_MODEL`, any OpenAI-compatible endpoint whose model honours `dimensions: 1024`. Anthropic
+has no embeddings API, so an Anthropic-only install still needs one of these to index. Verify:
+`POST /api/ai/documents/ingest` `{ "title": "t", "text": "hello world" }` → `status: "indexed"`;
+`pnpm web db:check` reports the pgvector extension installed. Changing the dimension is a new table
+(`docs/ADAPTING.md` §3).
 
-**Document uploads** (Knowledge → Upload file): Markdown/text/CSV/JSON index straight away; PDF,
-Word, Excel, OpenDocument, HTML and XML are converted by Workers AI Markdown Conversion on the same
-`AI` binding (`wrangler dev` proxies it to Cloudflare, so `wrangler login` is needed; conversion of
-documents is free) in the `document.convert` queue job. Verify: upload a small PDF on `/documents`,
-watch the row go `Indexing → Indexed` within the 5 s poll (the wrangler terminal logs
-`document.convert: indexed`), search a phrase from it, and click the download icon to get the
-original back from R2. Without `[ai]` a binary upload answers 503 `conversion_not_configured`.
+**Document uploads** (Knowledge → Upload file): Markdown/text/CSV/JSON index straight away; PDF
+(`unpdf`), Word `.docx` (`mammoth`), HTML and XML are converted on the server in the
+`document.convert` queue job — no external service. Excel and OpenDocument are refused at upload
+(415). Uploads need storage (`STORAGE_*`, §1.4) and embeddings. Verify: upload a small PDF on
+`/documents`, watch the row go `Indexing → Indexed` within the 5 s poll (the `pnpm dev` log shows
+`document.convert` finishing), search a phrase from it, and click the download icon to get the
+original back from the S3 store.
 
 **Decisions** (`ctx.decide`, D37 — typed questions agents ask, e.g. the `triage-research` example's
 relevance screen): with nothing configured the chat model answers them with its own probabilities,
 recorded `llm_self_report` and shown as *self-reported* (uncalibrated). For calibrated answers from
-TypeSafe's Jev, either set `TYPESAFE_API_KEY=` in `apps/web/.env` (deployed: `wrangler secret
-put`, Part 3) or add one per tenant in Settings → AI → *Add decision provider* (provider TypeSafe,
-model `jev-latest`, the key; **Test connection** asks one yes/no question). Verify: `curl -b <cookie>
+TypeSafe's Jev, either set `TYPESAFE_API_KEY=` in `apps/web/.env` (deployed: a secret, Part 3) or add
+one per tenant in Settings → AI → *Add decision provider* (provider TypeSafe, model `jev-latest`,
+the key; **Test connection** asks one yes/no question). Verify: `curl -b <cookie>
 localhost:3001/api/ai/config/readiness` → `"decisions":{"ready":true,"source":"platform","provider":"typesafe"…}`
 (`"source":"fallback"` without a key), and a `triage-research` run's timeline shows *Decided* rows
 badged `Jev`.
 
-Agent runs need the `AGENT_RUN_WORKFLOW` binding (declared in both tomls; `wrangler dev` runs
-instances locally). Without it `POST /api/agents/runs` is 503 `agent_runs_not_configured`. Verify
-(from the Agents page in the nav, or by hand):
+Agent runs run on OpenWorkflow in the worker (`pnpm dev` runs mode `all`, so the worker is
+in-process). Verify (from the Agents page in the nav, or by hand):
 `POST /api/agents/runs` `{ "agentKey": "summarize-text", "input": { "text": "<a paragraph>" } }` →
 202; `GET /api/agents/runs/<id>` reaches `succeeded` with `output.summary`.
 
-**Human-in-the-loop walkthrough** (`docs/CONCEPTS.md` §9). A run can stop and ask a person, and
-**`wrangler dev` is the only way to exercise that** — the suspend is `step.waitForEvent`, which the
-Node test suite drives with a fake. Nothing extra to configure; `AGENT_INTERRUPT_TIMEOUT`
-(`168 hours`) is already in both tomls. With `pnpm dev` running and signed in at
+**Human-in-the-loop walkthrough** (`docs/CONCEPTS.md` §9). A run can stop and ask a person — the
+park is OpenWorkflow's `waitForSignal` behind the kit's `step.waitForEvent`. Nothing extra to
+configure; `AGENT_INTERRUPT_TIMEOUT` defaults to `168 hours`. With `pnpm dev` running and signed in at
 `/login?as=owner@example.test`:
 
 1. **Agents → Summarise text**, paste a paragraph, turn *index the result* ON, run it. Watch the
@@ -478,9 +438,8 @@ Node test suite drives with a fake. Nothing extra to configure; `AGENT_INTERRUPT
    Verify: the run reaches `succeeded` and the document appears in `/documents` **exactly once**
    (the write is behind `ctx.once`; a second copy means that broke).
 3. **Restart `pnpm dev` while a run is parked**, then answer it. The run resumes across the
-   restart — `wrangler dev` loses the instance, so this also exercises the `sendEvent → not_found`
-   path that creates `<runId>-r1`. This is the durability claim; if anything is going to be wrong,
-   it is this.
+   restart — its state is in the `openworkflow` schema, not in the process. This is the durability
+   claim; if anything is going to be wrong, it is this.
 4. **Cancel a parked run.** It settles `cancelled` with `error` NULL and its interrupts `expired` —
    a refusal is a status, not a fault.
 5. **Ask `research-topic` something ambiguous.** It calls `ask_human` and raises a `choice` from
@@ -520,30 +479,19 @@ turns a bad answer into a case. Everything else — suites, judges, baselines, C
 
 ### 2.7 Plugins `[ready]` (D31)
 
-Analytics is not part of the kit; it is the `analytics` PLUGIN, and it is the one entry in
-`.rocketflare.json` `defaultPlugins`, so `bash scripts/bootstrap.sh` installs it in its `plugins`
-step and a fresh clone has dashboards without you doing anything. Nothing to configure.
-
 ```bash
 pnpm plugin list                                   # what is installed, and from where
 pnpm plugin check                                  # anchors, kit range, barrel lines, migrations
-pnpm plugin remove analytics --apply               # then pnpm db:generate && pnpm db:migrate
 pnpm plugin add <repo|path>[@ref]                  # read the plan; --apply installs it
+pnpm plugin remove <id> --apply                    # then pnpm db:generate && pnpm db:migrate
 ```
 
 **Every command prints its plan and stops until `--apply`.** Installing a plugin gives it full
-Worker and database access — it is as trusting as merging a pull request — and the plan is what you
-say yes to. It will never generate a migration, edit a wrangler toml or write a resource id: those
-arrive as numbered steps you run yourself. The analytics plugin's are the `15 * * * *` cron and the
-`/cubejs-api` + `/mcp` prefixes in both tomls, and two `resolve` entries plus two proxy lines in
-`apps/web/vite.config.ts`.
-
-**The drizzle-cube CLI / Claude Code plugin** (optional, with analytics installed): create
-`apps/web/.drizzle-cube.json` — git-ignored, and the plugin repository's README has the shape —
-with `apiToken` set to a tenant API key from Settings → API keys and `serverUrl` your `wrangler dev`
-origin or a deployed host. It is an ordinary Bearer key: every query it makes is scoped to that
-tenant by the cubes and it is revoked in the same place. Verify: the CLI's `meta` lists
-`ActivityEvents`, `TenantActivityDaily`, `TenantUsers`, `Users`.
+server and database access — it is as trusting as merging a pull request — and the plan is what you
+say yes to. It never generates a migration: that arrives as a numbered step you run yourself, as do
+any env keys it declares (add them to `.env`, and to the chart's `config`/`secrets` when deployed).
+A plugin that declares Cloudflare `bindings` or Worker exports is refused (`cloudflare-only`).
+`defaultPlugins` is empty in Rocketpod today (`docs/CONCEPTS.md` §8).
 
 Writing one of your own: `/rp-plugin`, or `apps/web/src/plugins/CLAUDE.md` and
 `apps/web/src/plugins/example-feature/` — the vendored reference plugin, which exists to be read
@@ -560,9 +508,9 @@ that beats the percentage either way.
 
 Two things worth knowing before you add your own:
 
-- **`FEATURES_ENABLED` is the release gate, and `wrangler dev` reads `[vars]` from
-  `wrangler.toml`** — the PRODUCTION value. So a flag you mark `environmentGated` and ship dark in
-  production is dark on your laptop too unless `.env` lists it. That is why
+- **`FEATURES_ENABLED` is the release gate**, read per deployment from the environment
+  (`apps/web/.env` locally, the chart's `config` when deployed). A flag you mark
+  `environmentGated` is dark everywhere its key is not listed — your laptop included — which is why
   `.env.example` carries the key.
 - **A flag is not a permission.** Gate with `requireFeature` / `{ feature: 'x' }`, never with
   `access Feature:x` — a global admin's `manage all` satisfies the CASL form and would show them a
@@ -572,14 +520,15 @@ Verify: `pnpm cli features list --json` prints the effective flags for your tena
 `/admin` changes it on the next call.
 
 ### 2.9 Rebrand checklist
-See [`docs/ADAPTING.md`](docs/ADAPTING.md) §1 — package names (`@rocketpod/*`), worker names, DB names,
-CLI bin / config dir / env prefix, themes, logo, `EMAIL_FROM`.
+See [`docs/ADAPTING.md`](docs/ADAPTING.md) §1 — package names (`@rocketpod/*`), image and chart names,
+DB names, CLI bin / config dir / env prefix, themes, logo, `EMAIL_FROM`.
 
 ---
 
 ## Part 3 — Deploy
 
-Removed in Rocketpod (M6b): the Cloudflare deploy (`pnpm provision`, `pnpm deploy`, wrangler tomls,
-Worker secrets) is gone. The production server today is `pnpm build` then
-`node apps/web/dist/server.js [web|worker|all]` with the environment of `apps/web/.env.example`;
-the container image, Compose and Helm are `docs/ROADMAP.md` M7, and this part is rewritten in M8.
+One image, run as `web`, `worker` (or `all`) plus a one-shot `migrate`, configured entirely by
+environment variables. **[`docs/DEPLOY.md`](docs/DEPLOY.md) is the runbook** — Compose quickstart,
+Helm install, the secrets checklist, external Postgres and S3 requirements, scaling. `/rp-deploy`
+walks it with you and stops before anything that pushes an image, touches a cluster or creates a
+billed resource.

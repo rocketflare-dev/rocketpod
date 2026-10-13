@@ -35,7 +35,11 @@ The detailed adapter design already exists in `docs/SELF-HOSTED.md` (untracked i
 
 ## Milestones (each ends with the fork's `pnpm gate` green and a commit)
 
-### M0. Clone, rename, strip the kit machinery (1–2 d)
+### M0. Clone, rename, strip the kit machinery (1–2 d) — done
+
+**Status: done (2026-10-12).** Rocketpod stayed a kit (its own release chain from 0.1.0), so the
+upgrade machinery was re-pointed at it rather than deleted (`docs/FORK.md`).
+
 - Rename with `scripts/rename.mjs`.
 - Delete the upgrade and release machinery that only makes sense for a kit:
   - `.rocketflare.json`, `scripts/upgrade.mjs`, `scripts/kit-update-check.mjs`
@@ -46,7 +50,7 @@ The detailed adapter design already exists in `docs/SELF-HOSTED.md` (untracked i
 - `launch.kit.json` and `kit-check.mjs` go if you're not shipping Rocketpod as a Launch kit (to confirm).
 - Record the fork point in `docs/FORK.md` (rocketflare sha + version), so later hand-porting has a baseline.
 
-### M1. Platform seam inside the fork (3–4 d)
+### M1. Platform seam inside the fork (3–4 d) — done
 - Add `apps/web/src/platform/` with neutral interfaces:
   - `Storage`, `Jobs`, `Realtime`, `RunEngine`, `Locks`, `RateLimit`, `defer`, `DocumentConverter`
 - Add a `Platform` object on the Hono context, set as `c.set('platform')`. Rewrite the ~54 `c.env.X`
@@ -226,13 +230,16 @@ to MinIO, AWS S3, R2 and GCS. Excel and OpenDocument uploads are not converted o
 - Not verified: a live install on a cluster (no kind/cluster here) — `helm lint`, `helm template`
   and kubeconform (18 resources, k8s 1.30) only. `pnpm dev` already moved to Node in M6b.
 
-### M8. Tooling, plugins, docs and skills (4–6 d, the long tail)
+### M8. Tooling, plugins, docs and skills (4–6 d, the long tail) — done
 
 Split in two. **M8a — done:** code and skills — the `workers_ai` provider removed (history rows stay
 readable through `RECORDED_AI_PROVIDERS`), the upload type gate (`DocumentConverter.contentTypes` →
 415), the `rp-*` skills and the new `rp-deploy`, `plugin check` green, and the drizzle chain squashed
 into `0000_rocketpod-baseline` + `0001_plugin-example-feature-0.1.0` (schema dump identical to the
-old 19-file chain, column order aside). **M8b — open:** the docs rewrite (the bullet below).
+old 19-file chain, column order aside). **M8b — done (2026-10-13):** the docs rewrite — CONCEPTS
+(Rocketpod is D41; every "removed in M6b" banner replaced by the Node design and its known gaps),
+SETUP, README, ADAPTING, RLS, CONTRIBUTING, SECURITY, CLAUDE.md (full config model, packaging and
+secrets non-negotiables), the rules and per-directory guides.
 
 - **Bootstrap:** remove the cloudflare step and the `--offline/--online` toggle; ask for an AI key instead.
 - **Provisioning:** delete `pnpm provision`, `cf-provision.sh`, `scripts/provision/*`, deployer and
@@ -249,6 +256,26 @@ old 19-file chain, column order aside). **M8b — open:** the docs rewrite (the 
   `process.env` inside `config.ts` and `server.ts`, and no `@cloudflare/*` or `cloudflare:*` imports
   anywhere (a test on the model of `shared-imports.test.ts`).
 - **Docs:** CONCEPTS, SETUP, DEPLOY and CLAUDE.md are rewritten for the new runtime.
+
+## Next
+
+Not milestones of the port — the work that follows it, in rough order:
+
+- **First release** — `pnpm kit:release 0.1.0`, then create `rocketflare-dev/rocketpod` and push the
+  tag (user-confirmed: it publishes the repository and, through `image.yml`, the image).
+- **CLI on npm** — there is no publish workflow: add one (on a tag, `apps/cli` built with `tsc`,
+  published as `rocketpod` or `@rocketpod/cli`; `@rocketpod/shared` stays private, so the CLI must
+  bundle what it imports from it).
+- **Analytics without Cloudflare** — a release of the analytics plugin in `rocketflare-plugins` with
+  no `bindings` and a Rocketpod-compatible `minKit`, then restore it in `defaultPlugins` (and the
+  `launch.kit.json` mirror).
+- **Operations** — dead-letter redrive tooling (a CLI command or admin page over `boss.redrive`);
+  the OpenWorkflow dashboard behind the app's auth (or an authenticated proxy in the chart); pg-boss
+  and realtime metrics.
+- **Live verification** — `helm install` on kind with 2 web and 3 worker replicas (the Verification
+  list below); image signing / SBOM in `image.yml`.
+- **Plugin durable workflows** — a way for a plugin to register its own OpenWorkflow workflow
+  through the plugin context.
 
 ## Effort
 

@@ -2,7 +2,7 @@
  * "Run <agent>" (D7, D17, D20): the agent's form from the registry (`forms/`), parsed with its
  * shared input schema on submit, then `POST /api/agents/runs` → 202. A `deduplicated` answer is
  * still a run — the hook toasts and the caller navigates to it. A 503 `agent_runs_not_configured`
- * replaces the form with the explanatory empty state (the Workflow binding is a deployment fact,
+ * replaces the form with the explanatory empty state (the run engine is a deployment fact,
  * not something the reader can fix here); a 400 with zod issues maps back onto the fields.
  */
 

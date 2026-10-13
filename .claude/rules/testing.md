@@ -13,7 +13,8 @@ paths:
 Vitest in `apps/web` (all commands below are root scripts that delegate there, or run inside
 `apps/web`), six projects (`apps/web/vitest.config.ts`): `api` + `api-isolated` (Node, **real Postgres** on 5433),
 `driver` (D35: `tests/driver/**` — the CONFORMANCE suite for the driver seam, through
-`openDatabase`, against the real database, run under both drivers; `tests/driver/CLAUDE.md`),
+`openDatabase`, against the real database — a per-request client and the process pool;
+`tests/driver/CLAUDE.md`),
 `ui` (jsdom + Testing Library), `config` (Node, no database: the no-Cloudflare guard, env schema, pure
 helpers, the driver guards `driver-results.test.ts` and `driver-conformance.test.ts`, and every
 installed plugin's own `src/plugins/*/tests/config/**`), and `kit-only` (Node, no database:
@@ -39,11 +40,11 @@ and unwires `--project kit-only`; the project is registered only while the direc
 `kit:upgrade` never ports one; `tests/config/kit-manifest.test.ts` fails a copy that carries one.
 A test of tooling a copy RUNS (upgrade, plugin, bootstrap, the update-check hook, the manifest
 reader) or of anything the app ships stays in `config` — the copy's gate is where it earns its keep.
-Such a test never judges the checkout's own state — its tomls, `launch.kit.json`, version or
-provisioning — because a copy's differ by design (renamed, then provisioned by Launch, which
-commits real KV ids). Build a fixture (`tests/config/fixtures/`: `kit-fixture.mjs` makes a whole
-kit, fresh or provisioned like Launch's `write_config`; the toml snapshots feed the patcher's
-tests), and put the claim about THIS checkout in `kit-only`.
+Such a test never judges the checkout's own state — its `launch.kit.json`, version or names —
+because a copy's differ by design (renamed). Build a fixture (`tests/config/fixtures/`:
+`kit-fixture.mjs` makes a whole kit), and put the claim about THIS checkout in `kit-only`. The one
+deliberate exception is `packaging.test.ts`, which holds this checkout's Dockerfile, compose file
+and chart to its own build and `src/config.ts` — a copy must keep those in step too.
 
 ## Tests run under Node, against the real Hono app
 
@@ -58,7 +59,7 @@ tests), and put the claim about THIS checkout in `kit-only`.
   upload type), a `RecordingWorkflow` (`runs`, records `create({ id, params })` and `sendEvent`,
   `setStatus(id, …)` drives `instance.status()`, `terminated[]` records a forced cancel, `get()` of
   an unknown id throws `instance.not_found`, and `failSendEvent` simulates the instance a park
-  outlived — retention expired, or a dev server restarted), and `DATABASE_URL` pointing at the test
+  outlived — the engine lost it, or the run finished first), and `DATABASE_URL` pointing at the test
   database; `ctx = createExecutionContext()` collects `waitUntil`
   promises so a test can `await waitOnExecutionContext(ctx)` before asserting side effects
 - Reach the stubs through **`stubs(env)`** → `{ kv, queue, files, hub, ai, workflow }`: `queue.messages`
@@ -147,10 +148,13 @@ a fake `WebSocket` factory left set) is on you.
   message). Assert on DB rows and `ack`/`retry` — valid → `ack`, invalid envelope → `ack` and no
   retry, handler threw → `retry({ delaySeconds: backoffSeconds(attempts) })`. The dispatcher
   `queue(batch, env, ctx)` is tested the same way with the two queue names (`queue-dispatch.test.ts`)
-- Durable Object: instantiate `NotificationsHub` with a fake `DurableObjectState`
-  (`getWebSockets(tag)` over tagged fake sockets with `send` spies) and call the RPC methods; the
-  101 upgrade cannot run under Node (`notifications-hub.test.ts`, `// @vitest-isolate` because it
-  stubs `WebSocketRequestResponsePair`). Route tests for `/ws` stop at the forwarded request
+- Node adapters run against the real services in `api-isolated`: `node-server.test.ts` (probes,
+  SPA fallback, drain), `node-jobs.test.ts` (pg-boss round trip, retry → DLQ, cron once across two
+  workers), `node-runs.test.ts` (OpenWorkflow create → complete, park → resume, timeout, terminate,
+  crash replay, the signal race), `node-realtime.test.ts` (a real `ws` client: 401/403 upgrades,
+  ping/pong, NOTIFY across two hubs, listener reconnect after `pg_terminate_backend`) and
+  `node-platform-adapters.test.ts` (S3 against the gateway on :7433, rate-limit and lock races,
+  the converter). Route tests for `/ws` stop at `hub.accept` (`stubs(env).hub.accepted`)
 - Nudges: `stubs(env).hub.broadcasts` after `waitOnExecutionContext(ctx)` — assert the tenant id,
   the method and the event `type`; `realtime-nudges.test.ts` covers the kit's emitters
 - Workflow (`agent-run-workflow.test.ts`, `// @vitest-isolate` because it mocks the resolve seam):
@@ -177,8 +181,9 @@ a fake `WebSocket` factory left set) is on you.
   resolver branches use `createTestEnv({ ANTHROPIC_API_KEY, EMBEDDINGS_API_KEY })` overrides
 - **Human-in-the-loop (issue #17)** spreads over five files and each owns one seam:
   `tests/config/agent-interrupts.test.ts` (the pure contracts — payload schemas, `INTERRUPT_REJECTION`,
-  and the golden assertion that `AGENT_RESUME_EVENT` matches `/^[A-Za-z0-9_-]{1,100}$/`, because
-  Cloudflare rejects a `.` with `workflow.invalid_event_type` and no fake would ever catch it);
+  and the golden assertion that `AGENT_RESUME_EVENT` matches `/^[A-Za-z0-9_-]{1,100}$/` — a rule
+  inherited from Cloudflare Workflows' event types and kept, because it also keeps OpenWorkflow
+  signal names (`agent-run:<instance>:<name>`) unambiguous);
   `agent-interrupts.test.ts` (the service: create-or-read on `(run_id, key)`, compare-and-set,
   expiry); `agent-interrupt-routes.test.ts` (403 under `approvers: 'admin'`, 409 on a double answer,
   404 across tenants, `editedInput` without `allowEdits` → 400); `agent-tool-loop-interrupt.test.ts`
@@ -189,8 +194,7 @@ a fake `WebSocket` factory left set) is on you.
   the chat rule
 - Agent runs (`agent-runs.test.ts`): `POST /api/agents/runs` → 202 + a `queued` row + one entry in
   `stubs(env).workflow.created` with `id === run.id`; the exclusive dedupe (same run back with
-  `deduplicated: true`; 409 with `?strict=1`); `createTestEnv({ AGENT_RUN_WORKFLOW: undefined })` →
-  503; reconcile-on-read by `workflow.setStatus(id, { status: 'errored' })` then `GET /runs/:id`
+  `deduplicated: true`; 409 with `?strict=1`); `createTestEnv({ runs: null })` → 503; reconcile-on-read by `workflow.setStatus(id, { status: 'errored' })` then `GET /runs/:id`
 - Ingest/retrieval (`ingest-retrieval.test.ts`, `document-index-job.test.ts`): the `RecordingAi` stub
   is the embedder (override `respond` for keyword-keyed vectors), assert `documents.status`,
   `chunks` count, `stubs(env).queue.messages` for the `document.index` handoff over 50 chunks, and that
@@ -198,8 +202,9 @@ a fake `WebSocket` factory left set) is on you.
 - Uploads into knowledge (`document-upload.test.ts`, `document-convert-job.test.ts`): the same stub's
   `toMarkdown` records `stubs(env).ai.conversions` and answers markdown made of the blob's bytes, so a
   fixture PDF is text typed `application/pdf`; override `convert` for `format: 'error'` (→ `failed` +
-  ack) or a throw (→ `failed` + retry); `createTestEnv({ ai: null, EMBEDDINGS_API_KEY })` is the
-  Worker that embeds but cannot convert (503 `conversion_not_configured`, nothing stored)
+  ack) or a throw (→ `failed` + retry); `createTestEnv({ ai: null, EMBEDDINGS_API_KEY })` is a
+  platform that embeds but cannot convert (503 `conversion_not_configured`, nothing stored); a type
+  the converter does not declare is 415 before anything is stored
 - Tracing (D32): `tests/api/observability.test.ts` needs no database — `createTracer({ sinks:
   [collect] })` hands a test every recorded span, `tracerFor(cfg, { fetch })` takes an injected
   `fetch` for the OTLP POST, and the OTLP/JSON request is compared to a FIXTURE (the protobuf case
@@ -210,12 +215,11 @@ a fake `WebSocket` factory left set) is on you.
   (one trace per run, `execute#0` under the derived root) and `chat-tools.test.ts` (chat → tool →
   retrieval → embeddings, `messages.trace_id`). `JobContext.tracer` is OPTIONAL, so a hand-built job
   context needs none
-- Cron: call `scheduled({ cron: '0 4 * * *' }, env, ctx)` and assert the task ran (`pruneExpired` then `pruneAiSpans`); unknown cron → no-op.
+- Cron: call `dispatchScheduled('0 4 * * *', env, ctx)` (or `scheduled({ cron }, env, ctx)`) and assert the task ran (`pruneExpired` then `pruneAiSpans`); unknown cron → no-op.
   A PLUGIN's cron task is tested the same way and the test belongs to the plugin (the analytics
   plugin's `scheduled-facts.test.ts` asserts `SCHEDULED_TASKS` registers `analytics.refreshFactTables`
-  under `'15 * * * *'`, then dispatches it and reads the fact rows) — which is the one thing that
-  proves the host's toml and the plugin's task met, because a task under an expression no toml
-  declares never runs
+  under `'15 * * * *'`, then dispatches it and reads the fact rows) — the worker schedules exactly
+  what `SCHEDULED_TASKS` registers, so that registration IS the proof the task will run
 - **A PLUGIN's tests live inside it and run in the host's projects** (D31):
   `src/plugins/<id>/tests/{api,ui,config}` are in `vitest.config.ts`'s `include` globs, so they use
   the same `createTestEnv`, the same `setupTestDatabase` and the same `request()` helpers, reached

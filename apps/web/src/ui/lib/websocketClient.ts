@@ -1,10 +1,10 @@
 /**
  * Singleton WebSocket client (D8), outside the React lifecycle. Same-origin `/ws?tenantId=` so the
- * Vite proxy forwards it in dev and the Worker serves it deployed. Reconnects with exponential
+ * Vite proxy forwards it in dev and the Node server serves it deployed. Reconnects with exponential
  * backoff + full jitter (1 s → 30 s cap) so a fleet of tabs recovering from one drop does not
  * stampede the hub; a close with code 1001/1012 or an "upgraded"/"new version" reason means the
- * Worker was redeployed (Durable Objects evict sockets on a new version) and reconnects in 100 ms
- * without counting as a failure. Sends `{"type":"ping"}` every 30 s — the DO answers without waking.
+ * server is restarting (a rolling deploy closes sockets with 1001) and reconnects in 100 ms
+ * without counting as a failure. Sends `{"type":"ping"}` every 30 s — the server answers `pong`.
  *
  * State is pushed into `stores/websocketStore.ts`; events go to `onEvent` subscribers
  * (`WebSocketProvider` turns them into query invalidations). Components never touch this module.

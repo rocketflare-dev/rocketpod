@@ -66,7 +66,7 @@ export function runPollInterval(status: AgentRunStatus | undefined): number | fa
   return runOwesAnswer(status) ? RUN_POLL_MS : false
 }
 
-/** 503 from `POST /api/agents/runs`: the `AGENT_RUN_WORKFLOW` binding is missing. */
+/** 503 from `POST /api/agents/runs`: the deployment has no run engine (`platform.runs`). */
 export function isAgentRunsNotConfigured(error: unknown): boolean {
   return error instanceof ApiError && error.code === ERROR_CODES.agentRunsNotConfigured
 }

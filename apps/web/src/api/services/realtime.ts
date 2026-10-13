@@ -4,8 +4,8 @@
  * builds the event and hands the send to `defer` — never awaited on the response path, never
  * allowed to fail the request. "DB is the truth, WebSocket is a nudge."
  *
- * `Broadcaster` (`src/platform/types.ts`) is the seam; the Worker's implementation is the
- * per-tenant Durable Object (`src/platform/cloudflare/realtime.ts`).
+ * `Broadcaster` (`src/platform/types.ts`) is the seam; the implementation publishes through
+ * Postgres NOTIFY to every pod's local sockets (`src/node/realtime.ts`).
  */
 import type { RealtimeEvent, RealtimeEventType } from '@rocketpod/shared/realtime'
 import type { Broadcaster, Defer } from '../../platform/types'

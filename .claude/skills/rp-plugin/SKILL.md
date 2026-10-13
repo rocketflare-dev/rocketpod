@@ -84,9 +84,8 @@ The script does not do these, and each says which KIND it is. An **agent** step 
 plus a check — run the command, then run the assertion. A **human** step is a decision: stop, and
 ask. Each appears only when the plugin declares the thing it is about.
 
-Nothing about the barrel lines, the bindings, the crons, the route prefixes, the `[vars]` keys or a
-Durable Object's `[[migrations]]` tag is here any more: those are **declarative**, written by
-`plugin add`, and a step that has become declarative is removed rather than reworded.
+Nothing about the barrel lines, the crons or the route prefixes is here any more: those are
+**declarative**, written by `plugin add`, and a step that has become declarative is removed rather than reworded.
 
 | What | Kind | How | Expect | What you change |
 |---|---|---|---|---|
@@ -97,7 +96,7 @@ Durable Object's `[[migrations]]` tag is here any more: those are **declarative*
 | **The gate** | agent | `pnpm gate` | exit 0 | Nothing. A failure here is the install, not the kit — read it before committing |
 
 **`bindings` and `workerExports` are refused, not provisioned.** This kit has no Cloudflare
-runtime (M6b); a Rocketflare plugin that declares either fails `pnpm plugin add` before anything is
+runtime (D41); a Rocketflare plugin that declares either fails `pnpm plugin add` before anything is
 written.
 
 Then commit: one commit, message `Install plugin <id>@<version>`, so the next upgrade reads against it.

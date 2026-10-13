@@ -1,8 +1,9 @@
 # CONCEPTS — what is built, and why
 
-> **Rocketpod (M6b).** Cloudflare is gone: no Worker, tomls, bindings, wrangler or provisioning.
-> Passages below that still name them describe Rocketflare and are rewritten in ROADMAP M8; the
-> runtime as it is now is `.claude/rules/runtime.md` and `docs/DESIGN-SELFHOSTED.md`.
+> **Rocketpod (D41).** A Node 24 server in containers: Postgres (+ pgvector) for everything stateful,
+> an S3-compatible store for files, a model provider key for AI. It is a hard fork of Rocketflare
+> 0.19.0 (`docs/FORK.md`); D-numbers below D41 are Rocketflare's and keep their meaning. Why and how
+> the Cloudflare pieces were replaced: `docs/DESIGN-SELFHOSTED.md`.
 
 One section per subsystem: what it does, the invariant it protects, the decision behind it
 (D-numbers), and its **Known gaps**. Check here before assuming a capability exists; update it when
@@ -49,8 +50,8 @@ suites on vitest 4, §9 — never part of the gate).
   surface. A global admin with no membership can still reach it, so there is always someone to
   approve the first request. Entering a tenant creates a real `support` membership.
 - **Deleting a tenant has two halves.** The `tenantRef()` FK cascade removes everything in
-  Postgres; the **`tenant.purge`** job (§5) removes the R2 prefix and runs each plugin's
-  `onTenantDeleted`. The queue binding is checked *before* the `DELETE`.
+  Postgres; the **`tenant.purge`** job (§5) removes the tenant's storage prefix and runs each
+  plugin's `onTenantDeleted`. The jobs queue is checked *before* the `DELETE`.
 - **Groups and visibility (D29).** Tenants declare group types → groups → members;
   `AuthContext.groups` is resolved with the membership (a Bearer key uses its **creator's** groups, looked up on
   every request). A restrictable resource has an explicit `visibility` column (`tenant | groups`)
@@ -96,13 +97,13 @@ are always `tenant`; no audit log beyond `activity_events`; no personal API keys
   `200 { endSessionUrl }` (RP-initiated logout back to `/login?signedOut=1`); otherwise 204. Setup: `SETUP.md` → "Sign in with any OIDC issuer".
 - **Hardening (D12)**: random tokens hashed with SHA-256, a required encryption key, CSRF by origin
   allow-list (Bearer is exempt), and a sliding-window rate limit on login routes (the platform's
-  `rateLimiter`: KV on the Worker, no-op without `RATE_LIMIT_KV`; on Node the `rate_limits` table —
-  `src/node/limits.ts`, exact under concurrency, keyed by the client IP from `TRUSTED_PROXY_HOPS`).
+  `rateLimiter`: the `rate_limits` table — `src/node/limits.ts`, exact under concurrency, keyed by
+  the client IP from `TRUSTED_PROXY_HOPS`).
 - **CLI handoff (D26)**: `GET /auth/cli?redirect_uri=http://127.0.0.1:<port>/callback` only allows
   loopback redirects. It mints a revocable tenant key `cli:<hostname>` and 302s back with it.
   Details: `.claude/rules/api.md`.
 
-**Known gaps:** no provider token refresh; the Worker's KV rate limit is approximate (Node's is exact); no session management UI
+**Known gaps:** no provider token refresh; no session management UI
 beyond "log out everywhere"; CLI keys differ from other keys only by name. OIDC: one issuer per
 deployment; the `groups` claim is read into the profile but **not stored or mapped** to kit groups
 or roles; no `id_token_hint` on logout (id_tokens are not kept, so the issuer may ask to confirm);
@@ -112,64 +113,52 @@ is sent as `client_secret_basic` only (no `private_key_jwt`).
 
 ## 3. API shell
 
-- **One app, two entry points** (D5, M2): `api/index.ts` exports `app` (tests call
-  `app.request(req, env, ctx)`), and two runtimes serve it. **`src/node/server.ts`** — the Node
-  entry, the one Rocketpod ships toward — runs it on `@hono/node-server` in one of three modes
-  (`SERVER_MODE` / first argument: `web` = API + the SPA's static files + `/healthz` liveness +
-  `/readyz` pool ping, 503 while draining; `worker` = the background loop, pg-boss from M3; `all` =
-  both, for dev and small installs). It reads `process.env` once into `loadConfig`, holds ONE
-  Postgres pool per process (§4), hands the app a `waitUntil` backed by a tracked defer set, and
-  on SIGTERM flips readiness, stops the listener, stops the worker loop, drains the defer set and
-  closes the pool. `pnpm build` bundles it into `dist/server.js` (`scripts/build-server.mjs`,
-  esbuild, no `node_modules` needed at runtime); `pnpm web dev:node` runs it under `tsx watch`.
-  **`src/worker.ts`** still exports `{ fetch, queue, scheduled }` plus the DO/Workflow classes
-  until the Cloudflare path is deleted (M6b).
+- **One app, one Node entry (D5, D41)**: `api/index.ts` exports `app` (tests call
+  `app.request(req, env, ctx)`); **`src/node/server.ts`** serves it on `@hono/node-server` in one
+  of three modes (`SERVER_MODE` / first argument): `web` = API + the SPA's static files +
+  `/healthz` liveness + `/readyz` pool ping (503 while draining); `worker` = jobs, cron and agent
+  runs (§5), plus only the two probes; `all` = both, for dev and small installs. It reads
+  `process.env` once into `loadConfig`, holds ONE Postgres pool per process (§4), hands the app a
+  `waitUntil` backed by a tracked defer set, and on SIGTERM flips readiness, stops the listener,
+  stops the workers, drains the defer set and closes the pool. `pnpm build` bundles it into
+  `dist/server.js` and the migrate one-shot into `dist/migrate.js` (`scripts/build-server.mjs`,
+  esbuild, no `node_modules` at runtime); `pnpm dev` runs it under `tsx watch` beside Vite.
 - **Config (D3/D4)**: `loadConfig(env)` validates the runtime env with zod once per env object.
   Routes read `c.get('config')`. `APP_ENV` replaces `NODE_ENV`; `process` (and Node's server
-  modules, and `@hono/node-server`) appear only under `src/node/`, and nothing else imports that
-  directory (`tests/config/platform-seam.test.ts`), so the Worker bundle never pulls the Node
-  entry in.
+  modules, and `@hono/node-server`) appear only in `src/config.ts` and under `src/node/`, and
+  nothing else imports that directory (`tests/config/platform-seam.test.ts`).
 - **Client IP**: one rule, `clientIpOf(c)` (`api/utils/routes/client-ip.ts`), for rate-limit keys
-  and the auth audit. On Node the socket's peer (passed on `executionCtx.props`, never on the
-  per-process env), `X-Forwarded-For` ignored unless `TRUSTED_PROXY_HOPS = N`, then the Nth entry
-  from the right; on the Worker `cf-connecting-ip`.
-- **The platform seam (M1)**: every runtime capability — jobs, storage, realtime, durable runs,
-  rate limits and locks, the model runner, document conversion — is a neutral interface in
+  and the auth audit: the socket's peer (passed on `executionCtx.props`, never on the per-process
+  env); `X-Forwarded-For` is ignored unless `TRUSTED_PROXY_HOPS = N`, then the Nth entry from the
+  right. Behind an ingress or load balancer, set it to the number of proxies you run.
+- **The platform seam (D41)**: every runtime capability — jobs, storage, realtime, durable runs,
+  rate limits and locks, document conversion — is a neutral interface in
   `src/platform/types.ts`, bundled as one `Platform`. Routes read `c.get('platform')`; queue
   handlers, cron tasks and the agent-run body (`api/workflows/agent-run-body.ts`, over a neutral
-  `Step`) are handed the same object; plugins get it as `ctx.platform`. The Worker's
-  implementation is `src/platform/cloudflare/` (adapted from its bindings per request), and
-  `tests/config/platform-seam.test.ts` keeps every Cloudflare type, binding name and
-  `cloudflare:` import inside those adapters, `src/worker.ts` and the two classes it exports.
-  Tests' `createTestEnv()` is both the Worker-shaped env and the `Platform` view of it. The Node
-  entry's platform is `src/node/platform.ts`: jobs (pg-boss, M3), runs (OpenWorkflow, M4),
-  realtime (`ws` + LISTEN/NOTIFY, M5), and from M6 storage (S3, when `STORAGE_DRIVER=s3` is fully
-  configured — else null and 503 `storage_not_configured`), the rate limiter and operation locks
-  (Postgres tables), and the document converter (`unpdf`/`mammoth`). `ai` is null on Node: Workers
-  AI has no counterpart, and the provider keys cover it (§9).
+  `Step`) are handed the same object; plugins get it as `ctx.platform`. The implementation is
+  `src/node/platform.ts`: jobs (pg-boss), runs (OpenWorkflow), realtime (`ws` + LISTEN/NOTIFY),
+  storage (S3, when `STORAGE_*` is fully configured — else null and 503
+  `storage_not_configured`), the rate limiter and operation locks (Postgres tables) and the
+  document converter (`unpdf`/`mammoth`). Tests' `createTestEnv()` carries in-memory
+  implementations (`tests/mocks/bindings.ts`). `tests/config/platform-seam.test.ts` also fails on
+  any Cloudflare dependency, import or type, so the fork cannot drift back.
 - **Middleware order is deliberate** (error envelope → logger → config → platform → security headers → body
-  limit → CORS → CSRF → DB → tracing → mounts). Auth is per mount. The ASSETS catch-all 404s every
-  API prefix, so a missing route never returns `index.html`. Order and exceptions:
+  limit → CORS → CSRF → DB → tracing → mounts). Auth is per mount. The static-file catch-all 404s
+  every API prefix as JSON, so a missing route never returns `index.html`. Order and exceptions:
   `.claude/rules/api.md`.
 - **Contracts (D13)**: zod schemas from `@rocketpod/shared` are used by the server, UI and CLI.
   There is no `hono/client` RPC. Errors are `{ error, statusCode, code?, details? }` everywhere,
   and success bodies are bare.
 - **Routes are thin** and never run long work (§5).
-- **Local dev ports**: Vite :3000 proxies to `wrangler dev` :3001 (or `pnpm web dev:node`, the
-  Node entry on `PORT`, default 3001), both `strictPort`, unless
-  `DEV_UI_PORT` / `DEV_API_PORT` are set (shell, then `.env`; `scripts/lib/dev-ports.mjs` is the
-  one reader). `APP_URL` follows the UI port by hand — the Worker cannot read the shell — and
-  outside production CORS/CSRF also allow the loopback twin of `APP_URL` and of the request's own
-  loopback origin. `SETUP.md` 1.6.
+- **Local dev ports**: Vite :3000 proxies to the Node server :3001 (`PORT`), both `strictPort`,
+  unless `DEV_UI_PORT` / `DEV_API_PORT` are set (shell, then `.env`; `scripts/lib/dev-ports.mjs`
+  is the one reader). Outside production CORS/CSRF also allow the loopback twin of `APP_URL` and
+  of the request's own loopback origin. `SETUP.md` 1.6.
 
-- **Tunnel**: `pnpm dev:tunnel` runs cfld through `apps/web/scripts/cfld.mjs`. That script
-  downloads cloudflared (pinned in `scripts/lib/cloudflared.mjs`) the first time there is no
-  override, no PATH binary and no managed copy. `pnpm install` never builds the package.
-  `SETUP.md` 1.10.
-
-**Known gaps:** on Node, uploads answer 503 until `STORAGE_*` is configured; `pnpm dev` still runs `wrangler dev` (M7 switches it); `pnpm dev:tunnel` always targets :3000 (cfld reads `package.json`); `pnpm dev:api`
-alone reads `DEV_API_PORT` from the shell only, not `.env`; no `/api/ready` smoke step against a preview; no OpenAPI (`@hono/zod-openapi` is the
-path); no per-PR previews.
+**Known gaps:** uploads answer 503 until `STORAGE_*` is configured; `pnpm dev:api` alone reads
+`DEV_API_PORT` from the shell only, not `.env`; no OpenAPI (`@hono/zod-openapi` is the path); no
+per-PR previews; no public tunnel for OAuth callbacks in dev (use your own, e.g. `cloudflared` or
+`ngrok`, and set `APP_URL`); source maps are not shipped in the image.
 
 ## 4. Database
 
@@ -177,13 +166,15 @@ path); no per-PR previews.
   serverless driver (neon-http + a WebSocket pool) is gone: postgres.js reaches any Postgres, Neon
   included, over TCP. `DATABASE_DRIVER` remains, accepting only `postgres` (missing means it), and
   `neon` fails config validation naming the fix. `openDatabase(env)` (`db/client.ts`) is the one
-  resolver — URL `PREVIEW_DATABASE_URL ?? HYPERDRIVE.connectionString ?? DATABASE_URL`. **On Node**
-  the entry installs ONE pool per process (`installProcessPool`, `DATABASE_POOL_MAX`, default 10,
-  named prepared statements on) and every `openDatabase` for that URL is a view of it whose
-  `close()` is a no-op; the pool is ended once on shutdown. **On the Worker** (until M6b) it is a
-  client per request / consumer message / step / cron run over Hyperdrive, closed in `waitUntil`
-  or `finally`. Either way the connection is pooled, so no session state, LISTEN or advisory lock
-  on the request path.
+  resolver — URL `PREVIEW_DATABASE_URL ?? DATABASE_URL`. The Node entry installs ONE pool per
+  process (`installProcessPool`, `DATABASE_POOL_MAX`, default 10, named prepared statements on)
+  and every `openDatabase` for that URL is a view of it whose `close()` is a no-op; the pool is
+  ended once on shutdown (tests and scripts open their own clients). The connection is pooled, so
+  no session state, LISTEN or advisory lock on the request path.
+- **Three pools per process.** pg-boss (`pgboss` schema, 2 connections producing, 4 working) and
+  OpenWorkflow (`openworkflow` schema, `RUNS_CONCURRENCY + 4`) each keep their own small pool, and
+  a `web`/`all` process holds one more dedicated connection for realtime `LISTEN` (§5). Size
+  Postgres `max_connections` for (`DATABASE_POOL_MAX` + 6 + `RUNS_CONCURRENCY` + 4 + 1) × replicas.
 - **The driver seam: code never sees the driver** (`src/db/CLAUDE.md`). `db/client.ts` is the only
   place it is named; everything else is normalised there or banned. Normalised: a raw
   `db.execute()` is `unknown` (`Database` is drizzle's `PgDatabase` base) and is read with
@@ -206,8 +197,7 @@ path); no per-PR previews.
   and Launch's ship gate. `pnpm gate --list --json` is the contract a step-by-step runner reads:
   `{ schema: 1, steps: [{ id, command, database }] }` in run order, validated by
   `packages/shared/src/gate.ts`; `schema` rises only when an existing field changes meaning, so a
-  reader tolerates a new step or field. There is no generated-files step: `typecheck` regenerates
-  `worker-configuration.d.ts` and compiles against it (commit what changes); the
+  reader tolerates a new step or field. There is no generated-files step: the
   `docs/plugin-api.md` diff is the kit's own check (`kit.yml`), since a copy publishes no plugin
   API; `pnpm plugin check` runs at the end of `plugin add|upgrade --apply` (exit 8 when the written
   tree fails it) and in `plugin-ci.yml`.
@@ -264,7 +254,7 @@ path); no per-PR previews.
 - **RLS** ships inert: every tenant table has `tenantIsolation()` (enforced by `rls-coverage`),
   and `TENANT_SCOPE_MODE=enforce` waits on the spike in `docs/RLS.md`.
 
-**Known gaps:** the RLS spike has not been run; no read replicas; the process pool turns named
+**Known gaps:** the RLS spike has not been run; no read replicas; three pools per process (above); the process pool turns named
 prepared statements on, so a PgBouncer in TRANSACTION mode in front of the Node server needs
 1.21+ (`max_prepared_statements`) — there is no switch to turn them off yet; the TEST database is
 pinned to 5433, so two checkouts cannot run `pnpm test` at once (each app has its own Compose
@@ -275,76 +265,76 @@ the `ep-…` endpoint) — the one hosted branch provider the gate-branch bindin
 
 ## 5. Background work and realtime
 
-**A route never runs long work (D7).** Anything under 30 s total goes to `JOBS_QUEUE`, multi-step
-work goes to `AGENT_RUN_WORKFLOW`, and cron only dispatches.
+**A route never runs long work (D7).** Anything under 30 s total goes to the jobs queue
+(`platform.jobs`), multi-step work goes to an agent run (`platform.runs`), and cron only
+dispatches. All three run in a `worker` (or `all`) process; a `web` process only produces.
 
 - **Jobs**: one queue, envelope `{ id, type, payload, enqueuedAt }`, variants are DATA
   (`CORE_JOB_VARIANTS` + plugin `jobs`). A mapped handler table proves completeness, so there is no
   switch. `type` is the version seam (`x.v2`). An invalid envelope is acked; a handler error retries
-  with backoff up to `max_retries`. A missing binding throws. Consumers await everything and never
-  use `waitUntil`. Queued today: `tenant.purge`, invitation and access-decision emails,
+  with backoff. A missing queue is a 503 `jobs_not_configured`. Consumers await everything and
+  never use `waitUntil`. Queued today: `tenant.purge`, invitation and access-decision emails,
   `document.index`/`document.convert`, `chat.compact`. The magic link stays inline.
-  Detail: `.claude/rules/api.md`. A missing queue is a 503 `jobs_not_configured`.
-- **Jobs on Node (M3)**: **pg-boss** in the `pgboss` schema is the transport (`src/node/jobs.ts`,
-  `jobs-schema.ts`); the consumer hands its batches to the Worker's own `queue()`, so
-  `processJobsBatch` is unchanged. Batches of 10 settled per job; an unsettled message counts as
-  acked and a throwing batch retries whole, as on Cloudflare. Retries ride the queue's policy:
-  three after the first delivery, 30 s doubling to 15 min as a floor that pg-boss's jitter can
-  double, then the `rocketpod-jobs-dlq` dead-letter queue (14 days). `pnpm db:migrate` installs the
-  schema and queues; a `web` process only produces (pg-boss starts on the first send), a `worker`
-  process also supervises and runs cron. `JOBS_CONCURRENCY` (2) × 10 per worker,
-  `JOBS_POLL_INTERVAL_SECONDS` (2).
-- **Workflow**: `AgentRunWorkflow` (§9). **On Node (M4)** the same body (`runAgentRun`,
-  `api/workflows/agent-run-body.ts`) runs on **OpenWorkflow** in the `openworkflow` schema
-  (`src/node/runs.ts`; installed by `pnpm db:migrate`, never at boot): `worker`/`all` modes run
-  `RUNS_CONCURRENCY` (4) runs at once, a parked run holds no slot, and a dead worker's runs are
-  replayed by another once their 30 s lease lapses. Retries happen in-process inside one step; a
-  park is a thrown error the body rethrows (`Step.isControlFlow`); signals are not buffered, so
-  `waitForEvent` checks `arrived()` before parking and `sendEvent` re-sends for 5 s
-  (`docs/DESIGN-SELFHOSTED.md` §5.3a). **Concurrency is a DB claim row, never a `Map`**:
-  `ACTIVE_RUN_STATUSES` (exclusive index, includes parked runs) ⊃ `CLAIMABLE_RUN_STATUSES`
-  (the claim). Keep those two lists separate. A lost instance is settled on read, and there is no
-  sweeper cron.
+  Detail: `.claude/rules/api.md`.
+- **Transport: pg-boss** in the `pgboss` schema (`src/node/jobs.ts`, `jobs-schema.ts`; `pnpm
+  db:migrate` installs the schema and queues, never the server). The consumer wraps each batch of
+  up to 10 as a `JobBatch` for the unchanged `processJobsBatch`; an unsettled message counts as
+  acked and a throwing batch retries whole. Retries ride the queue's policy: three after the first
+  delivery, 30 s doubling to 15 min (a handler's `retry({ delaySeconds })` is a floor, jittered),
+  then the `rocketpod-jobs-dlq` dead-letter queue (kept 14 days). A job lost with its worker comes
+  back after 15 min (`expireInSeconds`) and counts as an attempt. `JOBS_CONCURRENCY` (2) × 10 per
+  worker, `JOBS_POLL_INTERVAL_SECONDS` (2).
+- **Agent runs: OpenWorkflow (D41)** in the `openworkflow` schema (`src/node/runs.ts`; installed by
+  `pnpm db:migrate`, never at boot) runs the run body (`runAgentRun`,
+  `api/workflows/agent-run-body.ts`, §9) over the neutral `Step`. `RUNS_CONCURRENCY` (4) runs at
+  once per worker; a parked run holds no slot; a dead worker's runs are replayed by another once
+  their 30 s lease lapses (the in-flight step runs again — `runOnce` effects stay single). The body
+  re-executes from the top and completed steps are memoised; retries happen in-process inside one
+  step; a park is a thrown engine error the body rethrows (`Step.isControlFlow`). **Signals are not
+  buffered**, so `waitForEvent` records an `arrived()` check before parking and `sendEvent`
+  re-sends for up to 5 s while the run is alive (`docs/DESIGN-SELFHOSTED.md` §5.3a). The kit's run
+  id is OpenWorkflow's `idempotencyKey`; `agent_runs.instanceId` holds the engine's id.
+  **Concurrency is a DB claim row, never a `Map`**: `ACTIVE_RUN_STATUSES` (exclusive index,
+  includes parked runs) ⊃ `CLAIMABLE_RUN_STATUSES` (the claim). Keep those two lists separate. A
+  lost instance is settled on read, and there is no sweeper cron.
 - **Cron**: `scheduled.ts` looks up the task by expression. `0 4 * * *` prunes; plugins add their
-  own tasks, and each expression must appear in both tomls. On Node every `SCHEDULED_TASKS`
-  expression is a pg-boss schedule (UTC) synced at worker start (stale ones dropped); pg-boss claims
-  each cron pass in the database and files each occurrence under a singleton key, so N worker
-  replicas run an occurrence once, through the same `scheduled()`. A failed cron task is not
-  retried (Cloudflare does not re-run one either).
-- **Realtime (D8)**: `NotificationsHub` DO, one per tenant, stateless, using the hibernation API
-  with RPC publish. `GET /ws` resolves the cookie itself. **"DB is the truth, WebSocket is a
-  nudge"**: events carry ids, and the UI invalidates the query-key roots from
-  `REALTIME_INVALIDATIONS`. The `entity` of `entity.changed` IS the query-key root. All nudges go
-  through `services/realtime.ts` inside `defer`, after commit.
-- **Realtime on Node (M5)**: no DO — `src/node/realtime.ts`. Every process PUBLISHES through
-  `pg_notify('rp_realtime', {t, u?, e})` (jobs, runs and cron in a `worker` process included), and
-  every `web`/`all` process holds its own sockets (by tenant, tagged by user) and LISTENs on ONE
+  own tasks to the registry. Every `SCHEDULED_TASKS` expression is a pg-boss schedule (UTC) synced
+  at worker start (stale ones dropped); pg-boss claims each cron pass in the database and files each
+  occurrence under a singleton key, so N worker replicas run an occurrence once. A failed cron task
+  is not retried.
+- **Realtime (D8)**: **"DB is the truth, WebSocket is a nudge"**: events carry ids, and the UI
+  invalidates the query-key roots from `REALTIME_INVALIDATIONS`. The `entity` of `entity.changed`
+  IS the query-key root. All nudges go through `services/realtime.ts` inside `defer`, after commit.
+- **Realtime transport: `ws` + LISTEN/NOTIFY** (`src/node/realtime.ts`). Every process PUBLISHES
+  through `pg_notify('rp_realtime', {t, u?, e})` (jobs, runs and cron included), and every
+  `web`/`all` process holds its own sockets (by tenant, tagged by user) and LISTENs on ONE
   dedicated connection — `DATABASE_LISTEN_URL`, else the database URL — delivering each
-  notification to its matching local sockets, so a nudge reaches a socket on any pod. LISTEN needs a
-  session: behind PgBouncer in transaction mode, `DATABASE_LISTEN_URL` must go straight to Postgres
-  (or a session-mode pool). The upgrade runs the app inside an `AsyncLocalStorage` slot: `routes/ws.ts`
-  stays the only auth and membership check, `hub.accept()` records the member, and `server.ts`
-  completes the handshake only then (a refusal is written back as plain HTTP, same statuses). Wire
-  protocol as on the DO: events as JSON, `{"type":"ping"}` → `{"type":"pong"}`; plus a protocol
-  ping every 30 s that drops a socket which missed the last one; shutdown closes sockets with 1001.
-  A NOTIFY payload over 7999 bytes is logged and dropped — large data belongs in a row the client
-  refetches. A lost listener reconnects with backoff; notifications sent meanwhile are lost (best
-  effort, like the DO). A publish cannot count remote sockets, so `BroadcastResult.delivered` is 0.
+  notification to its matching local sockets, so a nudge reaches a socket on any pod. LISTEN needs
+  a session: behind PgBouncer in transaction mode, `DATABASE_LISTEN_URL` must go straight to
+  Postgres (or a session-mode pool). The upgrade runs the app inside an `AsyncLocalStorage` slot:
+  `routes/ws.ts` stays the only auth and membership check, `hub.accept()` records the member, and
+  `server.ts` completes the handshake only then (a refusal is written back as plain HTTP). Wire:
+  events as JSON, `{"type":"ping"}` → `{"type":"pong"}`, a protocol ping every 30 s that drops a
+  socket which missed the last one, and close code 1001 on shutdown. A NOTIFY payload over 7999
+  bytes is logged and dropped — large data belongs in a row the client refetches. A lost listener
+  reconnects with backoff; notifications sent meanwhile are lost (best effort).
 
 **Known gaps:** `/api/admin` paths do not nudge; `notification.read` is never emitted;
-`activity.record` has no producer; the DO 101 upgrade is untestable under Node; no dead-letter
-queue on the Worker (Node has one); no vitest-pool-workers smoke project. On Node, `retry({
-delaySeconds })` is advisory — the queue's policy picks the delay (same curve, jittered); nothing
-consumes or redrives the dead-letter queue yet (`boss.redrive` by hand); realtime on Node has no
-connection cap per tenant or user (the DO had none either) and no metrics.
+`activity.record` has no producer; nothing consumes or redrives the dead-letter queue (`boss.redrive`
+by hand); no pg-boss or OpenWorkflow dashboard is wired (OpenWorkflow's has no auth); OpenWorkflow
+caps a run at 1000 step attempts; a plugin cannot register a durable workflow of its own;
+`sendEvent` keeps re-sending for the full 5 s in the rare case the run skipped its wait;
+`BroadcastResult.delivered` is always 0 (a publish cannot count remote sockets); realtime has no
+connection cap per tenant or user and no metrics; the missed-occurrence catch-up of a cron after
+downtime is pg-boss's default, untested.
 
 ## 6. Email and storage
 
 - **Email**: Resend over `fetch`, `sendEmail(...)`, neutral templates. With no key, messages are
   logged (`[email:dev]`), never errors. The magic link is sent inline; other email is `email.send`
   jobs.
-- **Storage (D23)**: the `StorageService` seam (`c.get('platform').storage`; R2 on the Worker,
-  any S3-compatible store on Node). Keys are `tenants/<tenantId>/<scope>/<uuid>-<name>`. Bytes
+- **Storage (D23)**: the `StorageService` seam (`c.get('platform').storage`, any S3-compatible
+  store). Keys are `tenants/<tenantId>/<scope>/<uuid>-<name>`. Bytes
   stream through the server (no presigned URLs). The `files` table is the immutable index and the only thing the browser can name. Writes
   go object first, then row, and a failed insert deletes the object.
 - **`/api/files`**: upload with per-scope type/size checks (413/415); tenant-scoped read (another
@@ -356,19 +346,19 @@ connection cap per tenant or user (the DO had none either) and no metrics.
   the 304 early return. Never use a path allowlist for this.
 - A missing `FILES` binding is 503 `storage_not_configured`. `tenant.purge` pages through the
   tenant prefix and is idempotent.
-- **Storage on Node (M6)**: `STORAGE_DRIVER=s3` + `STORAGE_ENDPOINT` / `STORAGE_REGION` /
+- **The S3 adapter (D41)**: `STORAGE_DRIVER=s3` + `STORAGE_ENDPOINT` / `STORAGE_REGION` /
   `STORAGE_BUCKET` / `STORAGE_ACCESS_KEY_ID` / `STORAGE_SECRET_ACCESS_KEY` /
-  `STORAGE_FORCE_PATH_STYLE` (`src/node/storage.ts`, `@aws-sdk/client-s3`): AWS S3, R2's S3
-  endpoint, MinIO, GCS interop — one adapter, the endpoint decides. It answers what the R2 adapter
-  answers: the quoted ETag, a listing with no content type or metadata (R2's `list` has neither),
-  `deleteMany` in calls of ≤ 1000, a streamed body. S3 lower-cases metadata keys, so the originals
+  `STORAGE_FORCE_PATH_STYLE` (`src/node/storage.ts`, `@aws-sdk/client-s3`): AWS S3, Cloudflare R2's
+  S3 endpoint, MinIO, Ceph, GCS interop — one adapter, the endpoint decides. It answers the quoted
+  ETag, a listing with no content type or metadata, `deleteMany` in calls of ≤ 1000, a streamed
+  body. S3 lower-cases metadata keys, so the originals
   ride in `x-amz-meta-rp-keys` and come back case-preserved. Locally and in tests the store is the
   **Versity S3 Gateway** (Apache-2.0) in the compose files — MinIO's images are no longer published
   for anonymous pulls; `pnpm dev:db:up` starts it and writes the `STORAGE_*` lines into `.env`.
 
 **Known gaps:** `avatarUrl` is global but the object is tenant-scoped (initials fallback elsewhere);
 re-uploads leave the old object; no listing endpoint, quotas or presigned URLs; unbranded templates.
-On Node: no Azure Blob adapter (not S3-compatible); metadata values travel as HTTP headers, so
+No Azure Blob adapter (not S3-compatible); metadata values travel as HTTP headers, so
 non-ASCII values are not supported (the kit writes only ids and scopes); `put` reports the request
 time as `uploaded` (S3's PutObject does not answer the stored one; `head`/`get` do).
 
@@ -392,41 +382,40 @@ is hard-coded.
 
 ## 8. Analytics
 
-**The `analytics` PLUGIN, the one `defaultPlugins` entry (D31, since 0.6.0).** Repository
+**The `analytics` PLUGIN (D31, since Rocketflare 0.6.0) — not installed by default in Rocketpod (see gaps).** Repository
 `rocketflare-dev/rocketflare-plugin-analytics`. Once installed, its docs are its own `CLAUDE.md`
 files. drizzle-cube cubes scope every `sql()` by tenant, dashboards are jsonb `DashboardConfig`s
 restrictable to groups, fact tables rebuild on the `:15` cron, and its cube-isolation test is
 mandatory. The kit core knows nothing about drizzle-cube, and other plugins extend it through
 `analyticsExtensions({...})`. `bootstrap --no-plugins` gives a kit without it.
 
-The kit still owns `activity_events`, the catch-all/`run_worker_first`/Vite-proxy files its
-prefixes must be added to, and the visibility registry it registers into.
+The kit still owns `activity_events`, the API-prefix list and Vite proxy its prefixes must be
+added to, and the visibility registry it registers into.
 
-**Known gaps (kit side):** `activity_events` has no retention; nothing proves a plugin's cron reached
-the tomls beyond parity between the two files; fact refresh/check need a running server and CLI.
+**Known gaps (kit side):** `activity_events` has no retention; the published analytics release
+still declares Cloudflare bindings, so `defaultPlugins` is empty and a fresh Rocketpod has no
+dashboards until a container-ready release exists; fact refresh/check need a running server and CLI.
 
 ## 9. AI layer
 
 Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompts.ts`,
-`api/workflows/agent-run.ts`. Contracts: `packages/shared/src/ai/*`. Rules: `.claude/rules/api.md`
+`api/workflows/agent-run-body.ts`. Contracts: `packages/shared/src/ai/*`. Rules: `.claude/rules/api.md`
 § AI services.
 
 - **One resolver (D17)**: `resolveChat` / `resolveEmbeddings` are the only readers of `ai_configs`
   / `agent_models` and the only place credentials are decrypted. Chat order: per-agent assignment →
-  tenant default → platform `ANTHROPIC_API_KEY` → platform `AI_API_KEY` (M6: OpenAI-compatible at
+  tenant default → platform `ANTHROPIC_API_KEY` → platform `AI_API_KEY` (OpenAI-compatible at
   `AI_BASE_URL` with `AI_MODEL` — OpenRouter, vLLM, Ollama — or OpenAI itself without a base URL)
-  → **Workers AI `glm-4.7-flash` via `[ai]`** (the Worker only) → 503 `ai_not_configured`.
-  Embeddings order: tenant → Workers AI `bge-m3` (1024-dim, the Worker only) →
-  `EMBEDDINGS_API_KEY` (OpenAI, or OpenAI-compatible at `EMBEDDINGS_BASE_URL` with
-  `EMBEDDINGS_MODEL`; `dimensions: 1024` is always sent, so the model must honour it) → 503.
-  Workers AI calls are **billed** to the account; removing `[ai]` from both tomls makes the kit
-  zero-spend. **On Node there is no Workers AI**: no key means chat, agents and indexing answer 503. Credentials never leave the server (`hasCredential`); every
+  → 503 `ai_not_configured`. Embeddings order: tenant → `EMBEDDINGS_API_KEY` (OpenAI, or
+  OpenAI-compatible at `EMBEDDINGS_BASE_URL` with `EMBEDDINGS_MODEL`; `dimensions: 1024` is always
+  sent, so the model must honour it) → 503. **There is no zero-key mode** (D41): no key means chat,
+  agents and indexing answer 503; the gate needs none (tests point both at an in-process fake
+  OpenAI-compatible endpoint). Credentials never leave the server (`hasCredential`); every
   error is normalised to `AiError` with secrets redacted.
-- **Providers**: `anthropic`, `anthropic_compatible`, `openai`, `openai_compatible`, `workers_ai`.
-  There is no Vercel AI SDK and no Bedrock (a SigV4 adapter behind `ChatClient` is the extension).
-  Workers AI quirks — two response shapes, per-model `tool_choice`/streaming lists, fragmentary tool
-  calls, schema-flattening retry — are in `services/ai/CLAUDE.md`. The floor model was chosen
-  because it can run the *agents*.
+- **Providers**: `anthropic`, `anthropic_compatible`, `openai`, `openai_compatible`. There is no
+  Vercel AI SDK and no Bedrock (a SigV4 adapter behind `ChatClient` is the extension). History rows
+  written by Rocketflare's `workers_ai` provider still parse (`RECORDED_AI_PROVIDERS`) and show as
+  unpriced.
 - **Kit** (`services/ai/kit.ts`): `runStreamingChat`, `runToolLoop`, `callStructuredTool`, prompt
   caching helpers. Prompts are code (`PROMPT_REGISTRY`) with per-tenant override rows.
 - **AG-UI is the wire protocol (D28)**: `@ag-ui/core` is pinned exactly and imported only by
@@ -474,20 +463,20 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
 - **Reading runs**: `agent_run_events` is the durable log, and AG-UI is a pure read-time
   projection (`/agui`), also streamed live by tailing `seq` (`/agui/stream`, #7). A read-stream
   failure emits no `RUN_ERROR` (clients reconnect); `id:` goes on the last frame of a row's group,
-  and reconciliation runs once before the first frame. Payloads never go over the tenant-wide DO,
+  and reconciliation runs once before the first frame. Payloads never go over the tenant-wide realtime channel,
   because run visibility is per run.
 - **Knowledge (D18)**: `documents` + `chunks` (pgvector HNSW). Text is ingested inline or by job;
-  uploads go to storage, then the platform `converter` (`AI.toMarkdown` on the Worker; on Node,
-  M6, `src/node/converter.ts`: `unpdf` for PDF, `mammoth` for .docx → markdown, HTML stripped to
-  text, XML/text decoded — Excel and OpenDocument answer a permanent `format: 'error'`), then the
-  same indexer. Search is hybrid dense + lexical
+  uploads go to storage, then the platform `converter` (`src/node/converter.ts`: `unpdf` for PDF,
+  `mammoth` for .docx → markdown, HTML stripped to text, XML/text decoded), then the same indexer.
+  The converter declares its `contentTypes`, and an upload it cannot convert is 415
+  `unsupported_media_type` before anything is stored. Search is hybrid dense + lexical
   (the lexical half matches ANY query word, ranked by `ts_rank_cd` — `anyTermTsquery` — so a
   sentence's filler words cannot veto it) with RRF, scoped by `AccessScope` (§1).
   `document-content.ts` is the one text reader behind both
   the viewer and `get_document`. Agent tools resolve the requester's access at execute time.
   **External ids (D34)**: `documents.external_id` is unique per `(tenant_id, source)` (partial
   index); an ingest carrying one is an upsert — one `ON CONFLICT` statement, grants
-  replaced, chunks rebuilt, a replaced original removed from R2 — so a connector's re-sync never
+  replaced, chunks rebuilt, a replaced original removed from storage — so a connector's re-sync never
   duplicates. Plugins reach it through `ingestDocument` (§16).
 - **Usage**: one `ai_usage` row per call, costed at write time from the one price table
   (`shared/ai/pricing`; an unknown model gets `null` and is counted as unpriced).
@@ -568,14 +557,14 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   was also rejected: steps are unlimited in wall-clock time, and splitting would force every side
   effect outside a step to replay.
 
-**Known gaps:** on Node (M6) the upload route accepts every convertible type but the converter reads only PDF, .docx, HTML, XML and text — an Excel or OpenDocument upload fails at `document.convert` with a permanent error, not at upload; no document summary or thumbnail (the card is an excerpt; Workers cannot rasterise);
+**Known gaps:** no Excel or OpenDocument conversion (refused at upload); no document summary or thumbnail (the card is an excerpt);
 `charOffset` does not map to PDF pages; no frontend tools in chat, no `STATE_DELTA`; protobuf drops
 `TOOL_CALL_RESULT` and has no stream cursor; `@ag-ui/core` is 0.0.x (pin + contract test are the
-mitigation); no token-level streaming for runs (would need a per-run DO); char-based history budget
+mitigation); no token-level streaming for runs; char-based history budget
 not derived from the model; sliding window defeats prompt caching on long threads; `enqueueRun`
-does not pre-resolve the client; Workers AI forced tools on off-list models are best-effort; no
+does not pre-resolve the client; no
 rerank, no generated `tsvector`; no non-exclusive agents; HITL asks cannot be amended, have no
-reminders, and parks are bounded by instance retention (3 days Free / 30 Paid); runs nobody opens
+reminders, and parks are bounded by `AGENT_INTERRUPT_TIMEOUT`; runs nobody opens
 stay active-looking; no budgets/quotas over `ai_usage` or prompt versioning. Decisions (D37): no
 replay of an agent's CODE over recorded answers (stored and re-askable, not yet re-runnable), no
 zod-schema → questions compiler, the `llm_self_report` fallback is uncalibrated with no vote/logprob
@@ -596,21 +585,34 @@ zero-length span, not an OTLP span event, and is not traced when the answer's ro
 
 ## 10. Deployment
 
-**Removed in M6b; the container path is ROADMAP M7.** Rocketflare's Cloudflare deploy — two tomls
-and their parity test, `pnpm provision` / `/rf-provision`, `deploy.yml`, the external deployer and
-the build-once bundle — is gone. What remains: the release is the tag, which must equal the root
-`package.json` version (`release-check.mjs`), and `ci.yml` is ONE gate job — the secrets scan, then
-`pnpm gate` (§4), narrowed to `pnpm gate build` only on a tree Launch already gated when
-`LAUNCH_GATE_APP_ID` is set. `release-check.mjs --deployable` answers "the kit itself does not
-deploy, a copy does", and `gatedDecision` ("is this commit already gated?") is kept for the release
-workflow M7 adds. The production server is `pnpm build` then
-`node apps/web/dist/server.js [web|worker|all]`, configured entirely by environment variables
-(`apps/web/.env.example`); `pnpm db:migrate:ci` migrates it. The kit's renamed-copy and
-default-plugins gates, its porting-note and plugin-API checks live in `kit.yml` (`kitOnly`).
+**One image, three modes, configured by environment (D41).** Runbook: `docs/DEPLOY.md`; the
+`rp-deploy` skill drives it.
 
-**Known gaps:** no image, no Compose file for the app, no Helm chart, no release workflow (M7); no
-runbook (`docs/DEPLOY.md` is Rocketflare's, kept for reference until M8); Launch cannot ship this kit
-— its contract is Cloudflare-shaped (`launch.kit.json` `$runtime`).
+- **The image** (root `Dockerfile`): `pnpm build` in a build stage, then `node:24-alpine` with the
+  two bundles (`dist/server.js`, `dist/migrate.js`), `dist/ui` and `migrations/` — no
+  `node_modules`. Non-root, `ENTRYPOINT ["node","dist/server.js"]`, `CMD ["web"]`, a `/healthz`
+  `HEALTHCHECK`. `node dist/migrate.js` is the one-shot (role → drizzle migrations → pgboss and
+  openworkflow schemas → grants), the same sequence as `pnpm db:migrate`.
+- **Compose** (root `docker-compose.yml`): pgvector Postgres, the S3 gateway, `migrate`, `web` and
+  `worker`; `deploy/compose.single.yml` runs one `all` process instead. Values come from a root
+  `.env` (template `deploy/compose.env.example`).
+- **Helm** (`deploy/helm/rocketpod`): `web` and `worker` Deployments, the migrate Job as a
+  `pre-install,pre-upgrade` hook, Service, Ingress (WebSocket upgrade), ConfigMap + Secret
+  (`existingSecret` supported), PodDisruptionBudget. Postgres and S3 are external.
+- **Scaling**: `web` replicas are stateless (realtime fans out over NOTIFY, §5); `worker` replicas
+  are safe (pg-boss and OpenWorkflow claim work in the database; cron runs once).
+- **Parity is a test**: `tests/config/packaging.test.ts` holds the Dockerfile to what the build
+  produces, compose and the chart to valid modes and real config keys, and the chart's
+  ConfigMap/Secret keys to exactly the vars and secrets `src/config.ts` declares.
+- **Releases**: the release is the tag, which must equal the root `package.json` version
+  (`release-check.mjs`); `image.yml` builds the image on every PR and push to main, pushes
+  `ghcr.io/rocketflare-dev/rocketpod` on a tag, and lints, renders and validates the chart.
+  `ci.yml` is ONE gate job — the secrets scan, then `pnpm gate` (§4). The kit's renamed-copy and
+  default-plugins gates, its porting-note and plugin-API checks live in `kit.yml` (`kitOnly`).
+
+**Known gaps:** no live `helm install` has been verified; no image signing or SBOM; no
+autoscaling defaults; the `web` preStop `sleep` needs Kubernetes ≥ 1.30; Launch cannot ship this
+kit — its contract is Cloudflare-shaped (`launch.kit.json` `$runtime`).
 
 ---
 
@@ -627,7 +629,8 @@ No command prints a full key. Plugins register top-level commands named after th
 Detail: `.claude/rules/cli.md`.
 
 **Known gaps:** no device-code flow; one profile at a time; `logout` does not revoke the key; no
-shell completion; not published.
+shell completion; not yet published to npm (`rocketpod` / `@rocketpod/cli` are the intended names;
+no publish workflow exists).
 
 ## 12. Shared package
 
@@ -642,7 +645,11 @@ cycle). Detail: `packages/shared/CLAUDE.md`.
 
 ## 13. Upgrading a copy
 
-**A renamed copy with deleted examples still absorbs later kit releases (D27).**
+**A renamed copy with deleted examples still absorbs later kit releases (D27).** Rocketpod is a kit
+in its own right: its copies upgrade from Rocketpod releases (`kit.repo` is
+`rocketflare-dev/rocketpod`), and Rocketpod itself takes Rocketflare's releases by hand
+(`docs/FORK.md`), never through this machinery. `.rocketflare.json` and `rocketflare-plugin.json`
+keep their names on purpose — they are the plugin ecosystem's fixed filenames (`KIT.ecosystem`).
 
 - **`.rocketflare.json`**: kit `{id, repo, version, commit}`, the app's names (`app === null` means
   "this is the kit", asked only through `readManifest()`), `history[]`, `retiredSurfaces`
@@ -661,11 +668,8 @@ cycle). Detail: `packages/shared/CLAUDE.md`.
   (`1.2.3`).
 - **The Launch kit contract** (`launch.kit.json`, D36): what the kit calls things and how Launch
   drives an app made from it — the scaffold (`rename.mjs`, `kitOnly`, `postInit`, the app manifest
-  `.rocketflare.json` whose `kit.id` Launch reads), the two tomls and the `{slug}-{suffix}` naming
-  (with `worker.titles`: `RATE_LIMIT_KV` is titled `<slug>-rate-limit`), the vars and secrets Launch
-  provides, the database roles and migrate command, the health routes, the gate (`Gate`,
-  `pnpm gate --list --json`, `LAUNCH_GATE_APP_ID`, `TEST_DATABASE_*`), `deploy.yml` (deployer
-  protocol v1), the session commands (the bootstrap with `--db-url`, the dev server, its ports and
+  `.rocketflare.json` whose `kit.id` Launch reads), the vars and secrets Launch provides, the database roles and migrate command, the health routes, the gate (`Gate`,
+  `pnpm gate --list --json`, `LAUNCH_GATE_APP_ID`, `TEST_DATABASE_*`), the session commands (the bootstrap with `--db-url`, the dev server, its ports and
   sandbox switches), the upgrade command and skill, and `plugins.defaults` — a MIRROR of
   `defaultPlugins` above, which stays the source the bootstrap and `kit.yml` read (a kit-only test
   holds them equal). Its shape is Launch's zod schema (`@launch/shared/kit-manifest`), mirrored in
@@ -673,16 +677,13 @@ cycle). Detail: `packages/shared/CLAUDE.md`.
   its sessions, gate and releases, so the rename rewrites it through the token map EXCEPT its `kit`
   block (`renameKitManifest`), and `kit:upgrade` treats it as `manual`. `scripts/kit-check.mjs`
   (`--exec` also runs the gate list) is the static conformance check Launch applies before a kit
-  can be picked — shared byte for byte with the meta-kit `rocketflare-dev/launch-kit` (one change
-  lands in both) — run by `kit.yml` on the kit and on the renamed `my-app` copy. Its ids rule knows
-  which it is looking at: the kit's KV ids are `<PLACEHOLDER>`s; a copy's may be placeholders or
-  the real ids Launch's `write_config` commits; `--provisioned` (deploy.yml) wants real ids
-  everywhere. **No test judges the checkout it runs in** — config tests travel into every copy,
-  which Launch renames and provisions: the checker's and the manifest shape's tests run on a fixture
-  kit (`tests/config/fixtures/kit-fixture.mjs`, shared with the meta-kit, which also provisions it
-  the way `write_config` does), the toml patcher's on a snapshot of the shipped tomls; the kit's
-  own files are judged by `kit.yml` and `tests/kit-only/` (`launch-kit-manifest.test.ts` checks the
-  VALUES against the bootstrap, the dev server, the tomls and the RLS role).
+  can be picked — shared byte for byte with Rocketflare's meta-kit `rocketflare-dev/launch-kit`.
+  **Rocketpod does not conform**: Launch's schema-1 contract needs a Worker toml pair and a deployer
+  workflow, so `worker` and `release` are kept only to stay schema-valid (`$runtime` says so),
+  `kit.yml` does not run the check, and its tests run on the fixture kit
+  (`tests/config/fixtures/kit-fixture.mjs`). The kit's own values are judged by `tests/kit-only/`
+  (`launch-kit-manifest.test.ts` checks them against the bootstrap, the dev server and the RLS
+  role).
 - **A copy's version is its own**: the rename restarts the root `package.json` version at `0.1.0`
   and empties `CHANGELOG.md` (`restartAppVersion`, only while the root version is still the kit's),
   so an app's releases never read as kit releases. Which kit it came from lives in one place,
@@ -694,7 +695,7 @@ cycle). Detail: `packages/shared/CLAUDE.md`.
 - **`scripts/upgrade.mjs`**: a blobless mirror in `.upgrade/`. It classifies paths, drops absent
   surfaces and plugin-owned files, translates through the same `applyReplacements()` as the rename,
   then patches with `--reject` as a fallback. It **never** applies kit migrations (snapshots are
-  cumulative), writes resource ids into tomls, applies deletions unasked, or ports the root
+  cumulative), applies deletions unasked, or ports the root
   version. The version stamp is written last, only on a clean apply.
 - **A copy hears about releases on its own**: a Claude Code `SessionStart` hook
   (`scripts/kit-update-check.mjs`, in `.claude/settings.json`) compares `kit.version` with the
@@ -711,7 +712,7 @@ cycle). Detail: `packages/shared/CLAUDE.md`.
 
 **Known gaps:** a copy pinned before 0.10.1 has no update hook until it upgrades (and
 `.claude/settings.json` is `manual`, so that upgrade must add the hook entry by hand); summaries
-only for a GitHub-hosted kit; tomls and `.env.example` are diffed, not merged; the reject rate is not
+only for a GitHub-hosted kit; `.env.example`, the chart's `Chart.yaml`/`values.yaml` are diffed, not merged; the reject rate is not
 predicted; pre-manifest copies need `--adopt`; no partial upgrades; nothing checks the adopter ran
 migrations; lockstep plugin releases bump every plugin in a monorepo; a copy on 0.15.7 or older deletes
 its kit-only tests by hand once (its upgrader predates `kitOnly`); the release and rename SCRIPTS
@@ -774,8 +775,11 @@ the Bearer path; flags cannot gate pre-tenant surfaces.
 
 **A plugin is a git repository COPIED into an app, never an npm package (D31)**, translated through
 `applyReplacements()` like kit code. Only first-party plugins for now: installing one is as trusting
-as merging a PR. A plugin repo mirrors the host tree and ships **no migration, no toml and no
-`package.json`**. Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
+as merging a PR. A plugin repo mirrors the host tree and ships **no migration and no
+`package.json`**. Plugins share Rocketflare's ecosystem files (`rocketflare-plugin.json`), so one
+that uses only the injected context installs in either kit; one that declares Cloudflare
+`bindings` or `workerExports` is refused at `add` and fails `check` as `<id>:cloudflare-only`.
+Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
 `docs/plugin-api.md`.
 
 - **Outbound**: four published entries (server, UI, shared, CLI). Nothing reaches past them, in
@@ -788,8 +792,8 @@ as merging a PR. A plugin repo mirrors the host tree and ships **no migration, n
   pages). Tests use `@testkit/{integration,unit}`, whose builders refuse a database handle not
   created by `setupTestDatabase`. `tests/helpers/plugins.ts` enforces all of this, and every
   diagnostic names the replacement import.
-- **Six barrels**, one line per plugin each, written by `pnpm plugin add|remove`: shared, server,
-  schema, ui, worker-exports (DO/Workflow classes reach `worker.ts`), cli. Each exports an `as const`
+- **Five barrels**, one line per plugin each, written by `pnpm plugin add|remove`: shared, server,
+  schema, ui, cli. Each exports an `as const`
   tuple plus a widened list, so an empty kit still typechecks. **Opening a closed set** always
   follows one pattern: `X = [...CORE_X, ...plugins]`. `ServerPlugin<S>` checks handlers, agents and
   prompts exhaustively against the plugin's own keys.
@@ -813,16 +817,16 @@ as merging a PR. A plugin repo mirrors the host tree and ships **no migration, n
 - **Lifecycle** (`scripts/plugin.mjs`): `add` (plan, then `--apply`), `upgrade`, `remove`
   (`--archive`), `list`, `check`, `export`. Every plan step is **declarative, agent (with its
   assertion) or human** — a printed instruction is not a mechanism. The host generates the
-  migration (`db:generate --name plugin-<id>-<version>`). `pnpm provision cloudflare <env>` writes
-  a plugin's bindings (`kv|queue|r2|workflow|durable_object`), crons, prefixes and vars into BOTH
-  tomls. DO migration tags `plugin-<id>-vN` are append-only.
+  migration (`db:generate --name plugin-<id>-<version>`). A plugin's crons join the scheduled
+  registry (pg-boss schedules, §5); its `vars` are environment keys, added to `.env.example` and
+  the chart's ConfigMap by hand.
 - **`plugin check` is an exhaustive oracle**: manifest fields, `minKit`, ledger diff, barrel lines,
   `*.rej`, migration tag, host dependencies (present, at a range inside the declared one —
   `add` writes the declared range, never pnpm's `^<resolved>`; `upgrade` installs what a release
   adds or re-ranges and removes what it drops only when a plugin brought it in — the surface's
   `addedDependencies` record, never range equality — no other plugin declares it and the host
-  holds exactly the old range — a range a peer plugin cannot use is refused), worker exports, a tenant-isolation test for tenant
-  tables, `onTenantDeleted` for DOs, table collisions, declared skills. Each finding names file, line and exact edit.
+  holds exactly the old range — a range a peer plugin cannot use is refused), Cloudflare-only
+  declarations, a tenant-isolation test for tenant tables, table collisions, declared skills. Each finding names file, line and exact edit.
   Structural checks read comment-free code. It runs where a finding can still be acted on: at the
   end of `plugin add|upgrade --apply` (exit 8 when the tree it wrote fails), in the plugin's own CI
   (`plugin-ci.yml`) and in `kit.yml` — not in an app's `pnpm gate`, because an undeclared import
@@ -834,8 +838,8 @@ as merging a PR. A plugin repo mirrors the host tree and ships **no migration, n
   `@/plugins/api`. That is the kit's AES-GCM under `OAUTH_ENCRYPTION_KEY`, with a 503 when the key
   is unset. Store the sealed value in a `*_enc` column and answer `hasCredential`.
 - **Public mounts (D34)**: `publicMounts` are routes a third party calls with no session — an
-  admin-consent callback, a webhook. Only under `/api/hooks/<id>` (so no toml edit and one
-  enumerable prefix per plugin), mounted before the authed table with no `authMiddleware` and no
+  admin-consent callback, a webhook. Only under `/api/hooks/<id>` (one enumerable prefix per
+  plugin), mounted before the authed table with no `authMiddleware` and no
   gate; `tests/config/plugins.test.ts` refuses one anywhere else and any authed mount there. The
   handler gets `publicCtx(c)` — no tenant, no auth fields, `enqueue`, `features(tenantId)` — and
   proves the caller before naming a tenant. `signState` / `verifyState` are the proof for a
@@ -859,8 +863,8 @@ as merging a PR. A plugin repo mirrors the host tree and ships **no migration, n
   undescribed, and a directory in the plugin's namespace it does not declare. `.claude/` in a
   plugin repository stays that repository's own tooling. `example-feature` ships one.
 - **Hooks** (`onTenantCreated`, `onTenantDeleted`, `seedDemo`) run post-commit, are idempotent,
-  and are try/caught. DO state is purgeable only through instance names **derived** from the tenant
-  id.
+  and are try/caught. State a plugin keeps outside Postgres (its own storage prefix, an external
+  system) is purged in `onTenantDeleted`, addressed by names **derived** from the tenant id.
 - **Traps measured, now rules**: registries a plugin composes into are FUNCTIONS, not consts
   (module-evaluation order); a value a plugin needs moves to a leaf module; browser-read registries
   are separate files from composing ones; plugins declare `relations()` for their own tables only
@@ -885,13 +889,13 @@ as merging a PR. A plugin repo mirrors the host tree and ships **no migration, n
 | 9 | Four published entries; deep imports fail in either direction |
 | 10 | Phase A shipped as four PRs, one release |
 | 11 | Uninstall drops tables by default, `--archive` on request |
-| 12 | Provisioning writes plugin bindings into both tomls (`kv`/`queue`/`r2` created; `workflow`/`durable_object` declared) |
+| 12 | *(Rocketflare)* Provisioning wrote plugin bindings into both tomls — in Rocketpod a binding is refused as cloudflare-only |
 | 13 | Every manifest has a required `repo` |
 | 14 | The inbound surface is injected context (the `*Ctx` family), not imported symbols |
 | 15 | What cannot be injected is a declared entry (`@/db/schema/kit`, split UI kit, `@testkit/*`) |
-| 16 | A printed instruction is not a mechanism — hence the worker-exports barrel |
-| 17 | DO migration tags are append-only and host-owned |
-| 18 | Out-of-Postgres tenant state is purged via `onTenantDeleted` over derived DO names |
+| 16 | A printed instruction is not a mechanism — hence the barrels |
+| 17 | *(Rocketflare)* DO migration tags are append-only and host-owned — no DOs in Rocketpod |
+| 18 | Out-of-Postgres tenant state is purged via `onTenantDeleted` over derived names |
 | 19 | Test builders refuse a fake database |
 | 20 | Every plan step is declarative, agent or human (`kind` in `--json`) |
 | 21 | `plugin check` is an exhaustive, untiered oracle that reads comment-free code |
@@ -900,11 +904,13 @@ as merging a PR. A plugin repo mirrors the host tree and ships **no migration, n
 
 **Known gaps:** no sandbox, review or signing; no rename migrations (expand/contract only); no
 cross-plugin FK tooling or `many()` onto core tables; `grants` is additive by convention only;
-provisioning never deletes resources; `d1`/`vectorize`/`analytics_engine` bindings are refused;
+a plugin cannot register a durable workflow or a Node service of its own (only jobs, crons,
+routes, agents and tools); `defaultPlugins` is empty until the analytics plugin has a release
+without Cloudflare bindings;
 the ledger judges only ledgered entries, ignores namespace imports, truncates types over 300
 chars, and `uses` is only as fresh as the last export; table collisions are caught by `check`, not
 refused at `add`; the isolation check proves a test exists, not that it is right; no database-free
-test of data-touching handlers; one DO per row is unpurgeable (purge-intent ledger not built);
+test of data-touching handlers; no purge-intent ledger;
 `plugin-ci.yml` input changes reach callers only via `main`, and nothing tests versions between
 floor and ceiling. `addedDependencies` starts after 0.17.1: a plugin installed by 0.17.1 or earlier has its
 older packages kept, never removed, when a release drops them, and a package a plugin added that
@@ -912,7 +918,7 @@ the kit later starts declaring too is still the plugin's to remove. Public mount
 (test them through `request()`); `verifyState` has no replay ledger — a token is reusable until it
 expires, so a plugin whose callback must run once records that itself; an ingested document's
 upsert reads the previous row before writing, so two racing re-ingests of a FILE may leave one
-replaced original behind in R2; a plugin skill edited in place is overwritten by the next
+replaced original behind in storage; a plugin skill edited in place is overwritten by the next
 `plugin upgrade` (copy it to a skill of your own first), and `check` validates a skill's name and
 description, not what it says — a stale command in a SKILL.md is caught only by reading it.
 

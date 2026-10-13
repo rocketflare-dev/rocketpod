@@ -37,7 +37,8 @@ itself and runs the driver conformance pass under both drivers (docs/CONCEPTS.md
   (workspace link, resolved to `packages/shared/src/<module>.ts` — TS source, no build). `packages/shared`
   imports nothing from `apps/web` or `apps/cli` — it must bundle for the browser; `apps/cli` never
   imports `apps/web`
-- Bindings are typed by the generated `Cloudflare.Env`; do not hand-write an `Env` interface
+- Runtime capabilities are typed by the `Platform` interfaces (`src/platform/types.ts`) and config by
+  `Config` (`src/config.ts`); do not hand-write an `Env` interface
 - Infer types from zod schemas (`z.infer`) rather than duplicating interfaces
 
 ## Contracts first

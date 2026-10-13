@@ -67,6 +67,7 @@ Every runtime capability is now a neutral `Platform`, a Node entry (`src/node/se
 - The test env's model runner is a recording OpenAI-compatible endpoint (`RecordingAi`, `FAKE_MODELS_BASE_URL`) reached through `fetch`; `createTestEnv()` points `AI_*` and `EMBEDDINGS_*` at it, and `ai: null` leaves them to `process.env`.
 - Skills are `rp-*` (`rp-setup`, `rp-preflight`, `rp-adapt`, `rp-how-do-i`, `rp-upgrade`, `rp-plugin`, `rp-traces`, `rp-evals`), plus the new `rp-deploy` — Compose or Helm, the secrets checklist, and a stop before anything that pushes, touches a cluster or bills.
 - The drizzle migration chain is squashed: `0000_rocketpod-baseline.sql` is the whole kit schema and `0001_plugin-example-feature-0.1.0.sql` the vendored plugin's table (so `plugin check` still finds the plugin's migration). A schema dump of a database built from them equals one built from the old 19-file chain, column order aside.
+- Docs describe the container runtime (D41): `docs/CONCEPTS.md` replaces every removed-in-M6b banner with the Node design and its known gaps (pg-boss, OpenWorkflow, `ws` + NOTIFY, S3, three pools per process, no zero-key AI), and `SETUP.md`, `README.md`, `docs/ADAPTING.md`, `docs/RLS.md`, `CONTRIBUTING.md`, `SECURITY.md`, `CLAUDE.md`, `.claude/rules/*` and the per-directory guides follow; `docs/ROADMAP.md` gains a Next list.
 
 ## How to apply
 

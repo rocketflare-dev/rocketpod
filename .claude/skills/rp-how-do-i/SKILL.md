@@ -111,7 +111,7 @@ ones their slice touches, and say what enforces each, so the rule is a test and 
 - **A new CASL subject** goes in `apps/web/src/permissions/abilities.ts` AND the matrix in
   `docs/CONCEPTS.md` §1. Owner-only actions are an explicit `role === 'owner'` check (`guardOwner`),
   never `manage`, because CASL conditions are not used anywhere in this kit.
-- **Routes enqueue, never run.** Long work is `JOBS_QUEUE` or a Workflow; side effects go through
+- **Routes enqueue, never run.** Long work is a job (`platform.jobs`, pg-boss) or an agent run (`platform.runs`); side effects go through
   `defer`. A new job type is a variant in `packages/shared/src/jobs.ts` plus a handler — and the
   `type` string is the version seam, so a breaking payload is a new type, never an edited schema.
 - **The realtime `entity` string IS the query-key family root.** `entity.changed { entity: 'order' }`

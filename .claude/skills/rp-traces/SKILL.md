@@ -59,7 +59,7 @@ invoke_agent research-topic   ERROR …            ← root: the run / turn / jo
 1. **The failing span.** The first `ERROR` in tree order is usually the cause; the root's message
    is the sentence the run stored. A provider error on a `chat <model>` span (rate limit,
    overloaded, bad credentials) is infrastructure — point at `resolveChat`'s tier (tenant config,
-   platform key, Workers AI) rather than the agent.
+   platform `ANTHROPIC_API_KEY` / `AI_API_KEY`) rather than the agent.
 2. **Tool arguments and results.** Read `in:` against the tool's schema (`services/agents/tools/`):
    a model passing strings for numbers, a wrong document id, an offset past the end. Read `out:`: a
    tool answering `{ error, hint }` is a dead end the model should act on — did the next generation

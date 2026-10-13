@@ -4,8 +4,8 @@
  * the middleware uses: cookie → session → `resolveCookieAuth` (blocked / suspended → 403), then a
  * `tenant_users` membership check for the REQUESTED tenant (`?tenantId`, else the session's) — a
  * client-sent tenant id is never trusted without a matching row. Only then is the upgrade handed
- * to the platform's realtime hub (`accept`), which trusts the identity it is given — on the Worker,
- * the tenant's Durable Object, reachable solely through its binding.
+ * to the platform's realtime hub (`accept`, `src/node/realtime.ts`), which trusts the identity it
+ * is given — it is reachable only from this route, inside the upgrade's request scope.
  *
  * A non-upgrade GET gets a JSON 426 envelope; CSRF needs no exemption (GET is a safe method).
  */

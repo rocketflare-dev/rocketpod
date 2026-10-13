@@ -7,7 +7,7 @@
  * - `databaseSpanStore(db)` — a Workflow step or a job, whose client is open until after the flush.
  * - `ownConnectionSpanStore(cfg)` — a request, whose client is closed in `waitUntil` possibly
  *   BEFORE the tracer's flush runs there (and a chat stream closes its own first). It opens one
- *   short-lived client per non-empty flush (a view of the pool on Node, Hyperdrive on the Worker), so that is cheap.
+ *   short-lived client per non-empty flush (a view of the process pool), so that is cheap.
  * `onConflictDoNothing` on `(tenant_id, trace_id, span_id)`: a run's root is recorded by
  * `finishStep`, which runs twice on the expiry path.
  */

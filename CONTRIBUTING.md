@@ -1,13 +1,9 @@
 # Contributing
 
-> **Rocketpod (M6b).** Cloudflare is gone: no Worker, tomls, bindings, wrangler or provisioning.
-> Passages below that still name them describe Rocketflare and are rewritten in ROADMAP M8; the
-> runtime as it is now is `.claude/rules/runtime.md` and `docs/DESIGN-SELFHOSTED.md`.
+Welcome — thanks for your interest in Rocketpod.
 
-Welcome — thanks for your interest in Rocketflare.
-
-Rocketflare is maintained by [Clifton Cunningham](https://github.com/cliftonc) and community
-contributors. All contributions are reviewed and approved by the maintainer.
+Rocketpod (a container-native fork of Rocketflare, `docs/FORK.md`) is maintained by
+[Clifton Cunningham](https://github.com/cliftonc) and community contributors. All contributions are reviewed and approved by the maintainer.
 
 Ways to contribute:
 
@@ -18,20 +14,20 @@ Ways to contribute:
 
 ## <a name="bug-report"></a> Submitting a bug report
 
-Open an [issue](https://github.com/rocketflare-dev/rocketflare/issues/new) with a title starting
+Open an [issue](https://github.com/rocketflare-dev/rocketpod/issues/new) with a title starting
 "Bug: ". Include the command you ran, the output, and whether a fresh clone following `SETUP.md`
 Part 1 reproduces it. Security issues go through [`SECURITY.md`](SECURITY.md), not a public issue.
 
 ## <a name="feature-request"></a> Submitting a feature request
 
-Open an [issue](https://github.com/rocketflare-dev/rocketflare/issues/new) with a title starting
+Open an [issue](https://github.com/rocketflare-dev/rocketpod/issues/new) with a title starting
 "Feature Request: ". Say which subsystem it belongs to (`docs/CONCEPTS.md` has one section per
 subsystem, each ending in **Known gaps** — check there first; many good ideas are already listed as
 deliberate omissions with a reason).
 
 ## <a name="feedback"></a> Providing feedback
 
-- Start a thread in [Discussions](https://github.com/rocketflare-dev/rocketflare/discussions).
+- Start a thread in [Discussions](https://github.com/rocketflare-dev/rocketpod/discussions).
 - Mention the maintainer on [BlueSky — @cliftonc.nl](https://bsky.app/profile/cliftonc.nl).
 
 ## <a name="contribution-guidelines"></a> Contribution guidelines
@@ -53,39 +49,44 @@ Node 24 (`.nvmrc`), pnpm 10 (`corepack enable` reads `packageManager`), Docker; 
 ```bash
 git clone https://github.com/rocketflare-dev/rocketpod.git && cd rocketpod
 bash scripts/bootstrap.sh        # toolchain → install → .env → Postgres → migrate → seed --demo → pnpm dev, signed in
-pnpm test:db:up && pnpm test     # the full suite against a throwaway Postgres on :5433
+pnpm test                        # the full suite; starts a throwaway Postgres on :5433 and an S3 gateway on :7433
 ```
 
 The bootstrap is [`SETUP.md`](SETUP.md) Part 1 as one re-runnable command — every step prints a
-`✔ n/9` verification line; the numbered steps there are what it runs, for doing it by hand or
+`✔ n/10` verification line; the numbered steps there are what it runs, for doing it by hand or
 debugging one step (`pnpm preflight` is the read-only check). No external credentials are needed:
-magic links are logged; chat, agents and embeddings run on Workers AI through a logged-in Cloudflare
-account, or answer 503 with `bash scripts/bootstrap.sh --offline` until a key exists. If you are working somewhere Docker cannot run, `pnpm web test:config` and
-`pnpm --filter @rocketflare/cli test` need no database; the `api`, `api-isolated` and `ui` projects do.
+magic links are logged; chat, agents and embeddings answer 503 until an AI provider key is in
+`apps/web/.env` (`SETUP.md` 2.5). The gate needs no key — tests use an in-process fake. If you are
+working somewhere Docker cannot run, `pnpm web test:config` and `pnpm --filter @rocketpod/cli test`
+need no database; the `api`, `api-isolated` and `driver` projects do.
 
 ### <a name="repository-structure"></a> Repository structure
 
 A pnpm workspace; `CLAUDE.md` is the map and every significant directory has its own `CLAUDE.md`.
 
-- 📂 `apps/web/` — `@rocketflare/web`: the Cloudflare Worker (Hono API, queue and cron handlers, the
-  Durable Object and Workflow) and the React UI, plus `wrangler*.toml`, `migrations/`, `scripts/`, `tests/`
-- 📂 `apps/cli/` — `@rocketflare/cli`: the `rocketflare` command-line client
-- 📂 `packages/shared/` — `@rocketflare/shared`: the zod contracts the API validates with and the UI
+- 📂 `apps/web/` — `@rocketpod/web`: the Node server (Hono API; `src/node/` holds the entry and the
+  pg-boss, OpenWorkflow, realtime, S3 and limits adapters) and the React UI, plus `migrations/`,
+  `scripts/`, `tests/`
+- 📂 `apps/cli/` — `@rocketpod/cli`: the `rocketpod` command-line client
+- 📂 `apps/evals/` — `@rocketpod/evals`: developer-run eval suites (`pnpm eval`, never the gate)
+- 📂 `packages/shared/` — `@rocketpod/shared`: the zod contracts the API validates with and the UI
   and CLI parse with (private, consumed as TypeScript source)
 - 📂 `docs/` — `CONCEPTS.md` (how each subsystem works, the decision record, and its known gaps),
-  `ADAPTING.md`, `DEPLOY.md`, `RLS.md`, `upgrades/` (one porting note per release)
+  `ADAPTING.md`, `DEPLOY.md`, `RLS.md`, `FORK.md`, `upgrades/` (one porting note per release)
+- 📂 `deploy/` — the Helm chart and the compose overrides; the root `Dockerfile` and
+  `docker-compose.yml` build and run the image
 - 📂 `scripts/` — first-run tooling: `bootstrap.sh` / `bootstrap.mjs`, `install.sh`, `rename.mjs`,
   `lib/`; and the upgrade path: `upgrade.mjs`, `release.mjs`, `release-check.mjs`
 - 📂 `.claude/rules/` — layer conventions (api, database, ui, cli, testing, code-quality,
-  cloudflare), loaded by path when you or a coding agent touch that layer; `.claude/skills/` — the
-  `/rp-setup`, `/rp-preflight`, `/rp-adapt`, `/rp-deploy` and `/rp-upgrade` slash commands
+  runtime), loaded by path when you or a coding agent touch that layer; `.claude/skills/` — the
+  `/rp-*` slash commands (`/rp-setup`, `/rp-preflight`, `/rp-adapt`, `/rp-deploy`, `/rp-upgrade`…)
 
 ### <a name="what-a-change-must-include"></a> What a change must include
 
 The repo's **non-negotiables** are listed in `CLAUDE.md`; the ones contributors hit most:
 
-- **The gate is green**: `pnpm gate` before every commit (it starts the test database itself).
-  `typecheck` regenerates `apps/web/worker-configuration.d.ts` — commit it if it changed.
+- **The gate is green**: `pnpm gate` before every commit (it starts the test database and S3
+  gateway itself).
 - **A behaviour change adds an entry to `docs/upgrades/unreleased.md`.** People are running copies
   of this kit that were detached and renamed; they absorb your change by running `/rp-upgrade`,
   which is guided by those notes. A change with no note never reaches them. `docs/upgrades/README.md`
@@ -96,32 +97,37 @@ The repo's **non-negotiables** are listed in `CLAUDE.md`; the ones contributors 
 - **Contracts first**: a new or changed API surface starts as a zod schema in
   `packages/shared/src/`, then the route validates with it, then the UI/CLI parse with it.
 - **Tenant isolation**: every domain query filters by the tenant from the auth context; every tenant
-  table calls `tenantIsolation()`; every analytics cube scopes its SQL and has a case in
-  the analytics plugin's own `cube-isolation.test.ts`.
+  table calls `tenantIsolation()`; a plugin with a query surface of its own (the analytics plugin's
+  cubes) proves it scopes in its own test.
 - **Routes enqueue, never run** long work; concurrency is a database claim row, never a `Map`.
-- **Two tomls, one shape**: a binding, cron or `[vars]` key is added to both `wrangler*.toml` files.
+- **Config, compose and chart agree**: a new var or secret in `src/config.ts` goes into
+  `apps/web/.env.example`, `deploy/compose.env.example` if compose needs it, and the chart's
+  `config` / `secrets` — `tests/config/packaging.test.ts` fails otherwise.
 - **Docs in sync**: a behaviour change updates `docs/CONCEPTS.md` (and its "Known gaps"), `SETUP.md`,
   `docs/DEPLOY.md` or the relevant `.claude/rules/*.md` in the same PR. The table in
   `.claude/rules/code-quality.md` says which.
-- **No secrets** in a toml, a test, a fixture comment or a response body; `gitleaks` runs in CI over
+- **No secrets** in a committed values file, a test, a fixture comment or a response body; `gitleaks` runs in CI over
   the full history.
 
 ### <a name="running-tests"></a> Running tests
 
 Tests run under Node against the real Hono app and a **real Postgres** on port 5433
-(`pnpm test:db:up`), never a mock database. `apps/web/vitest.config.ts` defines four projects:
+(started by `pnpm test`), never a mock database; storage tests use a real S3 gateway.
+`apps/web/vitest.config.ts` defines these projects:
 
 | Project | Needs a database | Covers |
 |---|---|---|
-| `api` | yes | routes, services, queue consumers, Workflow steps, cron tasks, the Durable Object's RPC |
-| `api-isolated` | yes | the same, for files marked `// @vitest-isolate` (they mock modules or globals) |
+| `api` | yes | routes, services, queue consumers, the agent-run body, cron tasks |
+| `api-isolated` | yes | files marked `// @vitest-isolate` (they mock modules or globals) and the Node adapters — server, pg-boss, OpenWorkflow, realtime, S3, limits |
+| `driver` | yes | the driver seam's conformance suite |
 | `ui` | no (jsdom) | components, hooks, providers, streaming and websocket clients |
-| `config` | no | wrangler parity, env schema, permissions matrix, dashboard templates, pure helpers |
+| `config` | no | packaging parity, the no-Cloudflare guard, env schema, permissions matrix, pure helpers |
+| `kit-only` | no | the kit's own release, rename and manifest machinery (deleted in a copy) |
 
 ```bash
 pnpm test                       # every package
 pnpm web test:api               # or test:ui, test:config
-pnpm --filter @rocketflare/cli test
+pnpm --filter @rocketpod/cli test
 pnpm test:coverage
 ```
 
@@ -165,26 +171,28 @@ the approval. Enqueue email.send instead — the consumer retries with backoff.
 
 ### <a name="cutting-a-release"></a> Cutting a release
 
-Maintainers only. `SETUP.md` 3.7 is the release dance every copy of the kit deploys with.
+Maintainers only.
 
 1. `pnpm kit:release X.Y.Z`, then `node scripts/release-check.mjs --tag X.Y.Z` and the gate.
 2. `git commit -am "Release X.Y.Z" && git tag -m "Release X.Y.Z" X.Y.Z && git push origin main X.Y.Z`.
-   The tag has to be annotated because tags are signed. The kit's `deploy.yml` skips deployment,
-   since its tomls hold placeholders, and `notify-plugins.yml` pings the plugin repositories.
+   The tag has to be annotated because tags are signed. `image.yml` builds and pushes
+   `ghcr.io/rocketflare-dev/rocketpod:X.Y.Z`, and `notify-plugins.yml` pings the plugin repositories.
+3. The CLI is meant to publish to npm as `rocketpod` / `@rocketpod/cli`; there is no publish
+   workflow yet (`docs/ROADMAP.md` → Next), so that step is manual or skipped.
 
 ### <a name="architecture-guidelines"></a> Architecture guidelines
 
-- **One Worker, one target.** Everything ships as a single Cloudflare Worker; no Node-only APIs in
-  `apps/web/src/` (`pnpm build:api` catches what `tsc` cannot).
+- **One image, three modes.** Everything ships as one container image running `web`, `worker` or
+  `all`; `process.env` is read only in `src/config.ts` and `src/node/`, and runtime capabilities are
+  reached through the `Platform` seam (`src/platform/types.ts`), never imported from an adapter.
 - **Postgres is the truth.** Realtime events are nudges that make the UI re-query; job and run state
   lives in rows; vectors live in pgvector under the tenant predicate.
 - **Drizzle only, parameters only.** SQL goes through Drizzle or the `sql` tag with bound parameters;
-  never string concatenation. Two drivers (D35) — Neon serverless or postgres.js — behind
-  `openDatabase`; code outside `db/client.ts` never sees which, and reads raw results through
-  `rows()` / `affected()`.
-- **Optional bindings degrade loudly or silently by design.** A missing binding either no-ops
-  (rate limit, tracing, realtime) or throws/503s (queue, storage, workflows) — the service header says
-  which; a new binding must choose.
+  never string concatenation. One driver (postgres.js) behind `openDatabase`; code outside
+  `db/client.ts` never names it, and reads raw results through `rows()` / `affected()`.
+- **Optional capabilities degrade loudly or silently by design.** A missing platform member either
+  no-ops (rate limit, tracing, realtime) or throws/503s (jobs, storage, runs) — the service header
+  says which; a new capability must choose.
 - **Frozen names.** Cube members, job `type` strings and realtime event types are contracts stored or
   consumed elsewhere — add, never rename.
 - **Agent-readable by default.** If you change a convention, change the `.claude/rules/*.md` or
@@ -193,7 +201,7 @@ Maintainers only. `SETUP.md` 3.7 is the release dance every copy of the kit depl
 ## Getting help
 
 - 📖 `docs/CONCEPTS.md`, `SETUP.md`, `docs/DEPLOY.md`
-- 🐛 [Existing issues](https://github.com/rocketflare-dev/rocketflare/issues)
-- 💬 [Discussions](https://github.com/rocketflare-dev/rocketflare/discussions)
+- 🐛 [Existing issues](https://github.com/rocketflare-dev/rocketpod/issues)
+- 💬 [Discussions](https://github.com/rocketflare-dev/rocketpod/discussions)
 
-Thank you for contributing to Rocketflare! 🚀
+Thank you for contributing to Rocketpod! 🚀

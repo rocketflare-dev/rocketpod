@@ -32,7 +32,7 @@ closes a cycle back through `plugins/schema.ts`.
 | `tenant_user_settings` | `tenant-user-settings.ts` | `tenant_id` | ✓ | PK `(tenant_id, user_id)`; `preferences` jsonb |
 | `notifications` | `notifications.ts` | `tenant_id` | ✓ | per user; `readAt`; `data` jsonb |
 | `activity_events` | `activity-events.ts` | `tenant_id` | ✓ | audit log, and the source the analytics plugin's cubes and fact table read; `(tenant_id, created_at DESC)` |
-| `files` | `files.ts` | `tenant_id` | ✓ | R2 object index (D23): `key` unique (`tenants/<tenant>/<scope>/<uuid>-<name>`), `scope` enum (`avatars`, `uploads`, `documents` — mirrors `FILE_SCOPES` in shared), `ownerUserId`, immutable (no `updated_at`) |
+| `files` | `files.ts` | `tenant_id` | ✓ | object-store index (D23, any S3-compatible store): `key` unique (`tenants/<tenant>/<scope>/<uuid>-<name>`), `scope` enum (`avatars`, `uploads`, `documents` — mirrors `FILE_SCOPES` in shared), `ownerUserId`, immutable (no `updated_at`) |
 | `ai_configs` | `ai-configs.ts` | `tenant_id` | ✓ | tenant AI providers (D17): `scope` chat\|embeddings, `provider` text enum, `label` (unique per tenant+scope, the upsert key), `apiKeyEnc` (AES-GCM, never returned), `thinking` jsonb, partial unique **one default per (tenant, scope)**; only `services/ai/resolve.ts` reads it |
 | `prompt_overrides` | `prompt-overrides.ts` | `tenant_id` | ✓ | PK `(tenant_id, key)`; row exists only when a registry prompt is overridden (revert = delete); `updatedByUserId` |
 | `conversations` | `conversations.ts` | `tenant_id` | ✓ | chat threads (D17): `userId` is ownership (routes filter tenant AND user — others' threads are 404), `provider`/`model` frozen at creation, `lastMessageAt`; index `(tenant_id, user_id, last_message_at DESC)` |
@@ -71,7 +71,7 @@ closes a cycle back through `plugins/schema.ts`.
   table NAME is not a TypeScript error at all — `pnpm plugin check` is what catches it. A plugin
   declares `relations()` for its OWN tables only.
 - **Fact tables** — the shape for any pre-aggregated table, and the analytics plugin's worked
-  example: plain tables (not materialised views — `REFRESH` cannot run through Hyperdrive or Neon's pooler), grain
+  example: plain tables (not materialised views — `REFRESH` cannot run through a transaction-mode pooler), grain
   unique with `.nullsNotDistinct()` where a grain column is nullable, `fact_refreshed_at` as the
   freshness watermark, no surrogate `id`, no FK to a table whose rows may vanish.
 - Enums via `pgEnum`, exported; `relations()` next to the table; `export type X = typeof x.$inferSelect` / `NewX = $inferInsert`.
@@ -94,7 +94,7 @@ exist in every environment so enabling enforcement later is a config change, not
 
 The predicate `tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid` is ONE shared
 object; never inline a copy (drizzle-kit diffs SQL text). No `FORCE ROW LEVEL SECURITY`: the owner
-connection (`DATABASE_URL` under `neon`, `HYPERDRIVE` under `postgres`) bypasses policies, which is what keeps auth paths and rollback working.
+connection (`DATABASE_URL`) bypasses policies, which is what keeps auth paths and rollback working.
 **The `eq(x.tenantId, ...)` predicates stay** — RLS is defence in depth underneath them.
 
 ## Adding a table — checklist

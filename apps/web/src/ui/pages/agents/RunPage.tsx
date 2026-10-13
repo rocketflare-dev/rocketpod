@@ -244,7 +244,7 @@ function RunWorkspace({ run, agent }: { run: AgentRunWithEvents; agent?: AgentIn
  *
  * The re-read is bursty by nature, which is why the SERVER holds the other half of the bargain:
  * `GET /runs/:id` hands `reconcileRun` the newest event's timestamp, so a run that is actively
- * writing rows costs no Workflow subrequest to re-read. Coalescing here is one fetch in flight at a
+ * writing rows costs no run-engine query to re-read. Coalescing here is one fetch in flight at a
  * time and nothing more — a debounce would spend exactly the latency phase 6 was built to buy.
  *
  * Deleting this hook leaves `useAgentRun`'s own `refetchInterval`, which is a working page.

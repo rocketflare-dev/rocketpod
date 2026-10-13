@@ -7,9 +7,9 @@ CLAUDE.md). Rules for queries: `.claude/rules/database.md`.
 ## The driver seam
 
 The app runs on postgres.js (D35, narrowed in Rocketpod — Rocketflare's Neon serverless driver was
-removed). A request's handle is either a view of the Node entry's ONE process pool
-(`installProcessPool`, `src/node/server.ts`; its `close()` is a no-op) or, on the Worker, a client
-of its own over Hyperdrive. **App code knows neither.** `client.ts` is the ONLY place the driver
+removed). A request's handle is a view of the Node entry's ONE process pool
+(`installProcessPool`, `src/node/server.ts`; its `close()` is a no-op); tests and scripts open
+clients of their own. **App code knows neither.** `client.ts` is the ONLY place the driver
 is named, and three things hold that:
 
 - **`client.ts` normalises**: a raw result's shape (`rows()`, `affected()`), a raw array's value

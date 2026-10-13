@@ -18,7 +18,7 @@ import type { TokenUsage } from './chat'
 import type { RecordedAiProvider } from './config'
 
 /** When the rates below were last checked, ISO date. Update it when you edit a price. */
-export const PRICES_UPDATED = '2026-09-13'
+export const PRICES_UPDATED = '2026-10-13'
 
 /** USD per MILLION tokens. `cacheRead`/`cacheWrite` default to the input rate when absent. */
 export interface ModelPrice {
@@ -35,15 +35,63 @@ export interface ModelPrice {
  * whose rates only that app knows.
  */
 export const MODEL_PRICES: Partial<Record<RecordedAiProvider, Record<string, ModelPrice>>> = {
+  // Claude list prices (platform.claude.com/docs/en/about-claude/pricing). `cacheWrite` is the
+  // 5-minute write, the only cache the kit asks for. The 4.5+ Opus models dropped to $5/$25 while
+  // Opus 4 / 4.1 stayed at $15/$75, so each has its own prefix; longest match wins.
   anthropic: {
+    'claude-fable-5-1': { input: 10, output: 50, cacheRead: 0.25, cacheWrite: 12.5 },
+    'claude-fable-5': { input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5 },
+    'claude-mythos-5-1': { input: 10, output: 50, cacheRead: 0.25, cacheWrite: 12.5 },
+    'claude-mythos-5': { input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5 },
+    'claude-opus-5-5': { input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 },
+    'claude-opus-5': { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
+    'claude-opus-4-8': { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
+    'claude-opus-4-7': { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
+    'claude-opus-4-6': { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
+    'claude-opus-4-5': { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
     'claude-opus-4': { input: 15, output: 75, cacheRead: 1.5, cacheWrite: 18.75 },
+    'claude-sonnet-5-5': { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5 },
+    'claude-sonnet-5': { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 },
     'claude-sonnet-4': { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
+    // Haiku 5.5 is priced by prompt length; this is the ≤ 100k-token rate. A prompt over 100k
+    // tokens pays 5× ($0.50 / $2.50), so a long-context Haiku call is under-estimated here.
+    'claude-haiku-5-5': { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125 },
     'claude-haiku-4': { input: 1, output: 5, cacheRead: 0.1, cacheWrite: 1.25 },
   },
+  // OpenAI standard tier, short context (developers.openai.com/api/docs/pricing). From GPT-5.6 on
+  // a cache write costs 1.25× input; earlier models bill it at the input rate (the default).
+  // The `-pro` and `-mini`/`-nano` variants carry their own prefix so `gpt-5.5-pro` is never
+  // priced as `gpt-5.5`.
   openai: {
+    'gpt-6-astra': { input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5 },
+    'gpt-6.1-sol': { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5 },
+    'gpt-6-sol': { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 },
+    'gpt-6-luna': { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125 },
+    'gpt-5.6-sol': { input: 4, output: 20, cacheRead: 0.4, cacheWrite: 5 },
+    'gpt-5.6-terra': { input: 2, output: 12, cacheRead: 0.2, cacheWrite: 2.5 },
+    'gpt-5.6-luna': { input: 0.2, output: 1.2, cacheRead: 0.02, cacheWrite: 0.25 },
+    'gpt-5.5-pro': { input: 30, output: 180 },
+    'gpt-5.5': { input: 5, output: 30, cacheRead: 0.5 },
+    'gpt-5.4-pro': { input: 30, output: 180 },
+    'gpt-5.4-mini': { input: 0.75, output: 4.5, cacheRead: 0.075 },
+    'gpt-5.4-nano': { input: 0.2, output: 1.25, cacheRead: 0.02 },
+    'gpt-5.4': { input: 2.5, output: 15, cacheRead: 0.25 },
+    'gpt-5.2-pro': { input: 21, output: 168 },
+    'gpt-5.2': { input: 1.75, output: 14, cacheRead: 0.175 },
+    'gpt-5.1': { input: 1.25, output: 10, cacheRead: 0.125 },
+    'gpt-5-pro': { input: 15, output: 120 },
+    'gpt-5-mini': { input: 0.25, output: 2, cacheRead: 0.025 },
+    'gpt-5-nano': { input: 0.05, output: 0.4, cacheRead: 0.005 },
+    'gpt-5': { input: 1.25, output: 10, cacheRead: 0.125 },
     'gpt-4.1-mini': { input: 0.4, output: 1.6, cacheRead: 0.1 },
     'gpt-4.1-nano': { input: 0.1, output: 0.4, cacheRead: 0.025 },
     'gpt-4.1': { input: 2, output: 8, cacheRead: 0.5 },
+    'gpt-4o-mini': { input: 0.15, output: 0.6, cacheRead: 0.075 },
+    'gpt-4o': { input: 2.5, output: 10, cacheRead: 1.25 },
+    'o4-mini': { input: 1.1, output: 4.4, cacheRead: 0.275 },
+    'o3-pro': { input: 20, output: 80 },
+    'o3-mini': { input: 1.1, output: 4.4, cacheRead: 0.55 },
+    o3: { input: 2, output: 8, cacheRead: 0.5 },
     'text-embedding-3-small': { input: 0.02, output: 0 },
     'text-embedding-3-large': { input: 0.13, output: 0 },
   },

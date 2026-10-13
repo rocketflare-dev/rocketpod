@@ -19,7 +19,10 @@ export interface ProviderInfo {
   scopes: readonly AiScope[]
   needsApiKey: boolean
   needsBaseUrl: boolean
-  /** Accepts Anthropic's `thinking` body param. */
+  /**
+   * Has a thinking control the config's switch maps onto — Anthropic's `thinking`, OpenAI's
+   * `reasoning.effort`. What each model accepts is `@rocketpod/shared/ai/models`.
+   */
   supportsThinking: boolean
   /** Accepts `service_tier`. */
   supportsServiceTier: boolean
@@ -52,7 +55,8 @@ export const PROVIDERS: readonly ProviderInfo[] = [
     defaultModel: DEFAULT_MODELS.anthropic,
     presets: [],
     suggestedModels: {
-      chat: ['claude-sonnet-4-5', 'claude-opus-4-1', 'claude-haiku-4-5'],
+      // Cheapest first; checked 2026-10-13. `claude-opus-4-1` was retired on the Claude API.
+      chat: ['claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-opus-5-5', 'claude-fable-5-1'],
       embeddings: [],
       decisions: [],
     },
@@ -84,12 +88,15 @@ export const PROVIDERS: readonly ProviderInfo[] = [
     scopes: ['chat', 'embeddings'],
     needsApiKey: true,
     needsBaseUrl: false,
-    supportsThinking: false,
+    // Off = the model's lowest `reasoning.effort`; on = its default. Older models take neither.
+    supportsThinking: true,
     supportsServiceTier: false,
     defaultModel: DEFAULT_MODELS.openai,
     presets: [],
     suggestedModels: {
-      chat: ['gpt-4.1-mini', 'gpt-4.1'],
+      // Served through the Responses API (`client.ts`): Chat Completions cannot call tools on
+      // `gpt-6-astra` / `gpt-6.1-sol`, nor on Luna while it reasons. Checked 2026-10-13.
+      chat: ['gpt-6-luna', 'gpt-5.6-luna', 'gpt-6.1-sol', 'gpt-6-astra'],
       embeddings: ['text-embedding-3-small', 'text-embedding-3-large'],
       decisions: [],
     },

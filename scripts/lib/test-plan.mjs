@@ -5,7 +5,7 @@
  *
  * The TARGET is decided from the environment, never by probing a database:
  *
- * - **local** (the default): the compose Postgres on :5433, started by the runner if it is not
+ * - **local** (the default): the compose Postgres on :5533, started by the runner if it is not
  *   up. Every package's tests, then the web suite — the `driver` conformance project included.
  * - **remote**: `TEST_DATABASE_BRANCH` is set — a throwaway database branch somebody else
  *   created (a coding sandbox's gate branch), reached over TCP with the URL in `DATABASE_URL`; no

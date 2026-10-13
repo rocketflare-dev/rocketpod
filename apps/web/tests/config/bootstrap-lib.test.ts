@@ -224,6 +224,11 @@ describe('chooseDevDbPort', () => {
   })
 
   it('never hands out the test port, even when it is free and preferred', () => {
+    expect(chooseDevDbPort({ preferred: 5533, isAvailable: all })).toBe(5432)
+    expect(chooseDevDbPort({ preferred: null, isAvailable: p => p === 5533 })).toBeNull()
+  })
+
+  it("never hands out Rocketflare's test port either, so both kits can test on one machine", () => {
     expect(chooseDevDbPort({ preferred: 5433, isAvailable: all })).toBe(5432)
     expect(chooseDevDbPort({ preferred: null, isAvailable: p => p === 5433 })).toBeNull()
   })

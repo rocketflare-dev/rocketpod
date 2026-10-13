@@ -94,7 +94,7 @@ on localhost is treated as its own gateway and rewritten); blank `STORAGE_DRIVER
 **The port is chosen, not fixed.** `dev:db:up` runs `apps/web/scripts/dev-db.mjs`, which gives this
 checkout its own compose project, container and port: it keeps the port already in `DATABASE_URL`
 whenever that is still free or still this checkout's, and otherwise takes the next free one from
-5432 (skipping 5433, the test database) and writes it back to `apps/web/.env`. So a SECOND
+5432 (skipping 5533, the test database, and 5433, Rocketflare's) and writes it back to `apps/web/.env`. So a SECOND
 checkout on the same machine starts its own database instead of failing on a taken port or quietly
 attaching to the first one's container — and a re-run never moves a database that is working.
 Everything downstream reads that one value: `db:migrate`, `seed` and `drizzle-kit` through dotenv,
@@ -247,7 +247,7 @@ scripts, `ROCKETPOD_API_KEY` + `ROCKETPOD_URL` in the environment replace the co
 
 ### 1.8 Tests
 ```bash
-pnpm test             # starts Postgres on :5433 (apps/web/docker-compose.test.yml), then every package:
+pnpm test             # starts Postgres on :5533 (apps/web/docker-compose.test.yml), then every package:
                       # web api + api-isolated + driver (real DB), ui (jsdom), config (no DB); cli
                       # (the S3 gateway on :7433 starts beside it)
 # No Docker (a coding sandbox's gate): the same command against a throwaway hosted GATE branch over
@@ -364,13 +364,13 @@ Settings → AI → the platform `ANTHROPIC_API_KEY` → the platform `AI_API_KE
 document indexing answer 503 and everything else works. Pick any of these:
 
 1. **Platform Anthropic key.** `ANTHROPIC_API_KEY=` in `apps/web/.env` (deployed: a secret, Part 3).
-   Every tenant without its own chat provider then uses `claude-sonnet-4-5`. Verify: Settings → AI
-   (as owner/admin) shows chat readiness `Anthropic · claude-sonnet-4-5 · platform default`;
+   Every tenant without its own chat provider then uses `claude-haiku-5-5`. Verify: Settings → AI
+   (as owner/admin) shows chat readiness `Anthropic · claude-haiku-5-5 · platform default`;
    `curl -b <cookie> localhost:3001/api/ai/config/readiness` →
    `"chat":{…,"source":"platform","provider":"anthropic"…}`.
 2. **Platform OpenAI-compatible key.** `AI_API_KEY=` with `AI_BASE_URL=` (OpenRouter, vLLM,
    Ollama… including `/v1`) and `AI_MODEL=`; without `AI_BASE_URL` the key is OpenAI's own
-   (`AI_MODEL` defaults to `gpt-4.1-mini`). It ranks after `ANTHROPIC_API_KEY`. The floor is a
+   (`AI_MODEL` defaults to `gpt-6-luna`, through the Responses API). It ranks after `ANTHROPIC_API_KEY`. The floor is a
    model that can run the AGENTS, not just the chat box: pick one with real tool calling. Verify:
    readiness reads `"source":"platform","provider":"openai_compatible"` (or `openai`).
 3. **Tenant provider (no platform key).** Settings → AI → *Add provider*: scope `chat`, a label (it is

@@ -50,7 +50,7 @@ if (plan.compose) {
   if (up !== 0) {
     fail(
       'the test database did not start (docker compose up failed above). Another checkout holding ' +
-        ':5433 is the usual cause: `pnpm dev:db:status` lists them.'
+        ':5533 is the usual cause: `pnpm dev:db:status` lists them.'
     )
   }
 }

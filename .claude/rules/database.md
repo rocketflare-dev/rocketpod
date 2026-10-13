@@ -186,7 +186,7 @@ Rocketpod starts from ONE baseline (`0000_rocketpod-baseline.sql`, plus one per 
 everything after it is generated. Never hand-edit an applied migration or `apps/web/migrations/meta/`. Custom SQL (an extension, a fact table)
 is a generated file edited before it is applied, journal intact.
 
-Tests migrate a throwaway database on 5433 from `apps/web/tests/setup.ts` — never a hosted one.
+Tests migrate a throwaway database on 5533 from `apps/web/tests/setup.ts` — never a hosted one.
 The one exception is `pnpm test` with `TEST_DATABASE_BRANCH` set: a throwaway hosted GATE branch a
 sandbox orchestrator names and binds to the URL — the safety check knows Neon's branch shape
 (`docs/CONCEPTS.md` §4, "Ephemeral test database").

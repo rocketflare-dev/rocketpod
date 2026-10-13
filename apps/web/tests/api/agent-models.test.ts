@@ -10,7 +10,7 @@ import {
   agentModelAssignmentSchema,
   agentModelsListResponseSchema,
 } from '@rocketpod/shared/ai/agent-models'
-import { aiConfigSchema } from '@rocketpod/shared/ai/config'
+import { aiConfigSchema, DEFAULT_MODELS } from '@rocketpod/shared/ai/config'
 import { describe, expect, it } from 'vitest'
 import { resolveChat } from '@/api/services/ai/resolve'
 import { loadConfig } from '@/config'
@@ -165,7 +165,7 @@ describe('/api/ai/agent-models', () => {
     expect(items[0]?.effective).toEqual({
       source: 'platform',
       provider: 'anthropic',
-      model: 'claude-sonnet-4-5',
+      model: DEFAULT_MODELS.anthropic,
     })
     await request(
       '/api/ai/agent-models/summarize-text',

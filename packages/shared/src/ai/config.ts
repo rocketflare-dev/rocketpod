@@ -48,11 +48,20 @@ export const THINKING_MIN_BUDGET = 1024
 export const THINKING_MAX_BUDGET = 32_000
 /** Output room that must remain ABOVE the thinking budget, or every reply truncates to nothing. */
 export const THINKING_ANSWER_HEADROOM = 512
+/**
+ * Floor on `max_tokens` while a model thinks adaptively: the thinking is billed against the same
+ * cap as the answer, so a cap sized for a short answer would end the call mid-thought. Output is
+ * billed on tokens produced, so a floor that is never reached costs nothing.
+ */
+export const ADAPTIVE_THINKING_MIN_MAX_TOKENS = 4096
 
 /**
- * Extended thinking, per chat config. OFF by default and sent explicitly (`{type:'disabled'}`) on
- * providers that accept the param: a reasoning model left to its own devices bills for thinking
- * the chat surface then discards. Turning it on is an operator's deliberate cost decision.
+ * Thinking, per chat config. OFF by default and sent explicitly where the model takes it — a
+ * reasoning model left to its own devices bills for thinking the chat surface then discards.
+ * Turning it on is an operator's deliberate cost decision. What "off" and "on" become on the wire
+ * is per MODEL (`./models.ts`): a budget for Claude 4.5 and earlier, adaptive thinking for 4.6+,
+ * the lowest `reasoning.effort` for an OpenAI reasoning model — and some models (Opus 5.5, Fable)
+ * cannot be told not to think at all. `budgetTokens` is read only where the model takes a budget.
  */
 export const thinkingSchema = z.object({
   enabled: z.boolean(),
@@ -165,7 +174,7 @@ export type AiReadiness = z.infer<typeof aiReadinessSchema>
 
 /** Default model per provider — what a new config lands on and what the platform fallback uses. */
 export const DEFAULT_MODELS: Record<AiProvider, string> = {
-  anthropic: 'claude-sonnet-4-5',
+  anthropic: 'claude-haiku-5-5',
   anthropic_compatible: 'accounts/fireworks/models/gpt-oss-120b',
   openai: 'text-embedding-3-small',
   openai_compatible: '',
@@ -174,7 +183,7 @@ export const DEFAULT_MODELS: Record<AiProvider, string> = {
 
 /** Chat defaults for providers whose `DEFAULT_MODELS` entry is an embeddings model. */
 export const DEFAULT_CHAT_MODELS: Partial<Record<AiProvider, string>> = {
-  openai: 'gpt-4.1-mini',
+  openai: 'gpt-6-luna',
 }
 
 /** What a new config for `(provider, scope)` lands on — `DEFAULT_MODELS` is per provider, not per scope. */

@@ -175,7 +175,13 @@ export function extractSeedKey(stdout) {
  * gets its own port and its own container instead of colliding on 5432. */
 
 /** Test Postgres (`docker-compose.test.yml`, `.env.test`, CI) — never hand it to a dev database. */
-export const TEST_DB_PORT = 5433
+export const TEST_DB_PORT = 5533
+/**
+ * Rocketflare's test Postgres. The two kits keep different test ports so both can run `pnpm test`
+ * on one machine; a Rocketpod dev database must not take Rocketflare's either, or the next
+ * Rocketflare test run finds its port held.
+ */
+export const ROCKETFLARE_TEST_DB_PORT = 5433
 
 /**
  * The port to publish Postgres on: `preferred` when it is still available (a re-run must not
@@ -188,7 +194,7 @@ export function chooseDevDbPort({
   isAvailable,
   start = 5432,
   count = 20,
-  skip = [TEST_DB_PORT],
+  skip = [TEST_DB_PORT, ROCKETFLARE_TEST_DB_PORT],
 }) {
   const blocked = new Set(skip)
   if (preferred && !blocked.has(preferred) && isAvailable(preferred)) return preferred

@@ -49,7 +49,7 @@ Node 24 (`.nvmrc`), pnpm 10 (`corepack enable` reads `packageManager`), Docker; 
 ```bash
 git clone https://github.com/rocketflare-dev/rocketpod.git && cd rocketpod
 bash scripts/bootstrap.sh        # toolchain → install → .env → Postgres → migrate → seed --demo → pnpm dev, signed in
-pnpm test                        # the full suite; starts a throwaway Postgres on :5433 and an S3 gateway on :7433
+pnpm test                        # the full suite; starts a throwaway Postgres on :5533 and an S3 gateway on :7433
 ```
 
 The bootstrap is [`SETUP.md`](SETUP.md) Part 1 as one re-runnable command — every step prints a
@@ -111,7 +111,7 @@ The repo's **non-negotiables** are listed in `CLAUDE.md`; the ones contributors 
 
 ### <a name="running-tests"></a> Running tests
 
-Tests run under Node against the real Hono app and a **real Postgres** on port 5433
+Tests run under Node against the real Hono app and a **real Postgres** on port 5533
 (started by `pnpm test`), never a mock database; storage tests use a real S3 gateway.
 `apps/web/vitest.config.ts` defines these projects:
 

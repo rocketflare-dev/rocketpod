@@ -257,8 +257,8 @@ per-PR previews; no public tunnel for OAuth callbacks in dev (use your own, e.g.
 **Known gaps:** the RLS spike has not been run; no read replicas; three pools per process (above); the process pool turns named
 prepared statements on, so a PgBouncer in TRANSACTION mode in front of the Node server needs
 1.21+ (`max_prepared_statements`) — there is no switch to turn them off yet; the TEST database is
-pinned to 5433, so two checkouts cannot run `pnpm test` at once (each app has its own Compose
-project, `<slug>-test`). `--db-url` with a loopback URL (a native Postgres) still looks like this
+pinned to 5533 (Rocketflare's is 5433, so the two kits test side by side), so two checkouts of
+Rocketpod cannot run `pnpm test` at once (each app has its own Compose project, `<slug>-test`). `--db-url` with a loopback URL (a native Postgres) still looks like this
 checkout's Docker database to preflight and `dev:db:*`, and a re-run of the bootstrap without the
 flag checks for Docker again. The remote target's safety check still names Neon (`*.neon.tech`,
 the `ep-…` endpoint) — the one hosted branch provider the gate-branch binding knows.
@@ -415,7 +415,19 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
 - **Providers**: `anthropic`, `anthropic_compatible`, `openai`, `openai_compatible`. There is no
   Vercel AI SDK and no Bedrock (a SigV4 adapter behind `ChatClient` is the extension). History rows
   written by Rocketflare's `workers_ai` provider still parse (`RECORDED_AI_PROVIDERS`) and show as
-  unpriced.
+  unpriced. Defaults: `claude-haiku-5-5`, `gpt-6-luna`.
+- **The request body is per MODEL, not per provider** (`shared/src/ai/models.ts`). Claude 4.5 and
+  earlier take a thinking budget. 4.6+ take `adaptive`. "Off" is `disabled`, Sonnet 5.5's
+  `between_tools`, or no field on models that always think (Opus 5.5, Fable). 4.7+ refuse any
+  `temperature`. Opus/Sonnet 5.5 and Fable 5.1 refuse a forced tool, so a forced tool becomes a
+  prompt instruction. First-party `openai` speaks the **Responses API** (`store: false`), because
+  Chat Completions cannot call tools on GPT-6 Astra/6.1 Sol, nor on Luna while it reasons.
+  Thinking off there means the lowest `reasoning.effort` the model takes. `openai_compatible` stays
+  on Chat Completions. Reasoning (Claude thinking blocks, OpenAI reasoning items) rides a tool loop
+  as opaque `reasoning` blocks, returned unmodified to the provider that produced it. It is kept
+  in checkpoints and never in chat history. Each adapter recovers ONCE from a refusal the traits
+  misjudged (thinking, sampling, forced tool, effort, a replayed block's signature) and remembers
+  it. So an unknown id costs one call, and it is read as the newest generation.
 - **Kit** (`services/ai/kit.ts`): `runStreamingChat`, `runToolLoop`, `callStructuredTool`, prompt
   caching helpers. Prompts are code (`PROMPT_REGISTRY`) with per-tenant override rows.
 - **AG-UI is the wire protocol (D28)**: `@ag-ui/core` is pinned exactly and imported only by
@@ -557,7 +569,11 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   was also rejected: steps are unlimited in wall-clock time, and splitting would force every side
   effect outside a step to replay.
 
-**Known gaps:** no Excel or OpenDocument conversion (refused at upload); no document summary or thumbnail (the card is an excerpt);
+**Known gaps:** model traits are parsed from the id and hand-kept (`MODEL_TRAITS_CHECKED`), not read
+from the Models API; no `effort` setting (thinking is on/off — on means the model's default); Haiku
+5.5's > 100k-token price tier is not modelled (`pricing.ts` uses the ≤ 100k rate); OpenAI tools are
+sent non-strict; an assistant message's `phase` is not replayed to the Responses API;
+no Excel or OpenDocument conversion (refused at upload); no document summary or thumbnail (the card is an excerpt);
 `charOffset` does not map to PDF pages; no frontend tools in chat, no `STATE_DELTA`; protobuf drops
 `TOOL_CALL_RESULT` and has no stream cursor; `@ag-ui/core` is 0.0.x (pin + contract test are the
 mitigation); no token-level streaming for runs; char-based history budget

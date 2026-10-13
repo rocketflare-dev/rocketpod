@@ -13,6 +13,20 @@ export type ContentBlock =
   | { type: 'text'; text: string }
   | { type: 'tool_use'; id: string; name: string; input: unknown }
   | { type: 'tool_result'; toolUseId: string; content: string; isError?: boolean }
+  | ReasoningBlock
+
+/**
+ * A provider's reasoning, carried OPAQUE through a tool loop: Anthropic's `thinking` /
+ * `redacted_thinking` blocks, OpenAI's `reasoning` items. Both vendors want them sent back,
+ * byte-for-byte, with the tool results that follow — Claude 5.x and the GPT reasoning models lose
+ * the reasoning (and the cache) otherwise. Only the adapter that produced one reads `data`; every
+ * other adapter drops it. It is never shown, persisted to chat history or counted as text.
+ */
+export interface ReasoningBlock {
+  type: 'reasoning'
+  provider: AiProvider
+  data: unknown
+}
 
 export interface ChatMessage {
   role: 'user' | 'assistant'

@@ -715,7 +715,7 @@ function converterOf(ai: RecordingAi | null | undefined): DocumentConverter | nu
  */
 export function createTestEnv(overrides: Partial<TestEnv> = {}): TestEnv {
   const databaseUrl =
-    process.env.DATABASE_URL ?? 'postgresql://test:test@localhost:5433/rocketpod_test'
+    process.env.DATABASE_URL ?? 'postgresql://test:test@localhost:5533/rocketpod_test'
   const kv = new MemoryKV()
   const fakes: TestStubs = {
     kv,

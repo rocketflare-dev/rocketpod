@@ -126,7 +126,7 @@ open "want me to do anything else?". Offer these, in this order, with the first 
 | Option | What you do when it is chosen |
 |---|---|
 | **Show me around** | Walk the seeded app: **Chat** (streams a reply — needs `ANTHROPIC_API_KEY` or `AI_API_KEY` in `apps/web/.env`), **Agents** (`summarize-text`, watch the timeline fill), **Knowledge → Search** (the demo documents are indexed), **Analytics** (the seeded Organisation Overview). Drive it with them; one screen at a time |
-| **Check it really works** | `pnpm test:db:up && pnpm test` (ephemeral Postgres on :5433) — which runs the analytics plugin's own tests too, including the two-tenant cube isolation one — then the SETUP.md 1.6 analytics check, `pnpm cli analytics check-facts` |
+| **Check it really works** | `pnpm test:db:up && pnpm test` (ephemeral Postgres on :5533) — which runs the analytics plugin's own tests too, including the two-tenant cube isolation one — then the SETUP.md 1.6 analytics check, `pnpm cli analytics check-facts` |
 | **Make it mine** | `/rp-adapt <slug>` — the rename (package scope, Worker, database, CLI, theme). Ask for the slug if they have not said one |
 | **Add a capability** | `/rp-plugin` — install a plugin (a git repository copied in, with a plan you read first), or audit what is installed with `pnpm plugin list` / `pnpm plugin check` |
 | **Deploy it** | Not built yet: the container image, Compose and Helm are `docs/ROADMAP.md` M7. Say so; `pnpm build && node apps/web/dist/server.js all` is the production server today |

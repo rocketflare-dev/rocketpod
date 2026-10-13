@@ -30,3 +30,4 @@ The design is in [`DESIGN-SELFHOSTED.md`](DESIGN-SELFHOSTED.md); the milestones 
 | Rocketflare | Ported in Rocketpod | Notes |
 |---|---|---|
 | 0.19.0 | 0.1.0 (fork point) | — |
+| 0.20.0 | unreleased | Current models (per-model request rules, `openai` on the Responses API); the Workers AI parts do not apply |

@@ -10,6 +10,7 @@
 
 import type Anthropic from '@anthropic-ai/sdk'
 import { type TokenUsage, tokenUsageSchema } from '@rocketpod/shared/ai/chat'
+import { aiProviderSchema } from '@rocketpod/shared/ai/config'
 import type { AgentInterruptSpec, JsonSchema } from '@rocketpod/shared/ai/interrupts'
 import { type ZodType, z } from 'zod'
 import { zodToJsonSchema } from 'zod-to-json-schema'
@@ -368,6 +369,8 @@ const contentBlockSchema = z.discriminatedUnion('type', [
     content: z.string(),
     isError: z.boolean().optional(),
   }),
+  // Opaque and replayed verbatim; a provider that no longer accepts it is recovered in the adapter.
+  z.object({ type: z.literal('reasoning'), provider: aiProviderSchema, data: z.unknown() }),
 ])
 
 const checkpointSchema = z.object({
@@ -405,7 +408,9 @@ export function parseToolLoopCheckpoint(value: unknown): ToolLoopCheckpoint | nu
               (block): ContentBlock =>
                 block.type === 'tool_use'
                   ? { type: 'tool_use', id: block.id, name: block.name, input: block.input }
-                  : block
+                  : block.type === 'reasoning'
+                    ? { type: 'reasoning', provider: block.provider, data: block.data }
+                    : block
             ),
     })),
   }

@@ -15,6 +15,7 @@ import {
   type UpsertAiConfigRequest,
   upsertAiConfigRequestSchema,
 } from '@rocketpod/shared/ai/config'
+import { modelTraits } from '@rocketpod/shared/ai/models'
 import { and, eq, ne } from 'drizzle-orm'
 import type { Database } from '../../db/client'
 import { type AiConfigRow, aiConfigs } from '../../db/schema'
@@ -71,13 +72,16 @@ function validateUpsert(body: UpsertAiConfigRequest, existing: AiConfigRow | und
   if (info.needsApiKey && !body.apiKey && !keepsKey) {
     throw new BadRequestError(`${info.name} requires an API key`, 'api_key_required')
   }
-  if (body.thinking?.enabled && !info.supportsThinking) {
+  // What thinking means is per MODEL (`@rocketpod/shared/ai/models`): a budget only where the
+  // model takes one (Claude ≤ 4.5, compatible vendors); adaptive and effort models take a switch.
+  const traits = modelTraits(body.provider, body.model)
+  if (body.thinking?.enabled && (!info.supportsThinking || traits.thinking === 'none')) {
     throw new BadRequestError(
-      `${info.name} does not accept an extended-thinking budget`,
+      `${info.name} · ${body.model} has no thinking control`,
       'thinking_unsupported'
     )
   }
-  if (body.thinking?.enabled && !body.thinking.budgetTokens) {
+  if (body.thinking?.enabled && traits.thinking === 'extended' && !body.thinking.budgetTokens) {
     throw new BadRequestError(
       'Enabling thinking needs a budgetTokens value',
       'thinking_budget_required'

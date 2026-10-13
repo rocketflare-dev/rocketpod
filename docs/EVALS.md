@@ -7,7 +7,7 @@ make answers better or worse?** They run locally with `pnpm eval`, cost real tok
 
 ## Setup
 
-1. `pnpm test:db:up`. Evals use the TEST database (:5433, `apps/web/.env.test`) and migrate it
+1. `pnpm test:db:up`. Evals use the TEST database (:5533, `apps/web/.env.test`) and migrate it
    themselves. They never truncate it, so a test run and an eval run can share it.
 2. Put `ANTHROPIC_API_KEY` in `apps/web/.env`. It's the only key the target and the judge need:
    both resolve through the kit's own resolver, on the platform tier. With no key, every suite
@@ -93,7 +93,7 @@ assigns it, or on `--judge-model <id>` for one run. Every judge call is costed i
 ```
 pnpm eval                          # everything
 pnpm eval knowledge --case refund-window,not-covered
-pnpm eval agents --model claude-haiku-4-5 --judge-model claude-opus-5-5
+pnpm eval agents --model claude-haiku-5-5 --judge-model claude-opus-5-5
 pnpm eval knowledge --provider gemini                      # gemini-2.5-flash as the target
 pnpm eval knowledge --provider fireworks --model accounts/fireworks/models/gpt-oss-120b
 pnpm eval knowledge --judge-provider gemini                # a non-Claude judge

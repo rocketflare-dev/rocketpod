@@ -6,6 +6,8 @@
  * and embeddings over OpenAI-shaped `/embeddings`.
  */
 
+import { ADAPTIVE_THINKING_MIN_MAX_TOKENS, defaultModelFor } from '@rocketpod/shared/ai/config'
+import { priceFor } from '@rocketpod/shared/ai/pricing'
 import { describe, expect, it } from 'vitest'
 import {
   createChatClient,
@@ -14,7 +16,8 @@ import {
   reconcileThinking,
 } from '@/api/services/ai/client'
 import { AiError, describeAiError, normalizeAiError, redactSecrets } from '@/api/services/ai/errors'
-import type { ChatDelta } from '@/api/services/ai/types'
+import { providerInfo } from '@/api/services/ai/providers'
+import { type ChatDelta, textOf } from '@/api/services/ai/types'
 import { sseResponse } from '../helpers/ai'
 
 interface Captured {
@@ -136,7 +139,12 @@ describe('OpenAI-compatible chat client', () => {
           { headers: { 'content-type': 'application/json' } }
         )
     )
-    const client = createChatClient({ provider: 'openai', apiKey: 'k', fetch })
+    const client = createChatClient({
+      provider: 'openai_compatible',
+      apiKey: 'k',
+      baseUrl: 'https://compat.test/v1',
+      fetch,
+    })
     const result = await client.complete({
       model: 'fake-1',
       maxTokens: 10,
@@ -155,7 +163,7 @@ describe('OpenAI-compatible chat client', () => {
       usage: { inputTokens: 3, outputTokens: 1 },
       model: 'fake-1',
     })
-    expect(calls[0]?.url).toBe('https://api.openai.com/v1/chat/completions')
+    expect(calls[0]?.url).toBe('https://compat.test/v1/chat/completions')
     expect(calls[0]?.body.messages).toEqual([
       { role: 'user', content: 'q' },
       {
@@ -464,5 +472,451 @@ describe('error helpers', () => {
       ).code
     ).toBe('auth')
     expect(normalizeAiError(new Error('weird'), 'openai').code).toBe('unknown')
+  })
+})
+
+/** A non-streamed Anthropic Messages answer. */
+function anthropicMessage(content: unknown[], stop = 'end_turn') {
+  return new Response(
+    JSON.stringify({
+      id: 'msg_1',
+      type: 'message',
+      role: 'assistant',
+      model: 'claude-x',
+      content,
+      stop_reason: stop,
+      stop_sequence: null,
+      usage: { input_tokens: 10, output_tokens: 5 },
+    }),
+    { headers: { 'content-type': 'application/json' } }
+  )
+}
+
+const anthropic400 = (message: string) =>
+  new Response(
+    JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message } }),
+    { status: 400, headers: { 'content-type': 'application/json' } }
+  )
+
+const SEARCH_TOOL = {
+  name: 'search',
+  description: 'd',
+  inputSchema: { type: 'object', properties: {} },
+}
+
+describe('Anthropic chat client — per-model rules (Claude 4.5 → 5.5)', () => {
+  const send = async (
+    model: string,
+    params: Record<string, unknown> = {},
+    thinking?: { enabled: boolean; budgetTokens?: number }
+  ) => {
+    const { fetch, calls } = fakeFetch(() => anthropicMessage([{ type: 'text', text: 'ok' }]))
+    const client = createChatClient({
+      provider: 'anthropic',
+      apiKey: 'k',
+      fetch,
+      defaults: thinking ? { thinking } : undefined,
+    })
+    await client.complete({
+      model,
+      maxTokens: 64,
+      cache: false,
+      messages: [{ role: 'user', content: 'hi' }],
+      ...params,
+    })
+    return calls[0]?.body as Record<string, unknown>
+  }
+
+  it('Opus 5.5 always thinks: no `thinking` field, no temperature, a forced tool becomes an instruction, room to think', async () => {
+    const body = await send('claude-opus-5-5', {
+      temperature: 0,
+      system: 'SYS',
+      tools: [SEARCH_TOOL],
+      toolChoice: { type: 'tool', name: 'search' },
+    })
+    expect(body).not.toHaveProperty('thinking')
+    expect(body).not.toHaveProperty('temperature')
+    expect(body.tool_choice).toEqual({ type: 'auto' })
+    expect(JSON.stringify(body.system)).toContain(
+      'You must answer by calling the \\"search\\" tool'
+    )
+    expect(body.max_tokens).toBe(ADAPTIVE_THINKING_MIN_MAX_TOKENS)
+  })
+
+  it('Sonnet 5.5 turns thinking down with `between_tools`; on is adaptive and a stored budget is not sent', async () => {
+    expect((await send('claude-sonnet-5-5')).thinking).toEqual({ type: 'between_tools' })
+    const on = await send('claude-sonnet-5-5', {}, { enabled: true, budgetTokens: 2048 })
+    expect(on.thinking).toEqual({ type: 'adaptive' })
+    expect(on.max_tokens).toBe(ADAPTIVE_THINKING_MIN_MAX_TOKENS)
+  })
+
+  it('Haiku 5.5 takes `disabled` and a forced tool, but never a temperature', async () => {
+    const body = await send('claude-haiku-5-5', {
+      temperature: 0,
+      tools: [SEARCH_TOOL],
+      toolChoice: { type: 'tool', name: 'search' },
+    })
+    expect(body.thinking).toEqual({ type: 'disabled' })
+    expect(body.tool_choice).toEqual({ type: 'tool', name: 'search' })
+    expect(body).not.toHaveProperty('temperature')
+    expect(body.max_tokens).toBe(64)
+  })
+
+  it('Claude 4.5 keeps the budget contract and its temperature while thinking is off', async () => {
+    const off = await send('claude-haiku-4-5-20251001', { temperature: 0.2 })
+    expect(off.thinking).toEqual({ type: 'disabled' })
+    expect(off.temperature).toBe(0.2)
+    const on = await send(
+      'claude-sonnet-4-5',
+      { temperature: 0.2 },
+      {
+        enabled: true,
+        budgetTokens: 2048,
+      }
+    )
+    expect(on.thinking).toEqual({ type: 'enabled', budget_tokens: 2048 })
+    // Older models refuse a temperature while they think.
+    expect(on).not.toHaveProperty('temperature')
+  })
+
+  it('thinking blocks ride the transcript opaque and go back unmodified; another provider’s are dropped', async () => {
+    const thinking = { type: 'thinking', thinking: '', signature: 'sig-1' }
+    const { fetch, calls } = fakeFetch(() =>
+      anthropicMessage(
+        [thinking, { type: 'tool_use', id: 'tu_1', name: 'search', input: { q: 'x' } }],
+        'tool_use'
+      )
+    )
+    const client = createChatClient({ provider: 'anthropic', apiKey: 'k', fetch })
+    const first = await client.complete({
+      model: 'claude-haiku-5-5',
+      maxTokens: 64,
+      cache: false,
+      messages: [{ role: 'user', content: 'q' }],
+      tools: [SEARCH_TOOL],
+    })
+    expect(first.content[0]).toEqual({ type: 'reasoning', provider: 'anthropic', data: thinking })
+    expect(textOf(first.content)).toBe('')
+
+    await client.complete({
+      model: 'claude-haiku-5-5',
+      maxTokens: 64,
+      cache: false,
+      tools: [SEARCH_TOOL],
+      messages: [
+        { role: 'user', content: 'q' },
+        {
+          role: 'assistant',
+          content: [
+            { type: 'reasoning', provider: 'openai', data: { type: 'reasoning', id: 'rs_1' } },
+            ...first.content,
+          ],
+        },
+        { role: 'user', content: [{ type: 'tool_result', toolUseId: 'tu_1', content: 'found' }] },
+      ],
+    })
+    const messages = calls[1]?.body.messages as Array<{ content: unknown[] }>
+    const sent = messages[1]?.content
+    expect(sent).toEqual([
+      thinking,
+      { type: 'tool_use', id: 'tu_1', name: 'search', input: { q: 'x' } },
+    ])
+  })
+
+  it('a replayed thinking block the API refuses is stripped for that call and the call retried', async () => {
+    const { fetch, calls } = fakeFetch(req =>
+      JSON.stringify(req.body).includes('sig-stale')
+        ? anthropic400('messages.1.content.0: Invalid `signature` in `thinking` block.')
+        : anthropicMessage([{ type: 'text', text: 'ok' }])
+    )
+    const client = createChatClient({ provider: 'anthropic', apiKey: 'k', fetch })
+    const result = await client.complete({
+      model: 'claude-sonnet-5-5',
+      maxTokens: 64,
+      cache: false,
+      messages: [
+        { role: 'user', content: 'q' },
+        {
+          role: 'assistant',
+          content: [
+            {
+              type: 'reasoning',
+              provider: 'anthropic',
+              data: { type: 'thinking', thinking: '', signature: 'sig-stale' },
+            },
+            { type: 'text', text: 'earlier' },
+          ],
+        },
+        { role: 'user', content: 'again' },
+      ],
+    })
+    expect(textOf(result.content)).toBe('ok')
+    expect(calls).toHaveLength(2)
+    expect(JSON.stringify(calls[1]?.body)).not.toContain('sig-stale')
+  })
+
+  it('a model the traits misread recovers once from a refused `thinking`, and remembers', async () => {
+    const { fetch, calls } = fakeFetch(req =>
+      req.body.thinking
+        ? anthropic400('"thinking.type.disabled" is not supported for this model.')
+        : anthropicMessage([{ type: 'text', text: 'ok' }])
+    )
+    const client = createChatClient({ provider: 'anthropic', apiKey: 'k', fetch })
+    const params = {
+      model: 'claude-haiku-5-5',
+      maxTokens: 64,
+      cache: false,
+      messages: [{ role: 'user' as const, content: 'hi' }],
+    }
+    await client.complete(params)
+    await client.complete(params)
+    expect(calls.map(c => 'thinking' in c.body)).toEqual([true, false, false])
+  })
+})
+
+/** One Responses-API SSE event. */
+const responsesEvent = (type: string, data: Record<string, unknown>) =>
+  `event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`
+
+describe('OpenAI Responses client (first-party `openai`)', () => {
+  const reasoningItem = {
+    type: 'reasoning',
+    id: 'rs_1',
+    summary: [],
+    encrypted_content: 'enc-1',
+  }
+  const callItem = {
+    type: 'function_call',
+    id: 'fc_1',
+    call_id: 'call_1',
+    name: 'search',
+    arguments: '{"q":"x"}',
+    status: 'completed',
+  }
+  const usage = {
+    input_tokens: 100,
+    input_tokens_details: { cached_tokens: 30, cache_write_tokens: 10 },
+    output_tokens: 7,
+    output_tokens_details: { reasoning_tokens: 3 },
+  }
+
+  it('complete(): posts a stateless Responses body and reads items back in order, usage made disjoint', async () => {
+    const { fetch, calls } = fakeFetch(
+      () =>
+        new Response(
+          JSON.stringify({
+            model: 'gpt-6-luna',
+            status: 'completed',
+            output: [
+              reasoningItem,
+              {
+                type: 'message',
+                role: 'assistant',
+                content: [{ type: 'output_text', text: 'Looking', annotations: [] }],
+              },
+              callItem,
+            ],
+            usage,
+          }),
+          { headers: { 'content-type': 'application/json' } }
+        )
+    )
+    const client = createChatClient({ provider: 'openai', apiKey: 'k', fetch })
+    const result = await client.complete({
+      model: 'gpt-6-luna',
+      maxTokens: 512,
+      temperature: 0,
+      system: { stable: 'SYS', volatile: 'NOW' },
+      tools: [SEARCH_TOOL],
+      toolChoice: { type: 'tool', name: 'search' },
+      messages: [
+        { role: 'user', content: 'q' },
+        {
+          role: 'assistant',
+          content: [
+            { type: 'reasoning', provider: 'openai', data: { ...reasoningItem, id: 'rs_0' } },
+            { type: 'reasoning', provider: 'anthropic', data: { type: 'thinking' } },
+            { type: 'text', text: 'Checking' },
+            { type: 'tool_use', id: 'call_0', name: 'search', input: { q: 'a' } },
+          ],
+        },
+        { role: 'user', content: [{ type: 'tool_result', toolUseId: 'call_0', content: 'found' }] },
+      ],
+    })
+
+    const req = calls[0]
+    expect(req?.url).toBe('https://api.openai.com/v1/responses')
+    expect(req?.headers.authorization).toBe('Bearer k')
+    expect(req?.body).toMatchObject({
+      model: 'gpt-6-luna',
+      store: false,
+      stream: false,
+      instructions: 'SYS\n\nNOW',
+      max_output_tokens: 512,
+      // Thinking off on Luna = effort `none`, which also leaves temperature legal.
+      reasoning: { effort: 'none' },
+      temperature: 0,
+      tool_choice: { type: 'function', name: 'search' },
+      tools: [{ type: 'function', name: 'search', description: 'd', strict: false }],
+    })
+    expect(req?.body.input).toEqual([
+      { role: 'user', content: 'q' },
+      { ...reasoningItem, id: 'rs_0' },
+      { role: 'assistant', content: 'Checking' },
+      { type: 'function_call', call_id: 'call_0', name: 'search', arguments: '{"q":"a"}' },
+      { type: 'function_call_output', call_id: 'call_0', output: 'found' },
+    ])
+    expect(result).toEqual({
+      content: [
+        { type: 'reasoning', provider: 'openai', data: reasoningItem },
+        { type: 'text', text: 'Looking' },
+        { type: 'tool_use', id: 'call_1', name: 'search', input: { q: 'x' } },
+      ],
+      stopReason: 'tool_use',
+      usage: { inputTokens: 60, outputTokens: 7, cacheReadTokens: 30, cacheWriteTokens: 10 },
+      model: 'gpt-6-luna',
+    })
+  })
+
+  it('stream(): text deltas, whole tool calls from `output_item.done`, usage and an incomplete stop', async () => {
+    const { fetch } = fakeFetch(() =>
+      sseResponse([
+        responsesEvent('response.created', { response: { status: 'in_progress' } }),
+        responsesEvent('response.output_item.added', { output_index: 0, item: reasoningItem }),
+        responsesEvent('response.output_item.done', { output_index: 0, item: reasoningItem }),
+        responsesEvent('response.output_text.delta', { output_index: 1, delta: 'Hel' }),
+        ': keep-alive\n\n',
+        responsesEvent('response.output_text.delta', { output_index: 1, delta: 'lo' }),
+        responsesEvent('response.output_item.done', {
+          output_index: 1,
+          item: {
+            type: 'message',
+            content: [{ type: 'output_text', text: 'Hello' }],
+          },
+        }),
+        responsesEvent('response.function_call_arguments.delta', { output_index: 2, delta: '{' }),
+        responsesEvent('response.output_item.done', { output_index: 2, item: callItem }),
+        responsesEvent('response.incomplete', {
+          response: {
+            model: 'gpt-6-luna',
+            status: 'incomplete',
+            incomplete_details: { reason: 'max_output_tokens' },
+            usage,
+          },
+        }),
+      ])
+    )
+    const client = createChatClient({ provider: 'openai', apiKey: 'k', fetch })
+    const deltas = await collect(
+      client.stream({
+        model: 'gpt-6-luna',
+        maxTokens: 64,
+        tools: [SEARCH_TOOL],
+        messages: [{ role: 'user', content: 'q' }],
+      })
+    )
+    expect(deltas.map(d => d.type)).toEqual(['text', 'text', 'tool_use', 'usage', 'end'])
+    const end = deltas.at(-1)
+    expect(end?.type === 'end' && end.result).toEqual({
+      content: [
+        { type: 'reasoning', provider: 'openai', data: reasoningItem },
+        { type: 'text', text: 'Hello' },
+        { type: 'tool_use', id: 'call_1', name: 'search', input: { q: 'x' } },
+      ],
+      stopReason: 'max_tokens',
+      usage: { inputTokens: 60, outputTokens: 7, cacheReadTokens: 30, cacheWriteTokens: 10 },
+      model: 'gpt-6-luna',
+    })
+  })
+
+  it('a model that refuses `none` gets `low` (known up front, or learned once); thinking on sends no effort', async () => {
+    const astra = fakeFetch(() => new Response(JSON.stringify({ status: 'completed', output: [] })))
+    const client = createChatClient({ provider: 'openai', apiKey: 'k', fetch: astra.fetch })
+    await client.complete({
+      model: 'gpt-6-astra',
+      maxTokens: 64,
+      temperature: 0,
+      messages: [{ role: 'user', content: 'q' }],
+    })
+    expect(astra.calls[0]?.body.reasoning).toEqual({ effort: 'low' })
+    expect(astra.calls[0]?.body).not.toHaveProperty('temperature')
+    expect(astra.calls[0]?.body.max_output_tokens).toBe(ADAPTIVE_THINKING_MIN_MAX_TOKENS)
+
+    const learning = fakeFetch(req =>
+      (req.body.reasoning as { effort?: string } | undefined)?.effort === 'none'
+        ? new Response(
+            JSON.stringify({ error: { message: "Unsupported value: 'reasoning.effort' none" } }),
+            { status: 400 }
+          )
+        : new Response(JSON.stringify({ status: 'completed', output: [] }))
+    )
+    const unknown = createChatClient({ provider: 'openai', apiKey: 'k', fetch: learning.fetch })
+    const params = {
+      model: 'gpt-7-nova',
+      maxTokens: 64,
+      messages: [{ role: 'user' as const, content: 'q' }],
+    }
+    await unknown.complete(params)
+    await unknown.complete(params)
+    expect(learning.calls.map(c => (c.body.reasoning as { effort: string }).effort)).toEqual([
+      'none',
+      'low',
+      'low',
+    ])
+
+    const on = fakeFetch(() => new Response(JSON.stringify({ status: 'completed', output: [] })))
+    await createChatClient({
+      provider: 'openai',
+      apiKey: 'k',
+      fetch: on.fetch,
+      defaults: { thinking: { enabled: true } },
+    }).complete({ model: 'gpt-6-luna', maxTokens: 64, messages: [{ role: 'user', content: 'q' }] })
+    expect(on.calls[0]?.body).not.toHaveProperty('reasoning')
+
+    // A non-reasoning model takes no reasoning field and keeps its temperature.
+    const old = fakeFetch(() => new Response(JSON.stringify({ status: 'completed', output: [] })))
+    await createChatClient({ provider: 'openai', apiKey: 'k', fetch: old.fetch }).complete({
+      model: 'gpt-4.1-mini',
+      maxTokens: 64,
+      temperature: 0.3,
+      messages: [{ role: 'user', content: 'q' }],
+    })
+    expect(old.calls[0]?.body).not.toHaveProperty('reasoning')
+    expect(old.calls[0]?.body.temperature).toBe(0.3)
+  })
+
+  it('a failed response is an AiError, never a silent empty answer', async () => {
+    const { fetch } = fakeFetch(() =>
+      sseResponse([
+        responsesEvent('response.failed', {
+          response: { status: 'failed', error: { message: 'model overloaded' } },
+        }),
+      ])
+    )
+    const client = createChatClient({ provider: 'openai', apiKey: 'k', fetch })
+    await expect(
+      collect(
+        client.stream({
+          model: 'gpt-6-luna',
+          maxTokens: 8,
+          messages: [{ role: 'user', content: 'q' }],
+        })
+      )
+    ).rejects.toBeInstanceOf(AiError)
+  })
+})
+
+describe('provider catalog', () => {
+  it('suggests current models and defaults to Haiku 5.5 / GPT-6 Luna', () => {
+    expect(providerInfo('anthropic').suggestedModels.chat).toContain('claude-haiku-5-5')
+    expect(providerInfo('anthropic').suggestedModels.chat).not.toContain('claude-opus-4-1')
+    expect(providerInfo('anthropic').defaultModel).toBe('claude-haiku-5-5')
+    expect(defaultModelFor('openai', 'chat')).toBe('gpt-6-luna')
+    // Every suggested chat model is priced, so the Usage page never shows it as unpriced.
+    for (const id of ['anthropic', 'openai'] as const) {
+      for (const model of providerInfo(id).suggestedModels.chat) {
+        expect(priceFor(id, model), `${id} ${model}`).not.toBeNull()
+      }
+    }
   })
 })

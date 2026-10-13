@@ -29,9 +29,9 @@ const PROVIDERS = [
     needsBaseUrl: false,
     supportsThinking: true,
     supportsServiceTier: true,
-    defaultModel: 'claude-sonnet-4-5',
+    defaultModel: 'claude-haiku-5-5',
     presets: [],
-    suggestedModels: { chat: ['claude-sonnet-4-5', 'claude-opus-4-1'], embeddings: [] },
+    suggestedModels: { chat: ['claude-haiku-5-5', 'claude-sonnet-5-5'], embeddings: [] },
   },
   {
     id: 'anthropic_compatible',
@@ -106,7 +106,7 @@ describe('Settings → AI', () => {
     expect(await screen.findByRole('heading', { name: 'Add chat provider' })).toBeInTheDocument()
     // Anthropic is the first chat provider; its default model is prefilled
     expect(screen.getByLabelText('Provider')).toHaveValue('anthropic')
-    expect(screen.getByLabelText('Model')).toHaveValue('claude-sonnet-4-5')
+    expect(screen.getByLabelText('Model')).toHaveValue('claude-haiku-5-5')
   })
 
   it('validates with the shared schema and posts the exact upsert body', async () => {
@@ -135,7 +135,7 @@ describe('Settings → AI', () => {
         scope: 'chat',
         label: 'Prod',
         provider: 'anthropic',
-        model: 'claude-sonnet-4-5',
+        model: 'claude-haiku-5-5',
         apiKey: 'sk-test',
         // First entry in the scope: default is implied and checked
         isDefault: true,
@@ -189,7 +189,7 @@ describe('Settings → AI', () => {
       within(model)
         .getAllByRole('option')
         .map(o => (o as HTMLOptionElement).value)
-    ).toEqual(['claude-sonnet-4-5', 'claude-opus-4-1', expect.stringContaining('other')])
+    ).toEqual(['claude-haiku-5-5', 'claude-sonnet-5-5', expect.stringContaining('other')])
 
     fireEvent.change(screen.getByLabelText('Provider'), {
       target: { value: 'openai_compatible' },
@@ -234,7 +234,23 @@ describe('Settings → AI', () => {
       within(model)
         .getAllByRole('option')
         .map(o => (o as HTMLOptionElement).value)
-    ).toEqual(['claude-sonnet-4-5', 'claude-opus-4-1', retired, expect.stringContaining('other')])
+    ).toEqual(['claude-haiku-5-5', 'claude-sonnet-5-5', retired, expect.stringContaining('other')])
+  })
+
+  it('thinking controls follow the model: a budget only where it takes one, a warning where it always thinks', async () => {
+    mount({ '/api/ai/config': { items: [{ ...prodConfig, model: 'claude-opus-5-5' }] } })
+    fireEvent.click(await screen.findByRole('button', { name: `Edit ${prodConfig.label}` }))
+    const toggle = await screen.findByRole('checkbox', { name: 'Thinking' })
+    expect(screen.getByText(/always reasons and cannot be switched off/)).toBeInTheDocument()
+    fireEvent.click(toggle)
+    expect(screen.queryByLabelText('Thinking budget in tokens')).toBeNull()
+  })
+
+  it('a model that takes a thinking budget shows the budget field', async () => {
+    mount({ '/api/ai/config': { items: [{ ...prodConfig, model: 'claude-haiku-4-5' }] } })
+    fireEvent.click(await screen.findByRole('button', { name: `Edit ${prodConfig.label}` }))
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Extended thinking' }))
+    expect(screen.getByLabelText('Thinking budget in tokens')).toBeInTheDocument()
   })
 
   it('lists configs with default/credential badges and lets an admin test one', async () => {

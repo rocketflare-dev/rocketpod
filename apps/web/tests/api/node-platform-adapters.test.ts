@@ -9,6 +9,7 @@
  */
 import { randomUUID } from 'node:crypto'
 import { crc32, deflateSync } from 'node:zlib'
+import { DEFAULT_CHAT_MODELS } from '@rocketpod/shared/ai/config'
 import { eq, sql } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { operationLock } from '@/api/middleware/rate-limit'
@@ -462,7 +463,7 @@ describe('platform AI keys', () => {
     ).toBeNull()
     expect(platformChat(loadConfig({ ...base, AI_API_KEY: 'k' }), noAi)).toMatchObject({
       provider: 'openai',
-      model: 'gpt-4.1-mini',
+      model: DEFAULT_CHAT_MODELS.openai,
     })
     expect(
       platformChat(loadConfig({ ...base, AI_API_KEY: 'k', ANTHROPIC_API_KEY: 'a' }), noAi)

@@ -29,7 +29,7 @@ import {
   summarizeTextOutputSchema,
 } from '@rocketpod/shared/ai/agents'
 import { type TokenUsage, tokenUsageSchema } from '@rocketpod/shared/ai/chat'
-import { type AiProvider, DEFAULT_CHAT_MODELS } from '@rocketpod/shared/ai/config'
+import { type AiProvider, DEFAULT_CHAT_MODELS, DEFAULT_MODELS } from '@rocketpod/shared/ai/config'
 import { estimateCostMicrocents } from '@rocketpod/shared/ai/pricing'
 import { and, count, eq, gt, isNull, sql } from 'drizzle-orm'
 import { databaseUrlTarget } from '../../../scripts/lib/bootstrap-lib.mjs'
@@ -279,9 +279,9 @@ const DEMO_TENANTS = [
   },
 ] as const
 
-const CLAUDE_MODEL = 'claude-sonnet-4-5'
+const CLAUDE_MODEL = DEFAULT_MODELS.anthropic
 /** The demo's OpenAI chat model — priced, so the Usage page shows costs for its rows. */
-const OPENAI_CHAT_MODEL = DEFAULT_CHAT_MODELS.openai ?? 'gpt-4.1-mini'
+const OPENAI_CHAT_MODEL = DEFAULT_CHAT_MODELS.openai ?? 'gpt-6-luna'
 
 // ---- Knowledge base -----------------------------------------------------------------------------
 

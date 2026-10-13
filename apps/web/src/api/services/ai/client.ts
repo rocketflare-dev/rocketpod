@@ -3,8 +3,13 @@
  *   - `anthropic` / `anthropic_compatible` → `@anthropic-ai/sdk` (fetch-based).
  *     Compatible vendors authenticate with `Authorization: Bearer` (the SDK's `authToken`), NOT
  *     `x-api-key` — passing the key as `apiKey` sends the wrong header and reads as a bad key.
- *   - `openai` / `openai_compatible` → a small fetch client for `/v1/chat/completions` (SSE) and
- *     `/v1/embeddings`. Base URLs include `/v1`.
+ *   - `openai` → a small fetch client for the Responses API (`/v1/responses`, SSE, `store: false`);
+ *     `openai_compatible` → the same for `/v1/chat/completions`. Both use `/v1/embeddings`. Base
+ *     URLs include `/v1`.
+ * What a MODEL accepts — thinking mode, sampling params, a forced `tool_choice` — is
+ * `@rocketpod/shared/ai/models`; each adapter recovers once from a refusal the traits misjudged.
+ * Reasoning (Claude thinking blocks, OpenAI reasoning items) rides the transcript as opaque
+ * `reasoning` blocks and goes back to the provider that produced it, unmodified.
  * Per-tenant request defaults (`service_tier`, `thinking`) are injected HERE, where the client is
  * built, so no call site can forget them; `reconcileThinking` keeps a thinking budget legal against
  * the request it lands in. `fetch` is injectable so tests drive the adapters without a network.
@@ -13,10 +18,17 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { TokenUsage } from '@rocketpod/shared/ai/chat'
 import {
+  ADAPTIVE_THINKING_MIN_MAX_TOKENS,
   type AiProvider,
   EMBEDDING_DIM,
   THINKING_ANSWER_HEADROOM,
 } from '@rocketpod/shared/ai/config'
+import {
+  type ModelTraits,
+  modelTraits,
+  openAiLowestEffort,
+  openAiModelTraits,
+} from '@rocketpod/shared/ai/models'
 import { AiError, normalizeAiError } from './errors'
 import { cachedSystem, withRollingCacheBreakpoints } from './kit'
 import { DEFAULT_BASE_URLS } from './providers'
@@ -72,16 +84,38 @@ export function reconcileThinking(body: Record<string, unknown>): Record<string,
   return { ...body, max_tokens: floor }
 }
 
-/** The body params a config's defaults imply. Thinking is sent EXPLICITLY when the provider takes it. */
-function anthropicDefaults(defaults: RequestDefaults | undefined): Record<string, unknown> {
-  if (!defaults) return { thinking: { type: 'disabled' } }
+/**
+ * The `thinking` field a config's setting becomes for THIS model, or undefined to send none.
+ * `anthropic_compatible` vendors serve their own models behind Anthropic's wire format, so they keep
+ * the original contract — explicit `disabled`, `enabled` + budget — and the refusal retry in the
+ * client (`modelTraits`). First-party Claude follows `anthropicModelTraits`: 4.5 and earlier take
+ * a budget; 4.6+ take `adaptive` (a stored budget is ignored — 4.7+ refuse it); "off" is
+ * `disabled`, Sonnet 5.5's `between_tools`, or nothing at all on a model that always thinks.
+ */
+function anthropicThinking(
+  traits: ModelTraits,
+  defaults: RequestDefaults | undefined
+): Record<string, unknown> | undefined {
+  const setting = defaults?.thinking
+  const budget = setting?.enabled ? setting.budgetTokens : undefined
+  if (traits.thinking === 'extended') {
+    return budget ? { type: 'enabled', budget_tokens: budget } : { type: 'disabled' }
+  }
+  if (setting?.enabled) return { type: 'adaptive' }
+  if (traits.thinkingOff === 'disabled') return { type: 'disabled' }
+  if (traits.thinkingOff === 'between_tools') return { type: 'between_tools' }
+  return undefined
+}
+
+/** The body params a config's defaults imply. Thinking is sent EXPLICITLY when the model takes it. */
+function anthropicDefaults(
+  traits: ModelTraits,
+  defaults: RequestDefaults | undefined
+): Record<string, unknown> {
   const out: Record<string, unknown> = {}
-  if (defaults.serviceTier) out.service_tier = defaults.serviceTier
-  const thinking = defaults.thinking
-  out.thinking =
-    thinking?.enabled && thinking.budgetTokens
-      ? { type: 'enabled', budget_tokens: thinking.budgetTokens }
-      : { type: 'disabled' }
+  if (defaults?.serviceTier) out.service_tier = defaults.serviceTier
+  const thinking = anthropicThinking(traits, defaults)
+  if (thinking) out.thinking = thinking
   return out
 }
 
@@ -91,6 +125,7 @@ export function createChatClient(opts: ChatClientOptions): ChatClient {
     case 'anthropic_compatible':
       return createAnthropicChatClient(opts)
     case 'openai':
+      return createOpenAiResponsesClient(opts)
     case 'openai_compatible':
       return createOpenAiChatClient(opts)
     default:
@@ -114,10 +149,17 @@ export function createEmbeddingsClient(opts: EmbeddingsClientOptions): Embedding
 
 // ---- Anthropic -----------------------------------------------------------------------------------
 
-function toAnthropicContent(content: string | ContentBlock[]): Anthropic.MessageParam['content'] {
+function toAnthropicContent(
+  content: string | ContentBlock[],
+  provider: AiProvider
+): Anthropic.MessageParam['content'] {
   if (typeof content === 'string') return content
-  return content.map((block): Anthropic.ContentBlockParam => {
+  // Reasoning goes back only to the provider that produced it; another adapter's is dropped whole.
+  const own = content.filter(b => b.type !== 'reasoning' || b.provider === provider)
+  return own.map((block): Anthropic.ContentBlockParam => {
     switch (block.type) {
+      case 'reasoning':
+        return block.data as Anthropic.ContentBlockParam
       case 'text':
         return { type: 'text', text: block.text }
       case 'tool_use':
@@ -135,13 +177,19 @@ function toAnthropicContent(content: string | ContentBlock[]): Anthropic.Message
   })
 }
 
-function fromAnthropicContent(content: Anthropic.ContentBlock[]): ContentBlock[] {
+function fromAnthropicContent(
+  content: Anthropic.ContentBlock[],
+  provider: AiProvider
+): ContentBlock[] {
   const out: ContentBlock[] = []
   for (const block of content) {
     if (block.type === 'text') out.push({ type: 'text', text: block.text })
     else if (block.type === 'tool_use')
       out.push({ type: 'tool_use', id: block.id, name: block.name, input: block.input })
-    // thinking / redacted_thinking / server tool blocks are dropped from the transcript.
+    // Thinking rides along opaque and UNMODIFIED (signature included): the API checks it when the
+    // turn comes back with its tool results. Server tool blocks are dropped from the transcript.
+    else if (block.type === 'thinking' || block.type === 'redacted_thinking')
+      out.push({ type: 'reasoning', provider, data: block })
   }
   return out
 }
@@ -183,38 +231,95 @@ function toAnthropicToolChoice(choice: ChatParams['toolChoice']): Anthropic.Tool
   }
 }
 
+/** What a client has learned its model refuses (see `createAnthropicChatClient`). */
+interface AnthropicQuirks {
+  omitThinking: boolean
+  noSampling: boolean
+  unforced: boolean
+}
+
+/** One recovery per kind, plus the reasoning strip — a bound, not a loop. */
+const MAX_RECOVERIES = 4
+
 function anthropicBody(
+  provider: AiProvider,
   params: ChatParams,
-  defaults: RequestDefaults | undefined
+  defaults: RequestDefaults | undefined,
+  quirks?: AnthropicQuirks
 ): Anthropic.MessageCreateParams {
+  const parsed = modelTraits(provider, params.model)
+  const traits: ModelTraits = {
+    ...parsed,
+    sampling: parsed.sampling && !quirks?.noSampling,
+    forcedToolChoice: parsed.forcedToolChoice && !quirks?.unforced,
+  }
   const cache = params.cache ?? true
   const messages: Anthropic.MessageParam[] = params.messages.map(m => ({
     role: m.role,
-    content: toAnthropicContent(m.content),
+    content: toAnthropicContent(m.content, provider),
   }))
+  // A model that refuses a FORCED tool (Opus/Sonnet 5.5, Fable 5.1) is asked in the prompt instead
+  // and left on `auto`; `callStructuredTool` already retries a reply that did not call it.
+  const forced = params.toolChoice?.type === 'tool' || params.toolChoice?.type === 'any'
+  const instruction =
+    forced && !traits.forcedToolChoice ? forcedToolText(params.toolChoice) : undefined
+  const system = instruction ? appendSystem(params.system, instruction) : params.system
   const body: Record<string, unknown> = {
-    ...anthropicDefaults(defaults),
+    ...anthropicDefaults(traits, defaults),
     model: params.model,
     max_tokens: params.maxTokens,
     messages: cache ? withRollingCacheBreakpoints(messages) : messages,
   }
-  if (params.system !== undefined) body.system = cachedSystem(params.system, cache)
+  if (system !== undefined) body.system = cachedSystem(system, cache)
   if (params.tools?.length) {
     body.tools = params.tools.map(t => ({
       name: t.name,
       description: t.description,
       input_schema: t.inputSchema as Anthropic.Tool.InputSchema,
     }))
-    const choice = toAnthropicToolChoice(params.toolChoice)
+    const choice = instruction
+      ? { type: 'auto' as const }
+      : toAnthropicToolChoice(params.toolChoice)
     if (choice) body.tool_choice = choice
   }
-  if (params.temperature !== undefined) body.temperature = params.temperature
+  // Claude 4.7+ refuse ANY non-default sampling value, and older models refuse it while thinking.
+  const thinking = (body.thinking as { type?: string } | undefined)?.type
+  const thinks = traits.thinksAnyway || thinking === 'enabled' || thinking === 'adaptive'
+  if (params.temperature !== undefined && traits.sampling && !thinks) {
+    body.temperature = params.temperature
+  }
+  // Adaptive thinking spends `max_tokens` too; a cap sized for the answer alone truncates it.
+  if (
+    traits.thinking === 'adaptive' &&
+    thinks &&
+    params.maxTokens < ADAPTIVE_THINKING_MIN_MAX_TOKENS
+  ) {
+    body.max_tokens = ADAPTIVE_THINKING_MIN_MAX_TOKENS
+  }
+  if (quirks?.omitThinking) body.thinking = undefined
   return reconcileThinking(body) as unknown as Anthropic.MessageCreateParams
 }
 
-function fromAnthropicMessage(message: Anthropic.Message): ChatResult {
+/** Strip every reasoning block — the recovery when the API refuses a replayed one (see below). */
+function withoutReasoning(params: ChatParams): ChatParams {
   return {
-    content: fromAnthropicContent(message.content),
+    ...params,
+    messages: params.messages.map(m =>
+      typeof m.content === 'string'
+        ? m
+        : { ...m, content: m.content.filter(b => b.type !== 'reasoning') }
+    ),
+  }
+}
+
+const hasReasoning = (params: ChatParams): boolean =>
+  params.messages.some(
+    m => typeof m.content !== 'string' && m.content.some(b => b.type === 'reasoning')
+  )
+
+function fromAnthropicMessage(message: Anthropic.Message, provider: AiProvider): ChatResult {
+  return {
+    content: fromAnthropicContent(message.content, provider),
     stopReason: fromAnthropicStop(message.stop_reason),
     usage: fromAnthropicUsage(message.usage),
     model: message.model,
@@ -248,24 +353,43 @@ function createAnthropicChatClient(opts: ChatClientOptions): ChatClient {
           maxRetries: 2,
         })
 
-  // The kit sends `thinking: disabled` by default because some vendors' models (Fireworks' GLM/Kimi)
-  // reason — and bill for it — unless told not to. Others reject the field outright: Fireworks maps
-  // it to reasoning effort `none`, which gpt-oss answers with a 400. On that one refusal the client
-  // retries without the field and remembers it for the rest of this client (one resolve, i.e. one
-  // turn or run step), so only its first call pays for finding out.
-  let omitDisabledThinking = false
-  const bodyFor = (params: ChatParams): Anthropic.MessageCreateParams => {
-    const body = anthropicBody(params, opts.defaults)
-    if (!omitDisabledThinking || body.thinking?.type !== 'disabled') return body
-    const { thinking: _off, ...rest } = body
-    return rest as Anthropic.MessageCreateParams
+  // Each refusal the traits could misjudge is recovered ONCE and remembered for the rest of this
+  // client (one resolve, i.e. one turn or run step), so only its first call pays for finding out:
+  // - `omitThinking`: the model refuses the `thinking` we sent. The kit sends `disabled` by default
+  //   because some vendors' models (Fireworks' GLM/Kimi) reason — and bill for it — unless told
+  //   not to, but Fireworks maps it to reasoning effort `none`, which gpt-oss answers with a 400; and
+  //   a Claude id `anthropicModelTraits` misreads can refuse `disabled` / `between_tools` / a budget.
+  // - `noSampling` / `unforced`: a non-default `temperature`, or a forced `tool_choice`, refused.
+  // - reasoning blocks the API will not take back (a changed prefix invalidates their signatures)
+  //   are stripped for that one call — never remembered, the next turn's blocks are fresh.
+  const quirks: AnthropicQuirks = { omitThinking: false, noSampling: false, unforced: false }
+  const bodyFor = (params: ChatParams): Anthropic.MessageCreateParams =>
+    anthropicBody(provider, params, opts.defaults, quirks)
+  /** The recovery a 400 calls for, applied; null when there is none left to try. */
+  const recover = (err: unknown, params: ChatParams): ChatParams | null => {
+    if (!(err instanceof Anthropic.APIError) || err.status !== 400) return null
+    const message = err.message
+    if (hasReasoning(params) && /signature|cannot be modified|redacted_thinking/i.test(message)) {
+      return withoutReasoning(params)
+    }
+    if (!quirks.omitThinking && /reasoning effort|thinking/i.test(message)) {
+      quirks.omitThinking = true
+      return params
+    }
+    if (
+      !quirks.noSampling &&
+      params.temperature !== undefined &&
+      /temperature|top_p|top_k/i.test(message)
+    ) {
+      quirks.noSampling = true
+      return params
+    }
+    if (!quirks.unforced && /tool_choice/i.test(message)) {
+      quirks.unforced = true
+      return params
+    }
+    return null
   }
-  const rejectsDisabledThinking = (err: unknown): boolean =>
-    provider === 'anthropic_compatible' &&
-    !omitDisabledThinking &&
-    err instanceof Anthropic.APIError &&
-    err.status === 400 &&
-    /reasoning effort|thinking/i.test(err.message)
 
   /** One streamed request, raw SDK errors and all — `stream` decides whether to retry. */
   async function* streamOnce(params: ChatParams): AsyncIterable<ChatDelta> {
@@ -297,7 +421,7 @@ function createAnthropicChatClient(opts: ChatClientOptions): ChatClient {
         }
       }
     }
-    const result = fromAnthropicMessage(await stream.finalMessage())
+    const result = fromAnthropicMessage(await stream.finalMessage(), provider)
     yield { type: 'usage', usage: result.usage }
     yield { type: 'end', result }
   }
@@ -305,44 +429,43 @@ function createAnthropicChatClient(opts: ChatClientOptions): ChatClient {
   return {
     provider,
     async complete(params) {
-      const create = () =>
-        sdk.messages.create({ ...bodyFor(params), stream: false }, { signal: params.signal })
-      try {
-        return fromAnthropicMessage(await create())
-      } catch (err) {
-        if (rejectsDisabledThinking(err)) {
-          omitDisabledThinking = true
-          try {
-            return fromAnthropicMessage(await create())
-          } catch (retryErr) {
-            throw normalizeAiError(retryErr, provider)
-          }
+      let current = params
+      for (let attempt = 0; ; attempt++) {
+        try {
+          const message = await sdk.messages.create(
+            { ...bodyFor(current), stream: false },
+            { signal: params.signal }
+          )
+          return fromAnthropicMessage(message, provider)
+        } catch (err) {
+          const next = attempt < MAX_RECOVERIES ? recover(err, current) : null
+          if (!next) throw normalizeAiError(err, provider)
+          current = next
         }
-        throw normalizeAiError(err, provider)
       }
     },
     async *stream(params) {
-      let yielded = false
-      try {
-        for await (const delta of streamOnce(params)) {
-          yielded = true
-          yield delta
-        }
-      } catch (err) {
-        // The refusal arrives before the first event, so a retry can never duplicate output.
-        if (yielded || !rejectsDisabledThinking(err)) throw normalizeAiError(err, provider)
-        omitDisabledThinking = true
+      let current = params
+      for (let attempt = 0; ; attempt++) {
+        let yielded = false
         try {
-          yield* streamOnce(params)
-        } catch (retryErr) {
-          throw normalizeAiError(retryErr, provider)
+          for await (const delta of streamOnce(current)) {
+            yielded = true
+            yield delta
+          }
+          return
+        } catch (err) {
+          // A refusal arrives before the first event, so a retry can never duplicate output.
+          const next = !yielded && attempt < MAX_RECOVERIES ? recover(err, current) : null
+          if (!next) throw normalizeAiError(err, provider)
+          current = next
         }
       }
     },
 
     async countTokens(params) {
       try {
-        const body = anthropicBody({ ...params, maxTokens: 1 }, undefined)
+        const body = anthropicBody(provider, { ...params, maxTokens: 1 }, undefined)
         const { input_tokens } = await sdk.messages.countTokens({
           model: body.model,
           messages: body.messages,
@@ -669,6 +792,314 @@ function createOpenAiChatClient(opts: ChatClientOptions): ChatClient {
         throw normalizeAiError(err, provider)
       }
     },
+  }
+}
+
+// ---- OpenAI Responses (first-party `openai`) -----------------------------------------------------
+
+/**
+ * OpenAI's own endpoint speaks the Responses API, not Chat Completions: Chat Completions cannot call
+ * tools on `gpt-6-astra` / `gpt-6.1-sol` at all, and on Luna/Sol only with reasoning switched off,
+ * which is every tool loop the kit runs. `store: false` keeps nothing on OpenAI's side; the
+ * reasoning items come back with `encrypted_content` and ride the transcript as opaque
+ * `reasoning` blocks, sent back in their original order with the tool results that follow — "all
+ * items between the last user message and your function call output … untouched".
+ * `openai_compatible` stays on Chat Completions, which is what vLLM, Ollama and proxies speak.
+ */
+type ResponsesItem = Record<string, unknown>
+
+interface ResponsesUsage {
+  input_tokens?: number
+  input_tokens_details?: { cached_tokens?: number; cache_write_tokens?: number }
+  output_tokens?: number
+}
+
+interface ResponsesResult {
+  model?: string
+  status?: string
+  incomplete_details?: { reason?: string } | null
+  error?: { message?: string } | null
+  output?: ResponsesItem[]
+  usage?: ResponsesUsage
+}
+
+/** Our block-shaped transcript → Responses input items, assistant blocks kept in order. */
+export function toResponsesInput(params: ChatParams): ResponsesItem[] {
+  const out: ResponsesItem[] = []
+  for (const m of params.messages) {
+    if (typeof m.content === 'string') {
+      out.push({ role: m.role, content: m.content })
+      continue
+    }
+    if (m.role === 'assistant') {
+      let text = ''
+      const flush = () => {
+        if (text) out.push({ role: 'assistant', content: text })
+        text = ''
+      }
+      for (const block of m.content) {
+        if (block.type === 'text') text += block.text
+        else if (block.type === 'reasoning') {
+          if (block.provider !== 'openai') continue
+          flush()
+          out.push(block.data as ResponsesItem)
+        } else if (block.type === 'tool_use') {
+          flush()
+          out.push({
+            type: 'function_call',
+            call_id: block.id,
+            name: block.name,
+            arguments: JSON.stringify(block.input ?? {}),
+          })
+        }
+      }
+      flush()
+      continue
+    }
+    const texts: string[] = []
+    for (const block of m.content) {
+      if (block.type === 'text') texts.push(block.text)
+      else if (block.type === 'tool_result')
+        out.push({ type: 'function_call_output', call_id: block.toolUseId, output: block.content })
+    }
+    if (texts.length) out.push({ role: 'user', content: texts.join('\n') })
+  }
+  return out
+}
+
+/** What a Responses client has learned its model refuses (see `createOpenAiResponsesClient`). */
+interface ResponsesQuirks {
+  effortLow: boolean
+  noSampling: boolean
+}
+
+export function responsesBody(
+  params: ChatParams,
+  defaults: RequestDefaults | undefined,
+  stream: boolean,
+  quirks?: ResponsesQuirks
+): Record<string, unknown> {
+  const traits = openAiModelTraits(params.model)
+  const body: Record<string, unknown> = {
+    model: params.model,
+    input: toResponsesInput(params),
+    max_output_tokens: params.maxTokens,
+    stream,
+    store: false,
+  }
+  const instructions = systemText(params.system)
+  if (instructions) body.instructions = instructions
+  // Thinking on = the model's own default effort; off = the lowest it takes.
+  let effort: string | undefined
+  if (traits.thinking === 'effort' && !defaults?.thinking?.enabled) {
+    effort = quirks?.effortLow ? 'low' : openAiLowestEffort(params.model)
+    body.reasoning = { effort }
+  }
+  const reasons = traits.thinking === 'effort' && effort !== 'none'
+  // GPT-6: "When reasoning effort is not `none`, remove `temperature`".
+  if (params.temperature !== undefined && !quirks?.noSampling && (traits.sampling || !reasons)) {
+    body.temperature = params.temperature
+  }
+  if (reasons && params.maxTokens < ADAPTIVE_THINKING_MIN_MAX_TOKENS) {
+    body.max_output_tokens = ADAPTIVE_THINKING_MIN_MAX_TOKENS
+  }
+  if (params.tools?.length) {
+    body.tools = params.tools.map(t => ({
+      type: 'function',
+      name: t.name,
+      description: t.description,
+      parameters: t.inputSchema,
+      // Strict mode needs every property `required` + `additionalProperties: false`, which a zod
+      // schema with optional fields does not render to; `callStructuredTool` validates anyway.
+      strict: false,
+    }))
+    const choice = params.toolChoice
+    if (choice?.type === 'tool') body.tool_choice = { type: 'function', name: choice.name }
+    else if (choice?.type === 'any') body.tool_choice = 'required'
+    else if (choice?.type === 'none') body.tool_choice = 'none'
+    else if (choice) body.tool_choice = 'auto'
+  }
+  return body
+}
+
+/**
+ * `input_tokens` INCLUDES the cached and the cache-written tokens (OpenAI's caching guide:
+ * ordinary = input − cached − cache_write); `TokenUsage` counters are disjoint, as everywhere.
+ */
+export function fromResponsesUsage(usage: ResponsesUsage | undefined): TokenUsage {
+  const input = usage?.input_tokens ?? 0
+  const cached = usage?.input_tokens_details?.cached_tokens
+  const written = usage?.input_tokens_details?.cache_write_tokens
+  const out: TokenUsage = {
+    inputTokens: Math.max(input - (cached ?? 0) - (written ?? 0), 0),
+    outputTokens: usage?.output_tokens ?? 0,
+  }
+  if (typeof cached === 'number') out.cacheReadTokens = cached
+  if (typeof written === 'number' && written > 0) out.cacheWriteTokens = written
+  return out
+}
+
+function fromResponsesItems(items: ResponsesItem[]): ContentBlock[] {
+  const content: ContentBlock[] = []
+  for (const item of items) {
+    if (item.type === 'message') {
+      const parts = (item.content as Array<{ type?: string; text?: string }> | undefined) ?? []
+      const text = parts
+        .filter(p => p.type === 'output_text')
+        .map(p => p.text ?? '')
+        .join('')
+      if (text) content.push({ type: 'text', text })
+    } else if (item.type === 'function_call') {
+      content.push({
+        type: 'tool_use',
+        id: String(item.call_id ?? item.id ?? crypto.randomUUID()),
+        name: String(item.name ?? ''),
+        input: parseArguments(String(item.arguments ?? '')),
+      })
+    } else if (item.type === 'reasoning') {
+      content.push({ type: 'reasoning', provider: 'openai', data: item })
+    }
+  }
+  return content
+}
+
+function fromResponsesResult(
+  json: ResponsesResult,
+  items: ResponsesItem[],
+  model: string
+): ChatResult {
+  const content = fromResponsesItems(items)
+  const calls = content.some(b => b.type === 'tool_use')
+  const stopReason: StopReason =
+    json.status === 'incomplete'
+      ? json.incomplete_details?.reason === 'max_output_tokens'
+        ? 'max_tokens'
+        : 'unknown'
+      : calls
+        ? 'tool_use'
+        : json.status === 'completed' || json.status === undefined
+          ? 'end_turn'
+          : 'unknown'
+  return { content, stopReason, usage: fromResponsesUsage(json.usage), model: json.model ?? model }
+}
+
+function createOpenAiResponsesClient(opts: ChatClientOptions): ChatClient {
+  const provider = opts.provider
+  if (!opts.apiKey) throw new AiError('auth', provider, 'An API key is required')
+  const base = (opts.baseUrl || DEFAULT_BASE_URLS[provider] || '').replace(/\/+$/, '')
+  const apiKey = opts.apiKey
+  const fetchImpl = opts.fetch ?? fetch
+  const url = `${base}/responses`
+
+  // Recovered ONCE and remembered for this client, like the Anthropic adapter: a model that
+  // refuses the lowest effort we sent (`none` on a model this file does not know), or `temperature`.
+  const quirks: ResponsesQuirks = { effortLow: false, noSampling: false }
+  const recover = (err: unknown, params: ChatParams): boolean => {
+    if (!(err instanceof OpenAiHttpError) || err.status !== 400) return false
+    if (!quirks.effortLow && /effort|reasoning/i.test(err.message)) {
+      quirks.effortLow = true
+      return true
+    }
+    if (
+      !quirks.noSampling &&
+      params.temperature !== undefined &&
+      /temperature/i.test(err.message)
+    ) {
+      quirks.noSampling = true
+      return true
+    }
+    return false
+  }
+  const post = async (params: ChatParams, stream: boolean): Promise<Response> => {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const body = responsesBody(params, opts.defaults, stream, quirks)
+        return await postJson(fetchImpl, url, apiKey, body, params.signal)
+      } catch (err) {
+        if (attempt >= 2 || !recover(err, params)) throw err
+      }
+    }
+  }
+
+  return {
+    provider,
+    async complete(params) {
+      try {
+        const res = await post(params, false)
+        const json = (await res.json()) as ResponsesResult
+        if (json.status === 'failed')
+          throw new AiError('unknown', provider, json.error?.message ?? 'Provider error')
+        return fromResponsesResult(json, json.output ?? [], params.model)
+      } catch (err) {
+        throw normalizeAiError(err, provider)
+      }
+    },
+    async *stream(params) {
+      try {
+        const res = await post(params, true)
+        if (!res.body) throw new AiError('unavailable', provider, 'Empty response body')
+        // Items are taken from `output_item.done` — `encrypted_content` on `.added` may be partial.
+        const items = new Map<number, ResponsesItem>()
+        let final: ResponsesResult | undefined
+        for await (const data of sseData(res.body)) {
+          const event = safeJson(data) as {
+            type?: string
+            delta?: string
+            output_index?: number
+            item?: ResponsesItem
+            response?: ResponsesResult
+            message?: string
+          }
+          if (event.type === 'response.output_text.delta' && event.delta) {
+            yield { type: 'text', text: event.delta }
+          } else if (event.type === 'response.output_item.done' && event.item) {
+            items.set(event.output_index ?? items.size, event.item)
+            const [block] = fromResponsesItems([event.item])
+            if (block?.type === 'tool_use') yield block
+          } else if (event.type === 'response.completed' || event.type === 'response.incomplete') {
+            final = event.response
+          } else if (event.type === 'response.failed') {
+            throw new AiError(
+              'unknown',
+              provider,
+              event.response?.error?.message ?? 'Provider error'
+            )
+          } else if (event.type === 'error') {
+            throw new AiError('unknown', provider, event.message ?? 'Provider error')
+          }
+        }
+        const ordered = [...items.entries()].sort(([a], [b]) => a - b).map(([, item]) => item)
+        const result = fromResponsesResult(
+          final ?? {},
+          ordered.length ? ordered : (final?.output ?? []),
+          params.model
+        )
+        yield { type: 'usage', usage: result.usage }
+        yield { type: 'end', result }
+      } catch (err) {
+        throw normalizeAiError(err, provider)
+      }
+    },
+  }
+}
+
+// ---- Forced tools ----------------------------------------------------------------------------------
+
+/** A forcing `tool_choice` as a sentence, for a model that cannot be forced on the wire. */
+export function forcedToolText(choice: ChatParams['toolChoice']): string | undefined {
+  if (choice?.type === 'tool')
+    return `You must answer by calling the "${choice.name}" tool with its required arguments. Do not reply in plain text.`
+  if (choice?.type === 'any')
+    return 'You must answer by calling one of the available tools. Do not reply in plain text.'
+  return undefined
+}
+
+function appendSystem(system: ChatParams['system'], extra: string): ChatParams['system'] {
+  if (system === undefined) return extra
+  if (typeof system === 'string') return `${system}\n\n${extra}`
+  return {
+    stable: system.stable,
+    volatile: system.volatile?.trim() ? `${system.volatile}\n\n${extra}` : extra,
   }
 }
 

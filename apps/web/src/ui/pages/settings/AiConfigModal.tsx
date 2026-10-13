@@ -24,6 +24,7 @@ import {
   type UpsertAiConfigRequest,
   upsertAiConfigRequestSchema,
 } from '@rocketpod/shared/ai/config'
+import { modelTraits } from '@rocketpod/shared/ai/models'
 import { type FormEvent, useState } from 'react'
 import { FieldError, fieldErrorFor, Modal } from '@/ui/components/shared'
 import {
@@ -124,6 +125,11 @@ function AiConfigForm({
   // By scope: a chat config must not offer an embeddings model, or the other way round.
   const suggestions = info?.suggestedModels?.[scope] ?? []
   const defaultModel = defaultModelFor(provider, scope)
+  // What the switch means depends on the MODEL: a budget only where it takes one (Claude ≤ 4.5,
+  // compatible vendors), and some models think whatever the switch says (Opus 5.5, Fable).
+  const traits = modelTraits(provider, model.trim() || defaultModel)
+  const offersThinking = isChat && Boolean(info?.supportsThinking) && traits.thinking !== 'none'
+  const takesBudget = traits.thinking === 'extended'
   // A stored model that has since left the list stays selectable: an edit must never quietly move a
   // config to a model its owner did not pick. Appended, so the catalog order is what people read.
   const options =
@@ -175,9 +181,11 @@ function AiConfigForm({
     if (apiKey) body.apiKey = apiKey
     if (isDefault) body.isDefault = true
     if (isChat && info?.supportsThinking) {
-      body.thinking = thinkingEnabled
-        ? { enabled: true, budgetTokens: Number.parseInt(thinkingBudget, 10) || undefined }
-        : { enabled: false }
+      body.thinking = !thinkingEnabled
+        ? { enabled: false }
+        : takesBudget
+          ? { enabled: true, budgetTokens: Number.parseInt(thinkingBudget, 10) || undefined }
+          : { enabled: true }
     }
     // Always sent when the provider has tiers, '' included — that is how an edit CLEARS one.
     if (isChat && info?.supportsServiceTier) body.serviceTier = serviceTier.trim()
@@ -418,7 +426,7 @@ function AiConfigForm({
           <FieldError message={err('model')} />
         </div>
 
-        {isChat && info?.supportsThinking && (
+        {offersThinking && (
           <div>
             <label className="label cursor-pointer justify-start gap-3">
               <input
@@ -427,9 +435,11 @@ function AiConfigForm({
                 checked={thinkingEnabled}
                 onChange={e => setThinkingEnabled(e.target.checked)}
               />
-              <span className="text-sm font-medium">Extended thinking</span>
+              <span className="text-sm font-medium">
+                {takesBudget ? 'Extended thinking' : 'Thinking'}
+              </span>
             </label>
-            {thinkingEnabled ? (
+            {thinkingEnabled && takesBudget ? (
               <div className="mt-1.5">
                 <label htmlFor="ai-thinking-budget" className="sr-only">
                   Thinking budget in tokens
@@ -452,6 +462,16 @@ function AiConfigForm({
                 </p>
                 <FieldError message={err('thinking')} />
               </div>
+            ) : thinkingEnabled ? (
+              <p className="text-xs text-muted">
+                The model decides how much to think, at its default effort. Reasoning tokens bill as
+                output.
+              </p>
+            ) : traits.thinksAnyway ? (
+              <p className="text-xs text-muted">
+                This model always reasons and cannot be switched off — off sends the lowest setting
+                it accepts. Reasoning tokens bill as output.
+              </p>
             ) : (
               <p className="text-xs text-muted">
                 Off by default and sent explicitly — a reasoning model would otherwise bill for

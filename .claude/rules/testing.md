@@ -11,7 +11,7 @@ paths:
 # Testing Patterns
 
 Vitest in `apps/web` (all commands below are root scripts that delegate there, or run inside
-`apps/web`), six projects (`apps/web/vitest.config.ts`): `api` + `api-isolated` (Node, **real Postgres** on 5433),
+`apps/web`), six projects (`apps/web/vitest.config.ts`): `api` + `api-isolated` (Node, **real Postgres** on 5533),
 `driver` (D35: `tests/driver/**` — the CONFORMANCE suite for the driver seam, through
 `openDatabase`, against the real database — a per-request client and the process pool;
 `tests/driver/CLAUDE.md`),

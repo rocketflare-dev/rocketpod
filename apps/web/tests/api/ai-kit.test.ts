@@ -272,7 +272,15 @@ describe('parseToolLoopCheckpoint', () => {
         { role: 'user', content: 'go' },
         {
           role: 'assistant',
-          content: [{ type: 'tool_use', id: 't1', name: 'search', input: { q: 'x' } }],
+          content: [
+            // A resumed loop sends the reasoning back, so a checkpoint must keep it verbatim.
+            {
+              type: 'reasoning',
+              provider: 'anthropic',
+              data: { type: 'thinking', thinking: '', signature: 'sig' },
+            },
+            { type: 'tool_use', id: 't1', name: 'search', input: { q: 'x' } },
+          ],
         },
         {
           role: 'user',

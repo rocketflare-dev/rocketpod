@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest'
 import { checkTestDatabaseEnv, isLocalDatabaseUrl, neonEndpointId } from '../helpers/db-safety'
 
-const LOCAL = 'postgresql://test:test@localhost:5433/rocketpod_test'
+const LOCAL = 'postgresql://test:test@localhost:5533/rocketpod_test'
 const POOLED =
   'postgresql://session_owner:s3cret@ep-cool-darkness-123456-pooler.us-east-2.aws.neon.tech/session_app?sslmode=require'
 const DIRECT =

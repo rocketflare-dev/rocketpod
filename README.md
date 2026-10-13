@@ -68,7 +68,7 @@ Nothing external is required: no `RESEND_API_KEY` → magic-link URLs are logged
 key → chat, agents and uploads answer 503 until you set `ANTHROPIC_API_KEY` or `AI_API_KEY` (any
 OpenAI-compatible endpoint) and `EMBEDDINGS_API_KEY` in `apps/web/.env`.
 Then `pnpm gate` — lint, typecheck, test and build, the same command CI runs; `pnpm test` starts a
-throwaway Postgres on :5433 and an S3 gateway on :7433 itself and runs every suite. Before
+throwaway Postgres on :5533 and an S3 gateway on :7433 itself and runs every suite. Before
 building your app, rename it: `/rp-adapt` or [`docs/ADAPTING.md`](docs/ADAPTING.md). Later,
 `/rp-upgrade` (or `pnpm kit:upgrade`) reads `.rocketflare.json` and the release notes in
 [`docs/upgrades/`](docs/upgrades/), translates the kit's diff into your names, and skips every part

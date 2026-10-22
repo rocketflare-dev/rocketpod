@@ -276,6 +276,32 @@ Not milestones of the port — the work that follows it, in rough order:
   list below); image signing / SBOM in `image.yml`.
 - **Plugin durable workflows** — a way for a plugin to register its own OpenWorkflow workflow
   through the plugin context.
+- **Jobs: one job per fetch, woken on send** — `processJobsBatch` runs a batch's jobs one after
+  another, so a batch of 10 queues jobs behind each other inside one consumer. One per fetch needs
+  pg-boss to fetch again at once after each job (pg-boss bursts only for `batchSize > 1`) and,
+  ideally, notify queues that wake a worker on send. Agentic Mapper is building both (uncommitted
+  there as of 2026-10-22); port them together, never the batch size alone.
+
+**From the first app built on the kit** (Agentic Mapper, `~/work/agentic-mapper`) — generic, but
+large or still carrying its domain; each has a porting note in that app's
+`docs/upgrades/unreleased.md`:
+
+- **In-app eval experiments** (`6b91b18`…`e5315e2`): a models × prompts × thinking grid run as
+  jobs in a hidden system tenant with a spend ceiling, Pareto plots of quality against cost and
+  latency, "apply winner" into `agent_models` / platform defaults / prompt overrides, champions
+  with drift detection, and "make this session a case" through a PII redactor. Ship the engine
+  with the chat-compaction and decisions targets; the app's judges and targets are its own.
+- **Transcription scope** (`4bf5a82`): an OpenAI-compatible `transcription` AI scope with
+  `verbose_json` / `diarized_json` normalised and recorded fixtures.
+- **Rerank** (`services/ai/rerank.ts`): Cohere-style `/rerank` for Cohere, Voyage and Fireworks,
+  never throwing — behind an optional `RERANK_*`.
+- **⌘K global search** (`d6de732`): the accessible `<dialog>` combobox and search page; needs a
+  "searchable kinds" registry plugins contribute to.
+- **Media recording** (`763ec75`…): `Platform.media` over ffmpeg, the browser chunk store (OPFS →
+  IndexedDB → memory) and ordered resumable uploader, real per-engine recording fixtures.
+- **Recipes**: vendoring a private package as workspace source (`scripts/vendor-interviewkit.mjs`,
+  re-applied patches, `--check`), and a forced-command SSH deploy (`deploy/nearform`: the key can
+  only run `deploy <semver>`, a dump before each deploy, `compose up --wait`).
 
 ## Effort
 

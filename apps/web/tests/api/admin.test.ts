@@ -3,7 +3,7 @@
  * list/detail/suspend; support enter/leave; users; the last global admin guard; block kills sessions.
  */
 import type { SessionResponse } from '@rocketpod/shared/auth'
-import { and, eq, ne } from 'drizzle-orm'
+import { and, eq, ne, sql } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
 import { setGlobalAdmin } from '@/api/services/admin'
 import { ensureAccessRequest } from '@/api/services/auth'
@@ -269,8 +269,11 @@ describe('users', () => {
     )
     expect(await json(off)).toEqual({ id: target.id, isGlobalAdmin: false })
     // The shared test database has many admins; prove the guard inside a rolled-back transaction.
+    // The lock holds other workers' writes to `users` until the rollback (milliseconds): without it
+    // a global admin another test created meanwhile was counted and the 409 never came.
     await db
       .transaction(async tx => {
+        await tx.execute(sql`LOCK TABLE users IN EXCLUSIVE MODE`)
         await tx
           .update(users)
           .set({ isGlobalAdmin: false })

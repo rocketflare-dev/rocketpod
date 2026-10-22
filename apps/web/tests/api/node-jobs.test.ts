@@ -347,9 +347,11 @@ describe('cron', () => {
   })
 
   it('two workers run an occurrence once', async () => {
-    // An expression due in the current minute: one occurrence today, inside pg-boss's due window.
-    const now = new Date()
-    const cron = `${now.getUTCMinutes()} ${now.getUTCHours()} * * *`
+    // An expression due in the minute 15 s from now: one occurrence today, inside pg-boss's due
+    // window. Not the CURRENT minute — a run started at :55 saw that minute end before the
+    // monitor's first pass, nothing fired, and the case timed out in the gate.
+    const due = new Date(Date.now() + 15_000)
+    const cron = `${due.getUTCMinutes()} ${due.getUTCHours()} * * *`
     const runs: string[] = []
     const fast = { cronMonitorIntervalSeconds: 1, cronWorkerIntervalSeconds: 1 }
     const workers = [0, 1].map(() =>
@@ -367,14 +369,14 @@ describe('cron', () => {
     await until(
       async () => runs.length,
       n => n >= 1,
-      20_000
+      30_000
     )
     // Several more passes by both instances: still the one run.
     await new Promise(resolve => setTimeout(resolve, 4_000))
     expect(runs).toEqual([cron])
     for (const w of workers) await w.stop(5_000)
     await syncCronSchedules(admin, [])
-  }, 40_000)
+  }, 50_000)
 })
 
 describe('shutdown', () => {

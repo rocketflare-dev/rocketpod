@@ -1,7 +1,8 @@
 /**
  * `/api/ai/agent-models` (D17): per-agent model assignment. `GET /` lists EVERY registry prompt
  * key with its assignment (if any) and what `resolveChat` would pick for it — computed by the same
- * `planChat` the resolver uses, so the page can never disagree with the runtime. `PUT /:promptKey`
+ * `planChat` the resolver uses (the platform default included), so the page can never disagree
+ * with the runtime. `PUT /:promptKey`
  * pins a chat config (tenant-scoped — a foreign id is 404) and/or a model; `DELETE` reverts to the
  * default (idempotent). `manage AiConfig` = admin+; members may read.
  */
@@ -14,7 +15,12 @@ import { and, eq } from 'drizzle-orm'
 import { type AgentModelRow, agentModels } from '../../db/schema'
 import { guardPermission } from '../middleware/permissions'
 import { recordActivity } from '../services/activity'
-import { findChatConfigById, planChat, platformChat } from '../services/ai/resolve'
+import {
+  findChatConfigById,
+  planChat,
+  platformChat,
+  platformDefaultModel,
+} from '../services/ai/resolve'
 import {
   isPromptKey,
   PROMPT_KEYS,
@@ -50,7 +56,8 @@ aiAgentModelsRouter.get('/', async c => {
   const platform = platformChat(cfg, c.get('platform'))
   const items: AgentModelEntry[] = []
   for (const key of PROMPT_KEYS) {
-    const { assignment, config, model } = await planChat(db, tenantId, key)
+    const { assignment, config, model, platformDefault } = await planChat(db, tenantId, key)
+    const promoted = platformDefaultModel(platform, platformDefault)
     items.push({
       promptKey: key,
       title: PROMPT_REGISTRY[key].title,
@@ -64,9 +71,9 @@ aiAgentModelsRouter.get('/', async c => {
           }
         : platform
           ? {
-              source: assignment ? 'assignment' : 'platform',
+              source: assignment ? 'assignment' : promoted ? 'platform_default' : 'platform',
               provider: platform.provider,
-              model: model ?? platform.model,
+              model: model ?? promoted ?? platform.model,
             }
           : { source: 'none' },
     })

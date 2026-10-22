@@ -29,7 +29,18 @@ export const upsertAgentModelRequestSchema = z
   })
 export type UpsertAgentModelRequest = z.infer<typeof upsertAgentModelRequestSchema>
 
-export const agentModelSourceSchema = z.enum(['assignment', 'tenant', 'platform', 'none'])
+/**
+ * `platform_default` = the platform tier runs the model the platform chose for this key
+ * (`platform_agent_models`, else `PROMPT_DEFAULT_MODELS`); `platform` = the platform tier's own
+ * default model.
+ */
+export const agentModelSourceSchema = z.enum([
+  'assignment',
+  'tenant',
+  'platform_default',
+  'platform',
+  'none',
+])
 export type AgentModelSource = z.infer<typeof agentModelSourceSchema>
 
 /** One registered prompt key with what `resolveChat` would pick for it right now. */

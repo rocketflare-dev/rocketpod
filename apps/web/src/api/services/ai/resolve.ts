@@ -18,6 +18,17 @@
  * names a specific chat config (`aiConfigId`, else the tenant default) and/or a model override; the
  * chain is then assignment → tenant default → platform → 503. Only chat is assignable — embeddings
  * feed a different client shape and no agent runs on them.
+ *
+ * The PLATFORM DEFAULT is a model id per prompt key for the platform tier only — a
+ * `platform_agent_models` row (platform state, written by a global admin or an app's own tooling),
+ * else the committed `PROMPT_DEFAULT_MODELS` entry (`@rocketpod/shared/ai/default-models`, empty in
+ * the kit). It applies when the chain lands on the platform's own key (no assignment model, no
+ * tenant config) AND that tier is the provider — and, for an `*_compatible` one, the base URL — the
+ * id belongs to. So the full order for a prompt key is:
+ *   tenant `agent_models` → tenant default `ai_configs` → platform default model on the platform
+ *   key → the platform key's own default model → 503.
+ * A tenant's own config is never overridden by it: that is the tenant's key and the tenant's spend
+ * (`docs/CONCEPTS.md` §9 has the reasons).
  */
 import type {
   AiProvider,
@@ -27,11 +38,19 @@ import type {
 } from '@rocketpod/shared/ai/config'
 import { DEFAULT_CHAT_MODELS, DEFAULT_MODELS } from '@rocketpod/shared/ai/config'
 import type { DecisionMethod } from '@rocketpod/shared/ai/decisions'
+import { promptDefaultModel } from '@rocketpod/shared/ai/default-models'
 import type { PromptKey } from '@rocketpod/shared/ai/prompts'
 import { and, eq } from 'drizzle-orm'
 import type { AppConfig } from '../../../config'
 import type { Database } from '../../../db/client'
-import { type AgentModelRow, type AiConfigRow, agentModels, aiConfigs } from '../../../db/schema'
+import {
+  type AgentModelRow,
+  type AiConfigRow,
+  agentModels,
+  aiConfigs,
+  type PlatformAgentModelRow,
+  platformAgentModels,
+} from '../../../db/schema'
 import { decrypt, requireEncryptionKey } from '../../auth/oauth-encryption'
 import { createChatClient, createEmbeddingsClient, type FetchLike } from './client'
 import { createLlmDecisionClient } from './decisions/llm'
@@ -44,8 +63,11 @@ export interface ResolvedChat {
   client: ChatClient
   provider: AiProvider
   model: string
-  /** `agent` = an `agent_models` assignment for `promptKey` decided the config and/or model. */
-  source: 'tenant' | 'platform' | 'agent'
+  /**
+   * `agent` = an `agent_models` assignment for `promptKey` decided the config and/or model;
+   * `platform_default` = the platform tier ran the platform default model for `promptKey`.
+   */
+  source: 'tenant' | 'platform' | 'platform_default' | 'agent'
   /** `cfg.AGENT_MAX_OUTPUT_TOKENS` — the per-call `max_tokens` consumers pass. */
   maxOutputTokens: number
   configId?: string
@@ -106,6 +128,47 @@ export async function findAgentModel(
   return row ?? null
 }
 
+/** A platform default as resolution reads it: an applied row, or the committed table's entry. */
+export type PlatformDefault = Pick<PlatformAgentModelRow, 'provider' | 'baseUrl' | 'model'> & {
+  /** `applied` = a `platform_agent_models` row; `code` = a `PROMPT_DEFAULT_MODELS` entry. */
+  origin: 'applied' | 'code'
+}
+
+/**
+ * The platform default model for a prompt key, or null. Not tenant data. A `platform_agent_models`
+ * row wins (it is the newer decision); else the committed `PROMPT_DEFAULT_MODELS` entry, so a fresh
+ * database runs the chosen model without anyone writing a row.
+ */
+export async function findPlatformAgentModel(
+  db: Database,
+  promptKey: PromptKey
+): Promise<PlatformDefault | null> {
+  const row = await db.query.platformAgentModels.findFirst({
+    where: eq(platformAgentModels.promptKey, promptKey),
+  })
+  if (row) {
+    return { provider: row.provider, baseUrl: row.baseUrl, model: row.model, origin: 'applied' }
+  }
+  const committed = promptDefaultModel(promptKey)
+  return committed
+    ? { provider: committed.provider, baseUrl: null, model: committed.model, origin: 'code' }
+    : null
+}
+
+/**
+ * The platform default's model when THIS platform tier can serve it — same provider and, for an
+ * `*_compatible` provider, the same base URL — else undefined (the tier's own model then runs).
+ */
+export function platformDefaultModel(
+  platform: Pick<PlatformChat, 'provider' | 'baseUrl'> | null,
+  row: Pick<PlatformDefault, 'provider' | 'baseUrl' | 'model'> | null
+): string | undefined {
+  if (!platform || !row) return undefined
+  if (row.provider !== platform.provider) return undefined
+  if ((row.baseUrl ?? null) !== (platform.baseUrl ?? null)) return undefined
+  return row.model
+}
+
 /** A tenant's chat config by id — tenant-scoped so a foreign id reads as "not found". */
 export async function findChatConfigById(
   db: Database,
@@ -120,19 +183,30 @@ export async function findChatConfigById(
 /**
  * What `resolveChat` will use for a prompt key, BEFORE building a client: the assignment (if any),
  * the config row it lands on (tenant default when the assignment names none) and the model.
- * `config: undefined` means the platform key is next in line. Shared by `resolveChat` and the
+ * `config: undefined` means the platform key is next in line, and then `platformDefault` is the
+ * platform default that may pick its model (`platformDefaultModel` decides whether the tier can
+ * serve it) — read only when nothing of the tenant's chose a model. Shared by `resolveChat` and the
  * agent-models settings list so the two can never disagree.
  */
 export async function planChat(
   db: Database,
   tenantId: string,
   promptKey?: PromptKey
-): Promise<{ assignment: AgentModelRow | null; config: AiConfigRow | undefined; model?: string }> {
+): Promise<{
+  assignment: AgentModelRow | null
+  config: AiConfigRow | undefined
+  model?: string
+  /** The platform default for `promptKey`, when the chain falls through to the platform tier. */
+  platformDefault: PlatformDefault | null
+}> {
   const assignment = promptKey ? await findAgentModel(db, tenantId, promptKey) : null
   const config = assignment?.aiConfigId
     ? await findChatConfigById(db, tenantId, assignment.aiConfigId)
     : await findDefaultConfig(db, tenantId, 'chat')
-  return { assignment, config, model: assignment?.model ?? undefined }
+  const model = assignment?.model ?? undefined
+  const platformDefault =
+    !config && !model && promptKey ? await findPlatformAgentModel(db, promptKey) : null
+  return { assignment, config, model, platformDefault }
 }
 
 /** Decrypt a row's credential (null for key-less providers). The ONLY place `apiKeyEnc` is read. */
@@ -175,6 +249,7 @@ function platformOpenAiChat(cfg: AppConfig): PlatformChat | null {
     return {
       provider: 'openai_compatible',
       model,
+      baseUrl,
       build: fetchImpl =>
         createChatClient({ provider: 'openai_compatible', apiKey, baseUrl, fetch: fetchImpl }),
     }
@@ -205,6 +280,8 @@ function platformKeyEmbeddings(
 export interface PlatformChat {
   provider: AiProvider
   model: string
+  /** The `*_compatible` tier's endpoint (`AI_BASE_URL`); a platform default must match it. */
+  baseUrl?: string
   build: (fetchImpl?: FetchLike) => ChatClient
 }
 
@@ -319,6 +396,7 @@ export async function resolveChat(
     assignment,
     config: row,
     model: override,
+    platformDefault,
   } = await planChat(db, tenantId, options.promptKey)
   const source = assignment ? 'agent' : 'tenant'
   if (row) {
@@ -333,11 +411,12 @@ export async function resolveChat(
   }
   const platform = platformChat(cfg, env)
   if (platform) {
+    const promoted = platformDefaultModel(platform, platformDefault)
     return {
       client: platform.build(options.fetch),
       provider: platform.provider,
-      model: override ?? platform.model,
-      source: assignment ? 'agent' : 'platform',
+      model: override ?? promoted ?? platform.model,
+      source: assignment ? 'agent' : promoted ? 'platform_default' : 'platform',
       maxOutputTokens: cfg.AGENT_MAX_OUTPUT_TOKENS,
     }
   }

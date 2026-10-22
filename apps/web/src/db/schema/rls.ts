@@ -101,9 +101,15 @@ export const RLS_REVOKED_TABLES = [
  * The revoked tables are excluded because a REVOKE is stronger than a policy. `feature_flags` is
  * excluded for a different reason and is NOT revoked: it is platform-level rollout state with no
  * tenant column at all, readable by the app role on every request (D30). Its per-tenant companion,
- * `tenant_feature_overrides`, is policied like any other tenant table.
+ * `tenant_feature_overrides`, is policied like any other tenant table. `platform_agent_models` is
+ * the same kind of row: the platform default model per prompt key, with no tenant column, read by
+ * the resolver for any tenant that decided nothing for that key.
  */
-export const RLS_EXCLUDED_TABLES = [...RLS_REVOKED_TABLES, 'feature_flags'] as const
+export const RLS_EXCLUDED_TABLES = [
+  ...RLS_REVOKED_TABLES,
+  'feature_flags',
+  'platform_agent_models',
+] as const
 
 /**
  * An installed plugin declares ITS unpolicied tables through `ServerPlugin.rlsExcludedTables`

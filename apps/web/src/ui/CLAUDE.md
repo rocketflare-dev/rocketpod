@@ -336,7 +336,7 @@ A `CUSTOM kit.notice` renders
   keep the default config) and/or type a model; validated with `upsertAgentModelRequestSchema` (at
   least one) and `PUT` sends ONLY the set fields (the PUT replaces the row, so a blank model
   clears it). "Use default" is `DELETE` — absence is the default. Source badges: `agent`
-  (assignment), `tenant`, `platform`, `none` (→ EmptyState linking `/settings?tab=ai`).
+  (assignment), `tenant`, `platform pick` (`platform_default`), `platform`, `none` (→ EmptyState linking `/settings?tab=ai`).
 - **Knowledge (`/documents`)**: the paginated documents table first, then `URLTabs` (`?tab=text|file`, like Settings) to add. Paste text posts
   `ingestTextRequestSchema` output (blank source omitted; the server defaults it to `upload`);
   Upload file checks the pick with `validateDocumentUpload` (the shared allowlist

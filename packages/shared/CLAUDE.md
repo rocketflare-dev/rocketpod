@@ -131,7 +131,8 @@ the truth, the protocol shape is a projection of it — and the HITL pause/answe
 `resume[]`), `kitRunAgentInputSchema` +
 `readRunAgentTail` (`POST /api/agui/run`: the server is the transcript, the client supplies the tail) ·
 `agent-models.ts` — `agentModelAssignmentSchema`, `upsertAgentModelRequestSchema` (at least one of
-`aiConfigId`/`model`), `agentModelEntrySchema` (`effective.source: assignment | tenant | platform | none`) ·
+`aiConfigId`/`model`), `agentModelEntrySchema` (`effective.source: assignment | tenant | platform_default | platform | none` — `platform_default` = the platform tier on the platform's chosen model for the key) ·
+`default-models.ts` — `PROMPT_DEFAULT_MODELS` (prompt key → `{ provider, model, evidence }`, EMPTY in the kit; an app commits measured winners here) + `promptDefaultModel(key)`, read by `services/ai/resolve.ts` below a `platform_agent_models` row ·
 `embeddings.ts` — `documentSchema` (never the text or vectors), `INGEST_TEXT_MAX_CHARS`, `ingestTextRequestSchema`,
 `documentListQuerySchema`, `searchRequestSchema` (`SEARCH_MAX_LIMIT`), `searchHitSchema` (RRF `score`, `rank`,
 `denseRank`/`lexicalRank`), `searchResponseSchema`, and the read side (D18): `documentContentSchema` + `documentContentQuerySchema`

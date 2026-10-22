@@ -451,10 +451,21 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
 § AI services.
 
 - **One resolver (D17)**: `resolveChat` / `resolveEmbeddings` are the only readers of `ai_configs`
-  / `agent_models` and the only place credentials are decrypted. Chat order: per-agent assignment →
-  tenant default → platform `ANTHROPIC_API_KEY` → platform `AI_API_KEY` (OpenAI-compatible at
-  `AI_BASE_URL` with `AI_MODEL` — OpenRouter, vLLM, Ollama — or OpenAI itself without a base URL)
-  → 503 `ai_not_configured`. Embeddings order: tenant → `EMBEDDINGS_API_KEY` (OpenAI, or
+  / `agent_models` / `platform_agent_models` and the only place credentials are decrypted. Chat
+  order: per-agent assignment → tenant default → platform `ANTHROPIC_API_KEY` → platform
+  `AI_API_KEY` (OpenAI-compatible at `AI_BASE_URL` with `AI_MODEL` — OpenRouter, vLLM, Ollama — or
+  OpenAI itself without a base URL) → 503 `ai_not_configured`. On the platform tier a prompt key
+  runs its **platform default** model when there is one the tier can serve (same provider, and the
+  same base URL for an `*_compatible` one; `source: 'platform_default'`, "platform pick" in
+  Settings → Agent models), else the tier's own model. The platform default is a
+  `platform_agent_models` row (prompt key → provider, base URL, model id; platform state, no tenant
+  column — the kit ships no writer, so it is SQL or an app's own admin tooling), else the COMMITTED
+  `PROMPT_DEFAULT_MODELS` entry in `@rocketpod/shared/ai/default-models` (empty in the kit — an app
+  fills it from its own evals, each entry with its evidence); a row always wins. It sits BELOW the
+  tenant's own config on purpose: it carries no credential, so it can only choose a model for the
+  platform's own key, and a tenant that brought its own key and default model keeps both —
+  overriding them would change what the tenant pays its provider for without the tenant deciding it
+  (an admin who wants that pins the tenant's `agent_models` instead). Embeddings order: tenant → `EMBEDDINGS_API_KEY` (OpenAI, or
   OpenAI-compatible at `EMBEDDINGS_BASE_URL` with `EMBEDDINGS_MODEL`; `dimensions: 1024` is always
   sent, so the model must honour it) → 503. **There is no zero-key mode** (D41): no key means chat,
   agents and indexing answer 503; the gate needs none (tests point both at an in-process fake

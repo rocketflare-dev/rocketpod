@@ -31,6 +31,7 @@ import { usePermissions } from '@/ui/hooks/usePermissions'
 const SOURCE_LABELS: Record<AgentModelSource, string> = {
   assignment: 'agent',
   tenant: 'tenant',
+  platform_default: 'platform pick',
   platform: 'platform',
   none: 'none',
 }
@@ -38,6 +39,7 @@ const SOURCE_LABELS: Record<AgentModelSource, string> = {
 const SOURCE_BADGE: Record<AgentModelSource, string> = {
   assignment: 'badge-primary',
   tenant: 'badge-success',
+  platform_default: 'badge-info',
   platform: 'badge-info',
   none: 'badge-warning',
 }
@@ -128,9 +130,11 @@ export default function AgentModelsSettings() {
                             ? 'Pinned for this agent'
                             : entry.effective.source === 'tenant'
                               ? "The workspace's default chat provider"
-                              : entry.effective.source === 'platform'
-                                ? 'The platform default'
-                                : 'Nothing answers this agent'
+                              : entry.effective.source === 'platform_default'
+                                ? 'The platform key, on the model the platform chose for this agent'
+                                : entry.effective.source === 'platform'
+                                  ? 'The platform default'
+                                  : 'Nothing answers this agent'
                         }
                       >
                         {SOURCE_LABELS[entry.effective.source]}

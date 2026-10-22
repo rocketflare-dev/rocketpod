@@ -162,6 +162,10 @@ export default defineConfig({
         test: {
           name: 'config',
           environment: 'node',
+          // Many cases here spawn git, node or `pnpm plugin` against scratch repositories, or scan
+          // the whole tree; under the full gate on a 2-vCPU runner 5 s was a coin toss (an app built
+          // on the kit lost releases to it). Still one latency factor, from a higher floor.
+          testTimeout: 20_000 * LATENCY_FACTOR,
           include: [
             'tests/config/**/*.{test,spec}.ts',
             'src/plugins/*/tests/config/**/*.{test,spec}.ts',
@@ -177,6 +181,7 @@ export default defineConfig({
               test: {
                 name: 'kit-only',
                 environment: 'node',
+                testTimeout: 20_000 * LATENCY_FACTOR,
                 include: ['tests/kit-only/**/*.{test,spec}.ts'],
               },
               resolve: { alias },

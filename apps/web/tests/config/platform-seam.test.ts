@@ -78,6 +78,24 @@ function sources(dirs: string[] = ['src'], pattern = /\.tsx?$/): string[] {
     .sort()
 }
 
+/**
+ * A whole-tree scan's budget. Locally both scans take well under a second; on CI's 2-vCPU runner,
+ * beside every other config file and a growing app tree, the Cloudflare scan once passed vitest's
+ * default 5 s and failed a copy's release. The guard is worth the time; the default is not.
+ */
+const SCAN_TIMEOUT_MS = 30_000
+
+/** Each source read once, whichever scan asks first. */
+const texts = new Map<string, string>()
+function read(file: string): string {
+  let text = texts.get(file)
+  if (text === undefined) {
+    text = readFileSync(path.join(WEB_ROOT, file), 'utf8')
+    texts.set(file, text)
+  }
+  return text
+}
+
 /** Every workspace `package.json`, repo-relative. */
 function manifests(): string[] {
   return execFileSync('git', ['ls-files', '--', 'package.json', '*/package.json'], {
@@ -199,13 +217,19 @@ function nodeReferences(file: string, text: string): Finding[] {
 }
 
 describe('the Node entry stays in src/node/', () => {
-  it('no process, Node server module or Node-entry import anywhere else under src/', () => {
-    const offenders = sources()
-      .filter(file => !NODE_ONLY.test(file))
-      .flatMap(file => nodeReferences(file, readFileSync(path.join(WEB_ROOT, file), 'utf8')))
-      .map(f => `${f.file}:${f.line} ${f.what}`)
-    expect(offenders, 'config comes through loadConfig(env); runtime through Platform').toEqual([])
-  })
+  it(
+    'no process, Node server module or Node-entry import anywhere else under src/',
+    () => {
+      const offenders = sources()
+        .filter(file => !NODE_ONLY.test(file))
+        .flatMap(file => nodeReferences(file, read(file)))
+        .map(f => `${f.file}:${f.line} ${f.what}`)
+      expect(offenders, 'config comes through loadConfig(env); runtime through Platform').toEqual(
+        []
+      )
+    },
+    SCAN_TIMEOUT_MS
+  )
 
   it('sees what it is looking for', () => {
     const probe = [
@@ -249,14 +273,20 @@ describe('no Cloudflare anywhere', () => {
     expect(offenders).toEqual([])
   })
 
-  it('no Cloudflare type, binding or module in src/, tests/ or scripts/', () => {
-    const files = sources(['src', 'tests', 'scripts'], /\.(tsx?|mjs)$/)
-    expect(files.length).toBeGreaterThan(100)
-    const offenders = files
-      .flatMap(file => cloudflareReferences(file, readFileSync(path.join(WEB_ROOT, file), 'utf8')))
-      .map(f => `${f.file}:${f.line} ${f.what}`)
-    expect(offenders, 'read the capability through `Platform` (src/platform/types.ts)').toEqual([])
-  })
+  it(
+    'no Cloudflare type, binding or module in src/, tests/ or scripts/',
+    () => {
+      const files = sources(['src', 'tests', 'scripts'], /\.(tsx?|mjs)$/)
+      expect(files.length).toBeGreaterThan(100)
+      const offenders = files
+        .flatMap(file => cloudflareReferences(file, read(file)))
+        .map(f => `${f.file}:${f.line} ${f.what}`)
+      expect(offenders, 'read the capability through `Platform` (src/platform/types.ts)').toEqual(
+        []
+      )
+    },
+    SCAN_TIMEOUT_MS
+  )
 
   it('no wrangler toml, Worker entry or generated Workers types are left', () => {
     for (const file of [

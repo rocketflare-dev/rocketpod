@@ -14,12 +14,13 @@ import {
   createEmbeddingsClient,
   type FetchLike,
   reconcileThinking,
+  toResponsesInput,
   unsupportedSchemaKeywords,
   withoutSchemaKeywords,
 } from '@/api/services/ai/client'
 import { AiError, describeAiError, normalizeAiError, redactSecrets } from '@/api/services/ai/errors'
 import { providerInfo } from '@/api/services/ai/providers'
-import { type ChatDelta, textOf } from '@/api/services/ai/types'
+import { type ChatDelta, type ChatMessage, textOf } from '@/api/services/ai/types'
 import { sseResponse } from '../helpers/ai'
 
 interface Captured {
@@ -1005,5 +1006,83 @@ describe('provider catalog', () => {
         expect(priceFor(id, model), `${id} ${model}`).not.toBeNull()
       }
     }
+  })
+})
+
+describe('image blocks — each adapter its own wire shape', () => {
+  const PNG = 'iVBORw0KGgo='
+  // A turn that answers a tool call AND shows the model the picture the tool opened.
+  const turn: ChatMessage[] = [
+    { role: 'user', content: 'look at the file' },
+    { role: 'assistant', content: [{ type: 'tool_use', id: 'c1', name: 'read_file', input: {} }] },
+    {
+      role: 'user',
+      content: [
+        { type: 'tool_result', toolUseId: 'c1', content: 'an image, attached' },
+        { type: 'text', text: 'Here it is.' },
+        { type: 'image', mediaType: 'image/png', data: PNG },
+      ],
+    },
+  ]
+  const textAnswer = () =>
+    new Response(
+      JSON.stringify({
+        model: 'm',
+        choices: [{ index: 0, finish_reason: 'stop', message: { content: 'ok' } }],
+      }),
+      { headers: { 'content-type': 'application/json' } }
+    )
+
+  it('OpenAI-compatible: an image_url data URL in a user message AFTER the tool results', async () => {
+    const { fetch, calls } = fakeFetch(textAnswer)
+    await createChatClient({
+      provider: 'openai_compatible',
+      apiKey: 'k',
+      baseUrl: 'https://compat.test/v1',
+      fetch,
+    }).complete({ model: 'm', maxTokens: 10, messages: turn })
+    expect((calls[0]?.body.messages as unknown[] | undefined)?.slice(2)).toEqual([
+      { role: 'tool', tool_call_id: 'c1', content: 'an image, attached' },
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Here it is.' },
+          { type: 'image_url', image_url: { url: `data:image/png;base64,${PNG}` } },
+        ],
+      },
+    ])
+  })
+
+  it('OpenAI Responses: an input_image part after the function_call_output', () => {
+    expect(
+      toResponsesInput({ model: 'gpt-6-luna', maxTokens: 10, messages: turn }).slice(-2)
+    ).toEqual([
+      { type: 'function_call_output', call_id: 'c1', output: 'an image, attached' },
+      {
+        role: 'user',
+        content: [
+          { type: 'input_text', text: 'Here it is.' },
+          { type: 'input_image', image_url: `data:image/png;base64,${PNG}` },
+        ],
+      },
+    ])
+  })
+
+  it('Anthropic: a base64 image block in place, beside the tool_result', async () => {
+    const { fetch, calls } = fakeFetch(() => anthropicMessage([{ type: 'text', text: 'ok' }]))
+    await createChatClient({
+      provider: 'anthropic',
+      apiKey: 'k',
+      fetch,
+    }).complete({ model: 'claude-haiku-5-5', maxTokens: 10, messages: turn })
+    const messages = calls[0]?.body.messages as { content: unknown[] }[]
+    expect(messages[2]?.content).toEqual([
+      expect.objectContaining({ type: 'tool_result', tool_use_id: 'c1' }),
+      expect.objectContaining({ type: 'text', text: 'Here it is.' }),
+      expect.objectContaining({
+        type: 'image',
+        source: { type: 'base64', media_type: 'image/png', data: PNG },
+      }),
+    ])
   })
 })

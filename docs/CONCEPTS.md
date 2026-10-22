@@ -478,6 +478,11 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   in checkpoints and never in chat history. Each adapter recovers ONCE from a refusal the traits
   misjudged (thinking, sampling, forced tool, effort, a replayed block's signature) and remembers
   it. So an unknown id costs one call, and it is read as the newest generation.
+- **Images in a user turn**: `ContentBlock` has an `image` block (base64, PNG/JPEG/GIF/WebP —
+  `IMAGE_MEDIA_TYPES`), sent as an Anthropic `image` block, an OpenAI-compatible `image_url` data
+  URL (in a user message after the turn's tool results — a `tool` message is text-only) or a
+  Responses `input_image`, and kept in tool-loop checkpoints. A tool result stays text, so a caller
+  that wants the model to SEE a file a tool opened lifts it into the next user turn.
 - **Kit** (`services/ai/kit.ts`): `runStreamingChat`, `runToolLoop`, `callStructuredTool`, prompt
   caching helpers. `callStructuredTool`'s optional `tool.jsonSchema` is what the model is shown
   when it differs from the `schema` that validates: a caller that salvages the valid parts of an
@@ -626,7 +631,7 @@ from the Models API; no `effort` setting (thinking is on/off — on means the mo
 5.5's > 100k-token price tier is not modelled (`pricing.ts` uses the ≤ 100k rate); OpenAI tools are
 sent non-strict; an assistant message's `phase` is not replayed to the Responses API;
 no Excel or OpenDocument conversion (refused at upload); no document summary or thumbnail (the card is an excerpt);
-`charOffset` does not map to PDF pages; no frontend tools in chat, no `STATE_DELTA`; protobuf drops
+`charOffset` does not map to PDF pages; no image input in chat or uploads (the `image` block is for callers that build their own turns), and the tracer records image bytes like any other content (redact them yourself, or turn `OBSERVABILITY_CAPTURE_CONTENT` off); no frontend tools in chat, no `STATE_DELTA`; protobuf drops
 `TOOL_CALL_RESULT` and has no stream cursor; `@ag-ui/core` is 0.0.x (pin + contract test are the
 mitigation); no token-level streaming for runs; char-based history budget
 not derived from the model; sliding window defeats prompt caching on long threads; `enqueueRun`

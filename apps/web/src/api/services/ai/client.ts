@@ -40,6 +40,7 @@ import type {
   ChatResult,
   ContentBlock,
   EmbeddingsClient,
+  ImageBlock,
   RequestDefaults,
   StopReason,
 } from './types'
@@ -162,6 +163,11 @@ function toAnthropicContent(
         return block.data as Anthropic.ContentBlockParam
       case 'text':
         return { type: 'text', text: block.text }
+      case 'image':
+        return {
+          type: 'image',
+          source: { type: 'base64', media_type: block.mediaType, data: block.data },
+        }
       case 'tool_use':
         return { type: 'tool_use', id: block.id, name: block.name, input: block.input ?? {} }
       case 'tool_result':
@@ -499,9 +505,14 @@ interface OpenAiToolCall {
   function: { name: string; arguments: string }
 }
 
+/** A user message's parts when it carries a picture (`image_url` takes a `data:` URL). */
+type OpenAiContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } }
+
 interface OpenAiMessage {
   role: 'system' | 'user' | 'assistant' | 'tool'
-  content: string | null
+  content: string | OpenAiContentPart[] | null
   tool_calls?: OpenAiToolCall[]
   tool_call_id?: string
 }
@@ -515,8 +526,10 @@ interface OpenAiUsage {
 interface OpenAiChoice {
   index: number
   finish_reason: string | null
-  message?: OpenAiMessage
-  delta?: Partial<OpenAiMessage> & {
+  /** An ANSWER's message: its content is text (parts are only ever sent, never received). */
+  message?: Omit<OpenAiMessage, 'content'> & { content: string | null }
+  delta?: Partial<Omit<OpenAiMessage, 'content'>> & {
+    content?: string | null
     tool_calls?: Array<
       Partial<OpenAiToolCall> & { index: number; function?: Partial<OpenAiToolCall['function']> }
     >
@@ -566,12 +579,26 @@ function toOpenAiMessages(params: ChatParams): OpenAiMessage[] {
       continue
     }
     const texts: string[] = []
+    const images: ImageBlock[] = []
     for (const block of m.content) {
       if (block.type === 'text') texts.push(block.text)
+      else if (block.type === 'image') images.push(block)
       else if (block.type === 'tool_result')
         out.push({ role: 'tool', tool_call_id: block.toolUseId, content: block.content })
     }
-    if (texts.length) out.push({ role: 'user', content: texts.join('\n') })
+    // A tool message is text-only, so a picture follows the tool results as a user message.
+    if (images.length) {
+      out.push({
+        role: 'user',
+        content: [
+          ...(texts.length ? [{ type: 'text' as const, text: texts.join('\n') }] : []),
+          ...images.map(image => ({
+            type: 'image_url' as const,
+            image_url: { url: `data:${image.mediaType};base64,${image.data}` },
+          })),
+        ],
+      })
+    } else if (texts.length) out.push({ role: 'user', content: texts.join('\n') })
   }
   return out
 }
@@ -935,12 +962,25 @@ export function toResponsesInput(params: ChatParams): ResponsesItem[] {
       continue
     }
     const texts: string[] = []
+    const images: ImageBlock[] = []
     for (const block of m.content) {
       if (block.type === 'text') texts.push(block.text)
+      else if (block.type === 'image') images.push(block)
       else if (block.type === 'tool_result')
         out.push({ type: 'function_call_output', call_id: block.toolUseId, output: block.content })
     }
-    if (texts.length) out.push({ role: 'user', content: texts.join('\n') })
+    if (images.length) {
+      out.push({
+        role: 'user',
+        content: [
+          ...(texts.length ? [{ type: 'input_text', text: texts.join('\n') }] : []),
+          ...images.map(image => ({
+            type: 'input_image',
+            image_url: `data:${image.mediaType};base64,${image.data}`,
+          })),
+        ],
+      })
+    } else if (texts.length) out.push({ role: 'user', content: texts.join('\n') })
   }
   return out
 }

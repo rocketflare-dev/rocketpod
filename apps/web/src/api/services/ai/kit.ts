@@ -20,6 +20,7 @@ import {
   type ChatClient,
   type ChatMessage,
   type ContentBlock,
+  IMAGE_MEDIA_TYPES,
   type StopReason,
   type SystemPrompt,
   type ToolDefinition,
@@ -392,6 +393,11 @@ export interface ToolLoopCheckpoint {
 
 const contentBlockSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('text'), text: z.string() }),
+  z.object({
+    type: z.literal('image'),
+    mediaType: z.enum(IMAGE_MEDIA_TYPES),
+    data: z.string(),
+  }),
   z.object({
     type: z.literal('tool_use'),
     id: z.string(),

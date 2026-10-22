@@ -302,7 +302,11 @@ describe('parseToolLoopCheckpoint', () => {
         },
         {
           role: 'user',
-          content: [{ type: 'tool_result', toolUseId: 't1', content: 'hits', isError: false }],
+          content: [
+            { type: 'tool_result', toolUseId: 't1', content: 'hits', isError: false },
+            // A picture a tool opened rides the next user turn; a resumed loop must still show it.
+            { type: 'image', mediaType: 'image/png', data: 'iVBORw0KGgo=' },
+          ],
         },
       ],
     }

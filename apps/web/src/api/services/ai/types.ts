@@ -11,9 +11,29 @@ import type { DocumentConverter } from '../../../platform/types'
 
 export type ContentBlock =
   | { type: 'text'; text: string }
+  | ImageBlock
   | { type: 'tool_use'; id: string; name: string; input: unknown }
   | { type: 'tool_result'; toolUseId: string; content: string; isError?: boolean }
   | ReasoningBlock
+
+/**
+ * A picture in a USER message, base64. Each adapter sends it in its own wire shape: an Anthropic
+ * `image` block, an OpenAI chat `image_url` part (a `data:` URL, in a user message AFTER the turn's
+ * tool results, because a `tool` message is text-only), a Responses `input_image` part. A tool
+ * result is text here, so a caller that wants the model to SEE a file a tool opened lifts it out
+ * into an `image` block of the next user turn.
+ *
+ * ⚠️ The tracer records messages as they are: a caller sending a user's private file redacts it
+ * from its spans (or turns `OBSERVABILITY_CAPTURE_CONTENT` off).
+ */
+export interface ImageBlock {
+  type: 'image'
+  mediaType: (typeof IMAGE_MEDIA_TYPES)[number]
+  data: string
+}
+
+/** The picture types every adapter's wire shape accepts. */
+export const IMAGE_MEDIA_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'] as const
 
 /**
  * A provider's reasoning, carried OPAQUE through a tool loop: Anthropic's `thinking` /

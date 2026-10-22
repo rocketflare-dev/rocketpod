@@ -63,11 +63,11 @@ jobs:
   # Which kit versions is this plugin proved against — its floor, and the kit's own ceiling?
   versions:
     name: Resolve kit versions
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       pairs: ${{ steps.resolve.outputs.pairs }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           path: plugin
       # **This job no longer clones the kit at all**, and that is the point of the change. It used
@@ -252,7 +252,7 @@ jobs:
   gate:
     name: ${{ matrix.label }} on kit ${{ matrix.kit }}
     needs: versions
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false # which END broke — the floor or the ceiling — is the whole diagnosis
       matrix:
@@ -260,7 +260,7 @@ jobs:
         # proved against its OWN floor, and a shared ceiling is normal while a shared floor is not.
         include: ${{ fromJson(needs.versions.outputs.pairs) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           path: plugin
       - name: Clone the kit at ${{ matrix.kit }}
@@ -288,10 +288,10 @@ jobs:
           fi
       # The pnpm version comes from the KIT's `packageManager`, not from this repository — a plugin
       # repo may have no package.json at all.
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           package_json_file: kit/package.json
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version-file: kit/.nvmrc
           cache: pnpm

@@ -86,3 +86,24 @@ export function parseGateArgs(argv) {
   if (!list && steps.length === 0) return { error: 'nothing left to run' }
   return { list, json, keepGoing, steps }
 }
+
+/** Where `pnpm gate` writes its verdict (git-ignored). */
+export const GATE_VERDICT_FILE = '.gate/last.json'
+
+/**
+ * The verdict `pnpm gate` writes to `GATE_VERDICT_FILE` — what a person or an agent reads before a
+ * commit or a tag, instead of an exit code that a pipe (`pnpm gate | tail`) or a background runner
+ * reports as its own. `passed` means every requested step ran and none failed; `full` means those
+ * were ALL the gate's steps, so a `pnpm gate lint` pass can never be mistaken for the gate. `sha`
+ * is HEAD and `dirty` whether the tree had uncommitted changes: a verdict for another commit, or
+ * for a tree that has moved on, is not a verdict for this one.
+ *
+ * @param {{ requested: string[], ran: Array<{ id: string, seconds: number, ok: boolean }>,
+ *   sha: string | null, dirty: boolean | null, finishedAt: string }} input
+ */
+export function gateVerdict({ requested, ran, sha, dirty, finishedAt }) {
+  const failed = ran.filter(s => !s.ok).map(s => s.id)
+  const passed = failed.length === 0 && requested.every(id => ran.some(s => s.id === id && s.ok))
+  const full = GATE_STEPS.every(s => requested.includes(s.id))
+  return { passed, full, failed, steps: ran, sha, dirty, finishedAt }
+}

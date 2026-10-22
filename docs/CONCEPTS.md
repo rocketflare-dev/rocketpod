@@ -628,7 +628,8 @@ zero-length span, not an OTLP span event, and is not traced when the answer's ro
   ConfigMap/Secret keys to exactly the vars and secrets `src/config.ts` declares.
 - **Releases**: the release is the tag, which must equal the root `package.json` version
   (`release-check.mjs`); `image.yml` builds the image on every PR and push to main, pushes
-  `ghcr.io/rocketflare-dev/rocketpod` on a tag, and lints, renders and validates the chart.
+  `ghcr.io/rocketflare-dev/rocketpod` on a tag — only once CI has passed on the tagged commit (its
+  `ci` job) — and lints, renders and validates the chart.
   `ci.yml` is ONE gate job — the secrets scan, then `pnpm gate` (§4). The kit's renamed-copy and
   default-plugins gates, its porting-note and plugin-API checks live in `kit.yml` (`kitOnly`).
 

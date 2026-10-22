@@ -16,7 +16,11 @@ pnpm gate
 
 Lint, typecheck, test, build — the same command a copy's CI runs as its one job and Launch's ship
 gate runs in a sandbox (`pnpm gate --list` for the steps, `pnpm gate test` for one of them,
-`--keep-going` to see every failure at once). `pnpm test` inside it starts the test database
+`--keep-going` to see every failure at once). Every run writes its verdict to `.gate/last.json`
+(`passed`, `full` — all four steps — `failed`, per-step seconds, HEAD's `sha`, `dirty`): read that,
+or the final `✔ pnpm gate passed` / `✖ pnpm gate failed` line, never an exit code that a pipe or a
+background runner reports as its own. A step whose seconds are in the thousands slept mid-run:
+re-run it. `pnpm test` inside it starts the test database
 itself and runs the driver conformance suite (`tests/driver/`) under postgres.js (docs/CONCEPTS.md §4).
 `typecheck` is `tsc --noEmit` in every package; nothing is generated.
 

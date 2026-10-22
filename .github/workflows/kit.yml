@@ -28,16 +28,16 @@ concurrency:
 jobs:
   kit-checks:
     name: Kit checks
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       count: ${{ steps.plugins.outputs.count }}
       ids: ${{ steps.plugins.outputs.ids }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # the porting-note check diffs against the base
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: pnpm
@@ -82,13 +82,13 @@ jobs:
   # workflows), with the root version set to an APP release, as every copy's is once it ships.
   renamed:
     name: Gate on a renamed copy
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: pnpm
@@ -134,13 +134,13 @@ jobs:
     name: Gate with default plugins
     needs: kit-checks
     if: needs.kit-checks.outputs.count != '0'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: pnpm

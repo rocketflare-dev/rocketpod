@@ -7,7 +7,12 @@ import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { gateListSchema } from '@rocketpod/shared/gate'
 import { describe, expect, it } from 'vitest'
-import { GATE_STEPS, gateList, parseGateArgs } from '../../../../scripts/lib/gate-lib.mjs'
+import {
+  GATE_STEPS,
+  gateList,
+  gateVerdict,
+  parseGateArgs,
+} from '../../../../scripts/lib/gate-lib.mjs'
 import type { TestPlan } from '../../../../scripts/lib/test-plan.d.mts'
 import { planTests, resolveTarget } from '../../../../scripts/lib/test-plan.mjs'
 
@@ -119,5 +124,33 @@ describe('pnpm test: the plan', () => {
     expect(webRuns(plan({}, true))[1]).toBe('api-isolated+driver+ui+config+kit-only @ postgres')
     expect(webRuns(plan({}, false)).join('\n')).not.toMatch(/kit-only/)
     expect(existsSync(path.join(REPO, 'scripts/test.mjs'))).toBe(true)
+  })
+})
+
+describe('gateVerdict', () => {
+  const ALL = GATE_STEPS.map(s => s.id)
+  const at = { sha: 'abc', dirty: false, finishedAt: '2026-10-22T00:00:00.000Z' }
+  const ok = (id: string) => ({ id, seconds: 1, ok: true })
+
+  it('passes only when every requested step ran and none failed', () => {
+    expect(gateVerdict({ requested: ALL, ran: ALL.map(ok), ...at })).toMatchObject({
+      passed: true,
+      full: true,
+      failed: [],
+    })
+    // A stop at the first failure leaves the later steps unrun: failed, never passed.
+    const stopped = gateVerdict({
+      requested: ALL,
+      ran: [ok('lint'), { id: 'typecheck', seconds: 3, ok: false }],
+      ...at,
+    })
+    expect(stopped).toMatchObject({ passed: false, failed: ['typecheck'] })
+    // A step that never ran is not a pass either, even with no failure recorded.
+    expect(gateVerdict({ requested: ALL, ran: [ok('lint')], ...at }).passed).toBe(false)
+  })
+
+  it('marks a partial gate as not full, so `pnpm gate lint` is never read as the gate', () => {
+    const v = gateVerdict({ requested: ['lint'], ran: [ok('lint')], ...at })
+    expect(v).toMatchObject({ passed: true, full: false })
   })
 })

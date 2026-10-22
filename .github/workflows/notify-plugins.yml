@@ -24,9 +24,9 @@ on:
 
 jobs:
   dispatch:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Without the token this job is a no-op that SAYS so. It is deliberately not a failure: a
       # fork, or a checkout by someone who has no plugin repositories, must not show a red run for
       # a notification nobody is waiting on.

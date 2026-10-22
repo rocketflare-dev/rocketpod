@@ -25,3 +25,27 @@ export function parseGateArgs(
   | { list: boolean; json: boolean; keepGoing: boolean; steps: string[] }
   | { error: string }
   | { help: true }
+
+export const GATE_VERDICT_FILE: string
+
+export interface GateStepResult {
+  id: string
+  seconds: number
+  ok: boolean
+}
+export interface GateVerdict {
+  passed: boolean
+  full: boolean
+  failed: string[]
+  steps: GateStepResult[]
+  sha: string | null
+  dirty: boolean | null
+  finishedAt: string
+}
+export function gateVerdict(input: {
+  requested: string[]
+  ran: GateStepResult[]
+  sha: string | null
+  dirty: boolean | null
+  finishedAt: string
+}): GateVerdict

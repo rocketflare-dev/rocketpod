@@ -4,6 +4,8 @@ node_modules/
 
 # Build outputs
 **/dist/
+# `pnpm gate`'s verdict (scripts/lib/gate-lib.mjs `gateVerdict`)
+.gate/
 
 # Secrets — never commit. `.env.example` and `.env.test` (dummy values) ARE committed.
 **/.env

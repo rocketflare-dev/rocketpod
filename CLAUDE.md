@@ -174,7 +174,10 @@ code-quality.md · runtime.md. Runbooks: `docs/DEPLOY.md` · `docs/RLS.md`
 ## Non-Negotiables
 
 - **Gate**: `pnpm gate` (lint → typecheck → test → build) passes before every commit — the same
-  command a copy's CI job and Launch's ship gate run
+  command a copy's CI job and Launch's ship gate run. Judge it by its own verdict — the
+  `✔ pnpm gate passed` line, or `.gate/last.json` (`passed`, `full`, `sha`) — never by the exit
+  code of `pnpm gate | tail` (that is tail's) or a background task's; a tag is a release, and where
+  a deploy job hangs off it, a production deploy (`docs/DEPLOY.md`)
 - **Tests catch real bugs**: no test restates a constant, tests a fake, greps docs, duplicates
   another file's assertion, or cannot fail; a kit-maintainer claim lives in `tests/kit-only/` —
   `.claude/rules/testing.md` "A test must be able to catch a real bug"

@@ -23,6 +23,9 @@ You are coaching someone from a working checkout to a running deployment. The ru
 - **Stop and ask with `AskUserQuestion` before** each of these — they are the user's to approve, every
   time, even if an earlier one was approved:
   - pushing an image to a registry (`docker push`, a tag that triggers `image.yml`'s push);
+  - pushing a version tag at all. Read `.github/workflows/image.yml` first: when a deploy job hangs
+    off it, the tag IS a production deploy, and nothing asks again. Say which it is, and confirm the
+    gate's own verdict (`.gate/last.json` `passed` + `full` for that `sha`) before asking;
   - anything against a live cluster: `helm upgrade --install`, `helm uninstall`, `kubectl apply`,
     `kubectl create secret`, `kubectl delete`;
   - creating anything billed: a managed database, a bucket, a load balancer, a DNS record;

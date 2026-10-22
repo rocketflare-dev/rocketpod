@@ -3,7 +3,7 @@ name: CI
 # The quality gate, in ONE job: the secrets scan, then `pnpm gate` — lint, typecheck, test, build,
 # the same command a person runs before committing and Launch's ship gate runs in a sandbox
 # (docs/CONCEPTS.md §4). The workflow adds no check of its own beyond gitleaks, so what passes
-# here is exactly what passes on a laptop; `tests/config/ci-workflows.test.ts` holds it to that.
+# here is exactly what passes on a laptop.
 #
 # `pnpm test` (the gate's `test` step) starts the test Postgres from
 # `apps/web/docker-compose.test.yml` itself and runs every suite, the `driver` conformance project
@@ -36,7 +36,7 @@ concurrency:
 jobs:
   gate:
     name: Gate
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # The lookup reads check runs and a commit's pull requests; nothing in this job writes. A caller
     # must grant the same three: a called workflow may not ask for more than its caller grants.
     permissions:
@@ -44,7 +44,7 @@ jobs:
       checks: read
       pull-requests: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # full history for the gitleaks scan
       # Was this tree already gated by Launch? Skipped outright without LAUNCH_GATE_APP_ID. Which
@@ -73,8 +73,8 @@ jobs:
             > "$RUNNER_TEMP/pull.log" 2>&1 &
       # pnpm version comes from `packageManager` in the root package.json. Must precede setup-node
       # so `cache: pnpm` can find the store.
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: pnpm

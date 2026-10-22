@@ -335,7 +335,12 @@ Quality of real model output is measured by `pnpm eval` in `apps/evals` (vitest-
 `docs/EVALS.md`), never by these suites: a test asserts behaviour with a `FakeChatClient` and must
 be deterministic, and an eval scores a real model and is allowed to vary. The eval KIT's own pure
 parts (scorers, transcripts, datasets, the compare) are unit-tested in `apps/evals/tests` and do
-run in `pnpm test`. `tests/api/feedback.test.ts` covers the thumbs and the export (tenant-scoped,
+run in `pnpm test`. The eval COVERAGE CONTRACT is a `config` test (`tests/config/eval-coverage.test.ts`,
+`docs/EVALS.md`): a prompt or agent with no suite or exemption, or a missing suite/dataset/baseline
+file, FAILS the gate; a stale or provisional baseline only WARNS. The test writes the warnings to
+`apps/evals/.evals/gate-warnings.txt` and `pnpm test` / `pnpm gate` print them last
+(`scripts/lib/eval-warnings.mjs`). A warning is never "fixed" by editing a baseline by hand: run the
+suite and re-baseline (`rp-evals`). `tests/api/feedback.test.ts` covers the thumbs and the export (tenant-scoped,
 admin+) and that `withEvalScope` tags spans.
 
 ## Commands

@@ -21,6 +21,8 @@
  * `tests/config/shared-imports.test.ts` checks all three spellings.
  */
 
+/** `SharedPlugin.evalCoverage`'s entries (D33): a suite that measures a key, or why none does. */
+export type { EvalCoverage, EvalCoverageEntry, PluginEvalCoverage } from '../ai/eval-coverage'
 export type { ApiErrorBody, ErrorCode } from '../errors'
 /** The error envelope every failure uses, including validation. Success bodies are bare. */
 export { apiErrorSchema, ERROR_CODES } from '../errors'

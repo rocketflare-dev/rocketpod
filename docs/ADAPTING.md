@@ -107,7 +107,11 @@ tell it. That is what makes deleting safe.
   `CORE_PROMPT_REGISTRY` (`apps/web/src/api/services/prompts.ts`), the `CORE_AGENTS` entry in
   `services/agents/registry.ts`, the example's OWN tests (`apps/web/tests/api/agent-research.test.ts`,
   `agent-triage-research.test.ts`, `apps/web/tests/ui/agent-examples.test.tsx` for `summarize-text`'s form and
-  output view) and eval suites/datasets (`apps/evals/{suites/agents,datasets}/<key>.*`), its demo runs in
+  output view) and eval suites/datasets/baselines (`apps/evals/{suites/agents,datasets}/<key>.*`,
+  `apps/evals/baselines/agents-<key>.json`) with its two eval-coverage entries
+  (`CORE_PROMPT_EVAL_COVERAGE` / `CORE_AGENT_EVAL_COVERAGE` in `packages/shared/src/ai/eval-coverage.ts`
+  — the gate fails an entry for a key nothing registers; deleting `triage-research` also re-points
+  `agent-decide`, which its suite measures, at a suite of yours or an `exempt`), its demo runs in
   `apps/web/scripts/seed.ts`, and the agent's TWO UI entries —
   `apps/web/src/ui/pages/agents/forms/<key>.tsx` and `outputs/<key>.tsx`, with their registry lines
   (see `apps/web/src/ui/CLAUDE.md`). `RunPage` itself is the runtime's, not the example's. The
@@ -292,6 +296,10 @@ A model you leave out shows "—" on Settings → Usage rather than a wrong numb
    more: park it, answer it, re-enter `execute` and assert there is still exactly ONE interrupt row
    and one copy of whatever it wrote — `tests/api/agent-research.test.ts` is the template, and
    `createFakeWorkflowStep({ onWait })` is how a test stands in for a person clicking Approve.
+7. Evals — an eval-coverage entry for the agent AND its prompt (`CORE_AGENT_EVAL_COVERAGE` /
+   `CORE_PROMPT_EVAL_COVERAGE`, `packages/shared/src/ai/eval-coverage.ts`): the suite, dataset and
+   baseline that measure it (`/rp-evals author`), or `{ exempt: '<why>' }`. The gate fails a
+   registered key with no entry (`docs/EVALS.md` § "The coverage contract").
 
 **Adding a cube, a fact table or a dashboard template** (D19) — all three belong to the ANALYTICS
 PLUGIN now, and the instructions live with the code: `apps/web/src/plugins/analytics/CLAUDE.md`,

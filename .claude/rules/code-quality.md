@@ -20,7 +20,9 @@ gate runs in a sandbox (`pnpm gate --list` for the steps, `pnpm gate test` for o
 (`passed`, `full` — all four steps — `failed`, per-step seconds, HEAD's `sha`, `dirty`): read that,
 or the final `✔ pnpm gate passed` / `✖ pnpm gate failed` line, never an exit code that a pipe or a
 background runner reports as its own. A step whose seconds are in the thousands slept mid-run:
-re-run it. `pnpm test` inside it starts the test database
+re-run it. An `⚠ eval baselines need attention` block printed after the verdict is a WARNING from
+the eval coverage contract (a prompt changed since its baseline, or a baseline is provisional), not
+a failure: `docs/EVALS.md` § "The coverage contract". `pnpm test` inside it starts the test database
 itself and runs the driver conformance suite (`tests/driver/`) under postgres.js (docs/CONCEPTS.md §4).
 `typecheck` is `tsc --noEmit` in every package; nothing is generated.
 

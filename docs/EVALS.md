@@ -129,6 +129,47 @@ milliseconds, plus the path of the run file. For a failure, the run file has the
 Never refresh a baseline to make a comparison pass. A baseline is a claim about quality, not a
 snapshot of the last run.
 
+A baseline also records `promptVersions`: `<key>@<first 12 hex of sha256>` of each prompt
+TEMPLATE its suite ran (`promptVersion`, `apps/web/src/api/services/ai/prompt-version.ts`). That is
+what the gate's coverage check compares with the prompt's current text.
+
+## The coverage contract
+
+Every prompt in the registry and every registered agent says how its quality is measured, in
+`packages/shared/src/ai/eval-coverage.ts`: the suite file, its datasets, its baseline and the fewest
+cases each dataset may hold. Or it says why nothing measures it (`{ exempt: '<reason>' }`, which a
+reviewer reads). `apps/web/tests/config/eval-coverage.test.ts` checks it in the gate, with no model
+call and no database:
+
+- **Fails**: a registered prompt or agent with no entry, an entry for a key nothing registers, a
+  suite, dataset or baseline file that is missing, or a dataset below its `minCases`. Fix it in the
+  same change that added the prompt or agent. Write the suite (`rp-evals` → Author), or add an
+  exemption with an honest reason.
+- **Warns, never fails**: a baseline whose `promptVersions` differ from the prompt's current
+  template (you edited the prompt), or a **provisional** one (`"provisional": true`, or no
+  `promptVersions` at all, as with a baseline written before versions were recorded). The warning
+  names the command that refreshes it (`pnpm eval <suite> && pnpm eval:baseline <id>`). The test
+  writes the lines to `apps/evals/.evals/gate-warnings.txt`, and `pnpm test` and `pnpm gate` print
+  them last (`scripts/lib/eval-warnings.mjs`; a file older than the run is ignored). Re-baselining
+  spends tokens and needs someone to read the run, so the gate never does it. When the warning
+  appears: run the suite, read it (`--compare baseline` against the old scores), and re-baseline
+  only if the new answers are at least as good. If they are worse, the prompt change is the bug.
+
+The kit's own entries: `chat` → `suites/chat/knowledge.eval.ts`; each example agent and its prompt →
+`suites/agents/<key>.eval.ts`; `agent-decide` → the triage-research suite, whose `DecisionJudge`
+measures the chat-model fallback when `TYPESAFE_API_KEY` is unset (the agent target then records
+that prompt's version too); `chat-compaction` and `evals-judge` are exempt. The three committed
+baselines carry `promptVersions` recorded without a model run, because each prompt's template is
+unchanged since the run that wrote them (`sha` 2d41fc1). `agents-triage-research.json` is a
+provisional placeholder with no cases, so a fresh kit warns about `triage-research` and
+`agent-decide` until somebody runs that suite and baselines it.
+
+**A plugin's prompts and agents** are registered too, so they need entries. The plugin declares them
+for its OWN keys in `SharedPlugin.evalCoverage` (`{ prompts?, agents? }`, same entry shape). A
+plugin cannot write under `apps/evals`, so it usually declares an exemption. An app that writes a
+suite for a plugin's prompt adds the entry to the core map, which overrides the plugin's. A plugin
+covering a key it does not own fails the gate.
+
 ## Real traffic: thumbs and promotion
 
 People rate answers in the UI (thumbs on chat replies and on run output → `POST /api/feedback`). An

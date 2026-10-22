@@ -4,6 +4,9 @@
   "sha": "2d41fc1",
   "model": "claude-sonnet-4-5",
   "judgeModel": null,
+  "promptVersions": {
+    "chat": "chat@3eb450419e67"
+  },
   "cases": {
     "refund-window": {
       "avgScore": 1,

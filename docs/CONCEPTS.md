@@ -624,6 +624,14 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   prints the score diff between two runs, then serves the vitest-evals report UI (runs, cases,
   transcripts, judge rationales). The optional `evals.yml` workflow runs it on manual dispatch or a
   `run-evals` label, outside the gate. How-to: `docs/EVALS.md`; the `rp-evals` skill drives it.
+- **The eval coverage contract (D33)**: `@rocketpod/shared/ai/eval-coverage` maps every registry
+  prompt and every agent (core, plus each plugin's own `SharedPlugin.evalCoverage`, core winning on
+  a shared key) to `{ suite, datasets, baseline, minCases }` or `{ exempt: reason }`.
+  `tests/config/eval-coverage.test.ts` FAILS the gate on a missing entry, an entry for nothing, a
+  missing suite/dataset/baseline file or a thin dataset, and only WARNS on a stale baseline (its
+  `promptVersions` differ from the template's `promptVersion`) or a provisional one (flagged, or
+  carrying no versions). The warnings go to `apps/evals/.evals/gate-warnings.txt` and `pnpm test` /
+  `pnpm gate` print them last; re-baselining is a person's call, never the gate's.
 - **Feedback and promotion (D33)**: thumbs on assistant messages and run output
   (`POST /api/feedback`, `create Feedback` for every member, on an answer they can READ — another
   member's thread is a 404, admins included). One row per `(tenant, target, user)` in
@@ -677,6 +685,10 @@ person scores as a miss (an eval cannot answer it); run faithfulness sees each p
 half of hybrid search; `--provider` knows three vendors (anthropic, fireworks, gemini) and the
 latter two are unpriced; a thumbs vote is a
 zero-length span, not an OTLP span event, and is not traced when the answer's root was pruned.
+Coverage: `chat-compaction` has no suite (exempt); `agents-triage-research` is a provisional
+placeholder baseline, so a fresh kit warns about it (and `agent-decide`) until it is run; the drift check compares the DEFAULT template, not a tenant's override; a plugin cannot
+ship a suite (it cannot write under `apps/evals`), so its entries are exemptions until the host
+writes one; `--compare` against a provisional baseline with no cases compares nothing.
 
 ## 10. Deployment
 
@@ -930,6 +942,12 @@ Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
   end of `plugin add|upgrade --apply` (exit 8 when the tree it wrote fails), in the plugin's own CI
   (`plugin-ci.yml`) and in `kit.yml` — not in an app's `pnpm gate`, because an undeclared import
   compiles and passes the tests and only breaks at the next upgrade, where the check stops it first.
+- **Eval coverage (D33)**: `SharedPlugin.evalCoverage` (`{ prompts?, agents? }`) declares the
+  eval coverage of the plugin's OWN prompt and agent keys — a suite under `apps/evals`, or
+  `{ exempt: reason }` (the usual case: a plugin cannot write there). The gate's
+  `eval-coverage.test.ts` fails a registered plugin key with no entry and an entry for a key the
+  plugin does not declare; a host that writes a suite for a plugin's prompt overrides the entry in
+  the core map (§9).
 - **Agent tools**: `agentTools(ctx)` may be async and may return `[]`. That is how a tool reaches
   only the tenants that turned it on: the plugin reads its own settings row for `ctx.scope.tenantId`.
   A builder that throws is logged and skipped. `buildAgentTools` is therefore async.

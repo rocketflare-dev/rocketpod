@@ -12,6 +12,7 @@ import { spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { readEvalWarnings, renderEvalWarnings } from './lib/eval-warnings.mjs'
 import { COMPOSE_FILE, planTests, TARGET_HINT, WEB_DIR } from './lib/test-plan.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -55,10 +56,13 @@ if (plan.compose) {
   }
 }
 
+const started = Date.now()
 for (const step of plan.steps) {
   console.log(`\n▶ ${step.label}`)
   const status = run(step.command, { cwd: path.join(ROOT, step.cwd), env: step.env })
   if (status !== 0) fail(`${step.label} failed`)
 }
 for (const note of plan.notes) console.log(`\n· ${note}`)
+const evalWarnings = renderEvalWarnings(readEvalWarnings(ROOT, started))
+if (evalWarnings) console.warn(`\n${evalWarnings}`)
 console.log(`\n✔ pnpm test: ${plan.steps.length} step(s) passed (${plan.target})`)

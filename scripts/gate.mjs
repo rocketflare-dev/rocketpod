@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { readEvalWarnings, renderEvalWarnings } from './lib/eval-warnings.mjs'
 import {
   GATE_STEPS,
   GATE_USAGE,
@@ -38,6 +39,7 @@ if (args.list) {
 const failed = []
 const timings = []
 const ran = []
+const gateStarted = Date.now()
 for (const id of args.steps) {
   const step = GATE_STEPS.find(s => s.id === id)
   if (!step) continue
@@ -56,6 +58,9 @@ for (const id of args.steps) {
 
 console.log(`\ngate: ${timings.join(' · ')}`)
 writeVerdict()
+// The eval coverage contract's drift warnings (the `test` step wrote them): last, so they are seen.
+const evalWarnings = renderEvalWarnings(readEvalWarnings(ROOT, gateStarted))
+if (evalWarnings) console.warn(evalWarnings)
 if (failed.length) {
   console.error(`✖ pnpm gate failed: ${failed.join(', ')}`)
   process.exit(1)

@@ -75,7 +75,12 @@ feedback (`FEEDBACK_TARGETS` `message|agent_run`, `feedbackRatingSchema` `1|-1`,
 `createFeedbackRequestSchema`, `feedbackSchema`, list/mine queries and responses,
 `feedbackTargetParamSchema`) and `evalExportQuerySchema` (exactly one of `messageId`/`runId`) /
 `evalExportResponseSchema` (`containsTenantData: true`) — `/api/feedback`, `/api/evals`, the CLI and
-`apps/evals` ·
+`apps/evals` · `eval-coverage.ts` (D33) — the eval COVERAGE CONTRACT: `CORE_PROMPT_EVAL_COVERAGE` /
+`CORE_AGENT_EVAL_COVERAGE` (key → `{ suite, datasets, baseline, minCases }` or `{ exempt }`),
+`evalCoverageOf(plugins)` (each plugin's `SharedPlugin.evalCoverage` for its OWN keys, then core,
+which wins), `baselineWarning` (stale / provisional → a warning line), `rebaselineCommand`. It is
+handed the plugin list rather than importing the barrel, so it is not a composer; the gate's
+`apps/web/tests/config/eval-coverage.test.ts` reads it ·
 `traces.ts` (D32) — `TRACE_SPAN_KINDS` (`agent|llm|tool|retrieval|embedding|job|span`), `traceIdSchema` (32 hex), `traceSpanSchema`, `traceSummarySchema`, `traceListQuerySchema` / `traceListResponseSchema`, `traceDetailSchema`, `traceLookupParamSchema` (trace id OR uuid) — `GET /api/traces` and the CLI ·
 `prompts.ts` — `promptKeySchema` (kebab-case), `PROMPT_MAX_LENGTH`, `promptDefinitionSchema`, `promptOverrideSchema`,
 `updatePromptRequestSchema`, `promptWithResolvedSchema`, `interpolatePrompt()` (`{{var}}`, unknown left visible) ·

@@ -53,6 +53,10 @@ in the host. Each half is checked where it is written; only the merge is cast.
 - **It declares no Cloudflare `bindings` and no `workerExports`.** This kit has no Worker (D41):
   `pnpm plugin` refuses either at install and `plugin check` fails one on an installed plugin. A
   plugin reaches jobs, storage, realtime, durable runs, rate limits and locks through `ctx.platform`.
+- **It declares the eval coverage of its own prompts and agents** in `SharedPlugin.evalCoverage`
+  (D33, `@rocketpod/shared/ai/eval-coverage`): a key it registers with no entry fails the host's
+  gate (`tests/config/eval-coverage.test.ts`). It cannot write a suite under `apps/evals`, so it
+  usually declares `{ exempt: '<why>' }`; the host overrides that in the core map once it writes one.
 - **It ships no migration.** The HOST generates it once the schema barrel line exists:
   `pnpm db:generate --name plugin-<id>-<version>`, read the SQL, `pnpm db:migrate`. A plugin's own
   `migrations/` holds plain-SQL DATA fragments (backfills), never DDL — a kit or plugin migration

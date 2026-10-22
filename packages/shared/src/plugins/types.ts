@@ -28,6 +28,7 @@
  * two plugins installed in one app cannot collide and the host can always say which one owns a row.
  */
 import type { TypeOf, ZodLiteral, ZodObject, ZodRawShape } from 'zod'
+import type { PluginEvalCoverage } from '../ai/eval-coverage'
 import type { FeatureDefinition } from '../features'
 
 /**
@@ -69,6 +70,14 @@ export interface SharedPlugin {
   readonly agentKeys?: readonly string[]
   /** Prompt registry keys this plugin owns; `ServerPlugin.prompts` must cover exactly these. */
   readonly promptKeys?: readonly string[]
+  /**
+   * The eval coverage contract for this plugin's own `promptKeys` and `agentKeys` (D33,
+   * `@rocketpod/shared/ai/eval-coverage`): per key, the `apps/evals` suite, datasets and baseline
+   * that measure it, or `{ exempt: '<why>' }`. A plugin cannot write under `apps/evals`, so it
+   * usually declares an exemption; a host that writes a suite for it overrides the entry in the
+   * core map. Every key the plugin registers needs one, or the host's gate fails.
+   */
+  readonly evalCoverage?: PluginEvalCoverage
   /**
    * Job envelope variants as DATA: `jobInputSchema` is a discriminated union over
    * `[...CORE_JOB_VARIANTS, ...plugin variants]`. Namespace every `type` with the plugin's id

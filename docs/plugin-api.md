@@ -777,6 +777,8 @@ What a plugin's CONTRACT module imports: the error envelope, pagination, `Shared
 - `const ERROR_CODES: { readonly validationFailed: "validation_failed"; readonly unauthorized: "unauthorized"; readonly sessionExpired: "session_expired"; readonly forbidden: "forbidden"; readonly notFound: "not_found"; readonly conflict: "conflict"; readonly rateLimited: "rate_limited"; readonly pendingApproval: "pendin… (truncated)`
   Well-known `code` values shared by API and UI. Extend per app.
 - `type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES]`
+- `interface EvalCoverage`
+- `type EvalCoverageEntry = EvalCoverage \| EvalExemption`
 - `interface FeatureDefinition`
 - `type FeatureFlagState = z.infer<typeof featureFlagStateSchema>`
 - `type FeatureKeyOf = Extract< NonNullable<DeclaredBy<S, 'features'>> extends infer F ? F extends unknown ? keyof F : never : never, string >`
@@ -804,6 +806,8 @@ What a plugin's CONTRACT module imports: the error envelope, pagination, `Shared
   Page-based pagination (page-based). Query: `?page=1&pageSize=25`.
 - `const PLUGIN_ID_RE: RegExp`
   `^[a-z][a-z0-9-]*$` and never containing `rocketpod`: a plugin is written in the kit's vocabulary so `scripts/rename.mjs` can translate it into a renamed app on the way in, and an…
+- `interface PluginEvalCoverage`
+  What a plugin declares for its own prompt and agent keys (`SharedPlugin.evalCoverage`).
 - `function pluginNamespace(id: string): string`
   `<id>:` — the prefix every query-key root and demo-seed id a plugin owns must carry.
 - `type PromptKeyOf = NonNullable<DeclaredBy<S, 'promptKeys'>>[number]`
@@ -822,6 +826,8 @@ What a plugin's CONTRACT module imports: the error envelope, pagination, `Shared
     Agent keys this plugin registers — `AGENT_KEYS = [...CORE_AGENT_KEYS, ...plugins]`. Declared here rather than server-side because the UI and the CLI validate agent input against…
   - `readonly promptKeys?: readonly string[]`
     Prompt registry keys this plugin owns; `ServerPlugin.prompts` must cover exactly these.
+  - `readonly evalCoverage?: PluginEvalCoverage`
+    The eval coverage contract for this plugin's own `promptKeys` and `agentKeys` (D33, `@rocketpod/shared/ai/eval-coverage`): per key, the `apps/evals` suite, datasets and baseline…
   - `readonly jobs?: readonly JobVariant[]`
     Job envelope variants as DATA: `jobInputSchema` is a discriminated union over `[...CORE_JOB_VARIANTS, ...plugin variants]`. Namespace every `type` with the plugin's id…
   - `readonly subjects?: readonly string[]`
@@ -1419,6 +1425,8 @@ nothing in the comparison that can throw.
 @rocketpod/shared/plugins/api :: type :: DeclaredBy :: type DeclaredBy = Extract<P, Record<K, unknown>> extends infer Declaring ? Declaring extends Record<K, unknown> ? Declaring[K] : never : never
 @rocketpod/shared/plugins/api :: const :: ERROR_CODES :: const ERROR_CODES: { readonly validationFailed: "validation_failed"; readonly unauthorized: "unauthorized"; readonly sessionExpired: "session_expired"; readonly forbidden: "forbidden"; readonly notFound: "not_found"; readonly conflict: "conflict"; readonly rateLimited: "rate_limited"; readonly pendingApproval: "pendin… (truncated)
 @rocketpod/shared/plugins/api :: type :: ErrorCode :: type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES]
+@rocketpod/shared/plugins/api :: interface :: EvalCoverage :: interface EvalCoverage
+@rocketpod/shared/plugins/api :: type :: EvalCoverageEntry :: type EvalCoverageEntry = EvalCoverage | EvalExemption
 @rocketpod/shared/plugins/api :: interface :: FeatureDefinition :: interface FeatureDefinition
 @rocketpod/shared/plugins/api :: type :: FeatureFlagState :: type FeatureFlagState = z.infer<typeof featureFlagStateSchema>
 @rocketpod/shared/plugins/api :: type :: FeatureKeyOf :: type FeatureKeyOf = Extract< NonNullable<DeclaredBy<S, 'features'>> extends infer F ? F extends unknown ? keyof F : never : never, string >
@@ -1438,6 +1446,7 @@ nothing in the comparison that can throw.
 @rocketpod/shared/plugins/api :: type :: PaginationQuery :: type PaginationQuery = z.infer<typeof paginationQuerySchema>
 @rocketpod/shared/plugins/api :: const :: paginationQuerySchema :: const paginationQuerySchema: z.ZodObject<{ page: z.ZodDefault<z.ZodCoercedNumber<unknown>>; pageSize: z.ZodDefault<z.ZodCoercedNumber<unknown>>; }, z.core.$strip>
 @rocketpod/shared/plugins/api :: const :: PLUGIN_ID_RE :: const PLUGIN_ID_RE: RegExp
+@rocketpod/shared/plugins/api :: interface :: PluginEvalCoverage :: interface PluginEvalCoverage
 @rocketpod/shared/plugins/api :: function :: pluginNamespace :: function pluginNamespace(id: string): string
 @rocketpod/shared/plugins/api :: type :: PromptKeyOf :: type PromptKeyOf = NonNullable<DeclaredBy<S, 'promptKeys'>>[number]
 @rocketpod/shared/plugins/api :: type :: RealtimeEvent :: type RealtimeEvent = z.infer<typeof realtimeEventSchema>
@@ -1449,6 +1458,7 @@ nothing in the comparison that can throw.
 @rocketpod/shared/plugins/api :: member :: SharedPlugin.version :: readonly version?: string
 @rocketpod/shared/plugins/api :: member :: SharedPlugin.agentKeys :: readonly agentKeys?: readonly string[]
 @rocketpod/shared/plugins/api :: member :: SharedPlugin.promptKeys :: readonly promptKeys?: readonly string[]
+@rocketpod/shared/plugins/api :: member :: SharedPlugin.evalCoverage :: readonly evalCoverage?: PluginEvalCoverage
 @rocketpod/shared/plugins/api :: member :: SharedPlugin.jobs :: readonly jobs?: readonly JobVariant[]
 @rocketpod/shared/plugins/api :: member :: SharedPlugin.subjects :: readonly subjects?: readonly string[]
 @rocketpod/shared/plugins/api :: member :: SharedPlugin.features :: readonly features?: Readonly<Record<string, FeatureDefinition>>

@@ -15,6 +15,13 @@
       "when": 1791859192108,
       "tag": "0001_plugin-example-feature-0.1.0",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792654007674,
+      "tag": "0002_agent-runs-concurrency",
+      "breakpoints": true
     }
   ]
 }

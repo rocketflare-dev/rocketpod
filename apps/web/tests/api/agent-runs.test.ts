@@ -13,8 +13,9 @@ import {
   createAgentRunResponseSchema,
 } from '@rocketpod/shared/ai/agents'
 import { eq } from 'drizzle-orm'
-import { describe, expect, it } from 'vitest'
-import { RECONCILE_LIVENESS_MS } from '@/api/services/agents/runs'
+import { afterEach, describe, expect, it } from 'vitest'
+import { AGENTS } from '@/api/services/agents/registry'
+import { enqueueRun, RECONCILE_LIVENESS_MS } from '@/api/services/agents/runs'
 import { agentRunEvents, agentRuns } from '@/db/schema'
 import { fieldsFromJsonSchema } from '@/ui/pages/agents/fields/schemaFields'
 import {
@@ -519,5 +520,46 @@ describe('reconcile liveness guard', () => {
         await json(await request(`/api/agents/runs/${run.id}`, { headers: a.cookie }, { env }))
       )
     ).toMatchObject({ status: 'failed', error: 'instance died mid-run' })
+  })
+})
+
+describe('enqueueRun — the exclusive slot (concurrency_key)', () => {
+  const original = AGENTS['summarize-text']
+  afterEach(() => {
+    AGENTS['summarize-text'] = original
+  })
+  const enqueue = (tenantId: string, env: TestEnv, concurrencyKey?: string) =>
+    enqueueRun(db, env, {
+      tenantId,
+      agentKey: 'summarize-text',
+      input: { text: 'Some text.' },
+      userId: null,
+      concurrencyKey,
+    })
+
+  it('a non-exclusive agent holds no slot: two active runs in one tenant', async () => {
+    AGENTS['summarize-text'] = { ...original, meta: { ...original.meta, exclusive: false } }
+    const { tenant } = await createTestTenantWithUser(db, 'member')
+    const env = createTestEnv()
+    const first = await enqueue(tenant.id, env)
+    const second = await enqueue(tenant.id, env)
+    expect(second.deduplicated).toBe(false)
+    expect(second.run.id).not.toBe(first.run.id)
+    expect(first.run.concurrencyKey).toBeNull()
+  })
+
+  it("a caller's key narrows the slot: one active run per key, whatever the agent's flag", async () => {
+    const { tenant } = await createTestTenantWithUser(db, 'member')
+    const env = createTestEnv()
+    const a = await enqueue(tenant.id, env, 'document:a')
+    const b = await enqueue(tenant.id, env, 'document:b')
+    expect(b.deduplicated).toBe(false)
+    expect(b.run.id).not.toBe(a.run.id)
+    const again = await enqueue(tenant.id, env, 'document:a')
+    expect(again).toMatchObject({ deduplicated: true, run: { id: a.run.id } })
+    // The tenant-wide slot of an exclusive agent is its own key ('') — the keyed runs leave it free.
+    const tenantWide = await enqueue(tenant.id, env)
+    expect(tenantWide.deduplicated).toBe(false)
+    expect(tenantWide.run.concurrencyKey).toBe('')
   })
 })

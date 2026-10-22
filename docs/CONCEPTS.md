@@ -295,7 +295,9 @@ dispatches. All three run in a `worker` (or `all`) process; a `web` process only
   buffered**, so `waitForEvent` records an `arrived()` check before parking and `sendEvent`
   re-sends for up to 5 s while the run is alive (`docs/DESIGN-SELFHOSTED.md` §5.3a). The kit's run
   id is OpenWorkflow's `idempotencyKey`; `agent_runs.instanceId` holds the engine's id.
-  **Concurrency is a DB claim row, never a `Map`**: `ACTIVE_RUN_STATUSES` (exclusive index,
+  **Concurrency is a DB claim row, never a `Map`**: the exclusive index is per (tenant, agent,
+  `concurrency_key`) — `''` for an exclusive agent, a caller's key to narrow it (one run per
+  `document:<id>`, say), NULL for a run that holds no slot; `ACTIVE_RUN_STATUSES` (exclusive index,
   includes parked runs) ⊃ `CLAIMABLE_RUN_STATUSES` (the claim). Keep those two lists separate. A
   lost instance is settled on read, and there is no sweeper cron.
 - **Cron**: `scheduled.ts` looks up the task by expression. `0 4 * * *` prunes; plugins add their
@@ -580,7 +582,7 @@ no Excel or OpenDocument conversion (refused at upload); no document summary or 
 mitigation); no token-level streaming for runs; char-based history budget
 not derived from the model; sliding window defeats prompt caching on long threads; `enqueueRun`
 does not pre-resolve the client; no
-rerank, no generated `tsvector`; no non-exclusive agents; HITL asks cannot be amended, have no
+rerank, no generated `tsvector`; HITL asks cannot be amended, have no
 reminders, and parks are bounded by `AGENT_INTERRUPT_TIMEOUT`; runs nobody opens
 stay active-looking; no budgets/quotas over `ai_usage` or prompt versioning. Decisions (D37): no
 replay of an agent's CODE over recorded answers (stored and re-askable, not yet re-runnable), no

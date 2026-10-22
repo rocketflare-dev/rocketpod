@@ -1,7 +1,8 @@
 /**
  * `agent_runs` lifecycle service (D7 — the pg-boss → Workflows handoff, 09 §4.5 / 05 §1.3):
  *   enqueueRun  — validate input → insert `queued` (the partial unique index rejects a second
- *                 active run for the agent → return the existing one, `deduplicated`) →
+ *                 active run in the same exclusive SLOT — the tenant for an `exclusive` agent, or
+ *                 the caller's `concurrencyKey` — → return the existing one, `deduplicated`) →
  *                 `AGENT_RUN_WORKFLOW.create({ id: runId })` → store `instanceId`. No binding →
  *                 `AgentRunsNotConfiguredError` (503) BEFORE any write.
  *   claimRun    — `UPDATE … SET running, attempt+1 WHERE status IN (queued,running) RETURNING`:
@@ -131,16 +132,18 @@ export async function getRun(
   return row ?? null
 }
 
-/** The active run for an exclusive agent, if any. */
+/** The active run holding an exclusive slot (`''` = the agent's tenant-wide one), if any. */
 export async function findActiveRun(
   db: Database,
   tenantId: string,
-  agentKey: AgentKey
+  agentKey: AgentKey,
+  concurrencyKey = ''
 ): Promise<AgentRunRow | null> {
   const row = await db.query.agentRuns.findFirst({
     where: and(
       eq(agentRuns.tenantId, tenantId),
       eq(agentRuns.agentKey, agentKey),
+      eq(agentRuns.concurrencyKey, concurrencyKey),
       inArray(agentRuns.status, [...ACTIVE])
     ),
   })
@@ -153,11 +156,17 @@ export interface EnqueueRunInput {
   input: unknown
   userId: string | null
   realtime?: Realtime
+  /**
+   * The exclusive slot, narrowed: at most one ACTIVE run per (tenant, agent, key), whatever the
+   * agent's `exclusive` flag says. Omitted, an `exclusive` agent holds ONE slot per tenant and a
+   * non-exclusive one none — it runs freely. One run per document, say: `document:<id>`.
+   */
+  concurrencyKey?: string
 }
 
 export interface EnqueueRunResult {
   run: AgentRunRow
-  /** An active run already existed for this exclusive agent; `run` is THAT run. */
+  /** An active run already held this run's exclusive slot; `run` is THAT run. */
   deduplicated: boolean
 }
 
@@ -177,6 +186,7 @@ export async function enqueueRun(
   if (!parsed.success) throw new ValidationError(parsed.error.issues, 'Invalid agent input')
 
   const runId = crypto.randomUUID()
+  const concurrencyKey = input.concurrencyKey ?? (agent.meta.exclusive ? '' : null)
   let row: AgentRunRow | undefined
   try {
     ;[row] = await db
@@ -191,11 +201,12 @@ export async function enqueueRun(
         status: 'queued',
         input: parsed.data,
         requestedByUserId: input.userId,
+        concurrencyKey,
       })
       .returning()
   } catch (err) {
-    if (!isUniqueViolation(err)) throw err
-    const existing = await findActiveRun(db, input.tenantId, input.agentKey)
+    if (!isUniqueViolation(err) || concurrencyKey === null) throw err
+    const existing = await findActiveRun(db, input.tenantId, input.agentKey, concurrencyKey)
     if (!existing) throw err // the slot freed between the insert and the read — a retry will win
     return { run: existing, deduplicated: true }
   }

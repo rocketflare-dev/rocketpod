@@ -98,6 +98,7 @@ Every runtime capability is now a neutral `Platform`, a Node entry (`src/node/se
     - Haiku 5.5 uses its ≤ 100k-token rate.
   - Why: `docs/CONCEPTS.md` §9, "The request body is per MODEL".
 - A kit with no plugins passes its own gate. Read a flag's definition through `featureDefinition(key)` (`@rocketpod/shared/features`), never `FEATURE_FLAGS[key]`. With no plugin installed `FeatureName` is `never`, so a direct index types as `never` and `.label`/`.defaultState` stop compiling. `tests/config/features.test.ts` refuses a direct index outside plugin trees. The config tests that read `example-feature`'s files skip once it is removed.
+- `AgentMeta.exclusive: false` now means what it says. Until now the active-run index on `agent_runs` held every agent to one active run per tenant, whatever the flag said. `agent_runs.concurrency_key` (migration `0002_agent-runs-concurrency`) is the slot a run holds: `''` for an exclusive agent (one per tenant), the caller's `enqueueRun({ concurrencyKey })` to narrow it (one active run per key, e.g. `document:<id>`), or NULL — a non-exclusive run holds no slot. The index is `(tenant_id, agent_key, concurrency_key)` over active rows that have a key; `findActiveRun` takes the key. Every kit agent is still exclusive, so nothing changes for them.
 
 ## How to apply
 
@@ -158,6 +159,7 @@ Every runtime capability is now a neutral `Platform`, a Node entry (`src/node/se
 44. A copy whose Helm chart still sits in `deploy/helm/rocketpod/` while its name is the slug: `git mv deploy/helm/rocketpod deploy/helm/<slug>`.
 45. Rename `apps/web/migrations/0000_rocketpod-baseline.sql` to `0000_kit-baseline.sql` and its `tag` in `apps/web/migrations/meta/_journal.json` to match (drizzle records applied migrations by hash, so an existing database is unaffected).
 46. Add `featureDefinition()` to `packages/shared/src/features.ts`, and replace every `FEATURE_FLAGS[key]` outside a plugin's own tree with `featureDefinition(key)` (the kit's are in `apps/web/src/api/{routes,services}/features.ts` and `evaluateFlag`). Take the kit's `tests/config/features.test.ts` case and the `skipIf` guards in `tests/config/{plugin-lib,surface}.test.ts`.
+47. Take the kit's `apps/web/src/db/schema/agent-runs.ts` (`concurrencyKey` and the widened `agent_runs_active_exclusive_idx`) and `enqueueRun`/`findActiveRun` in `apps/web/src/api/services/agents/runs.ts`, then run `pnpm db:generate` and add the backfill the kit's `0002_agent-runs-concurrency.sql` has between the `ADD COLUMN` and the `CREATE UNIQUE INDEX` (`UPDATE agent_runs SET concurrency_key = '' WHERE status IN ('queued','running','awaiting_input')`), so active runs keep their slot. Any `findActiveRun(db, tenantId, key)` of your own keeps working (the key defaults to `''`).
 
 ## Conflicts to expect
 
@@ -200,3 +202,4 @@ Every runtime capability is now a neutral `Platform`, a Node entry (`src/node/se
 23. With `ANTHROPIC_API_KEY` set, `curl -b <cookie> localhost:3001/api/ai/config/readiness` reports `"model":"claude-haiku-5-5"` for chat. A chat message gets a streamed reply.
 24. In Settings → AI, add an `anthropic` config with model `claude-opus-5-5`. The thinking help text says the model always reasons, and *Test connection* answers `ok: true`.
 25. In Settings → AI, add an `openai` config (default model `gpt-6-luna`). *Test connection* answers `ok: true`, and a chat turn that calls `search_knowledge` completes.
+26. `pnpm web test:api` passes the `enqueueRun — the exclusive slot` cases in `tests/api/agent-runs.test.ts`.

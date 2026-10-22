@@ -1,6 +1,6 @@
 ---
 name: rp-evals
-description: Write, run and interpret evals for this kit's chat and agents — decide what "good" means, scaffold a suite and starter cases, run pnpm eval, explain failures from the judges' reasoning, compare models or prompts on score/cost/latency, harvest thumbs-down answers into cases, manage baselines and CI, and run a disciplined improve loop. Use when someone says "eval", "evaluate", "is this prompt better", "compare models", "did this change make it worse", "regression", "thumbs down", "golden set", or wants to test AI quality.
+description: Write, run and interpret evals for this kit's chat and agents — decide what "good" means, scaffold a suite and starter cases, run pnpm eval, explain failures from the judges' reasoning, compare models or prompts on score/cost/latency, harvest thumbs-down answers into cases, manage baselines and CI, and run a disciplined improve loop. Use when someone says "eval", "evaluate", "is this prompt better", "compare models", "did this change make it worse", "regression", "thumbs down", "golden set", "eval baselines need attention" (the gate's coverage warning), or wants to test AI quality.
 argument-hint: "[explain | author <what> | run [suite] | compare <a> <b> | harvest | baseline | improve <suite>]"
 ---
 
@@ -21,6 +21,14 @@ Pick the mode from `$ARGUMENTS`, or from what the person says. If you can't tell
   changes only when a person has read the new answer and said it is better. Say what you would
   change and why, and wait.
 - **Never weaken a judge** (a lower threshold, a judge removed, `toolsMatch` loosened) without asking.
+- **Prompts never overfit to the data that found the bug.** Fix the cause with a general rule, not a
+  phrase tuned to the conversation that exposed it. A prompt, its examples and a new gold case never
+  reuse that conversation's words, names, numbers or domain. The data that found the bug may replay
+  it in a unit test; it does not become a gold case. Before committing a prompt or dataset change,
+  search the diff for the source's words. `docs/EVALS.md` § "Avoiding overfitting" has the full list.
+- **One run is not a result.** On a five-case suite, run-to-run noise can reach ±0.1 on a judge's
+  mean with nothing changed. Compare variants inside ONE run (or back to back, same judge), and
+  repeat a run before you believe a delta smaller than that.
 - A run costs real tokens. Before a full `pnpm eval`, say roughly how many cases will run and
   suggest a suite filter or `--case` if a smaller run answers the question.
 - Promoted cases are **tenant data**. Say so every time one is about to enter the repository.
@@ -61,8 +69,13 @@ against the dataset's documents.
    the person learns the pattern.
 3. Write `apps/evals/suites/<surface>/<name>.eval.ts` with `describeCases(...)`, copying
    `suites/chat/knowledge.eval.ts`. A new agent needs nothing else: the target resolves it from the
-   registry.
-4. `pnpm --filter @rocketpod/evals test` (the dataset parses) → `pnpm eval <name>` → **Run & interpret**.
+   registry. A judge that must never average away (the output schema, a tool it must not call)
+   goes in `gates` as well as `judges`.
+4. Point the prompt's (and the agent's) entry in `packages/shared/src/ai/eval-coverage.ts` at the
+   suite, dataset and baseline id (`<surface>-<name>`), with `minCases` = the cases you wrote. Take
+   the cases from a different domain than the prompt's own examples (see the ground rules).
+5. `pnpm --filter @rocketpod/evals test` (the dataset parses) → `pnpm eval <name>` → **Run & interpret**
+   → `pnpm eval:baseline <id>` once the person agrees the run is the new normal.
 
 ## Run & interpret
 
@@ -94,6 +107,12 @@ previous run first. Eval traces are in `ai_spans` tagged `rocketpod.eval=true`
   proves which text each run used.
 - Present a table: mean score, pass count, tokens, cost, total ms per variant, plus the cases that
   moved and why (from the rationales). Recommend one, with the trade-off in a sentence.
+- **Noise first.** A delta under ~0.1 on a small suite is inside run-to-run noise. Run each variant
+  at least twice (same judge, same cases), report the spread beside the mean, and call a win only
+  when it survives the repeat. Say "flat" when it does not, rather than shipping the better-looking
+  run. A code change's "before" is best measured from a second checkout: `git worktree add --detach
+  <dir> <commit>`, `pnpm install`, `pnpm eval` there (it shares the test database, which evals
+  never truncate), on the cases both checkouts have.
 
 ## Harvest (from real traffic)
 
@@ -114,6 +133,44 @@ previous run first. Eval traces are in `ai_spans` tagged `rocketpod.eval=true`
   `ANTHROPIC_API_KEY` repository secret, and uploads the run file. It is outside the gate on
   purpose: a model's variance must never block a merge.
 
+## Coverage contract (when the gate warns or fails)
+
+Every registry prompt and every agent has an entry in `packages/shared/src/ai/eval-coverage.ts`:
+a suite, its datasets, its baseline and `minCases`, or `{ exempt: '<reason>' }`. Installed plugins
+declare theirs in `SharedPlugin.evalCoverage`. `tests/config/eval-coverage.test.ts` checks it in
+`pnpm test` and `pnpm gate` (`docs/EVALS.md` § "The coverage contract").
+
+- **It fails** when a prompt or agent has no entry, an entry names a key nothing registers, a suite,
+  dataset or baseline file is missing, or a dataset is below `minCases`. Fix it in the same change.
+  For a new prompt or agent, run **Author** (suite, 5+ cases), then a first run and
+  `pnpm eval:baseline`. If nothing can measure it yet, write an `exempt` reason a reviewer can
+  disagree with, and say so to the person. Never lower `minCases` or delete a case to get under it.
+- **It warns** (the `⚠ eval baselines need attention` block printed last) when a baseline's
+  `promptVersions` differ from the prompt's current template, or the baseline is provisional (no
+  recorded versions). It never fails, because re-baselining spends tokens and needs a person to
+  read the run. When it appears after a prompt edit: say how many cases the suggested
+  `pnpm eval <suite> && pnpm eval:baseline <id>` will run, run the suite with `--compare baseline`,
+  read what moved, and re-baseline only if the person agrees the new answers are at least as good.
+  If they are worse, the prompt change is the regression. Never hand-edit `promptVersions` to
+  silence the warning: the versions are a claim that the scores were earned by that text.
+
+## Practical traps
+
+- **Infra failures are not quality.** A timeout, `ECONNRESET`, a 429/529 or a provider 5xx fails a
+  case without saying anything about the answer, yet the summary's mean counts it as 0 and
+  `--compare` reports it as a regression. Read the failed cases' errors (`failure` in the run file)
+  before quoting a score, and re-run those cases (`--case`) rather than averaging them in.
+- **Throughput is the provider's.** `pnpm eval` runs `--concurrency` suite files at once (2 by
+  default, `EVAL_CONCURRENCY`). Raising it mostly buys rate-limit errors (see above). A full run of
+  a larger suite set takes minutes, not seconds: suggest a filter or `--case` first.
+- **A machine that slept mid-run** leaves timeouts and wall-clock numbers in the thousands of
+  seconds. Re-run, and never compare latency (`totalMs`, `BudgetJudge`) across a sleep.
+- **The judge is part of the measurement.** Two runs on different `--judge-model`s are not
+  comparable. A Rubric verdict that looks wrong is a rationale to read, not a score to average.
+- **Datasets are read from source.** `pnpm eval` loads `apps/evals/datasets/*.jsonl` directly
+  (nothing copies them into `dist/`), so an edited case is live on the next run. An app that ships
+  datasets in its build must make sure a stale copy never shadows the source.
+
 ## Improve loop
 
 Only with a target ("Rubric ≥ 0.9 on knowledge-chat") and an iteration cap (default 3).
@@ -129,3 +186,5 @@ Only with a target ("Rubric ≥ 0.9 on knowledge-chat") and an iteration cap (de
    the before/after table, and what is left.
 
 Never edit an expected output or loosen a judge inside this loop. That's gaming, not improving.
+And never fix a failure by writing the failing case's words into the prompt: the held-out cases
+exist to catch exactly that.

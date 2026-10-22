@@ -71,6 +71,34 @@ describeCases('agent · triage-ticket', {
 - 5–10 cases per suite: happy paths, one the model should refuse or not know, one that should call
   **no** tool (`"tools": [], "toolsMatch": "strict"`), and one edge case.
 
+## Avoiding overfitting
+
+A prompt fix is only worth keeping if it works on conversations nobody has seen. The bugs we find
+come from the cases in front of us (a dev walkthrough, a thumbs-down, a failing gold case), and the
+easy fix quietly teaches the prompt that one conversation. So:
+
+1. **Fix the cause with a general rule**, not a phrase tuned to the transcript that exposed it.
+2. **No source data in prompts.** A prompt or a prompt example never uses the words, names, numbers
+   or domain of the conversation that found the bug. When an example helps, take it from a clearly
+   different invented domain.
+3. **The data that found the bug is a regression fixture, never a gold case.** It may replay the bug
+   in a unit test; it does not go into `apps/evals/datasets` as it is. A promoted case
+   (`evals promote`) is rewritten and redacted first.
+4. **Gold cases differ.** A new case is in a different domain from the prompt's own examples and
+   from the cases added with it. A case that shares the prompt's example domain flatters the prompt.
+5. **Check the diff.** Before committing a prompt or dataset change, search the diff for the source
+   conversation's words and remove any that leaked in.
+6. **Hold cases out.** Keep a share of each dataset tagged `holdout`, measured but never read while
+   diagnosing (the `rp-evals` improve loop).
+
+## Noise and repeats
+
+The same prompt, model and cases score differently from run to run. On a five-case suite a judge's
+mean can move by ±0.1 with nothing changed. Compare variants inside one run, or back to back with
+the same judge model. Repeat a run before believing a smaller delta, and report the spread. A
+failed case (timeout, rate limit, provider error) is an infrastructure failure, not a quality
+score: read its error and re-run it with `--case` before quoting a mean.
+
 ## Pick judges
 
 Deterministic judges first: they're free, instant and never flaky. Use an LLM judge only for what a

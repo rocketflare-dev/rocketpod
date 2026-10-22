@@ -5,7 +5,8 @@
  * this the only way to the first workspace was SQL.
  *
  * "No tenant yet" cannot be arranged in the shared test database, so each case runs inside a
- * transaction that deletes every tenant first and always rolls back.
+ * transaction that deletes every tenant first and always rolls back — at REPEATABLE READ, because
+ * other test workers keep creating tenants in parallel.
  */
 import { eq } from 'drizzle-orm'
 import { describe, expect, it, vi } from 'vitest'
@@ -25,11 +26,16 @@ class Rollback extends Error {}
 /** Run `body` against a database with no tenants, then undo everything. */
 async function onEmptyInstall(body: (tx: Database) => Promise<void>) {
   await db
-    .transaction(async tx => {
-      await tx.delete(tenants)
-      await body(tx as unknown as Database)
-      throw new Rollback()
-    })
+    .transaction(
+      async tx => {
+        await tx.delete(tenants)
+        await body(tx as unknown as Database)
+        throw new Rollback()
+        // REPEATABLE READ: one snapshot for the whole transaction, so a tenant another test worker
+        // commits meanwhile is not seen (under READ COMMITTED it was, and the case flaked).
+      },
+      { isolationLevel: 'repeatable read' }
+    )
     .catch(err => {
       if (!(err instanceof Rollback)) throw err
     })

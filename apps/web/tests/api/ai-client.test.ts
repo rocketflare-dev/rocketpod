@@ -14,6 +14,8 @@ import {
   createEmbeddingsClient,
   type FetchLike,
   reconcileThinking,
+  unsupportedSchemaKeywords,
+  withoutSchemaKeywords,
 } from '@/api/services/ai/client'
 import { AiError, describeAiError, normalizeAiError, redactSecrets } from '@/api/services/ai/errors'
 import { providerInfo } from '@/api/services/ai/providers'
@@ -259,6 +261,91 @@ function anthropicStream(text: string, toolUse?: { id: string; name: string; jso
   )
   return chunks
 }
+
+describe('Gemini tool schemas (OpenAI-compatible)', () => {
+  it('is recognised by its endpoint or a gemini model id', () => {
+    expect(
+      unsupportedSchemaKeywords('https://generativelanguage.googleapis.com/v1beta/openai', 'x')
+    ).toEqual(['maxItems'])
+    expect(unsupportedSchemaKeywords('https://proxy.example', 'gemini-3.8-flash')).toEqual([
+      'maxItems',
+    ])
+    expect(unsupportedSchemaKeywords('https://api.fireworks.ai/inference/v1', 'kimi')).toEqual([])
+  })
+
+  it('drops the keyword at schema positions only and restates the bound', () => {
+    const schema = {
+      type: 'object',
+      properties: {
+        maxItems: { type: 'string' },
+        items: { type: 'array', maxItems: 6, description: 'Things.', items: { type: 'string' } },
+      },
+    }
+    expect(withoutSchemaKeywords(schema, ['maxItems'])).toEqual({
+      type: 'object',
+      properties: {
+        maxItems: { type: 'string' },
+        items: {
+          type: 'array',
+          description: 'Things. At most 6 items.',
+          items: { type: 'string' },
+        },
+      },
+    })
+  })
+
+  it('sends Gemini a tool schema without maxItems, and every other endpoint the schema as is', async () => {
+    const inputSchema = {
+      type: 'object',
+      properties: { tags: { type: 'array', maxItems: 3, items: { type: 'string' } } },
+    }
+    const answer = () =>
+      new Response(
+        JSON.stringify({
+          model: 'm',
+          choices: [{ index: 0, finish_reason: 'stop', message: { content: 'ok' } }],
+        }),
+        { headers: { 'content-type': 'application/json' } }
+      )
+    const sent = async (baseUrl: string) => {
+      const { fetch, calls } = fakeFetch(answer)
+      const client = createChatClient({
+        provider: 'openai_compatible',
+        apiKey: 'k',
+        baseUrl,
+        fetch,
+      })
+      await client.complete({
+        model: 'gemini-3.8-flash',
+        maxTokens: 10,
+        messages: [{ role: 'user', content: 'q' }],
+        tools: [{ name: 'tag', description: 'd', inputSchema }],
+      })
+      const tools = calls[0]?.body.tools as { function: { parameters: unknown } }[]
+      return tools[0]?.function.parameters
+    }
+    expect(await sent('https://generativelanguage.googleapis.com/v1beta/openai')).toEqual({
+      type: 'object',
+      properties: {
+        tags: { type: 'array', description: 'At most 3 items.', items: { type: 'string' } },
+      },
+    })
+    const { fetch, calls } = fakeFetch(answer)
+    await createChatClient({
+      provider: 'openai_compatible',
+      apiKey: 'k',
+      baseUrl: 'https://compat.test/v1',
+      fetch,
+    }).complete({
+      model: 'fake-1',
+      maxTokens: 10,
+      messages: [{ role: 'user', content: 'q' }],
+      tools: [{ name: 'tag', description: 'd', inputSchema }],
+    })
+    const tools = calls[0]?.body.tools as { function: { parameters: unknown } }[]
+    expect(tools[0]?.function.parameters).toEqual(inputSchema)
+  })
+})
 
 describe('Anthropic chat client (real SDK, fake transport)', () => {
   it('anthropic_compatible sends Authorization: Bearer to the base URL, thinking disabled explicitly, cache breakpoints on', async () => {

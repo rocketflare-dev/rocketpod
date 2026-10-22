@@ -471,7 +471,9 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   prompt instruction. First-party `openai` speaks the **Responses API** (`store: false`), because
   Chat Completions cannot call tools on GPT-6 Astra/6.1 Sol, nor on Luna while it reasons.
   Thinking off there means the lowest `reasoning.effort` the model takes. `openai_compatible` stays
-  on Chat Completions. Reasoning (Claude thinking blocks, OpenAI reasoning items) rides a tool loop
+  on Chat Completions; for Gemini (its endpoint or a `gemini-*` id) the adapter strips the tool-schema
+  keywords the endpoint 400s on (`maxItems` — `unsupportedSchemaKeywords`) and restates the bound in
+  the field's description, while our own parse still enforces it. Reasoning (Claude thinking blocks, OpenAI reasoning items) rides a tool loop
   as opaque `reasoning` blocks, returned unmodified to the provider that produced it. It is kept
   in checkpoints and never in chat history. Each adapter recovers ONCE from a refusal the traits
   misjudged (thinking, sampling, forced tool, effort, a replayed block's signature) and remembers

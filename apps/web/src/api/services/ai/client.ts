@@ -576,7 +576,67 @@ function toOpenAiMessages(params: ChatParams): OpenAiMessage[] {
   return out
 }
 
-function openAiBody(params: ChatParams, stream: boolean): Record<string, unknown> {
+/**
+ * JSON Schema keywords an OpenAI-compatible endpoint refuses in a tool's `parameters`. MEASURED,
+ * never assumed: Gemini's endpoint answers a bare `400 INVALID_ARGUMENT` to a tool schema carrying
+ * `maxItems` (bisected live on `gemini-3.8-flash`). Recognised by the base URL or a `gemini-*` model id —
+ * a proxy in front of Gemini is caught by the second. The parse on our side still enforces every
+ * bound, so a model that ignores the restated cap costs that answer, never the data.
+ */
+export function unsupportedSchemaKeywords(baseUrl: string, model: string): readonly string[] {
+  return /generativelanguage\.googleapis\.com/.test(baseUrl) || /^(models\/)?gemini-/.test(model)
+    ? ['maxItems']
+    : []
+}
+
+const BOUND_WORDING: Record<string, (n: number) => string> = {
+  maxItems: n => `At most ${n} item${n === 1 ? '' : 's'}.`,
+  minItems: n => `At least ${n} item${n === 1 ? '' : 's'}.`,
+  maxLength: n => `At most ${n} characters.`,
+  minLength: n => `At least ${n} character${n === 1 ? '' : 's'}.`,
+  maximum: n => `At most ${n}.`,
+  minimum: n => `At least ${n}.`,
+}
+
+/**
+ * `schema` with `unsupported` keywords removed at every SCHEMA position (a key inside `properties`
+ * is a field name, so a field called `maxItems` survives); a dropped bound is restated in the
+ * description so the model is still told it.
+ */
+export function withoutSchemaKeywords(schema: unknown, unsupported: readonly string[]): unknown {
+  if (Array.isArray(schema)) return schema.map(item => withoutSchemaKeywords(item, unsupported))
+  if (!schema || typeof schema !== 'object') return schema
+  const out: Record<string, unknown> = {}
+  const restated: string[] = []
+  for (const [key, value] of Object.entries(schema as Record<string, unknown>)) {
+    if (unsupported.includes(key)) {
+      const wording = BOUND_WORDING[key]
+      if (wording && typeof value === 'number') restated.push(wording(value))
+      continue
+    }
+    if ((key === 'properties' || key === '$defs' || key === 'definitions') && value) {
+      out[key] = Object.fromEntries(
+        Object.entries(value as Record<string, unknown>).map(([name, sub]) => [
+          name,
+          withoutSchemaKeywords(sub, unsupported),
+        ])
+      )
+    } else {
+      out[key] = withoutSchemaKeywords(value, unsupported)
+    }
+  }
+  if (restated.length) {
+    const prior = typeof out.description === 'string' ? out.description.trimEnd() : ''
+    out.description = [prior, ...restated].filter(Boolean).join(' ')
+  }
+  return out
+}
+
+function openAiBody(
+  params: ChatParams,
+  stream: boolean,
+  unsupported: readonly string[] = []
+): Record<string, unknown> {
   const body: Record<string, unknown> = {
     model: params.model,
     messages: toOpenAiMessages(params),
@@ -588,7 +648,13 @@ function openAiBody(params: ChatParams, stream: boolean): Record<string, unknown
   if (params.tools?.length) {
     body.tools = params.tools.map(t => ({
       type: 'function',
-      function: { name: t.name, description: t.description, parameters: t.inputSchema },
+      function: {
+        name: t.name,
+        description: t.description,
+        parameters: unsupported.length
+          ? withoutSchemaKeywords(t.inputSchema, unsupported)
+          : t.inputSchema,
+      },
     }))
     const choice = params.toolChoice
     if (choice?.type === 'tool')
@@ -711,7 +777,13 @@ function createOpenAiChatClient(opts: ChatClientOptions): ChatClient {
     provider,
     async complete(params) {
       try {
-        const res = await postJson(fetchImpl, url, apiKey, openAiBody(params, false), params.signal)
+        const res = await postJson(
+          fetchImpl,
+          url,
+          apiKey,
+          openAiBody(params, false, unsupportedSchemaKeywords(base, params.model)),
+          params.signal
+        )
         const json = (await res.json()) as OpenAiCompletion
         const choice = json.choices?.[0]
         const content: ContentBlock[] = []
@@ -739,7 +811,13 @@ function createOpenAiChatClient(opts: ChatClientOptions): ChatClient {
     },
     async *stream(params) {
       try {
-        const res = await postJson(fetchImpl, url, apiKey, openAiBody(params, true), params.signal)
+        const res = await postJson(
+          fetchImpl,
+          url,
+          apiKey,
+          openAiBody(params, true, unsupportedSchemaKeywords(base, params.model)),
+          params.signal
+        )
         if (!res.body) throw new AiError('unavailable', provider, 'Empty response body')
         let text = ''
         let model = params.model

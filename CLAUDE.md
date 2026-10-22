@@ -36,9 +36,12 @@ files. `AGENTS.md` symlinks here.
   driver is gone); `openDatabase(env)` = a view of the Node process pool; raw results only through
   `rows()`/`affected()`
 - **Auth**: arctic (Google, Microsoft, any OIDC issuer — jose-verified `id_token`, off by default) + magic link + dev-login; `__Host-session`; API keys; Postgres rate limit
-- **Async / realtime**: pg-boss jobs + cron, `ws` on `/ws` with LISTEN/NOTIFY fan-out, S3-compatible
-  storage (`STORAGE_*`), OpenWorkflow durable agent runs — all on Postgres but the object store
-- **AI**: `services/ai/resolve` (`agent_models` → tenant `ai_configs` → platform key — `ANTHROPIC_API_KEY`
+- **Async / realtime**: pg-boss jobs + cron, `ws` on `/ws` with LISTEN/NOTIFY fan-out (tenant-wide
+  nudges, plus registered TOPICS a page subscribes to, gated by `read` on a subject), S3-compatible
+  storage (`STORAGE_*`; ranged reads, streamed multipart uploads), OpenWorkflow durable agent runs
+  (exclusive per tenant, per caller key, or not at all) — all on Postgres but the object store
+- **AI**: `services/ai/resolve` (`agent_models` → tenant `ai_configs` → platform key on a
+  `platform_agent_models` default → the key's own model — `ANTHROPIC_API_KEY`
   or `AI_*` (OpenAI-compatible); zero key → 503); Anthropic / OpenAI (Responses API) /
   OpenAI-compatible chat (per-model request rules: `packages/shared/src/ai/models.ts`; defaults
   `claude-haiku-5-5` / `gpt-6-luna`) streamed as **AG-UI**
@@ -47,8 +50,9 @@ files. `AGENTS.md` symlinks here.
   decisions (`ctx.decide`, D37: TypeSafe's Jev as the `decisions` scope, else the chat model),
   `EMBEDDINGS_*` → pgvector (uploads: object store → unpdf/mammoth → pgvector), OTLP tracing (D32: GenAI
   spans → Langfuse/Phoenix/any backend, always also `ai_spans` → `rocketpod traces`); evals (D33:
-  `apps/evals`, vitest-evals on vitest 4, `pnpm eval`, never in the gate) + thumbs feedback →
-  `rocketpod evals promote`
+  `apps/evals`, vitest-evals on vitest 4, `pnpm eval`, never in the gate — but the gate holds every
+  prompt and agent to a suite or a stated exemption, `@rocketpod/shared/ai/eval-coverage`) + thumbs
+  feedback → `rocketpod evals promote`
 - **Analytics**: not core — the `analytics` PLUGIN (D31), not installed by default until a
   Rocketpod-compatible release exists (`defaultPlugins` is empty, `docs/ROADMAP.md` → Next)
 - **UI**: React 18 + Vite, DaisyUI 5 / Tailwind v4, React Router 6, TanStack Query 5; served by the Node server from `dist/ui`

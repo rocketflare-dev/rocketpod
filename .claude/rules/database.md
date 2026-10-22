@@ -26,6 +26,11 @@ Rocketpod): `postgres.js`** — the Node entry's process pool. Never add `pg`. *
   invite accept). `apps/web/tests/config/unscoped-allowlist.test.ts` pins the exceptions — it fails when
   any function queries a `tenant_id` table without naming a tenant — so adding one is a design
   decision (an entry there, with a reason, and a line in the PR), not a refactor
+- That guard reads SOURCE, per enclosing function: the tenant must be NAMED in the function that
+  holds the query — `eq(table.tenantId, tenantId)` written there. A predicate built by a helper
+  (`where(inScope(scope))`), or a table reached through a variable assigned outside the closure
+  that queries it, reads as unscoped even when it is not. Name the tenant inline beside the helper
+  (`and(eq(t.tenantId, tenantId), inScope(scope))`) rather than allow-listing a correct query
 - `users` is global (a person belongs to many tenants); visibility is through `tenant_users`
 - `TENANCY_MODE=single` changes nothing here: the schema is identical in both modes (D25)
 

@@ -632,7 +632,7 @@ Components and hooks, for a lazy PAGE. Never for the UI entry.
 - `function setUnauthorizedHandler(handler: UnauthorizedHandler \| null): void`
   Register the global 401 handler. One handler; the last registration wins. Pass `null` to remove it. Phase 1 calls this from `AuthProvider` with the redirect-to-login behaviour.
 - `function showToast(message: string, type: ToastType, duration?: number): void`
-  Show a toast from anywhere, inside or outside React.
+  Show an error or a warning from anywhere, inside or outside React.
 - `default function SideNav({ items = navigationConfig, footer }: SideNavProps)`
 - `function SkeletonRows({ rows = 4, className = '' }: { rows?: number; className?: string })`
   Placeholder lines on their own, for panels that stay mounted while loading.
@@ -642,7 +642,7 @@ Components and hooks, for a lazy PAGE. Never for the UI entry.
 - `interface Toast`
 - `function ToastContainer()`
   Bottom-right stack. Mount once.
-- `type ToastType = 'success' \| 'error' \| 'warning' \| 'info'`
+- `type ToastType = 'error' \| 'warning'`
 - `function URLTabs({ tabs, defaultTab, param = 'tab', className = '', actions, orientation = 'horizontal', }: URLTabsProps)`
   Tabs whose active state lives in `?tab=`, so deep links and back/forward work.
 - `function useAuth(): AuthContextValue`
@@ -1346,7 +1346,7 @@ nothing in the comparison that can throw.
 @/plugins/api/ui :: function :: timeAgo :: function timeAgo(value: Date | null | undefined, fallback = 'never'): string
 @/plugins/api/ui :: interface :: Toast :: interface Toast
 @/plugins/api/ui :: function :: ToastContainer :: function ToastContainer()
-@/plugins/api/ui :: type :: ToastType :: type ToastType = 'success' | 'error' | 'warning' | 'info'
+@/plugins/api/ui :: type :: ToastType :: type ToastType = 'error' | 'warning'
 @/plugins/api/ui :: function :: URLTabs :: function URLTabs({ tabs, defaultTab, param = 'tab', className = '', actions, orientation = 'horizontal', }: URLTabsProps)
 @/plugins/api/ui :: function :: useAuth :: function useAuth(): AuthContextValue
 @/plugins/api/ui :: function :: useFeature :: function useFeature(name: FeatureName): boolean

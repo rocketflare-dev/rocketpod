@@ -51,7 +51,7 @@ Rules:
   `queues/handlers/document-index.ts`, `convertAndIndexDocument` with `document-convert.ts`),
   `convert.ts` (`needsConversion` / `canConvert` / `converterSupports` / `decodeText` /
   `convertToText` over the platform `DocumentConverter`; `ConversionFailedError` is the permanent case), `retrieval.ts` (`searchChunks(db, cfg, platform, scope, request)` — dense `<=>` +
-  lexical over ANY query word (`anyTermTsquery`: the distinct `\p{L}\p{N}` words OR-ed — never `websearch_to_tsquery`, which ANDs a sentence's filler words into zero hits) ranked by `ts_rank_cd`, RRF `k = 60`; `RerankFn` is the documented, unbuilt seam) complete the D18 half.
+  lexical over ANY query word (`anyTermTsquery`: the distinct `\p{L}\p{N}` words OR-ed — never `websearch_to_tsquery`, which ANDs a sentence's filler words into zero hits) ranked by `ts_rank_cd` over the stored `chunks.search_vector`, RRF `k = 60`; an optional `documents` corpus predicate (`SearchChunksOptions`) is ANDed with the reader's visibility, so it narrows and never widens; `RerankFn` is the documented, unbuilt seam) complete the D18 half.
 - **Reading a document takes an `AccessScope`, not a tenant id** (D29): `searchChunks` and the three
   `document-content.ts` readers ALL take one, so a restricted document is absent from search, from
   `get_document` and from the viewer by the same predicate. The scope carries the tenant, which is

@@ -16,7 +16,7 @@
  * must answer the SAME 404 as one that does not exist.
  */
 import { makeRequestCtx } from '@testkit/unit'
-import { eq } from 'drizzle-orm'
+import { eq, inArray } from 'drizzle-orm'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { accessScopeForUser } from '@/api/services/access'
 import { buildAgentTools } from '@/api/services/agents/tools'
@@ -162,6 +162,29 @@ describe('documents: every read path agrees', () => {
       expect(search.hits.some(h => h.documentId === restrictedId)).toBe(canSee)
     })
   }
+
+  it('a search corpus narrows what a reader sees and never widens it', async () => {
+    // `searchChunks`' `documents` option: a corpus naming BOTH documents. The outsider still gets
+    // only the open one — a corpus is ANDed with visibility, not substituted for it.
+    const corpus = inArray(documents.id, [restrictedId, openId])
+    const ids = async (userId: string, documentsSql = corpus) => {
+      const scope = await accessScopeForUser(db, tenantId, userId)
+      const hits = await searchChunks(
+        db,
+        cfg,
+        env,
+        scope,
+        { query: 'payroll', limit: 10 },
+        { documents: documentsSql }
+      )
+      return new Set(hits.map(h => h.documentId))
+    }
+    expect(await ids(outsider.userId)).toEqual(new Set([openId]))
+    expect(await ids(inGroup.userId)).toEqual(new Set([restrictedId, openId]))
+    // And it narrows: a corpus of the open document alone leaves the restricted one out for a
+    // reader who could see it.
+    expect(await ids(inGroup.userId, inArray(documents.id, [openId]))).toEqual(new Set([openId]))
+  })
 
   it('a hidden document is the SAME 404 body as one that never existed', async () => {
     const hidden = await request(`/api/ai/documents/${restrictedId}`, { headers: outsider.cookie })

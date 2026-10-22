@@ -1,7 +1,7 @@
 /**
  * Hybrid retrieval over `chunks` (D17, D18): dense cosine (`<=>` on the pgvector HNSW index) +
- * Postgres full-text (ANY query term — `anyTermTsquery` — ranked by `ts_rank_cd` over
- * `to_tsvector('english', text)`),
+ * Postgres full-text (ANY query term — `anyTermTsquery` — ranked by `ts_rank_cd` over the stored
+ * `chunks.search_vector`, `to_tsvector('english', text)` behind a GIN index),
  * fused by Reciprocal Rank Fusion (`RRF_K = 60`). Each signal retrieves a wide candidate pool, the
  * fusion decides the order, the top `limit` come back with `denseRank`/`lexicalRank` so "did the
  * vector search find this or only the keyword one?" is answerable. Each hit also says WHERE in its
@@ -12,11 +12,12 @@
  * approximate by construction — first occurrence, counted in Postgres characters against JS's
  * UTF-16 slicing — so with chunk overlap or non-BMP text a window can start slightly early; a
  * reader gets a shifted read, never an error. The tenant predicate is on
- * EVERY query; `documentId` narrows further. No rerank in v1 (a `RerankFn` seam is the documented
- * extension).
+ * EVERY query; `documentId` and an optional `documents` corpus narrow further. No rerank (a
+ * `RerankFn` seam is the documented extension).
  */
+import { SEARCH_TEXT_CONFIG } from '@rocketpod/shared/ai/config'
 import type { SearchHit, SearchRequest } from '@rocketpod/shared/ai/embeddings'
-import { and, eq, inArray, sql } from 'drizzle-orm'
+import { and, eq, inArray, type SQL, sql } from 'drizzle-orm'
 import type { AppConfig } from '../../../config'
 import type { Database } from '../../../db/client'
 import { chunks, documents } from '../../../db/schema'
@@ -27,8 +28,8 @@ import type { AiEnv } from './types'
 
 /** The RRF constant from the original paper — the de-facto default. */
 export const RRF_K = 60
-/** Text-search configuration the lexical half indexes and queries with. */
-export const SEARCH_TEXT_CONFIG = 'english'
+/** Text-search configuration — shared with `chunks.search_vector`'s generated expression. */
+export { SEARCH_TEXT_CONFIG }
 
 /**
  * Where a passage sits in its document: `position()` of the chunk's text in `documents.content`,
@@ -115,6 +116,16 @@ interface Candidate {
   seq: number
 }
 
+export interface SearchChunksOptions {
+  /**
+   * A document CORPUS — a predicate over `documents` (a kind, a source, a set of ids) — ANDed with
+   * the tenant predicate AND the reader's `visibleDocuments(access)` on both halves. It can only
+   * narrow what this reader may see, never widen it; a caller with a maintenance scope passes
+   * `fullAccessScope(tenantId)` for that, not a corpus.
+   */
+  documents?: SQL
+}
+
 /**
  * Hybrid search, scoped to what this reader may SEE (D29). `access` carries the tenant, so there
  * is no separate `tenantId` argument to keep in step with it; the visibility predicate is ANDed
@@ -135,7 +146,8 @@ export function searchChunks(
   cfg: AppConfig,
   env: AiEnv,
   access: AccessScope,
-  request: SearchRequest
+  request: SearchRequest,
+  options: SearchChunksOptions = {}
 ): Promise<SearchHit[]> {
   // D32: a `retrieval` span under whatever is active (the `search_knowledge` tool span), with the
   // query embedding nested inside it. The hits are summarised — the passages are the TOOL's output.
@@ -145,7 +157,7 @@ export function searchChunks(
       kind: 'retrieval',
       input: { query: request.query, limit: request.limit ?? 10, documentId: request.documentId },
     },
-    () => runSearch(db, cfg, env, access, request),
+    () => runSearch(db, cfg, env, access, request, options),
     hits => ({
       output: hits.map(h => ({
         documentId: h.documentId,
@@ -163,12 +175,13 @@ async function runSearch(
   cfg: AppConfig,
   env: AiEnv,
   access: AccessScope,
-  request: SearchRequest
+  request: SearchRequest,
+  options: SearchChunksOptions
 ): Promise<SearchHit[]> {
   const tenantId = access.tenantId
   const limit = request.limit ?? 10
   const pool = candidatePoolSize(limit)
-  const visible = visibleDocuments(access)
+  const visible = and(visibleDocuments(access), options.documents)
   const scope = and(
     eq(chunks.tenantId, tenantId),
     visible,
@@ -213,13 +226,10 @@ async function runSearch(
           .from(chunks)
           .innerJoin(documents, eq(documents.id, chunks.documentId))
           .where(
-            and(
-              scope,
-              sql`to_tsvector(${SEARCH_TEXT_CONFIG}, ${chunks.text}) @@ to_tsquery(${SEARCH_TEXT_CONFIG}, ${terms})`
-            )
+            and(scope, sql`${chunks.searchVector} @@ to_tsquery(${SEARCH_TEXT_CONFIG}, ${terms})`)
           )
           .orderBy(
-            sql`ts_rank_cd(to_tsvector(${SEARCH_TEXT_CONFIG}, ${chunks.text}), to_tsquery(${SEARCH_TEXT_CONFIG}, ${terms})) DESC`
+            sql`ts_rank_cd(${chunks.searchVector}, to_tsquery(${SEARCH_TEXT_CONFIG}, ${terms})) DESC`
           )
           .limit(pool)
       : Promise.resolve([] as Candidate[]),

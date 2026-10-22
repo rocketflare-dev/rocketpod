@@ -56,7 +56,7 @@ closes a cycle back through `plugins/schema.ts`.
 | `rate_limits` | `platform-limits.ts` | — | **revoked** | the Node `RateLimiter` (`src/node/limits.ts`): `key` PK (`rl:<route>:<ip>`), `hits` bigint[] (sliding window), `expiresAt` (nightly prune) |
 | `operation_locks` | `platform-limits.ts` | — | **revoked** | the Node `Locks`: `key` PK, `acquiredAt`, `expiresAt` (a crashed holder's lock is reclaimable) |
 | `feature_flags` / `tenant_feature_overrides` | `feature-flags.ts` | — / `tenant_id` | excluded / ✓ | D30, see Conventions |
-| `chunks` | `chunks.ts` | `tenant_id` | ✓ | retrieval units (D17/D18): `documentId` cascade, `seq` (unique per document), `text`, `tokenCount` (char estimate), `embedding vector(1024)` (`EMBEDDING_DIM`; a new dimension is a new table); **HNSW `vector_cosine_ops`** index; lexical half is `to_tsvector('english', text)` at query time (generated tsvector + GIN is the scaling path) |
+| `chunks` | `chunks.ts` | `tenant_id` | ✓ | retrieval units (D17/D18): `documentId` cascade, `seq` (unique per document), `text`, `tokenCount` (char estimate), `embedding vector(1024)` (`EMBEDDING_DIM`; a new dimension is a new table); **HNSW `vector_cosine_ops`** index; lexical half reads `search_vector`, a stored generated `to_tsvector(SEARCH_TEXT_CONFIG, text)` (a `customType` tsvector, `generatedAlwaysAs`) behind the GIN `chunks_search_vector_idx` — never selected, never inserted |
 
 31 kit policies (`tenants`, `users` + 29 tenant tables), plus one per installed plugin table
 (`example_notes`); 6 revoked tables = `RLS_REVOKED_TABLES`; `RLS_EXCLUDED_TABLES` = those +

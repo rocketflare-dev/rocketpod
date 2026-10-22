@@ -554,7 +554,10 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   The converter declares its `contentTypes`, and an upload it cannot convert is 415
   `unsupported_media_type` before anything is stored. Search is hybrid dense + lexical
   (the lexical half matches ANY query word, ranked by `ts_rank_cd` — `anyTermTsquery` — so a
-  sentence's filler words cannot veto it) with RRF, scoped by `AccessScope` (§1).
+  sentence's filler words cannot veto it — over `chunks.search_vector`, a STORED generated
+  `to_tsvector(SEARCH_TEXT_CONFIG, text)` behind a GIN index) with RRF, scoped by `AccessScope`
+  (§1). `searchChunks` takes an optional `documents` corpus (a predicate over `documents`) that is
+  ANDed with the reader's visibility, so it narrows a search and can never widen it.
   `document-content.ts` is the one text reader behind both
   the viewer and `get_document`. Agent tools resolve the requester's access at execute time.
   **External ids (D34)**: `documents.external_id` is unique per `(tenant_id, source)` (partial
@@ -653,7 +656,7 @@ no Excel or OpenDocument conversion (refused at upload); no document summary or 
 mitigation); no token-level streaming for runs; char-based history budget
 not derived from the model; sliding window defeats prompt caching on long threads; `enqueueRun`
 does not pre-resolve the client; no
-rerank, no generated `tsvector`; HITL asks cannot be amended, have no
+rerank; HITL asks cannot be amended, have no
 reminders, and parks are bounded by `AGENT_INTERRUPT_TIMEOUT`; runs nobody opens
 stay active-looking; no budgets/quotas over `ai_usage` or prompt versioning. Decisions (D37): no
 replay of an agent's CODE over recorded answers (stored and re-askable, not yet re-runnable), no

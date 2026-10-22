@@ -66,7 +66,7 @@ serves `decisions` only), `AI_SCOPES` (`chat | embeddings | decisions`), readine
 `thinkingSchema` + `THINKING_*` bounds, `aiConfigSchema` (sanitised row:
 `hasCredential`, never a key), `upsertAiConfigRequestSchema` (`apiKey` write-only), `testAiConfigRequest/ResponseSchema`,
 `aiReadinessSchema`, `DEFAULT_MODELS`, `ADAPTIVE_THINKING_MIN_MAX_TOKENS`, `PROVIDER_PRESETS`/`presetsFor` (vendors are data, not enum values),
-**`EMBEDDING_DIM = 1024`** (the `chunks.embedding` column width — a change is a migration) ·
+**`EMBEDDING_DIM = 1024`** (the `chunks.embedding` column width — a change is a migration), `SEARCH_TEXT_CONFIG` (`'english'` — `chunks.search_vector`'s generated expression and the lexical query both read it; a change is a migration) ·
 `models.ts` — per-MODEL request rules: `modelTraits(provider, model)` → `{ thinking: none|extended|adaptive|effort, thinkingOff, thinksAnyway, forcedToolChoice, sampling }`, `parseClaudeModel`, `anthropicModelTraits`, `openAiModelTraits`, `openAiLowestEffort`, `MODEL_TRAITS_CHECKED`; an unrecognised id gets the NEWEST generation's rules; read by the adapters, the upsert route and the settings form · `evals.ts` (D33) — `evalCaseSchema` (the dataset line: `id`, `input` string|object, `messages`,
 `context` docs, `expected { output, rubric, tools, toolsMatch, contains, decisions }` (`decisions`
 = decision key → question id → label, D37), `tags`, `source` — a

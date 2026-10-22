@@ -29,6 +29,13 @@
       "when": 1792657057408,
       "tag": "0003_platform-agent-models",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792657275933,
+      "tag": "0004_chunks-search-vector",
+      "breakpoints": true
     }
   ]
 }

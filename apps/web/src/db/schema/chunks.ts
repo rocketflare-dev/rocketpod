@@ -3,16 +3,29 @@
  * Postgres, NOT Vectorize, so vectors stay inside the tenant's rows and under RLS. The column is
  * `vector(EMBEDDING_DIM)` (1024, matching `@cf/baai/bge-m3`); changing the dimension is a NEW
  * table, not an `ALTER`. Dense retrieval is cosine (`<=>`) over the HNSW index; the lexical half
- * is `to_tsvector('english', text)` computed at query time (a generated tsvector + GIN index is the
- * documented scaling path). Every query carries the tenant predicate first.
+ * reads `search_vector`, the stored `to_tsvector('english', text)` behind a GIN index (computed at
+ * query time it ran over every row twice, for the match and the rank — measured at 444 ms over
+ * 3,400 chunks). Every query carries the tenant predicate first.
  */
-import { EMBEDDING_DIM } from '@rocketpod/shared/ai/config'
-import { relations } from 'drizzle-orm'
-import { index, integer, pgTable, text, uniqueIndex, uuid, vector } from 'drizzle-orm/pg-core'
+import { EMBEDDING_DIM, SEARCH_TEXT_CONFIG } from '@rocketpod/shared/ai/config'
+import { relations, sql } from 'drizzle-orm'
+import {
+  customType,
+  index,
+  integer,
+  pgTable,
+  text,
+  uniqueIndex,
+  uuid,
+  vector,
+} from 'drizzle-orm/pg-core'
 import { tenantRef, timestamps } from './_helpers'
 import { documents } from './documents'
 import { tenantIsolation } from './rls'
 import { tenants } from './tenants'
+
+/** A Postgres `tsvector` (drizzle has no built-in): read only inside SQL, never selected. */
+const tsvector = customType<{ data: string }>({ dataType: () => 'tsvector' })
 
 export const chunks = pgTable(
   'chunks',
@@ -28,6 +41,13 @@ export const chunks = pgTable(
     /** Character-based estimate (`estimateTokens`), not a tokenizer count. */
     tokenCount: integer('token_count').notNull().default(0),
     embedding: vector('embedding', { dimensions: EMBEDDING_DIM }).notNull(),
+    /**
+     * The lexical half's vector, stored: `to_tsvector(SEARCH_TEXT_CONFIG, text)`. Raw SQL on
+     * purpose — a generated expression cannot take a bind parameter, and the constant is ours.
+     */
+    searchVector: tsvector('search_vector')
+      .notNull()
+      .generatedAlwaysAs(sql.raw(`to_tsvector('${SEARCH_TEXT_CONFIG}', text)`)),
     ...timestamps(),
   },
   table => [
@@ -35,6 +55,7 @@ export const chunks = pgTable(
     index('chunks_tenant_document_idx').on(table.tenantId, table.documentId),
     // Cosine ANN index for dense retrieval (pgvector HNSW).
     index('chunks_embedding_idx').using('hnsw', table.embedding.op('vector_cosine_ops')),
+    index('chunks_search_vector_idx').using('gin', table.searchVector),
     tenantIsolation('chunks'),
   ]
 )

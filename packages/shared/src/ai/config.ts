@@ -193,6 +193,14 @@ export const defaultModelFor = (provider: AiProvider, scope: AiScope): string =>
 /** Embedding dimension every provider is reduced to (D18): `dimensions: 1024` is sent on every call. */
 export const EMBEDDING_DIM = 1024
 
+/**
+ * The Postgres text-search configuration of the lexical half (D18): `chunks.search_vector` is
+ * GENERATED with it and `retrieval.ts` queries with it — one constant, so the GIN index and the
+ * query cannot disagree (they would match nothing). Changing it is a migration (`pnpm db:generate`
+ * rewrites the generated column).
+ */
+export const SEARCH_TEXT_CONFIG = 'english'
+
 export interface ProviderPreset {
   id: string
   name: string

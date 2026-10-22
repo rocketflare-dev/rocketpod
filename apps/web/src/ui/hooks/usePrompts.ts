@@ -30,8 +30,6 @@ export function useUpdatePrompt() {
     mutationFn: ({ key, ...body }: UpdatePromptRequest & { key: string }) =>
       api.put(`/api/ai/prompts/${encodeURIComponent(key)}`, body, {
         schema: promptWithResolvedSchema,
-        showSuccessToast: true,
-        successMessage: 'Prompt saved',
       }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.ai.prompts }),
   })
@@ -43,8 +41,6 @@ export function useClearPrompt() {
     mutationFn: (key: string) =>
       api.delete(`/api/ai/prompts/${encodeURIComponent(key)}`, undefined, {
         schema: promptWithResolvedSchema,
-        showSuccessToast: true,
-        successMessage: 'Prompt reset to default',
       }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.ai.prompts }),
   })

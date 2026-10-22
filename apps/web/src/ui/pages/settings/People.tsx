@@ -24,7 +24,6 @@ import {
   PaginationControls,
   SectionPanel,
   SkeletonRows,
-  showToast,
 } from '@/ui/components/shared'
 import { useAuth } from '@/ui/hooks/useAuth'
 import { useInvitations, useResendInvitation, useRevokeInvitation } from '@/ui/hooks/useInvitations'
@@ -234,7 +233,6 @@ function InvitationsPanel() {
     await navigator.clipboard.writeText(
       `${window.location.origin}/invite/${encodeURIComponent(token)}`
     )
-    showToast('Invite link copied', 'success')
   }
 
   return (

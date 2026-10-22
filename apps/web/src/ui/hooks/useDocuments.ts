@@ -198,10 +198,7 @@ export function useDeleteDocument() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (id: string) =>
-      api.delete(`/api/ai/documents/${encodeURIComponent(id)}`, undefined, {
-        showSuccessToast: true,
-        successMessage: 'Document deleted',
-      }),
+      api.delete(`/api/ai/documents/${encodeURIComponent(id)}`, undefined, {}),
     onSuccess: (_data, id) => {
       queryClient.removeQueries({ queryKey: queryKeys.documents.detail(id) })
       return queryClient.invalidateQueries({ queryKey: queryKeys.documents.all })

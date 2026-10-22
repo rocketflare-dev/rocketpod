@@ -52,8 +52,6 @@ export function useUpdateTenant() {
     mutationFn: (body: UpdateTenantRequest) =>
       api.patch('/api/tenant', body, {
         schema: tenantSchema,
-        showSuccessToast: true,
-        successMessage: 'Organisation updated',
       }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: queryKeys.tenant.all })
@@ -68,8 +66,6 @@ export function useUpdateTenantSettings() {
     mutationFn: (body: UpdateTenantSettingsRequest) =>
       api.patch('/api/tenant/settings', body, {
         schema: tenantSettingsSchema,
-        showSuccessToast: true,
-        successMessage: 'Settings saved',
       }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.tenant.settings }),
   })
@@ -79,11 +75,7 @@ export function useUpdateTenantSettings() {
 export function useCreateTenant() {
   const { applySession, selectTenant } = useAuth()
   return useMutation({
-    mutationFn: (body: CreateTenantRequest) =>
-      api.post<unknown>('/api/tenants', body, {
-        showSuccessToast: true,
-        successMessage: `Created ${body.name}`,
-      }),
+    mutationFn: (body: CreateTenantRequest) => api.post<unknown>('/api/tenants', body, {}),
     onSuccess: async result => {
       const asSession = sessionResponseSchema.safeParse(result)
       if (asSession.success) {
@@ -101,15 +93,7 @@ export function useCreateTenant() {
 export function useDeleteTenant() {
   const { refresh } = useAuth()
   return useMutation({
-    mutationFn: (confirm: string) =>
-      api.delete(
-        '/api/tenant',
-        { confirm },
-        {
-          showSuccessToast: true,
-          successMessage: 'Organisation deleted',
-        }
-      ),
+    mutationFn: (confirm: string) => api.delete('/api/tenant', { confirm }, {}),
     onSuccess: async () => {
       await refresh()
       navigateTo('/', { replace: true })

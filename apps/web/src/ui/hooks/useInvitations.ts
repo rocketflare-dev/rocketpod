@@ -51,8 +51,6 @@ export function useInviteMember() {
     mutationFn: (body: InviteMemberRequest) =>
       api.post('/api/invitations', body, {
         schema: invitationSchema,
-        showSuccessToast: true,
-        successMessage: `Invitation sent to ${body.email}`,
       }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.invitations.all }),
   })
@@ -61,11 +59,7 @@ export function useInviteMember() {
 export function useBulkInvite() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (body: BulkInviteRequest) =>
-      api.post<unknown>('/api/invitations/bulk', body, {
-        showSuccessToast: true,
-        successMessage: `${body.emails.length} invitation${body.emails.length === 1 ? '' : 's'} sent`,
-      }),
+    mutationFn: (body: BulkInviteRequest) => api.post<unknown>('/api/invitations/bulk', body, {}),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.invitations.all }),
   })
 }
@@ -73,11 +67,7 @@ export function useBulkInvite() {
 export function useResendInvitation() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (id: string) =>
-      api.post(`/api/invitations/${id}/resend`, undefined, {
-        showSuccessToast: true,
-        successMessage: 'Invitation resent',
-      }),
+    mutationFn: (id: string) => api.post(`/api/invitations/${id}/resend`, undefined, {}),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.invitations.all }),
   })
 }
@@ -85,11 +75,7 @@ export function useResendInvitation() {
 export function useRevokeInvitation() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (id: string) =>
-      api.delete(`/api/invitations/${id}`, undefined, {
-        showSuccessToast: true,
-        successMessage: 'Invitation revoked',
-      }),
+    mutationFn: (id: string) => api.delete(`/api/invitations/${id}`, undefined, {}),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.invitations.all }),
   })
 }

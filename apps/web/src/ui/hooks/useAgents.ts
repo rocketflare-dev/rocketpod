@@ -161,10 +161,7 @@ export function useCreateAgentRun() {
         schema: createAgentRunResponseSchema,
         showErrorToast: false,
       }),
-    onSuccess: run => {
-      if (run.deduplicated) {
-        showToast('This agent is already running — showing the existing run', 'info')
-      }
+    onSuccess: () => {
       return queryClient.invalidateQueries({ queryKey: queryKeys.agentRuns.all })
     },
     onError: error => {
@@ -180,8 +177,6 @@ export function useCancelAgentRun() {
     mutationFn: (id: string) =>
       api.post<AgentRun>(`/api/agents/runs/${encodeURIComponent(id)}/cancel`, undefined, {
         schema: agentRunSchema,
-        showSuccessToast: true,
-        successMessage: 'Cancel requested',
       }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.agentRuns.all }),
   })

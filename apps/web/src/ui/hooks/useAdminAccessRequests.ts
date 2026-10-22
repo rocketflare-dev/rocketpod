@@ -43,10 +43,7 @@ export function useDecideAccessRequest() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: ({ id, decision }: { id: string; decision: DecideAccessRequest }) =>
-      api.post<unknown>(`/api/admin/access-requests/${id}/decide`, decision, {
-        showSuccessToast: true,
-        successMessage: decision.decision === 'approve' ? 'Request approved' : 'Request rejected',
-      }),
+      api.post<unknown>(`/api/admin/access-requests/${id}/decide`, decision, {}),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.admin.all }),
   })
 }

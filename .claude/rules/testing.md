@@ -82,6 +82,9 @@ reintroduce them:
   driver that has one value, a check against a `dist/` the gate has not built yet (tests run
   before `build`), a title promising behaviour the body never asserts. Read the body against the
   title.
+- **Toasts.** No test renders, counts or clicks a toast, or asserts there is none. A success is
+  never toasted (`.claude/rules/ui.md`), and an error toast is presentation; test the request,
+  the cache and what the page shows instead.
 - **Pinned copy and layout.** Exact nav labels and order, which static label sits in which panel,
   exact prompt or hint sentences, JSON key order. Assert the behaviour (filtered, gated, rendered
   on data), not the wording — unless the mapping IS the behaviour (error code → message).

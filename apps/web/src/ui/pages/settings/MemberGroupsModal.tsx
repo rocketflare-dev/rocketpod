@@ -5,7 +5,7 @@
  */
 import type { Member } from '@rocketpod/shared/tenants'
 import { useEffect, useState } from 'react'
-import { EmptyState, Modal, SkeletonRows, showToast } from '@/ui/components/shared'
+import { EmptyState, Modal, SkeletonRows } from '@/ui/components/shared'
 import { useGroups, useSetMemberGroups } from '@/ui/hooks/useGroups'
 
 export function MemberGroupsModal({
@@ -35,10 +35,7 @@ export function MemberGroupsModal({
     save.mutate(
       { userId: member.userId, groupIds: selected },
       {
-        onSuccess: () => {
-          showToast(`Updated ${member.name}'s groups`, 'success')
-          onClose()
-        },
+        onSuccess: () => onClose(),
       }
     )
   }

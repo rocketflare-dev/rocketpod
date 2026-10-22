@@ -12,9 +12,10 @@
 import { useState } from 'react'
 // The COMPONENTS half of the UI kit (D31). A page may import it because a page is lazy and ships in
 // its own chunk; the plugin's `ui/index.ts` may not, because that one is in everybody's first
-// download. `showToast` comes from here and only here — it is reachable in the kit by two public
-// paths, and one plugin took each, which is how two call sites of one function come to look like two.
-import { EmptyState, SectionPanel, showToast, useAuth, usePermissions } from '@/plugins/api/ui'
+// download. `showToast` (problems only — an error or a warning) comes from here and only here: it is
+// reachable in the kit by two public paths, and one plugin took each, which is how two call sites of
+// one function come to look like two.
+import { EmptyState, SectionPanel, useAuth, usePermissions } from '@/plugins/api/ui'
 import {
   useCreateExampleNote,
   useDeleteExampleNote,
@@ -71,18 +72,16 @@ export default function ExampleFeaturePage() {
               type="button"
               className="btn btn-sm btn-outline"
               disabled={ping.isPending}
-              onClick={() =>
-                ping.mutate(undefined, {
-                  onSuccess: job =>
-                    showToast(
-                      `Queued ${job.type} (${job.jobId.slice(0, 8)}) — watch the server log`,
-                      'success'
-                    ),
-                })
-              }
+              onClick={() => ping.mutate(undefined)}
             >
               Send a queue ping
             </button>
+            {/* The result on the page, not a toast: toasts are for problems. */}
+            {ping.data && (
+              <p className="text-xs text-secondary">
+                Queued {ping.data.type} ({ping.data.jobId.slice(0, 8)}) — watch the server log
+              </p>
+            )}
           </div>
         </div>
       </SectionPanel>

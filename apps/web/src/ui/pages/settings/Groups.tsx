@@ -10,13 +10,7 @@
 import { PlusIcon, TrashIcon, UserGroupIcon, UsersIcon } from '@heroicons/react/24/outline'
 import type { Group, GroupType } from '@rocketpod/shared/groups'
 import { useState } from 'react'
-import {
-  ConfirmModal,
-  EmptyState,
-  SectionPanel,
-  SkeletonRows,
-  showToast,
-} from '@/ui/components/shared'
+import { ConfirmModal, EmptyState, SectionPanel, SkeletonRows } from '@/ui/components/shared'
 import {
   useCreateGroup,
   useCreateGroupType,
@@ -121,7 +115,6 @@ function GroupTypesPanel({
       { id: deleting.id, force: inUse !== null },
       {
         onSuccess: () => {
-          showToast(`Deleted “${deleting.name}”`, 'success')
           setDeleting(null)
           setInUse(null)
         },
@@ -252,7 +245,6 @@ function GroupsPanel({ type }: { type: GroupType | null }) {
       { id: deleting.id, force: inUse !== null },
       {
         onSuccess: () => {
-          showToast(`Deleted “${deleting.name}”`, 'success')
           setDeleting(null)
           setInUse(null)
         },

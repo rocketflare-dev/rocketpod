@@ -58,10 +58,7 @@ export function useSetGlobalAdmin(id: string) {
       api.post(
         `/api/admin/users/${id}/global-admin`,
         { isGlobalAdmin } satisfies SetGlobalAdminRequest,
-        {
-          showSuccessToast: true,
-          successMessage: isGlobalAdmin ? 'Granted global admin' : 'Revoked global admin',
-        }
+        {}
       ),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.admin.users.all }),
   })
@@ -71,10 +68,7 @@ export function useBlockUser(id: string) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (blocked: boolean) =>
-      api.post(`/api/admin/users/${id}/block`, { blocked } satisfies BlockUserRequest, {
-        showSuccessToast: true,
-        successMessage: blocked ? 'User blocked' : 'User unblocked',
-      }),
+      api.post(`/api/admin/users/${id}/block`, { blocked } satisfies BlockUserRequest, {}),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.admin.users.all }),
   })
 }

@@ -20,7 +20,6 @@ import {
   PaginationControls,
   SectionPanel,
   SkeletonRows,
-  showToast,
 } from '@/ui/components/shared'
 import { useApiKeys, useCreateApiKey, useRevokeApiKey } from '@/ui/hooks/useApiKeys'
 import { usePermissions } from '@/ui/hooks/usePermissions'
@@ -185,7 +184,6 @@ function CreateKeyModal({ open, onClose }: { open: boolean; onClose: () => void 
   const copy = async () => {
     if (!plaintext) return
     await navigator.clipboard.writeText(plaintext)
-    showToast('API key copied to clipboard', 'success')
   }
 
   if (plaintext) {

@@ -97,10 +97,7 @@ export function useDeleteConversation() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (id: string) =>
-      api.delete(`/api/chat/conversations/${encodeURIComponent(id)}`, undefined, {
-        showSuccessToast: true,
-        successMessage: 'Conversation deleted',
-      }),
+      api.delete(`/api/chat/conversations/${encodeURIComponent(id)}`, undefined, {}),
     onSuccess: (_data, id) => {
       queryClient.removeQueries({ queryKey: queryKeys.chat.conversations.detail(id) })
       return queryClient.invalidateQueries({ queryKey: queryKeys.chat.conversations.all })

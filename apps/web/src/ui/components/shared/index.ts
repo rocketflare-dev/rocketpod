@@ -15,6 +15,14 @@ export { PaginationControls } from './PaginationControls'
 export { SearchInput } from './SearchInput'
 export { SectionPanel, SectionPanelSkeleton, SkeletonRows } from './SectionPanel'
 export { SettingInput, SettingRow, SettingToggle } from './SettingRow'
-export { showToast, type Toast, ToastContainer, type ToastType, useToastStore } from './Toast'
+export {
+  showToast,
+  showUndoToast,
+  type Toast,
+  type ToastAction,
+  ToastContainer,
+  type ToastType,
+  useToastStore,
+} from './Toast'
 export { type TabConfig, URLTabs } from './URLTabs'
 export { VisibilityModal, type VisibilityModalProps } from './VisibilityModal'

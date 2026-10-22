@@ -47,11 +47,7 @@ export function useCreateApiKey() {
 export function useRevokeApiKey() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (id: string) =>
-      api.delete(`/api/keys/${id}`, undefined, {
-        showSuccessToast: true,
-        successMessage: 'API key revoked',
-      }),
+    mutationFn: (id: string) => api.delete(`/api/keys/${id}`, undefined, {}),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.keys.all }),
   })
 }

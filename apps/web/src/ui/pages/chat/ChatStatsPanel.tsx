@@ -22,7 +22,6 @@ import type {
 import { formatCost, Row, Section } from '@/ui/components/ai/StatRows'
 import { SkeletonRows } from '@/ui/components/shared'
 import { useCompactConversation, useConversationStats } from '@/ui/hooks/useChat'
-import { showToast } from '@/ui/lib/api-client'
 
 const n = (value: number) => value.toLocaleString()
 
@@ -208,15 +207,7 @@ function StatsBody({
             type="button"
             className="btn btn-xs btn-outline mt-2 gap-1"
             disabled={compact.isPending}
-            onClick={() =>
-              compact.mutate(undefined, {
-                onSuccess: r =>
-                  showToast(
-                    `Summarising ${r.pendingMessages} message(s) — this runs in the background.`,
-                    'success'
-                  ),
-              })
-            }
+            onClick={() => compact.mutate(undefined)}
           >
             <ArrowPathIcon className={`w-3 h-3 ${compact.isPending ? 'animate-spin' : ''}`} />
             Summarise now

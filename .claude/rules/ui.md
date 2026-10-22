@@ -63,7 +63,9 @@ Either port moves with `DEV_UI_PORT` / `DEV_API_PORT` (`scripts/lib/dev-ports.mj
   factory in `lib/query-keys.ts` — never inline key arrays. `lib/queryClient.ts` holds the client
   and its global `QueryCache.onError`
 - `queryOptions()` factories beside the hook (`hooks/use<Resource>.ts`) for anything used by more than one component
-- Mutations invalidate via `queryKeys`; error toast on by default (`showToast`)
+- Mutations invalidate via `queryKeys`; error toast on by default (`showToast`). **Never toast a
+  success** — `ToastType` is `'error' | 'warning'`; the only other toast is `showUndoToast`, the undo
+  for a change that can be taken back
 - **Polling rules** (Phase 3b): poll only while the server still owes an answer, with the decision as a
   pure function on the cached row — `refetchInterval: q => runPollInterval(q.state.data?.status)`
   (`RUN_POLL_MS` 3 s while **`runOwesAnswer`**, which is `queued || running` and deliberately NOT
@@ -101,7 +103,8 @@ refresh with zero hook-side socket code. When you add a resource: pick the root 
 string in the service's nudge and in `query-keys.ts`, and never subscribe to the socket from a hook.
 `components/WebSocketProvider.tsx` (after `AbilityProvider`) connects once `useAuth()` is
 authenticated with a tenant, reconnects on tenant switch, disconnects on sign-out, and uses
-`useQueryClient()` to `invalidateQueries({ queryKey })` per root, toasting `notification.created`.
+`useQueryClient()` to `invalidateQueries({ queryKey })` per root; `notification.created` refreshes
+the bell and is never a toast.
 Components subscribe to query state, never to the socket; `WebSocketStatus` (header dot) and
 `ConnectionBanner` (after 5 s degraded) read the store only. Tests inject a fake socket with
 `websocketClient.setFactory()` — reset it in `afterEach`.

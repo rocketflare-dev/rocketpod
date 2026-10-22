@@ -1,6 +1,6 @@
 /**
  * `/documents` (D18): the ingest form counts characters against `INGEST_TEXT_MAX_CHARS`, validates
- * with the shared schema and POSTs the exact body (then toasts and clears); the upload tab refuses
+ * with the shared schema and POSTs the exact body (then clears); the upload tab refuses
  * a wrong type or an oversized file before any request and POSTs the chosen file as multipart to
  * `/api/ai/documents/upload` with the optional title; the table shows status badges with the
  * failure reason, every title linking to the viewer, a download link only for uploaded originals,
@@ -11,7 +11,6 @@ import { DOCUMENT_UPLOAD_ACCEPT, INGEST_TEXT_MAX_CHARS } from '@rocketpod/shared
 import { MAX_UPLOAD_BYTES } from '@rocketpod/shared/files'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { useToastStore } from '@/ui/components/shared/Toast'
 import DocumentsPage from '@/ui/pages/documents/DocumentsPage'
 import {
   IDS,
@@ -82,7 +81,6 @@ function mount(routes: RouteTable = {}, session = makeSession(), route = '/docum
 describe('Documents page', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
-    useToastStore.setState({ toasts: [] })
   })
 
   it('counts characters, validates with the shared schema and posts the ingest body', async () => {
@@ -114,15 +112,10 @@ describe('Documents page', () => {
         groupIds: [],
       })
     )
-    await waitFor(() =>
-      expect(useToastStore.getState().toasts.map(t => t.message)).toContain(
-        '"Handbook" indexed (3 chunks)'
-      )
-    )
-    expect(screen.getByLabelText('Text')).toHaveValue('')
+    await waitFor(() => expect(screen.getByLabelText('Text')).toHaveValue(''))
   })
 
-  it('uploads the chosen file as multipart with the optional title, then toasts and clears', async () => {
+  it('uploads the chosen file as multipart with the optional title, then clears', async () => {
     const fetchMock = mount({
       'POST /api/ai/documents/upload': (init: RequestInit | undefined) => {
         const form = init?.body as FormData
@@ -167,12 +160,7 @@ describe('Documents page', () => {
     expect(body.get('source')).toBeNull()
     // Multipart: the browser sets the boundary — no JSON content type.
     expect(new Headers(call?.[1]?.headers).get('Content-Type')).toBeNull()
-    await waitFor(() =>
-      expect(useToastStore.getState().toasts.map(t => t.message)).toContain(
-        '"Q3 report" queued for conversion and indexing'
-      )
-    )
-    expect(screen.getByText('No file chosen')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByText('No file chosen')).toBeInTheDocument())
   })
 
   it('refuses a wrong type or an oversized file before any request', async () => {

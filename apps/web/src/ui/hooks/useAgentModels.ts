@@ -33,8 +33,6 @@ export function useUpsertAgentModel() {
     mutationFn: ({ promptKey, ...body }: UpsertAgentModelRequest & { promptKey: string }) =>
       api.put<AgentModelAssignment>(`/api/ai/agent-models/${encodeURIComponent(promptKey)}`, body, {
         schema: agentModelAssignmentSchema,
-        showSuccessToast: true,
-        successMessage: 'Model assignment saved',
       }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.ai.agentModels }),
   })
@@ -44,10 +42,7 @@ export function useDeleteAgentModel() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (promptKey: string) =>
-      api.delete(`/api/ai/agent-models/${encodeURIComponent(promptKey)}`, undefined, {
-        showSuccessToast: true,
-        successMessage: 'Using the default model again',
-      }),
+      api.delete(`/api/ai/agent-models/${encodeURIComponent(promptKey)}`, undefined, {}),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.ai.agentModels }),
   })
 }

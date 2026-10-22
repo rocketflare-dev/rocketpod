@@ -120,11 +120,7 @@ export function useUpsertAiConfig() {
 export function useDeleteAiConfig() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (id: string) =>
-      api.delete(`/api/ai/config/${id}`, undefined, {
-        showSuccessToast: true,
-        successMessage: 'AI provider removed',
-      }),
+    mutationFn: (id: string) => api.delete(`/api/ai/config/${id}`, undefined, {}),
     onSuccess: () => invalidateAi(queryClient),
   })
 }

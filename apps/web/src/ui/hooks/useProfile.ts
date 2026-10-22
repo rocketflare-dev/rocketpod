@@ -43,8 +43,6 @@ export function useUpdateProfile() {
     mutationFn: (body: UpdateProfileRequest) =>
       api.patch('/api/me', body, {
         schema: userSchema,
-        showSuccessToast: true,
-        successMessage: 'Profile updated',
       }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: queryKeys.me.all })
@@ -77,8 +75,6 @@ export function useUploadAvatar() {
       form.append('file', file, file.name)
       return api.upload('/api/files?scope=avatars', form, {
         schema: uploadResponseSchema,
-        showSuccessToast: true,
-        successMessage: 'Photo updated',
       })
     },
     onSuccess: async () => {
@@ -106,8 +102,6 @@ export function useUpdatePreferences() {
     mutationFn: (body: UpdateTenantUserSettingsRequest) =>
       api.patch('/api/me/preferences', body, {
         schema: tenantUserSettingsSchema,
-        showSuccessToast: true,
-        successMessage: 'Preferences saved',
       }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.me.preferences }),
   })
@@ -137,10 +131,7 @@ export function useUnlinkProvider() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (provider: string) =>
-      api.delete(`/auth/providers/${encodeURIComponent(provider)}`, undefined, {
-        showSuccessToast: true,
-        successMessage: 'Sign-in method disconnected',
-      }),
+      api.delete(`/auth/providers/${encodeURIComponent(provider)}`, undefined, {}),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.auth.providers }),
   })
 }

@@ -13,7 +13,7 @@ import { MagnifyingGlassIcon, XMarkIcon } from '@heroicons/react/24/outline'
 import type { Group } from '@rocketpod/shared/groups'
 import type { Member } from '@rocketpod/shared/tenants'
 import { useMemo, useState } from 'react'
-import { EmptyState, Modal, SkeletonRows, showToast } from '@/ui/components/shared'
+import { EmptyState, Modal, SkeletonRows } from '@/ui/components/shared'
 import { useAddGroupMembers, useGroup, useRemoveGroupMember } from '@/ui/hooks/useGroups'
 import { useMembers } from '@/ui/hooks/useMembers'
 import { initials } from '@/ui/lib/format'
@@ -57,10 +57,6 @@ export function GroupMembersModal({
       { id: group.id, userIds: picked },
       {
         onSuccess: () => {
-          showToast(
-            `Added ${picked.length} ${picked.length === 1 ? 'person' : 'people'} to ${group.name}`,
-            'success'
-          )
           setPicked([])
           setQuery('')
         },

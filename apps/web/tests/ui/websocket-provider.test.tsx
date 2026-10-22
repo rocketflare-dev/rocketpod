@@ -1,13 +1,12 @@
 /**
  * `WebSocketProvider` (D8): connects only when authenticated with a tenant, reconnects on tenant
- * switch, turns events into `queryKeys` invalidations (`notification.created` → `['notifications']`
- * + a toast) and the invalidation table only names real query-key families. Reconnect/backoff
+ * switch, turns events into `queryKeys` invalidations (`notification.created` → `['notifications']`)
+ * and the invalidation table only names real query-key families. Reconnect/backoff
  * mechanics are covered in websocket-client.test.ts.
  */
 import { REALTIME_INVALIDATIONS } from '@rocketpod/shared/realtime'
 import { act, cleanup, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { useToastStore } from '@/ui/components/shared/Toast'
 import { WebSocketProvider } from '@/ui/components/WebSocketProvider'
 import { WebSocketStatus } from '@/ui/components/WebSocketStatus'
 import { queryKeys } from '@/ui/lib/query-keys'
@@ -79,7 +78,6 @@ describe('WebSocketProvider', () => {
     websocketClient.disconnect()
     websocketClient.setFactory(null)
     useWebSocketStore.getState().reset()
-    useToastStore.setState({ toasts: [] })
     vi.unstubAllGlobals()
   })
 
@@ -127,7 +125,7 @@ describe('WebSocketProvider', () => {
     )
   })
 
-  it('invalidates the mapped query keys and toasts on notification.created', async () => {
+  it('invalidates the mapped query keys on notification.created', async () => {
     const { queryClient } = renderWithProviders(
       <WebSocketProvider>
         <span />
@@ -147,9 +145,6 @@ describe('WebSocketProvider', () => {
       })
     )
     expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.notifications.all })
-    expect(useToastStore.getState().toasts).toEqual([
-      expect.objectContaining({ type: 'info', message: 'Mia joined Acme' }),
-    ])
 
     invalidate.mockClear()
     act(() =>
@@ -161,7 +156,6 @@ describe('WebSocketProvider', () => {
     )
     expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.invitations.all })
     expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.pendingInvitations.all })
-    expect(useToastStore.getState().toasts).toHaveLength(1)
 
     invalidate.mockClear()
     act(() =>

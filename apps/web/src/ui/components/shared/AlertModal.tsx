@@ -1,16 +1,17 @@
 import { Modal } from './Modal'
-import type { ToastType } from './Toast'
 
 interface AlertModalProps {
   isOpen: boolean
   title: string
   message: string
-  type?: ToastType
+  type?: AlertType
   onClose: () => void
 }
 
+type AlertType = 'success' | 'error' | 'warning' | 'info'
+
 // Built from a prop → safelisted via `@source inline` in index.css
-const alertClass: Record<ToastType, string> = {
+const alertClass: Record<AlertType, string> = {
   success: 'alert-success',
   error: 'alert-error',
   warning: 'alert-warning',

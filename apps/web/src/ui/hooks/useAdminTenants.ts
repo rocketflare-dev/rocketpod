@@ -67,10 +67,11 @@ export function useSuspendTenant(id: string) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (suspended: boolean) =>
-      api.post(`/api/admin/tenants/${id}/suspend`, { suspended } satisfies SuspendTenantRequest, {
-        showSuccessToast: true,
-        successMessage: suspended ? 'Organisation suspended' : 'Organisation reinstated',
-      }),
+      api.post(
+        `/api/admin/tenants/${id}/suspend`,
+        { suspended } satisfies SuspendTenantRequest,
+        {}
+      ),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.admin.tenants.all }),
   })
 }
@@ -92,11 +93,7 @@ export function useLeaveSupport(id: string) {
   const queryClient = useQueryClient()
   const { refresh } = useAuth()
   return useMutation({
-    mutationFn: () =>
-      api.post(`/api/admin/tenants/${id}/support/leave`, undefined, {
-        showSuccessToast: true,
-        successMessage: 'Support access removed',
-      }),
+    mutationFn: () => api.post(`/api/admin/tenants/${id}/support/leave`, undefined, {}),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: queryKeys.admin.tenants.all })
       await refresh()

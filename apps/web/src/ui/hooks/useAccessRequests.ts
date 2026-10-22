@@ -10,8 +10,6 @@ export function useCreateAccessRequest() {
     mutationFn: (body: CreateAccessRequest) =>
       api.post('/api/access-requests', body, {
         schema: accessRequestSchema,
-        showSuccessToast: true,
-        successMessage: 'Request sent',
       }),
     onSuccess: () => refresh(),
   })

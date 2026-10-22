@@ -104,7 +104,9 @@ React 18 + Vite + React Router 6 + TanStack Query 5 + zustand; DaisyUI 5 on Tail
   `src/permissions` (the ability MATRIX is server code; the UI only unpacks rules).
 - Server data lives ONLY in the query cache: `useQuery` + a key from `query-keys.ts` + a
   `@rocketpod/shared` zod `schema` on `api.get`. Mutations live in the resource hook, `invalidateQueries`
-  through `queryKeys`, and toast via `showSuccessToast`/`successMessage`.
+  through `queryKeys`. **Toasts are for problems only** (`showToast(msg, 'error' | 'warning')`):
+  a success is never toasted — the screen already shows the result. The one exception is
+  `showUndoToast(msg, action)`, where the toast IS the undo (a step move).
 - zustand is for UI state only (toasts, connection state, tab-lifetime flags). Realtime events
   never become state: the provider invalidates query roots and the hooks re-fetch ("DB is the
   truth, WebSocket is a nudge"). A new server event type gets its roots in

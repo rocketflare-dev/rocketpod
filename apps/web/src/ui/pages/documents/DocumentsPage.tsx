@@ -155,13 +155,8 @@ function IngestForm() {
     if (!parsed.success) return setIssues(parsed.error.issues)
     setIssues(undefined)
     ingest.mutate(parsed.data, {
-      onSuccess: doc => {
-        showToast(
-          doc.status === 'indexed'
-            ? `"${doc.title}" indexed (${doc.chunkCount} chunks)`
-            : `"${doc.title}" queued for indexing`,
-          'success'
-        )
+      // No toast: the document appears in the list, with its status.
+      onSuccess: () => {
         setTitle('')
         setText('')
         setSource('')
@@ -293,14 +288,8 @@ function UploadForm() {
       { file, ...parsed.data },
       {
         onSuccess: doc => {
-          showToast(
-            doc.status === 'indexed'
-              ? `"${doc.title}" indexed (${doc.chunkCount} chunks)`
-              : doc.status === 'failed'
-                ? `"${doc.title}" could not be indexed`
-                : `"${doc.title}" queued for conversion and indexing`,
-            doc.status === 'failed' ? 'error' : 'success'
-          )
+          // The list shows a success; only a document that could not be indexed is a toast.
+          if (doc.status === 'failed') showToast(`"${doc.title}" could not be indexed`, 'error')
           setFile(null)
           setTitle('')
           setSource('')

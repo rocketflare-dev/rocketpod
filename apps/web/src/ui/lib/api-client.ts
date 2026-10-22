@@ -90,10 +90,6 @@ export function notifyUnauthorized(error: ApiError): void {
 export interface ApiRequestOptions<T = unknown> extends Omit<RequestInit, 'body'> {
   /** Show an error toast on failure (default: false for GET, true for mutations) */
   showErrorToast?: boolean
-  /** Show a success toast on success (default: false) */
-  showSuccessToast?: boolean
-  /** Message for the success toast */
-  successMessage?: string
   /** Transform the error message before it is displayed */
   errorMessageTransform?: (message: string) => string
   /**
@@ -141,14 +137,7 @@ async function request<T>(
   url: string,
   options: ApiRequestOptions<T> & { body?: RequestBody } = {}
 ): Promise<T> {
-  const {
-    showErrorToast = false,
-    showSuccessToast = false,
-    successMessage,
-    errorMessageTransform,
-    schema,
-    ...fetchOptions
-  } = options
+  const { showErrorToast = false, errorMessageTransform, schema, ...fetchOptions } = options
 
   // multipart: let the browser set `Content-Type` with its boundary.
   const isMultipart = typeof FormData !== 'undefined' && fetchOptions.body instanceof FormData
@@ -192,8 +181,6 @@ async function request<T>(
     }
     data = result.data
   }
-
-  if (showSuccessToast && successMessage) showToast(successMessage, 'success')
 
   return data
 }

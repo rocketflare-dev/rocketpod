@@ -2,20 +2,15 @@
  * Realtime bridge (D8, 06 §b): connects the singleton `websocketClient` once `useAuth()` is
  * authenticated AND has a tenant, reconnects when the tenant changes, disconnects on sign-out.
  * Every event becomes query invalidations through `invalidationsFor` (`@rocketpod/shared/realtime`) —
- * the client re-queries, it never applies a payload as state — and a `notification.created` shows
- * a toast. Components subscribe to query state, never to the socket.
+ * the client re-queries, it never applies a payload as state; a `notification.created` refreshes
+ * the bell, and is never a toast (toasts are for problems, `components/shared/Toast.tsx`).
+ * Components subscribe to query state, never to the socket.
  */
-import { invalidationsFor, type RealtimeEvent } from '@rocketpod/shared/realtime'
+import { invalidationsFor } from '@rocketpod/shared/realtime'
 import { useQueryClient } from '@tanstack/react-query'
 import { type ReactNode, useEffect } from 'react'
 import { useAuth } from '@/ui/hooks/useAuth'
 import { websocketClient } from '@/ui/lib/websocketClient'
-import { showToast } from './shared/Toast'
-
-function notificationTitle(event: RealtimeEvent): string {
-  const payload = event.payload as { title?: unknown } | undefined
-  return typeof payload?.title === 'string' && payload.title ? payload.title : 'New notification'
-}
 
 export function WebSocketProvider({ children }: { children: ReactNode }) {
   const { status, tenant } = useAuth()
@@ -37,7 +32,6 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         for (const queryKey of invalidationsFor(event)) {
           void queryClient.invalidateQueries({ queryKey })
         }
-        if (event.type === 'notification.created') showToast(notificationTitle(event), 'info')
       }),
     [queryClient]
   )

@@ -2,13 +2,12 @@
  * `/agents` (D7): the registry renders with the exclusive badge; the run modal, built from the
  * agent's own JSON Schema, maps the route's 400 onto the field and posts the exact
  * `{ agentKey, input }` body; a 202 `deduplicated` answer
- * toasts and opens the existing run; a 503 `agent_runs_not_configured` renders the explanatory
+ * opens the existing run; a 503 `agent_runs_not_configured` renders the explanatory
  * empty state instead of a toast; the runs table shows status, agent and filters.
  */
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { Route, Routes } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { useToastStore } from '@/ui/components/shared/Toast'
 import AgentsPage from '@/ui/pages/agents/AgentsPage'
 import RunPage from '@/ui/pages/agents/RunPage'
 import { TEST_RESEARCH, TEST_SUMMARIZE } from '../helpers/test-agents-shared'
@@ -94,7 +93,6 @@ const openDialog = () => document.querySelector('dialog[open]') as HTMLElement
 describe('Agents page', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
-    useToastStore.setState({ toasts: [] })
   })
 
   it('offers no Run button for an agent the app starts itself (startable: false)', async () => {
@@ -179,7 +177,7 @@ describe('Agents page', () => {
     )
   })
 
-  it('toasts and opens the existing run when the 202 is deduplicated', async () => {
+  it('opens the existing run when the 202 is deduplicated', async () => {
     const fetchMock = mount({
       'POST /api/agents/runs': () => jsonResponse({ ...run(), deduplicated: true }, 202),
       [`/api/agents/runs/${RUN_ID}`]: { ...run(), events: [], interrupts: [], artifacts: [] },
@@ -189,18 +187,13 @@ describe('Agents page', () => {
     fireEvent.submit(document.getElementById('run-agent-form') as HTMLFormElement)
 
     await waitFor(() =>
-      expect(useToastStore.getState().toasts.map(t => t.message)).toContain(
-        'This agent is already running — showing the existing run'
-      )
-    )
-    await waitFor(() =>
       expect(
         fetchMock.mock.calls.some(([input]) => String(input).includes(`/api/agents/runs/${RUN_ID}`))
       ).toBe(true)
     )
   })
 
-  it('renders the not-configured empty state on a 503 agent_runs_not_configured, without a toast', async () => {
+  it('renders the not-configured empty state on a 503 agent_runs_not_configured', async () => {
     mount({
       'POST /api/agents/runs': () =>
         errorResponse(503, 'Agent runs are not configured', 'agent_runs_not_configured'),
@@ -211,7 +204,6 @@ describe('Agents page', () => {
 
     expect(await screen.findByText('Agent runs are not configured')).toBeInTheDocument()
     expect(screen.getByText(/no run engine/)).toBeInTheDocument()
-    expect(useToastStore.getState().toasts).toHaveLength(0)
   })
 
   it('sends the agent and status filters as query params', async () => {

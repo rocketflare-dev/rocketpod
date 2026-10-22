@@ -41,8 +41,6 @@ export function useUpdateMemberRole() {
     mutationFn: ({ userId, role }: { userId: string; role: TenantRole }) =>
       api.patch(`/api/members/${userId}`, { role } satisfies UpdateMemberRoleRequest, {
         schema: memberSchema,
-        showSuccessToast: true,
-        successMessage: 'Role updated',
       }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.members.all }),
   })
@@ -51,11 +49,7 @@ export function useUpdateMemberRole() {
 export function useRemoveMember() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (userId: string) =>
-      api.delete(`/api/members/${userId}`, undefined, {
-        showSuccessToast: true,
-        successMessage: 'Member removed',
-      }),
+    mutationFn: (userId: string) => api.delete(`/api/members/${userId}`, undefined, {}),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.members.all }),
   })
 }

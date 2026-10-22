@@ -3,7 +3,7 @@
  * its own route — and the things it is arranged to get right are all here:
  *
  * - the action panel is pinned above the timeline and posts the right payload per kind;
- * - a 409 is INFORMATION ("someone else answered this"), not a red toast;
+ * - a 409 is INFORMATION ("someone else answered this"), not red;
  * - a non-approver sees one sentence, not disabled buttons;
  * - focus lands on the heading, never on Approve;
  * - a parked run does not poll and its badge does not pulse;
@@ -16,7 +16,6 @@
 import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import { Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { useToastStore } from '@/ui/components/shared/Toast'
 import { WebSocketProvider } from '@/ui/components/WebSocketProvider'
 import { RUN_POLL_MS, runOwesAnswer, runPollInterval } from '@/ui/hooks/useAgents'
 import { formatDuration } from '@/ui/lib/format'
@@ -221,7 +220,6 @@ describe('RunPage', () => {
     websocketClient.disconnect()
     websocketClient.setFactory(null)
     useWebSocketStore.getState().reset()
-    useToastStore.setState({ toasts: [] })
     vi.unstubAllGlobals()
   })
 
@@ -384,7 +382,6 @@ describe('the action panel', () => {
   afterEach(() => {
     cleanup()
     websocketClient.setFactory(null)
-    useToastStore.setState({ toasts: [] })
     vi.unstubAllGlobals()
   })
 
@@ -506,7 +503,7 @@ describe('the action panel', () => {
     )
   })
 
-  it('renders a 409 as information — not a toast, not red', async () => {
+  it('renders a 409 as information, not red', async () => {
     mount({
       ...parked(APPROVAL),
       [`POST /api/agents/runs/${RUN_ID}/interrupts/${ASK_ID}`]: () =>
@@ -516,7 +513,6 @@ describe('the action panel', () => {
     expect(await screen.findByText(/Someone else answered this/)).toBeInTheDocument()
     expect(document.querySelector('.alert-info')).toBeTruthy()
     expect(document.querySelector('.alert-error')).toBeNull()
-    expect(useToastStore.getState().toasts).toHaveLength(0)
   })
 
   it('shows a non-approver one sentence, not disabled buttons', async () => {

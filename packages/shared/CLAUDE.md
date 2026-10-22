@@ -113,7 +113,9 @@ is unpublished) + `decisionAnswerLabel` — the one place both engines and the U
 `agentArtifactDataSchema` (`document`/`file` carry IDS, never content), `agentArtifactSchema` (`key`
 is the upsert key), the thin `artifact` event payload. A table rather than an event type because an
 artifact is mutable, queried across runs and outlives the run; size caps live here, not in the column ·
-`agui.ts` — the AG-UI wire protocol (`@ag-ui/core` schemas, the ONE file allowed to import it):
+`agui.ts` — the AG-UI wire protocol (`@ag-ui/core` 1.x — types and `EventType` from the root, the
+validators from `@ag-ui/core/schemas`, built on the workspace's own zod 4 (a peer); the ONE file
+allowed to import it):
 `kitAguiEventSchema` (a discriminated union over exactly the events the kit emits, never the full
 `@ag-ui/core` set), `KIT_AGUI_EVENT_TYPES`, `KIT_CUSTOM_EVENTS` + `kitCustomPayloadSchema` +
 `parseKitCustom` (the `kit.` CUSTOM namespace where every kit-specific semantic lives, including

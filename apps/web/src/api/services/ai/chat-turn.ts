@@ -17,9 +17,10 @@
  *
  * - **Failure** closes any open text/tool message and emits `RUN_ERROR`. There is no `RUN_FINISHED`
  *   after it and nothing is persisted.
- * - **Cancellation emits nothing at all.** AG-UI 0.0.59 has no cancellation event, so the contract
- *   is: *a run whose body closes with neither `RUN_FINISHED` nor `RUN_ERROR` was cancelled by the
- *   client.* The abort is checked explicitly rather than swallowed, so a real write failure still
+ * - **Cancellation emits nothing at all**: *a run whose body closes with neither `RUN_FINISHED`
+ *   nor `RUN_ERROR` was cancelled by the client.* AG-UI 1.0 added `RUN_FINISHED { outcome:
+ *   { type: 'cancelled' } }`, but the client that cancelled has gone and cannot read it, so the
+ *   chat stream keeps the silent close. The abort is checked explicitly rather than swallowed, so a real write failure still
  *   surfaces as `RUN_ERROR`.
  *
  * The streaming discipline (`.claude/rules/api.md`): everything that can fail as JSON happens
@@ -200,7 +201,7 @@ export function streamChatTurn(c: AppContext, params: ChatTurnParams): Response 
             },
             onToolEnd: async call => {
               // The tool's own JSON, unmodified: the AG-UI-native representation a third-party
-              // client renders. `ToolCallResultEvent` has no error flag in 0.0.59.
+              // client renders. `ToolCallResultEvent` has no error flag.
               await emit({
                 type: AguiEventType.TOOL_CALL_RESULT,
                 messageId: crypto.randomUUID(),

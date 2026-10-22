@@ -97,10 +97,8 @@ const coreConfigSchema = z.object({
     value => (typeof value === 'string' && value.trim() === '' ? undefined : value),
     z
       .enum(['postgres'], {
-        errorMap: () => ({
-          message:
-            'must be postgres (DATABASE_DRIVER=neon was removed in Rocketpod — unset it or set postgres)',
-        }),
+        error:
+          'must be postgres (DATABASE_DRIVER=neon was removed in Rocketpod — unset it or set postgres)',
       })
       .default('postgres')
   ),

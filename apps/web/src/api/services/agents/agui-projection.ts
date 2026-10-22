@@ -13,9 +13,9 @@
  *   finite array, where the absence of a terminal event is how an ACTIVE run is represented.
  * - **No `kit.usage`.** `ai_usage` rows are not attributable to a run (there is no run column), so
  *   a projection over `(run, events)` has no honest number to report. The Usage page is the ledger.
- * - **An errored tool result keeps its JSON.** `ToolCallResultEvent` has no error flag in
- *   `@ag-ui/core@0.0.59`; add `kit.tool.error` to the CUSTOM union only if a screen needs the red
- *   state.
+ * - **An errored tool result keeps its JSON.** `ToolCallResultEvent` has no error flag (still none
+ *   in `@ag-ui/core@1.0.2`); add `kit.tool.error` to the CUSTOM union only if a screen needs the
+ *   red state.
  */
 import type { AgentRun, AgentRunEvent } from '@rocketpod/shared/ai/agents'
 import { isRunActive } from '@rocketpod/shared/ai/agents'

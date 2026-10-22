@@ -70,7 +70,16 @@ export const createExampleNoteRequestSchema = z.object({
 })
 export type CreateExampleNoteRequest = z.infer<typeof createExampleNoteRequestSchema>
 
-export const updateExampleNoteRequestSchema = createExampleNoteRequestSchema
+/**
+ * Spelled out, not `createExampleNoteRequestSchema.partial()`: zod 4 keeps a `.default()` through
+ * `.partial()`, so `{ title }` would parse as `{ title, body: '' }` and every PATCH would wipe the
+ * body (and `{}` would no longer be empty).
+ */
+export const updateExampleNoteRequestSchema = z
+  .object({
+    title: z.string().trim().min(1).max(EXAMPLE_NOTE_TITLE_MAX),
+    body: z.string().trim().max(EXAMPLE_NOTE_BODY_MAX),
+  })
   .partial()
   .refine(body => Object.keys(body).length > 0, { message: 'Nothing to update' })
 export type UpdateExampleNoteRequest = z.infer<typeof updateExampleNoteRequestSchema>

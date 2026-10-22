@@ -18,10 +18,9 @@
  * protocol bump. `apps/web/tests/config/agui-contract.test.ts` round-trips every emitted event
  * through the installed schemas, which is what turns the pin into a gate.
  */
+import { EventType, type Interrupt } from '@ag-ui/core'
 import {
   CustomEventSchema,
-  EventType,
-  type Interrupt,
   InterruptSchema,
   MessagesSnapshotEventSchema,
   RunAgentInputSchema,
@@ -38,7 +37,7 @@ import {
   ToolCallEndEventSchema,
   ToolCallResultEventSchema,
   ToolCallStartEventSchema,
-} from '@ag-ui/core'
+} from '@ag-ui/core/schemas'
 import { z } from 'zod'
 import { agentArtifactSchema } from './artifacts'
 import { MAX_MESSAGE_LENGTH, tokenUsageSchema } from './chat'
@@ -53,6 +52,13 @@ import {
 } from './interrupts'
 
 export { EventType as AguiEventType }
+
+/**
+ * `TOOL_CALL_RESULT` as the kit sends it: `content` is the tool's JSON, always a STRING. AG-UI 1.0
+ * widened it to string-or-content-parts (a tool may return an image); the kit's tools never do, so
+ * the subset says so and every reader keeps `JSON.parse(event.content)`.
+ */
+const kitToolCallResultEventSchema = ToolCallResultEventSchema.extend({ content: z.string() })
 
 /**
  * Exactly the AG-UI events the kit emits, across the chat stream and the agent-run projection.
@@ -70,7 +76,7 @@ export const kitAguiEventSchema = z.discriminatedUnion('type', [
   ToolCallStartEventSchema,
   ToolCallArgsEventSchema,
   ToolCallEndEventSchema,
-  ToolCallResultEventSchema,
+  kitToolCallResultEventSchema,
   StateSnapshotEventSchema,
   MessagesSnapshotEventSchema,
   CustomEventSchema,

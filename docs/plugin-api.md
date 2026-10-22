@@ -371,7 +371,7 @@ The server surface: the context family, and the types a plugin must be able to n
     Routes a third party calls with no session or key — an admin-consent callback, a webhook (D34). Mounted BEFORE the authed mounts and without `authMiddleware`, under…
   - `apiPrefixes?: readonly string[]`
     Extra path prefixes the Worker owns, unioned into `API_PREFIXES` — so an unmatched path under one is a JSON 404 rather than `index.html`. Adding one ALSO means adding it to…
-  - `jobHandlers?: { [T in JobTypeOf<S> & string]: JobHandler<Extract<T, JobType>> }`
+  - `jobHandlers?: { [T in JobTypeOf<S> & string]: T extends JobType ? JobHandler<T> : JobHandler<any> }`
     `type` → handler, covering EXACTLY the job variants `shared.jobs` declares. Merged into the consumer's dispatch table; each handler gets its own DB client and awaits everything,…
   - `agents?: { [K in AgentKeyOf<S> & string]: AnyAgentDefinition }`
     Agent definitions, one per key in `shared.agentKeys`.
@@ -693,7 +693,7 @@ Components and hooks, for a lazy PAGE. Never for the UI entry.
     Routes a third party calls with no session or key — an admin-consent callback, a webhook (D34). Mounted BEFORE the authed mounts and without `authMiddleware`, under…
   - `apiPrefixes?: readonly string[]`
     Extra path prefixes the Worker owns, unioned into `API_PREFIXES` — so an unmatched path under one is a JSON 404 rather than `index.html`. Adding one ALSO means adding it to…
-  - `jobHandlers?: { [T in JobTypeOf<S> & string]: JobHandler<Extract<T, JobType>> }`
+  - `jobHandlers?: { [T in JobTypeOf<S> & string]: T extends JobType ? JobHandler<T> : JobHandler<any> }`
     `type` → handler, covering EXACTLY the job variants `shared.jobs` declares. Merged into the consumer's dispatch table; each handler gets its own DB client and awaits everything,…
   - `agents?: { [K in AgentKeyOf<S> & string]: AnyAgentDefinition }`
     Agent definitions, one per key in `shared.agentKeys`.
@@ -761,7 +761,7 @@ What a plugin's CONTRACT module imports: the error envelope, pagination, `Shared
 - `type AgentKeyOf = NonNullable<DeclaredBy<S, 'agentKeys'>>[number]`
   The agent keys one plugin declares — what its `ServerPlugin.agents` must cover, exhaustively.
 - `type ApiErrorBody = z.infer<typeof apiErrorSchema>`
-- `const apiErrorSchema: z.ZodObject<{ error: z.ZodString; statusCode: z.ZodNumber; code: z.ZodOptional<z.ZodString>; details: z.ZodOptional<z.ZodUnknown>; }, "strip", z.ZodTypeAny, { error: string; statusCode: number; code?: string \| undefined; details?: unknown; }, { error: string; statusCode: number; code?: string \| unde… (truncated)`
+- `const apiErrorSchema: z.ZodObject<{ error: z.ZodString; statusCode: z.ZodNumber; code: z.ZodOptional<z.ZodString>; details: z.ZodOptional<z.ZodUnknown>; }, z.core.$strip>`
   The ONE error envelope every API response uses — from `app.onError`, `notFound`, the zValidator hook, and `ApiError` thrown in routes. The UI's `api-client.ts` parses this into…
 - `type DeclaredBy = Extract<P, Record<K, unknown>> extends infer Declaring ? Declaring extends Record<K, unknown> ? Declaring[K] : never : never`
   The value of an OPTIONAL `SharedPlugin` field across the whole barrel, skipping the plugins that do not declare it.
@@ -780,18 +780,18 @@ What a plugin's CONTRACT module imports: the error envelope, pagination, `Shared
   The envelope narrowed to one `type` — what a handler receives.
 - `type JobType = JobEnvelope['type']`
   Every job type this app knows, derived from the variants rather than kept beside them.
-- `type JobTypeOf = TypeOf< NonNullable<DeclaredBy<S, 'jobs'>>[number] >['type']`
+- `type JobTypeOf = TypeOf<NonNullable<DeclaredBy<S, 'jobs'>>[number]> extends { type: infer T extends string } ? T : never`
   The job types one plugin declares — what its `ServerPlugin.jobHandlers` must cover.
-- `type JobVariant = ZodDiscriminatedUnionOption<'type'>`
-  One job envelope variant: a zod object whose `type` is the discriminant. Spelled as zod's own discriminated-union option type, so a variant that would not compose into…
+- `type JobVariant = ZodObject<{ type: ZodLiteral<string> } & ZodRawShape>`
+  One job envelope variant: a zod object whose `type` is a literal — the discriminant. Spelled as the shape `jobInputSchema` composes, so a variant that would not compose into it is…
 - `type MembershipRole = z.infer<typeof membershipRoleSchema>`
 - `function paginatedResponse<T extends z.ZodTypeAny>(item: T)`
   `paginatedResponse(itemSchema)` → `{ items: Item[], pagination: PaginationMeta }`
 - `function paginationMeta(page: number, pageSize: number, total: number): PaginationMeta`
 - `type PaginationMeta = z.infer<typeof paginationMetaSchema>`
-- `const paginationMetaSchema: z.ZodObject<{ page: z.ZodNumber; pageSize: z.ZodNumber; total: z.ZodNumber; totalPages: z.ZodNumber; }, "strip", z.ZodTypeAny, { page: number; pageSize: number; total: number; totalPages: number; }, { page: number; pageSize: number; total: number; totalPages: number; }>`
+- `const paginationMetaSchema: z.ZodObject<{ page: z.ZodNumber; pageSize: z.ZodNumber; total: z.ZodNumber; totalPages: z.ZodNumber; }, z.core.$strip>`
 - `type PaginationQuery = z.infer<typeof paginationQuerySchema>`
-- `const paginationQuerySchema: z.ZodObject<{ page: z.ZodDefault<z.ZodNumber>; pageSize: z.ZodDefault<z.ZodNumber>; }, "strip", z.ZodTypeAny, { page: number; pageSize: number; }, { page?: number \| undefined; pageSize?: number \| undefined; }>`
+- `const paginationQuerySchema: z.ZodObject<{ page: z.ZodDefault<z.ZodCoercedNumber<unknown>>; pageSize: z.ZodDefault<z.ZodCoercedNumber<unknown>>; }, z.core.$strip>`
   Page-based pagination (page-based). Query: `?page=1&pageSize=25`.
 - `const PLUGIN_ID_RE: RegExp`
   `^[a-z][a-z0-9-]*$` and never containing `rocketpod`: a plugin is written in the kit's vocabulary so `scripts/rename.mjs` can translate it into a renamed app on the way in, and an…
@@ -1179,7 +1179,7 @@ nothing in the comparison that can throw.
 @/plugins/api :: member :: ServerPlugin.mounts :: mounts?: readonly PluginMount[]
 @/plugins/api :: member :: ServerPlugin.publicMounts :: publicMounts?: readonly PluginPublicMount[]
 @/plugins/api :: member :: ServerPlugin.apiPrefixes :: apiPrefixes?: readonly string[]
-@/plugins/api :: member :: ServerPlugin.jobHandlers :: jobHandlers?: { [T in JobTypeOf<S> & string]: JobHandler<Extract<T, JobType>> }
+@/plugins/api :: member :: ServerPlugin.jobHandlers :: jobHandlers?: { [T in JobTypeOf<S> & string]: T extends JobType ? JobHandler<T> : JobHandler<any> }
 @/plugins/api :: member :: ServerPlugin.agents :: agents?: { [K in AgentKeyOf<S> & string]: AnyAgentDefinition }
 @/plugins/api :: member :: ServerPlugin.prompts :: prompts?: { [K in PromptKeyOf<S> & string]: PromptDefinition }
 @/plugins/api :: member :: ServerPlugin.agentTools :: agentTools?: (ctx: AgentToolContext) => Tool[] | Promise<Tool[]>
@@ -1365,7 +1365,7 @@ nothing in the comparison that can throw.
 @/plugins/types :: member :: ServerPlugin.mounts :: mounts?: readonly PluginMount[]
 @/plugins/types :: member :: ServerPlugin.publicMounts :: publicMounts?: readonly PluginPublicMount[]
 @/plugins/types :: member :: ServerPlugin.apiPrefixes :: apiPrefixes?: readonly string[]
-@/plugins/types :: member :: ServerPlugin.jobHandlers :: jobHandlers?: { [T in JobTypeOf<S> & string]: JobHandler<Extract<T, JobType>> }
+@/plugins/types :: member :: ServerPlugin.jobHandlers :: jobHandlers?: { [T in JobTypeOf<S> & string]: T extends JobType ? JobHandler<T> : JobHandler<any> }
 @/plugins/types :: member :: ServerPlugin.agents :: agents?: { [K in AgentKeyOf<S> & string]: AnyAgentDefinition }
 @/plugins/types :: member :: ServerPlugin.prompts :: prompts?: { [K in PromptKeyOf<S> & string]: PromptDefinition }
 @/plugins/types :: member :: ServerPlugin.agentTools :: agentTools?: (ctx: AgentToolContext) => Tool[] | Promise<Tool[]>
@@ -1399,7 +1399,7 @@ nothing in the comparison that can throw.
 @rocketpod/shared/plugins/api :: type :: Actions :: type Actions = (typeof ACTIONS)[number]
 @rocketpod/shared/plugins/api :: type :: AgentKeyOf :: type AgentKeyOf = NonNullable<DeclaredBy<S, 'agentKeys'>>[number]
 @rocketpod/shared/plugins/api :: type :: ApiErrorBody :: type ApiErrorBody = z.infer<typeof apiErrorSchema>
-@rocketpod/shared/plugins/api :: const :: apiErrorSchema :: const apiErrorSchema: z.ZodObject<{ error: z.ZodString; statusCode: z.ZodNumber; code: z.ZodOptional<z.ZodString>; details: z.ZodOptional<z.ZodUnknown>; }, "strip", z.ZodTypeAny, { error: string; statusCode: number; code?: string | undefined; details?: unknown; }, { error: string; statusCode: number; code?: string | unde… (truncated)
+@rocketpod/shared/plugins/api :: const :: apiErrorSchema :: const apiErrorSchema: z.ZodObject<{ error: z.ZodString; statusCode: z.ZodNumber; code: z.ZodOptional<z.ZodString>; details: z.ZodOptional<z.ZodUnknown>; }, z.core.$strip>
 @rocketpod/shared/plugins/api :: type :: DeclaredBy :: type DeclaredBy = Extract<P, Record<K, unknown>> extends infer Declaring ? Declaring extends Record<K, unknown> ? Declaring[K] : never : never
 @rocketpod/shared/plugins/api :: const :: ERROR_CODES :: const ERROR_CODES: { readonly validationFailed: "validation_failed"; readonly unauthorized: "unauthorized"; readonly sessionExpired: "session_expired"; readonly forbidden: "forbidden"; readonly notFound: "not_found"; readonly conflict: "conflict"; readonly rateLimited: "rate_limited"; readonly pendingApproval: "pendin… (truncated)
 @rocketpod/shared/plugins/api :: type :: ErrorCode :: type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES]
@@ -1412,15 +1412,15 @@ nothing in the comparison that can throw.
 @rocketpod/shared/plugins/api :: type :: JobInput :: type JobInput = z.infer<typeof jobInputSchema>
 @rocketpod/shared/plugins/api :: type :: JobOf :: type JobOf = Extract<JobEnvelope, { type: T }>
 @rocketpod/shared/plugins/api :: type :: JobType :: type JobType = JobEnvelope['type']
-@rocketpod/shared/plugins/api :: type :: JobTypeOf :: type JobTypeOf = TypeOf< NonNullable<DeclaredBy<S, 'jobs'>>[number] >['type']
-@rocketpod/shared/plugins/api :: type :: JobVariant :: type JobVariant = ZodDiscriminatedUnionOption<'type'>
+@rocketpod/shared/plugins/api :: type :: JobTypeOf :: type JobTypeOf = TypeOf<NonNullable<DeclaredBy<S, 'jobs'>>[number]> extends { type: infer T extends string } ? T : never
+@rocketpod/shared/plugins/api :: type :: JobVariant :: type JobVariant = ZodObject<{ type: ZodLiteral<string> } & ZodRawShape>
 @rocketpod/shared/plugins/api :: type :: MembershipRole :: type MembershipRole = z.infer<typeof membershipRoleSchema>
 @rocketpod/shared/plugins/api :: function :: paginatedResponse :: function paginatedResponse<T extends z.ZodTypeAny>(item: T)
 @rocketpod/shared/plugins/api :: function :: paginationMeta :: function paginationMeta(page: number, pageSize: number, total: number): PaginationMeta
 @rocketpod/shared/plugins/api :: type :: PaginationMeta :: type PaginationMeta = z.infer<typeof paginationMetaSchema>
-@rocketpod/shared/plugins/api :: const :: paginationMetaSchema :: const paginationMetaSchema: z.ZodObject<{ page: z.ZodNumber; pageSize: z.ZodNumber; total: z.ZodNumber; totalPages: z.ZodNumber; }, "strip", z.ZodTypeAny, { page: number; pageSize: number; total: number; totalPages: number; }, { page: number; pageSize: number; total: number; totalPages: number; }>
+@rocketpod/shared/plugins/api :: const :: paginationMetaSchema :: const paginationMetaSchema: z.ZodObject<{ page: z.ZodNumber; pageSize: z.ZodNumber; total: z.ZodNumber; totalPages: z.ZodNumber; }, z.core.$strip>
 @rocketpod/shared/plugins/api :: type :: PaginationQuery :: type PaginationQuery = z.infer<typeof paginationQuerySchema>
-@rocketpod/shared/plugins/api :: const :: paginationQuerySchema :: const paginationQuerySchema: z.ZodObject<{ page: z.ZodDefault<z.ZodNumber>; pageSize: z.ZodDefault<z.ZodNumber>; }, "strip", z.ZodTypeAny, { page: number; pageSize: number; }, { page?: number | undefined; pageSize?: number | undefined; }>
+@rocketpod/shared/plugins/api :: const :: paginationQuerySchema :: const paginationQuerySchema: z.ZodObject<{ page: z.ZodDefault<z.ZodCoercedNumber<unknown>>; pageSize: z.ZodDefault<z.ZodCoercedNumber<unknown>>; }, z.core.$strip>
 @rocketpod/shared/plugins/api :: const :: PLUGIN_ID_RE :: const PLUGIN_ID_RE: RegExp
 @rocketpod/shared/plugins/api :: function :: pluginNamespace :: function pluginNamespace(id: string): string
 @rocketpod/shared/plugins/api :: type :: PromptKeyOf :: type PromptKeyOf = NonNullable<DeclaredBy<S, 'promptKeys'>>[number]

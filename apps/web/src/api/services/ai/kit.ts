@@ -13,7 +13,6 @@ import { type TokenUsage, tokenUsageSchema } from '@rocketpod/shared/ai/chat'
 import { aiProviderSchema } from '@rocketpod/shared/ai/config'
 import type { AgentInterruptSpec, JsonSchema } from '@rocketpod/shared/ai/interrupts'
 import { type ZodType, z } from 'zod'
-import { zodToJsonSchema } from 'zod-to-json-schema'
 import { traceToolCall } from '../../observability/context'
 import { AiError } from './errors'
 import {
@@ -131,11 +130,36 @@ export interface Tool<Input = unknown> {
  * without a cast. Both are `Record<string, unknown>`; naming it says which one it is.
  */
 export function toolInputSchema(schema: ZodType): JsonSchema {
-  const { $schema: _drop, ...json } = zodToJsonSchema(schema, { target: 'jsonSchema7' }) as Record<
-    string,
-    unknown
-  >
-  return json
+  const { $schema: _drop, ...json } = z.toJSONSchema(schema, {
+    target: 'draft-07',
+    io: 'input',
+    unrepresentable: 'any',
+  }) as Record<string, unknown>
+  return closeObjects(json) as JsonSchema
+}
+
+const MAX_SAFE = Number.MAX_SAFE_INTEGER
+
+/**
+ * What a model is shown stays what `zod-to-json-schema` used to emit, which the prompts and evals
+ * were tuned on: an object with no `additionalProperties` is CLOSED (zod 4 leaves a strip object
+ * open in `io: 'input'`), a `format` carries no generated `pattern` beside it (a 150-character
+ * UUID regex a model pays for on every call and some providers refuse), and an `.int()` carries
+ * no ±2⁵³ bounds. A sub-schema is inlined rather than `$ref`'d — the one difference kept, because
+ * a model reads an inlined schema more reliably than a JSON pointer.
+ */
+function closeObjects(node: unknown): unknown {
+  if (Array.isArray(node)) return node.map(closeObjects)
+  if (node === null || typeof node !== 'object') return node
+  const out: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(node)) out[key] = closeObjects(value)
+  if (out.type === 'object' && 'properties' in out && !('additionalProperties' in out)) {
+    out.additionalProperties = false
+  }
+  if (typeof out.format === 'string' && typeof out.pattern === 'string') delete out.pattern
+  if (out.minimum === -MAX_SAFE) delete out.minimum
+  if (out.maximum === MAX_SAFE) delete out.maximum
+  return out
 }
 
 export function toToolDefinition(tool: Tool): ToolDefinition {

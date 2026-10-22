@@ -94,7 +94,13 @@ export interface ServerPlugin<S extends SharedPlugin = SharedPlugin> {
    * consumer's dispatch table; each handler gets its own DB client and awaits everything, like the
    * kit's own (there is no `waitUntil` in a queue consumer).
    */
-  jobHandlers?: { [T in JobTypeOf<S> & string]: JobHandler<Extract<T, JobType>> }
+  // A job type that is not one literal — `AnyServerPlugin`'s `string` — takes any handler. Mapped
+  // through `Extract`, it became `JobHandler<never>`, and under zod 4 TypeScript's variance shortcut
+  // then refused every real plugin's handlers in some programs (apps/evals) and not others.
+  // biome-ignore lint/suspicious/noExplicitAny: the wide plugin type must accept every handler
+  jobHandlers?: {
+    [T in JobTypeOf<S> & string]: T extends JobType ? JobHandler<T> : JobHandler<any>
+  }
   /** Agent definitions, one per key in `shared.agentKeys`. */
   agents?: { [K in AgentKeyOf<S> & string]: AnyAgentDefinition }
   /** Prompt registry entries, one per key in `shared.promptKeys`. */

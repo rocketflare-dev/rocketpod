@@ -90,7 +90,7 @@ export type FeedbackMineResponse = z.infer<typeof feedbackMineResponseSchema>
 /** A tool the target is expected to call; `arguments` is matched per the scorer's strategy. */
 export const evalExpectedToolSchema = z.union([
   z.string().min(1),
-  z.object({ name: z.string().min(1), arguments: z.record(z.unknown()).optional() }),
+  z.object({ name: z.string().min(1), arguments: z.record(z.string(), z.unknown()).optional() }),
 ])
 export type EvalExpectedTool = z.infer<typeof evalExpectedToolSchema>
 
@@ -122,7 +122,7 @@ export const evalCaseSchema = z.object({
   /** Stable within its dataset — baselines and comparisons key on it. */
   id: z.string().regex(/^[a-z0-9][a-z0-9._-]*$/, 'lowercase letters, digits, . _ -'),
   /** The chat turn (a string) or the agent's input object. */
-  input: z.union([z.string().min(1), z.record(z.unknown())]),
+  input: z.union([z.string().min(1), z.record(z.string(), z.unknown())]),
   /** Earlier turns of the conversation, oldest first (chat only). */
   messages: z.array(evalMessageSchema).default([]),
   context: z.array(evalContextDocSchema).default([]),
@@ -144,7 +144,7 @@ export const evalCaseSchema = z.object({
        */
       decisions: z.record(z.string(), z.record(z.string(), z.string())).optional(),
     })
-    .default({}),
+    .prefault({}),
   tags: z.array(z.string()).default([]),
   /** Where the case came from. A promoted case names the message/run, never the tenant. */
   source: z
@@ -157,7 +157,7 @@ export const evalCaseSchema = z.object({
         .nullable()
         .optional(),
     })
-    .default({ kind: 'hand' }),
+    .prefault({ kind: 'hand' }),
   /** The agent a run-sourced case exercises (`summarize-text`); absent for chat. */
   agentKey: z.string().optional(),
 })

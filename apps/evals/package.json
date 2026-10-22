@@ -15,7 +15,7 @@
   "dependencies": {
     "@rocketpod/shared": "workspace:*",
     "drizzle-orm": "^0.45.2",
-    "zod": "^3.25.76"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

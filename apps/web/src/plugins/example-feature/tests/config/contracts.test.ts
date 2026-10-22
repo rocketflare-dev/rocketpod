@@ -89,6 +89,10 @@ describe('the note contracts', () => {
     expect(updateExampleNoteRequestSchema.safeParse({}).success).toBe(false)
     expect(updateExampleNoteRequestSchema.safeParse({ title: 'x' }).success).toBe(true)
   })
+
+  it('never invents a field a PATCH did not send — a title-only update leaves the body alone', () => {
+    expect(updateExampleNoteRequestSchema.parse({ title: 'x' })).toEqual({ title: 'x' })
+  })
 })
 
 /**

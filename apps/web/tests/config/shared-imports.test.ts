@@ -4,8 +4,8 @@
  * anything with a platform API in it — a driver, a server framework, a React runtime — breaks one
  * of the two consumers. It was documentation-only; this is the check.
  *
- * `@ag-ui/core` is on the list because it satisfies the reason (zod schemas, one dependency, no
- * platform APIs) and because AG-UI is a wire format: the server and the UI must validate against
+ * `@ag-ui/core` is on the list because it satisfies the reason (zod schemas — since 1.0 its validators
+ * live at `@ag-ui/core/schemas` and take the workspace's zod as a PEER — and no platform APIs) and because AG-UI is a wire format: the server and the UI must validate against
  * the SAME runtime schema, which a loose mirror cannot give. A fifth dependency needs the same
  * written justification, in `packages/shared/CLAUDE.md` and the root `CLAUDE.md`.
  *

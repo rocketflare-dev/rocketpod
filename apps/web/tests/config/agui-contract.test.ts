@@ -280,9 +280,9 @@ describe('a parked run’s interrupt outcome', () => {
 
 describe('the protobuf transport', () => {
   it('round-trips every emitted event except the ones declared unsupported', () => {
-    // A round trip, not "does `encode` throw": `@ag-ui/proto@0.0.59` has no message for
-    // TOOL_CALL_RESULT, and its encoder answers an EMPTY frame for it rather than failing — which
-    // no client can decode. That is why the encoder drops those events instead of writing them.
+    // A round trip, not "does `encode` throw": `@ag-ui/proto@0.0.59` had no message for
+    // TOOL_CALL_RESULT and answered an EMPTY frame for it rather than failing — which no client can
+    // decode. A proto narrower than the kit's events must show up here, and in the drop list.
     const unsupported = Object.entries(SAMPLES)
       .filter(([, sample]) => {
         try {

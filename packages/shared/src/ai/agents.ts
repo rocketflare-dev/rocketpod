@@ -58,6 +58,12 @@ export interface AgentMeta<Input = unknown, Output = unknown> {
   promptKey: z.infer<typeof promptKeySchema>
   exclusive: boolean
   /**
+   * `false` for an agent the app starts itself, from its own feature route (which writes the rows
+   * the agent reads): the Agents page shows no Run form for it and `POST /api/agents/runs` refuses
+   * it with a 400 before any row exists. Default `true`.
+   */
+  startable?: boolean
+  /**
    * Who may answer this agent's interrupts (issue #17). `'requester'` (the default) is "whoever
    * may cancel this run may answer it" — the SAME rule `visible()` already implements, so there is
    * one mental model rather than two. `'admin'` is the opt-in for agents that touch money,
@@ -74,6 +80,8 @@ export const agentInfoSchema = z.object({
   description: z.string(),
   promptKey: promptKeySchema,
   exclusive: z.boolean(),
+  /** `AgentMeta.startable` — whether the generic Run form / `POST /api/agents/runs` may start it. */
+  startable: z.boolean().default(true),
   approvers: agentApproversSchema.default('requester'),
   /**
    * The agent's `inputSchema` as JSON Schema, produced server-side by `toolInputSchema()`

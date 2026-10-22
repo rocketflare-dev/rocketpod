@@ -509,6 +509,24 @@ describe('reconcile liveness guard', () => {
   })
 })
 
+describe('POST /api/agents/runs — an agent the app starts itself', () => {
+  const original = AGENTS[TEST_SUMMARIZE]
+  afterEach(() => {
+    AGENTS[TEST_SUMMARIZE] = original
+  })
+
+  it('refuses a startable: false agent with 400 before any row or instance exists', async () => {
+    AGENTS[TEST_SUMMARIZE] = { ...original, meta: { ...original.meta, startable: false } }
+    const a = await actor()
+    const env = createTestEnv()
+    const res = await start(a.cookie, env)
+    expect(res.status).toBe(400)
+    expect(await json(res)).toMatchObject({ statusCode: 400, code: 'validation_failed' })
+    expect(await db.select().from(agentRuns).where(eq(agentRuns.tenantId, a.tenant.id))).toEqual([])
+    expect(stubs(env).workflow?.created).toEqual([])
+  })
+})
+
 describe('enqueueRun — the exclusive slot (concurrency_key)', () => {
   const original = AGENTS[TEST_SUMMARIZE]
   afterEach(() => {

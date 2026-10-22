@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useToastStore } from '@/ui/components/shared/Toast'
 import AgentsPage from '@/ui/pages/agents/AgentsPage'
 import RunPage from '@/ui/pages/agents/RunPage'
-import { TEST_SUMMARIZE } from '../helpers/test-agents-shared'
+import { TEST_RESEARCH, TEST_SUMMARIZE } from '../helpers/test-agents-shared'
 import {
   errorResponse,
   IDS,
@@ -95,6 +95,18 @@ describe('Agents page', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
     useToastStore.setState({ toasts: [] })
+  })
+
+  it('offers no Run button for an agent the app starts itself (startable: false)', async () => {
+    const [agent] = AGENTS.items
+    mount({
+      '/api/agents': {
+        items: [agent, { ...agent, key: TEST_RESEARCH, title: 'App-started', startable: false }],
+      },
+    })
+    expect(await screen.findByText('App-started', { selector: 'span' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Run Summarize text' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Run App-started' })).not.toBeInTheDocument()
   })
 
   it('lists the registry with the exclusive badge and the runs table', async () => {

@@ -16,6 +16,7 @@ const agent = {
   description: 'Answers a question from the knowledge base.',
   promptKey: TEST_RESEARCH,
   exclusive: true,
+  startable: true,
   approvers: 'requester' as const,
   inputJsonSchema: {
     type: 'object',

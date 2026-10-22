@@ -233,6 +233,7 @@ export function listAgentInfo(): AgentInfo[] {
     description: a.meta.description,
     promptKey: a.meta.promptKey,
     exclusive: a.meta.exclusive,
+    startable: a.meta.startable !== false,
     approvers: a.meta.approvers ?? 'requester',
     inputJsonSchema: toolInputSchema(a.meta.inputSchema),
   }))

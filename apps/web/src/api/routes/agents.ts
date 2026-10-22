@@ -181,6 +181,14 @@ agentsRouter.post('/runs', validate('json', createAgentRunRequestSchema), async 
   const { db, tenantId, user, defer, realtime } = withAuthAndDb(c)
   guardPermission(c, 'create', 'AgentRun')
   const { agentKey, input } = c.req.valid('json')
+  // An agent the app starts itself needs rows only its own feature route writes; started from
+  // here it would only fail. Refused before any row exists.
+  if (AGENTS[agentKey].meta.startable === false) {
+    throw new ValidationError(
+      [{ path: ['agentKey'], message: `${agentKey} is started by the app, not from here` }],
+      'Agent cannot be started directly'
+    )
+  }
   const strict = c.req.query('strict') === '1'
   const { run, deduplicated } = await enqueueRun(db, c.get('platform'), {
     tenantId,

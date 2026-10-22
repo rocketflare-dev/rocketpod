@@ -71,15 +71,18 @@ export default function AgentsPage() {
                     )}
                   </div>
                   <p className="text-xs text-secondary">{agent.description}</p>
-                  <button
-                    type="button"
-                    className="btn btn-primary btn-xs gap-1"
-                    onClick={() => setRunning(agent)}
-                    aria-label={`Run ${agent.title}`}
-                  >
-                    <PlayIcon className="w-3.5 h-3.5" />
-                    Run
-                  </button>
+                  {/* An agent the app starts itself (`startable: false`) has no Run form here. */}
+                  {agent.startable && (
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-xs gap-1"
+                      onClick={() => setRunning(agent)}
+                      aria-label={`Run ${agent.title}`}
+                    >
+                      <PlayIcon className="w-3.5 h-3.5" />
+                      Run
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>

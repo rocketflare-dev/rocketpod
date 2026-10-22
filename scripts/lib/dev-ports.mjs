@@ -69,7 +69,7 @@ export function readDevVarsFile(file = DEV_VARS) {
   return existsSync(file) ? readDevVars(readFileSync(file, 'utf8')) : {}
 }
 
-/** `{ ui, api }` for this checkout: `process.env`, then `apps/web/.env`, then 3000/3001. */
+/** `{ ui, api }` for this checkout: `process.env`, then `apps/web/.env`, then `DEFAULT_UI_PORT` / `DEFAULT_API_PORT`. */
 export function devPorts({ env = process.env, devVarsFile = DEV_VARS } = {}) {
   return resolveDevPorts(env, readDevVarsFile(devVarsFile))
 }

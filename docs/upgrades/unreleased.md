@@ -106,6 +106,7 @@ Every runtime capability is now a neutral `Platform`, a Node entry (`src/node/se
 - `tests/config/platform-seam.test.ts` reads each source once for both of its whole-tree scans and gives each 30 s (`SCAN_TIMEOUT_MS`): the Cloudflare scan once passed vitest's 5 s default on CI's 2-vCPU runner and failed an app's release, which then deleted the guard.
 - Root `pnpm cli` runs `tsx apps/cli/src/cli.ts` directly (no nested `pnpm --filter … exec`), and a bare `rocketpod` prints its help on stdout and exits 0. The side nav shows the deployed version exactly as reported (`v0.2.0`, `dev`), no longer prefixing a second `v`. Settings is full width with its sections in a left rail: `URLTabs` takes `orientation="vertical"` and a per-tab `group` (Organisation / AI, and a plugin's tabs default to More).
 - `packaging.test.ts` fails when a workspace package under `apps/` or `packages/` has no `COPY <dir>/package.json <dir>/` line before the Dockerfile's `pnpm install`: such a package is installed without its dependencies and the image build fails at a release, never in the gate.
+- The rename also moves the dev UI and API ports (the kit's :3000 / :3001) into the copy's port block (`+10` / `+11`, `rewriteDevServerPorts` in `scripts/lib/rename-lib.mjs`): only a port written as a dev port moves — `localhost:` URLs, a prose `:3000`, the `DEFAULT_*_PORT` constants and the `DEV_*_PORT` defaults — and never in compose, the Dockerfile or the chart, where `3001` is the container's port. `docs/ADAPTING.md` is no longer rewritten by the rename: its token tables describe the pass in the kit's names.
 
 ## How to apply
 
@@ -174,6 +175,7 @@ Every runtime capability is now a neutral `Platform`, a Node entry (`src/node/se
 52. Take the kit's `apps/web/tests/config/platform-seam.test.ts` (the `read()` cache and `SCAN_TIMEOUT_MS` on the two scans). A copy that already deleted the Cloudflare scan keeps the Node-entry fence at least.
 53. Take the root `package.json` `cli` script, the `program.help()` line before `parseAsync` in `apps/cli/src/cli.ts`, the version line in `apps/web/src/ui/components/SideNav.tsx`, and `apps/web/src/ui/components/shared/URLTabs.tsx` + `apps/web/src/ui/pages/settings/SettingsLayout.tsx`; give a settings tab of your own a `group`. Regenerate `docs/plugin-api.md` if your copy publishes one.
 54. Take the new case in `apps/web/tests/config/packaging.test.ts`; if it names a package, add its `COPY <dir>/package.json <dir>/` line to the `Dockerfile` beside the others.
+55. A copy renamed before this release still runs `pnpm dev` on :3000/:3001: take the kit's `scripts/lib/rename-lib.mjs` port functions, then `node -e "import('./scripts/lib/rename-lib.mjs').then(m => console.log(m.portsForBlock(<your block base>)))"` and set `DEFAULT_UI_PORT` / `DEFAULT_API_PORT` in `scripts/lib/dev-ports.mjs`, the dev origins in `apps/web/src/api/middleware/cors.ts`, `DEFAULT_SERVER_URL` in `apps/cli/src/config.ts` and the `localhost:3000`/`:3001` mentions in `apps/web/.env.example` and the docs to its `devUi` / `devApi`. Leave compose, the Dockerfile and the chart on 3001.
 
 ## Conflicts to expect
 

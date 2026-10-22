@@ -54,6 +54,7 @@ import {
   applyReplacements,
   CLASS_IDS,
   choosePortBlock,
+  DEPLOY_PORT_PATHS,
   deriveNames,
   isBinary,
   isExcluded,
@@ -72,6 +73,7 @@ import {
   renameKitManifest,
   restartAppVersion,
   rewriteDevPortStarts,
+  rewriteDevServerPorts,
   rewriteIntConstant,
   rewritePorts,
   rewritePrefixComments,
@@ -322,15 +324,20 @@ function main(argv) {
   const free = freePorts(candidates)
   const ports = choosePortBlock(names.slug, port => free.has(port))
   let portRewrites = 0
+  let devPortRewrites = 0
   if (ports) {
     for (const rel of candidateFiles(new Set(kitOnly))) {
       if (rel.startsWith(MIGRATIONS_DIR)) continue
       const buf = edits.has(rel) ? null : readFileSync(path.join(REPO_ROOT, rel))
       if (buf && isBinary(buf)) continue
       const result = rewritePorts(current(rel), ports)
-      if (result.count === 0) continue
       portRewrites += result.count
-      edits.set(rel, result.text)
+      if (result.count > 0) edits.set(rel, result.text)
+      // The dev UI/API ports move too — except where 3001 is the container's own port.
+      if (DEPLOY_PORT_PATHS.test(rel)) continue
+      const dev = rewriteDevServerPorts(current(rel), ports)
+      devPortRewrites += dev.count
+      if (dev.count > 0) edits.set(rel, dev.text)
     }
     edits.set(BOOTSTRAP_LIB, rewriteDevPortStarts(current(BOOTSTRAP_LIB), ports))
   }
@@ -475,9 +482,9 @@ function main(argv) {
   // (g) ports
   report.push(
     ports
-      ? `(g) Local ports: this app's block is ${ports.base}–${ports.base + 99} — test Postgres :${ports.testDb}, ` +
+      ? `(g) Local ports: this app's block is ${ports.base}–${ports.base + 99} — dev UI :${ports.devUi}, dev API :${ports.devApi}, test Postgres :${ports.testDb}, ` +
           `test S3 :${ports.testS3}, dev Postgres from :${ports.devDbStart}, dev S3 from :${ports.devS3Start} ` +
-          `(${portRewrites} test-port mentions rewritten; dev starts in ${BOOTSTRAP_LIB}). The kit keeps 5533/7433 and ` +
+          `(${portRewrites} test-port and ${devPortRewrites} dev-port mentions rewritten; the container still listens on :3001; dev starts in ${BOOTSTRAP_LIB}). The kit keeps 3000/3001, 5533/7433 and ` +
           'Rocketflare 5433, so all of them can run `pnpm test` side by side.'
       : '(g) Local ports: WARNING — every port block (5600–6999) has its test ports taken on this machine; ' +
           "the kit's ports are kept. Free one and re-run, or edit TEST_DB_PORT / TEST_S3_PORT and their mentions by hand."

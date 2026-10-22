@@ -1,7 +1,8 @@
 /**
  * `scripts/lib/dev-ports.mjs` — the one reader of the local dev ports that Vite, the dev
- * supervisor, the bootstrap and the seed share. Unset means the kit's :3000 (UI) / :3001 (API), so
- * an existing checkout behaves exactly as before; the shell beats `apps/web/.env`; a value
+ * supervisor, the bootstrap and the seed share. Unset means `DEFAULT_UI_PORT` / `DEFAULT_API_PORT`
+ * (the kit's 3000 / 3001; a renamed copy's own block), so an existing checkout behaves exactly as
+ * before; the shell beats `apps/web/.env`; a value
  * that is not a port throws rather than silently landing on a default.
  */
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
@@ -9,6 +10,8 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
+  DEFAULT_API_PORT,
+  DEFAULT_UI_PORT,
   devAllowedHosts,
   devPorts,
   resolveDevAllowedHosts,
@@ -16,9 +19,12 @@ import {
 } from '../../../../scripts/lib/dev-ports.mjs'
 
 describe('resolveDevPorts', () => {
-  it('defaults to 3000 / 3001 when nothing is set', () => {
-    expect(resolveDevPorts({}, {})).toEqual({ ui: 3000, api: 3001 })
-    expect(resolveDevPorts()).toEqual({ ui: 3000, api: 3001 })
+  // The defaults are named, never written as digits: the rename moves them into a copy's block.
+  const DEFAULTS = { ui: DEFAULT_UI_PORT, api: DEFAULT_API_PORT }
+
+  it('defaults to DEFAULT_UI_PORT / DEFAULT_API_PORT when nothing is set', () => {
+    expect(resolveDevPorts({}, {})).toEqual(DEFAULTS)
+    expect(resolveDevPorts()).toEqual(DEFAULTS)
   })
 
   it('reads .env values when the shell has none', () => {
@@ -35,10 +41,9 @@ describe('resolveDevPorts', () => {
   })
 
   it('treats a blank value as unset', () => {
-    expect(resolveDevPorts({ DEV_UI_PORT: '' }, { DEV_UI_PORT: ' ', DEV_API_PORT: '' })).toEqual({
-      ui: 3000,
-      api: 3001,
-    })
+    expect(resolveDevPorts({ DEV_UI_PORT: '' }, { DEV_UI_PORT: ' ', DEV_API_PORT: '' })).toEqual(
+      DEFAULTS
+    )
   })
 
   it.each(['abc', '3000abc', '30.5', '-1', '0', '65536'])('rejects %s, naming the key', value => {
@@ -46,7 +51,7 @@ describe('resolveDevPorts', () => {
   })
 
   it('rejects two servers on one port', () => {
-    expect(() => resolveDevPorts({ DEV_UI_PORT: '3001' })).toThrow(/must differ/)
+    expect(() => resolveDevPorts({ DEV_UI_PORT: String(DEFAULT_API_PORT) })).toThrow(/must differ/)
   })
 })
 
@@ -95,7 +100,10 @@ describe('devPorts / devAllowedHosts over a .env file', () => {
 
   it('falls back to the defaults when there is no .env yet', () => {
     const missing = path.join(tmpdir(), 'no-such-dir-dev-ports', '.env')
-    expect(devPorts({ env: {}, devVarsFile: missing })).toEqual({ ui: 3000, api: 3001 })
+    expect(devPorts({ env: {}, devVarsFile: missing })).toEqual({
+      ui: DEFAULT_UI_PORT,
+      api: DEFAULT_API_PORT,
+    })
     expect(devAllowedHosts({ env: {}, devVarsFile: missing })).toEqual([])
   })
 })

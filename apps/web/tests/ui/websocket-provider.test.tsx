@@ -114,7 +114,8 @@ describe('WebSocketProvider', () => {
       { session: makeSession() }
     )
     await waitFor(() => expect(FakeSocket.instances).toHaveLength(1))
-    expect(latest().url).toBe(`ws://localhost:3000/ws?tenantId=${IDS.tenant}`)
+    // The page's own host (jsdom's), never a written port: the rename moves dev ports, not jsdom's.
+    expect(latest().url).toBe(`ws://${window.location.host}/ws?tenantId=${IDS.tenant}`)
     expect(document.querySelector('[data-status]')?.getAttribute('data-status')).toBe('connecting')
     act(() => latest().open())
     await waitFor(() =>

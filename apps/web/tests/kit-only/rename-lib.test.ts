@@ -14,6 +14,7 @@ import {
   applyReplacements,
   CLASS_IDS,
   choosePortBlock,
+  DEPLOY_PORT_PATHS,
   deriveNames,
   EXCLUDED_DIRS,
   EXCLUDED_PATHS,
@@ -34,6 +35,7 @@ import {
   renameKitManifest,
   restartAppVersion,
   rewriteDevPortStarts,
+  rewriteDevServerPorts,
   rewriteIntConstant,
   rewritePorts,
   rewritePrefixComments,
@@ -501,6 +503,8 @@ describe('local port blocks — every copy gets its own ports', () => {
     const first = portsForBlock(PORT_BLOCK_FIRST)
     expect(first).toEqual({
       base: 5600,
+      devUi: 5610,
+      devApi: 5611,
       testDb: 5633,
       devDbStart: 5640,
       testS3: 5670,
@@ -510,7 +514,7 @@ describe('local port blocks — every copy gets its own ports', () => {
     expect(last.devS3Start + 19).toBeLessThan(7000)
     for (let k = 0; k < PORT_BLOCK_COUNT; k += 1) {
       const b = portsForBlock(PORT_BLOCK_FIRST + k * PORT_BLOCK_SIZE)
-      for (const port of [b.testDb, b.testS3, b.devDbStart, b.devS3Start])
+      for (const port of [b.devUi, b.devApi, b.testDb, b.testS3, b.devDbStart, b.devS3Start])
         expect(KIT_PORTS).not.toContain(port)
     }
   })
@@ -556,6 +560,42 @@ describe('local port blocks — every copy gets its own ports', () => {
       'export const KIT_TEST_DB_PORTS = [5433, 5533] // rename: keep',
     ])
     expect(count).toBe(7)
+  })
+
+  it('moves the dev UI/API ports only where they are written as dev ports', () => {
+    const ports = portsForBlock(5800)
+    const text = [
+      'APP_URL=http://localhost:3000',
+      "  'http://127.0.0.1:3001',",
+      'Vite (:3000) and `:3001`',
+      'export const DEFAULT_UI_PORT = 3000',
+      'export const DEFAULT_API_PORT: 3001',
+      'PORT=${DEV_API_PORT:-3001} node',
+      '# DEV_UI_PORT=3000',
+      // Not dev ports: a duration, the container's port, a longer number, a kept line.
+      'const GRACE_MS = 3000',
+      '              containerPort: 3001',
+      'retry after 30001 ms',
+      "  'http://localhost:3000', // rename: keep",
+    ].join('\n')
+    const { text: out, count } = rewriteDevServerPorts(text, ports)
+    expect(out.split('\n')).toEqual([
+      'APP_URL=http://localhost:5810',
+      "  'http://127.0.0.1:5811',",
+      'Vite (:5810) and `:5811`',
+      'export const DEFAULT_UI_PORT = 5810',
+      'export const DEFAULT_API_PORT: 5811',
+      'PORT=${DEV_API_PORT:-5811} node',
+      '# DEV_UI_PORT=5810',
+      'const GRACE_MS = 3000',
+      '              containerPort: 3001',
+      'retry after 30001 ms',
+      "  'http://localhost:3000', // rename: keep",
+    ])
+    expect(count).toBe(8)
+    expect(DEPLOY_PORT_PATHS.test('docker-compose.yml')).toBe(true)
+    expect(DEPLOY_PORT_PATHS.test('deploy/helm/acme/templates/web.yaml')).toBe(true)
+    expect(DEPLOY_PORT_PATHS.test('apps/web/src/api/middleware/cors.ts')).toBe(false)
   })
 
   it('moves the two dev range starts in bootstrap-lib', () => {

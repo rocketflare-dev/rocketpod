@@ -120,7 +120,7 @@ rocket. The script never touches them.
 ```
 ls -la apps/web/src/ui/public/ apps/web/src/ui/components/shared/LogoMark.tsx
 ```
-Open http://localhost:3000 once the app runs: the mark in the header and the browser tab.
+Open the app (`pnpm dev` prints its URL) once it runs: the mark in the header and the browser tab.
 
 **What to change.** Replace the `<path>`s in `LogoMark.tsx` (keep the `viewBox` and the
 `className` prop) and the two svgs with the user's mark. A monochrome mark can use
@@ -165,14 +165,17 @@ knows the rename happened.
 
 ## (g) Local ports — done by the script
 
-**What to check.** The report names this app's port block (between 5600 and 6999): test Postgres,
-test S3, and where the dev Postgres and dev S3 ranges start. The block is chosen from the slug and
-checked free on this machine, so the app, the kit and Rocketflare can each run `pnpm test` and a
-dev database at the same time.
+**What to check.** The report names this app's port block (between 5600 and 6999): the dev UI and
+API (`pnpm dev`'s Vite and Node server, the kit's :3000/:3001), test Postgres, test S3, and where
+the dev Postgres and dev S3 ranges start. The block is chosen from the slug and checked free on this
+machine, so the app, the kit and Rocketflare can each run `pnpm dev`, `pnpm test` and a dev
+database at the same time. The CONTAINER still listens on :3001 — compose, the Dockerfile and the
+chart are not touched.
 
 **How to check.**
 ```
 grep -n "PORT" scripts/lib/bootstrap-lib.mjs | head -8
+grep -n "DEFAULT_.*_PORT =" scripts/lib/dev-ports.mjs
 grep -n "ports:" -A2 apps/web/docker-compose.test.yml
 ```
 

@@ -231,6 +231,9 @@ export const EXCLUDED_PATHS = Object.freeze([
   'scripts/lib/rename-lib.d.mts',
   '.claude/skills/rp-adapt/SKILL.md', // the skill that drives this tool — written in the kit's terms
   '.claude/skills/rp-adapt/checklist.md',
+  // Its token tables list the KIT's names as the things the pass rewrites; rewritten, they named the
+  // app's own names as the tokens (Agentic Mapper's copy did) and stopped describing the pass.
+  'docs/ADAPTING.md',
   // The provenance file names the KIT, not the app: its repo URL, version and surface manifest
   // must survive verbatim or `pnpm kit:upgrade` loses the thing it descends from. `rename.mjs`
   // writes its `app` block itself, at the end of the pass.
@@ -545,19 +548,24 @@ export function parseArgs(argv) {
  * `pnpm test` and a dev database on one machine at once. A copy's ports are one 100-port BLOCK
  * between 5600 and 6999 — above both kits' (Postgres 5432–5533, S3 7070–7433) — chosen from a hash
  * of the slug (two apps rarely start in the same block) and moved on when the test ports are
- * already held on this machine. Inside a block the offsets mirror the kit's shape: the test
- * Postgres, then the dev Postgres range, then the test and dev S3 gateways.
+ * already held on this machine. Inside a block the offsets mirror the kit's shape: the dev UI and
+ * API (the kit's :3000 / :3001), the test Postgres, then the dev Postgres range, then the test and
+ * dev S3 gateways.
  */
 export const PORT_BLOCK_FIRST = 5600
 export const PORT_BLOCK_SIZE = 100
 export const PORT_BLOCK_COUNT = 14
 /** The kit's own test ports — what the pass rewrites to the copy's block. */
 export const KIT_TEST_PORTS = Object.freeze({ db: 5533, s3: 7433 }) // rename: keep
+/** The kit's dev UI (Vite) and API (the Node dev server) ports. */
+export const KIT_DEV_PORTS = Object.freeze({ ui: 3000, api: 3001 }) // rename: keep
 
-/** The four ports of the block that starts at `base`. */
+/** The ports of the block that starts at `base`. */
 export function portsForBlock(base) {
   return {
     base,
+    devUi: base + 10,
+    devApi: base + 11,
     testDb: base + 33,
     devDbStart: base + 40,
     testS3: base + 70,
@@ -627,4 +635,48 @@ export function rewriteDevPortStarts(source, ports) {
       /export const DEV_S3_PORT_START = \d+/,
       `export const DEV_S3_PORT_START = ${ports.devS3Start}`
     )
+}
+
+/**
+ * Paths whose :3001 is the CONTAINER's port (the image, compose, the chart), not the dev server's:
+ * `rewriteDevServerPorts` never touches them.
+ */
+export const DEPLOY_PORT_PATHS = /^(docker-compose\.yml$|deploy\/|Dockerfile$)/
+
+/**
+ * Rewrite the kit's dev UI/API ports (3000/3001) to the copy's, line by line. Unlike the test
+ * ports these digits are common (`GRACE_MS = 3000`, a 3000 ms poll), so only a port written AS a
+ * dev port moves: after `localhost:` / `127.0.0.1:`, a prose `:3000` (after a space, `(` or a
+ * backtick), the `DEFAULT_UI_PORT` / `DEFAULT_API_PORT` constants and the `DEV_UI_PORT` /
+ * `DEV_API_PORT` defaults. A line carrying `rename: keep` is left alone.
+ */
+export function rewriteDevServerPorts(text, ports) {
+  let count = 0
+  const pairs = [
+    [KIT_DEV_PORTS.ui, ports.devUi, 'UI'],
+    [KIT_DEV_PORTS.api, ports.devApi, 'API'],
+  ]
+  const out = text
+    .split('\n')
+    .map(line => {
+      if (line.includes('rename: keep')) return line
+      let next = line
+      for (const [from, to, kind] of pairs) {
+        const patterns = [
+          new RegExp(`(?<=(?:localhost|127\\.0\\.0\\.1):)${from}(?!\\d)`, 'g'),
+          new RegExp(`(?<=[\\s(\`]:)${from}(?!\\d)`, 'g'),
+          new RegExp(`(?<=DEFAULT_${kind}_PORT(?::| =) )${from}(?!\\d)`, 'g'),
+          new RegExp(`(?<=DEV_${kind}_PORT(?:=|:-))${from}(?!\\d)`, 'g'),
+        ]
+        for (const re of patterns) {
+          next = next.replace(re, () => {
+            count += 1
+            return String(to)
+          })
+        }
+      }
+      return next
+    })
+    .join('\n')
+  return { text: out, count }
 }

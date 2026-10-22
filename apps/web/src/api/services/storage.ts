@@ -21,13 +21,17 @@ import type { StorageListPage, StorageService } from '../../platform/types'
 import { newId } from '../utils/core/ids'
 
 export type {
+  GetOptions,
   PutOptions,
   StorageBody,
   StorageListPage,
+  StorageRange,
   StorageService,
   StoredObject,
   StoredObjectMeta,
+  StoredRange,
 } from '../../platform/types'
+export { StorageRangeNotSatisfiableError } from '../../platform/types'
 export { AVATAR_MIME_TYPES, isAvatarMimeType, MAX_UPLOAD_BYTES }
 
 export const MAX_FILENAME_LENGTH = 120
@@ -91,7 +95,25 @@ export async function purgeTenantObjects(
   tenantId: string,
   options: { limit?: number } = {}
 ): Promise<number> {
-  const prefix = tenantStoragePrefix(tenantId)
+  return purgePrefix(storage, tenantStoragePrefix(tenantId), options)
+}
+
+/**
+ * Delete every object under a prefix, a page at a time; answers how many went. Idempotent: a second
+ * run lists nothing. The tenant purge is this over `tenants/<tenantId>/`; a feature that owns a
+ * narrower prefix inside it (one record's objects) purges that the same way.
+ *
+ * The prefix must be a whole DIRECTORY under `tenants/`: `tenants/t/rec-1` would also take
+ * `tenants/t/rec-10/…`, and an empty one is the whole bucket — both refused before any listing.
+ */
+export async function purgePrefix(
+  storage: StorageService,
+  prefix: string,
+  options: { limit?: number } = {}
+): Promise<number> {
+  if (!/^tenants\/[^/]+\/(?:[^/]+\/)*$/.test(prefix) || prefix.split('/').includes('..')) {
+    throw new Error(`purgePrefix: not a tenant directory prefix: ${JSON.stringify(prefix)}`)
+  }
   const limit = options.limit ?? PURGE_PAGE_SIZE
   let deleted = 0
   let cursor: string | undefined

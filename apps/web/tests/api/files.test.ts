@@ -186,6 +186,57 @@ describe('GET /api/files/:id', () => {
     expect(cached.headers.get('etag')).toBe(etag)
   })
 
+  it('serves ONE byte range as a 206, ignores a malformed one, and answers past the end with 416', async () => {
+    const { cookie } = await tenantWithOwner()
+    const env = createTestEnv()
+    const bytes = Buffer.from('0123456789abcdefghij')
+    const { id } = uploadResponseSchema.parse(
+      await json(
+        await upload(env, cookie, { bytes, name: 'clip.bin', type: 'video/webm' }, 'uploads')
+      )
+    )
+    const get = (headers: Record<string, string>) =>
+      request(`/api/files/${id}`, { headers: { ...cookie, ...headers } }, { env })
+
+    const first = await get({ Range: 'bytes=0-9' })
+    expect(first.status).toBe(206)
+    expect(first.headers.get('content-range')).toBe('bytes 0-9/20')
+    expect(first.headers.get('content-length')).toBe('10')
+    expect(first.headers.get('accept-ranges')).toBe('bytes')
+    expect(await first.text()).toBe('0123456789')
+
+    const suffix = await get({ Range: 'bytes=-5' })
+    expect(suffix.status).toBe(206)
+    expect(suffix.headers.get('content-range')).toBe('bytes 15-19/20')
+    expect(await suffix.text()).toBe('fghij')
+
+    const open = await get({ Range: 'bytes=18-' })
+    expect(open.headers.get('content-range')).toBe('bytes 18-19/20')
+    expect(await open.text()).toBe('ij')
+
+    // Several ranges: ignored, the whole file — never a body that claims to be one slice.
+    const multi = await get({ Range: 'bytes=0-1,5-6' })
+    expect(multi.status).toBe(200)
+    expect(multi.headers.get('content-length')).toBe('20')
+    expect(multi.headers.get('content-range')).toBeNull()
+    expect(await multi.text()).toBe(bytes.toString())
+
+    const past = await get({ Range: 'bytes=20-' })
+    expect(past.status).toBe(416)
+    expect(past.headers.get('content-range')).toBe('bytes */20')
+    expect(await json(past)).toMatchObject({ statusCode: 416, code: 'range_not_satisfiable' })
+
+    // `If-Range` naming another version: the whole file, not a slice of the wrong one.
+    const stale = await get({ Range: 'bytes=0-9', 'If-Range': '"not-the-etag"' })
+    expect(stale.status).toBe(200)
+    expect(await stale.text()).toBe(bytes.toString())
+    const etag = first.headers.get('etag') ?? ''
+    const fresh = await get({ Range: 'bytes=0-9', 'If-Range': etag })
+    expect(fresh.status).toBe(206)
+    // A ranged request is never short-circuited to a bodiless 304 by a matching If-None-Match.
+    expect((await get({ Range: 'bytes=0-9', 'If-None-Match': etag })).status).toBe(206)
+  })
+
   it('non-image uploads are served as attachments (no same-origin HTML execution)', async () => {
     const { cookie } = await tenantWithOwner()
     const env = createTestEnv()

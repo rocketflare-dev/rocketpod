@@ -11,7 +11,12 @@
  * - the ETag is R2's quoted, HTTP-ready form;
  * - a listing carries no content type or custom metadata (R2's `list` without `include` does not
  *   either), so `contentType` is the default and `metadata` is `{}` on a listed object;
- * - downloads stream through the server (no presigned URLs).
+ * - downloads stream through the server (no presigned URLs);
+ * - a ranged `get` is a `Range` header on `GetObject`, its `Content-Range` parsed back into
+ *   `range`, and S3's 416 (`InvalidRange`) is `StorageRangeNotSatisfiableError`; a store that
+ *   ignored the `Range` (answered 200 from byte 0) is an error, never a silently wrong body;
+ * - `putStream` is `@aws-sdk/lib-storage`'s `Upload`: a multipart upload of a body whose length is
+ *   unknown, `PART_SIZE` at a time (one plain PutObject when the whole body fits in one part).
  *
  * S3 lower-cases user-metadata keys (they are HTTP headers); R2 preserves them. The original keys
  * ride in one extra header, `x-amz-meta-rp-keys`, so a `get`/`head` hands back `tenantId`, not
@@ -22,19 +27,33 @@ import {
   DeleteObjectCommand,
   DeleteObjectsCommand,
   GetObjectCommand,
+  type GetObjectCommandOutput,
   HeadObjectCommand,
   ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3'
+import { Upload } from '@aws-sdk/lib-storage'
 import type { AppConfig } from '../config'
-import type { StorageBody, StorageService, StoredObject, StoredObjectMeta } from '../platform/types'
+import {
+  type StorageBody,
+  type StorageRange,
+  StorageRangeNotSatisfiableError,
+  type StorageService,
+  type StoredObject,
+  type StoredObjectMeta,
+  type StoredRange,
+} from '../platform/types'
 
 const DEFAULT_CONTENT_TYPE = 'application/octet-stream'
 /** The header that carries the original (case-preserved) metadata keys. */
 const KEYS_HEADER = 'rp-keys'
 /** S3's `DeleteObjects` and R2's `delete([...])` both stop at 1 000 keys per call. */
 const DELETE_BATCH = 1000
+/** A multipart part: S3's 5 MiB minimum for every part but the last. */
+const PART_SIZE = 5 * 1024 * 1024
+/** Parts in flight at once — bounds a `putStream`'s memory to about PART_SIZE × this. */
+const UPLOAD_QUEUE = 2
 
 export interface S3StorageConfig {
   /** `https://s3.eu-west-1.amazonaws.com`, `http://localhost:9000`, `https://<acct>.r2.cloudflarestorage.com`. Unset = AWS's default endpoint for the region. */
@@ -111,6 +130,40 @@ function fromS3Metadata(raw: Record<string, string> | undefined): Record<string,
     out[byLower.get(key) ?? key] = value
   }
   return out
+}
+
+/** The `Range` header for a `StorageRange`; a malformed one is a caller bug, not a 416. */
+export function rangeHeader(range: StorageRange): string {
+  const whole = (n: number) => Number.isSafeInteger(n) && n >= 0
+  if ('suffix' in range) {
+    if (!whole(range.suffix)) throw new RangeError(`storage: bad suffix range ${range.suffix}`)
+    return `bytes=-${range.suffix}`
+  }
+  const { start, end } = range
+  if (!whole(start) || (end !== undefined && (!whole(end) || end < start))) {
+    throw new RangeError(`storage: bad range ${start}-${end ?? ''}`)
+  }
+  return `bytes=${start}-${end ?? ''}`
+}
+
+/** `bytes 0-99/1000` → `{ start: 0, end: 99, total: 1000 }`; null for anything else. */
+export function parseContentRange(header: string | undefined): StoredRange | null {
+  const m = /^bytes (\d+)-(\d+)\/(\d+)$/.exec(header?.trim() ?? '')
+  if (!m) return null
+  return { start: Number(m[1]), end: Number(m[2]), total: Number(m[3]) }
+}
+
+/** S3's 416 for a range that starts past the object. */
+function isRangeNotSatisfiable(err: unknown): boolean {
+  const e = err as { name?: string; $metadata?: { httpStatusCode?: number } }
+  return e?.name === 'InvalidRange' || e?.$metadata?.httpStatusCode === 416
+}
+
+/** The object size a 416 reports (`Content-Range: bytes *\/n`), when the store sent one. */
+function parseUnsatisfiedTotal(err: unknown): number | undefined {
+  const headers = (err as { $response?: { headers?: Record<string, string> } })?.$response?.headers
+  const m = /\/(\d+)$/.exec(headers?.['content-range'] ?? '')
+  return m ? Number(m[1]) : undefined
 }
 
 /** `NoSuchKey` (GET) and the bare 404 a HEAD answers both mean "no such object". */
@@ -190,22 +243,71 @@ export function createS3Storage(
         metadata: { ...(options.metadata ?? {}) },
       }
     },
-    async get(key): Promise<StoredObject | null> {
+    async putStream(key, body, options) {
+      // Count what the stream hands over: the multipart answer carries no length.
+      let size = 0
+      const counted = body.pipeThrough(
+        new TransformStream<Uint8Array, Uint8Array>({
+          transform(chunk, controller) {
+            size += chunk.byteLength
+            controller.enqueue(chunk)
+          },
+        })
+      )
+      const out = await new Upload({
+        client,
+        params: {
+          Bucket,
+          Key: key,
+          Body: counted,
+          ContentType: options.contentType,
+          Metadata: toS3Metadata(options.metadata),
+        },
+        partSize: PART_SIZE,
+        queueSize: UPLOAD_QUEUE,
+        // The default, stated: a failed upload aborts, so no parts are left billed and invisible.
+        leavePartsOnError: false,
+      }).done()
+      return {
+        key,
+        size,
+        contentType: options.contentType,
+        etag: quoteEtag(out.ETag),
+        uploaded: new Date(),
+        metadata: { ...(options.metadata ?? {}) },
+      }
+    },
+    async get(key, options): Promise<StoredObject | null> {
+      const Range = options?.range ? rangeHeader(options.range) : undefined
+      let out: GetObjectCommandOutput
       try {
-        const out = await client.send(new GetObjectCommand({ Bucket, Key: key }))
-        if (!out.Body) return null
-        return {
-          key,
-          size: out.ContentLength ?? 0,
-          contentType: out.ContentType ?? DEFAULT_CONTENT_TYPE,
-          etag: quoteEtag(out.ETag),
-          uploaded: out.LastModified ?? new Date(0),
-          metadata: fromS3Metadata(out.Metadata),
-          body: out.Body.transformToWebStream() as ReadableStream<Uint8Array>,
-        }
+        out = await client.send(new GetObjectCommand({ Bucket, Key: key, Range }))
       } catch (err) {
         if (isNotFound(err)) return null
+        if (Range && isRangeNotSatisfiable(err)) {
+          throw new StorageRangeNotSatisfiableError(key, parseUnsatisfiedTotal(err))
+        }
         throw err
+      }
+      if (!out.Body) return null
+      const body = out.Body.transformToWebStream() as ReadableStream<Uint8Array>
+      const range = Range ? parseContentRange(out.ContentRange) : null
+      if (Range && !range) {
+        // A store that ignored the Range answered from byte 0: handing that body to a caller
+        // that asked for other bytes would be silent corruption.
+        await body.cancel().catch(() => {})
+        throw new Error(`storage.get: the store ignored Range ${Range} for ${key}`)
+      }
+      return {
+        key,
+        // `size` is the WHOLE object's: a ranged answer's Content-Length is only the slice.
+        size: range ? range.total : (out.ContentLength ?? 0),
+        contentType: out.ContentType ?? DEFAULT_CONTENT_TYPE,
+        etag: quoteEtag(out.ETag),
+        uploaded: out.LastModified ?? new Date(0),
+        metadata: fromS3Metadata(out.Metadata),
+        body,
+        ...(range ? { range } : {}),
       }
     },
     head,

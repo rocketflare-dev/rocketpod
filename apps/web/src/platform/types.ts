@@ -72,8 +72,44 @@ export interface StoredObjectMeta {
   metadata: Record<string, string>
 }
 
+/**
+ * A byte range to read, as HTTP names it: `{ start, end }` is `bytes=start-end` (end INCLUSIVE),
+ * `{ start }` is `bytes=start-` (to the end), `{ suffix: n }` is `bytes=-n` (the last n bytes).
+ * An `end` past the object is clamped to its last byte and a suffix longer than the object reads
+ * all of it — the store's answer is the truth, reported back as `StoredObject.range`.
+ */
+export type StorageRange = { start: number; end?: number } | { suffix: number }
+
+export interface GetOptions {
+  range?: StorageRange
+}
+
+/** The bytes a ranged `get` returned: `start`–`end` INCLUSIVE, of an object `total` bytes long. */
+export interface StoredRange {
+  start: number
+  end: number
+  total: number
+}
+
 export interface StoredObject extends StoredObjectMeta {
+  /** The whole object, or only the range asked for. `size` is always the WHOLE object's. */
   body: ReadableStream<Uint8Array>
+  /** Present exactly when the `get` asked for a range — `Content-Range` in object form. */
+  range?: StoredRange
+}
+
+/**
+ * A range that starts past the end of the object (or a `suffix` of 0, or any range of an empty
+ * object) — HTTP's 416. `total` is the object's size, for the `Content-Range: bytes *\/total` a
+ * route answers with, when the store reported it.
+ */
+export class StorageRangeNotSatisfiableError extends Error {
+  readonly total: number | undefined
+  constructor(key: string, total?: number) {
+    super(`storage: range not satisfiable for ${key}`)
+    this.name = 'StorageRangeNotSatisfiableError'
+    this.total = total
+  }
 }
 
 /** One page of a listing: the objects, and the cursor to resume from when there are more. */
@@ -85,8 +121,22 @@ export interface StorageListPage {
 
 export interface StorageService {
   put(key: string, body: StorageBody, options: PutOptions): Promise<StoredObjectMeta>
-  /** `null` when the key does not exist. The body is a one-shot stream. */
-  get(key: string): Promise<StoredObject | null>
+  /**
+   * A body of UNKNOWN length, uploaded in parts as it arrives (S3 multipart) — never held whole in
+   * memory. Answers the same metadata `put` does; `size` is the number of bytes the stream gave.
+   * A stream that errors aborts the upload: no object, and no orphaned parts.
+   */
+  putStream(
+    key: string,
+    body: ReadableStream<Uint8Array>,
+    options: PutOptions
+  ): Promise<StoredObjectMeta>
+  /**
+   * `null` when the key does not exist. The body is a one-shot stream. With `range`, only those
+   * bytes, and `range` on the answer says which; a range past the end throws
+   * `StorageRangeNotSatisfiableError`.
+   */
+  get(key: string, options?: GetOptions): Promise<StoredObject | null>
   head(key: string): Promise<StoredObjectMeta | null>
   /** Idempotent — deleting a missing key is not an error. */
   delete(key: string): Promise<void>

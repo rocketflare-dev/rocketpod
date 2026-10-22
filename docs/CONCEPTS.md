@@ -343,10 +343,21 @@ downtime is pg-boss's default, untested.
   jobs.
 - **Storage (D23)**: the `StorageService` seam (`c.get('platform').storage`, any S3-compatible
   store). Keys are `tenants/<tenantId>/<scope>/<uuid>-<name>`. Bytes
-  stream through the server (no presigned URLs). The `files` table is the immutable index and the only thing the browser can name. Writes
+  stream through the server (no presigned URLs). `get(key, { range })` reads `{ start, end? }`
+  (end inclusive) or `{ suffix }` and answers `range: { start, end, total }` — what a `206`'s
+  `Content-Range` needs, `size` staying the whole object's; past the end is
+  `StorageRangeNotSatisfiableError` (a `416`). `putStream(key, stream)` stores a body of unknown
+  length as a multipart upload, never whole in memory. `purgePrefix(storage, prefix)`
+  (`services/storage.ts`) deletes one tenant DIRECTORY a page at a time — the tenant purge is it
+  over `tenants/<id>/`; a prefix that is not a whole directory under `tenants/` is refused. The `files` table is the immutable index and the only thing the browser can name. Writes
   go object first, then row, and a failed insert deletes the object.
 - **`/api/files`**: upload with per-scope type/size checks (413/415); tenant-scoped read (another
-  tenant's file is 404) with ETag/304; **only allowlisted types render inline, everything else is
+  tenant's file is 404) with ETag/304 and ONE HTTP `Range` (`parseByteRange`,
+  `utils/routes/byte-range.ts`: `bytes=a-b` / `a-` / `-n` → 206 + `Content-Range`; malformed or
+  several ranges are ignored → 200; past the end → 416 `range_not_satisfiable` with
+  `Content-Range: bytes */<size>`; `If-Range` naming another ETag → the whole file;
+  `Accept-Ranges: bytes` on every answer) — so a stored video seeks and a download resumes;
+  **only allowlisted types render inline, everything else is
   an attachment**. Uploaders can delete their own files, admins any. A document-owned file is 409
   `owned_by_document`.
 - **Framing is opt-in per response**: only a route that proved the type (`isEmbeddableMimeType`, PDF)
@@ -359,7 +370,11 @@ downtime is pg-boss's default, untested.
   `STORAGE_FORCE_PATH_STYLE` (`src/node/storage.ts`, `@aws-sdk/client-s3`): AWS S3, Cloudflare R2's
   S3 endpoint, MinIO, Ceph, GCS interop — one adapter, the endpoint decides. It answers the quoted
   ETag, a listing with no content type or metadata, `deleteMany` in calls of ≤ 1000, a streamed
-  body. S3 lower-cases metadata keys, so the originals
+  body, a `Range` header parsed back from `Content-Range` (a malformed range is a `RangeError`
+  before the request — S3 ignores one and answers the whole object — and a store that ignored a
+  well-formed one is an error, never a silently wrong body), and `putStream` through
+  `@aws-sdk/lib-storage`'s `Upload` (pinned with `client-s3`; 5 MiB parts, two in flight,
+  aborted on a stream error). S3 lower-cases metadata keys, so the originals
   ride in `x-amz-meta-rp-keys` and come back case-preserved. Locally and in tests the store is the
   **Versity S3 Gateway** (Apache-2.0) in the compose files — MinIO's images are no longer published
   for anonymous pulls; `pnpm dev:db:up` starts it and writes the `STORAGE_*` lines into `.env`.
@@ -368,7 +383,10 @@ downtime is pg-boss's default, untested.
 re-uploads leave the old object; no listing endpoint, quotas or presigned URLs; unbranded templates.
 No Azure Blob adapter (not S3-compatible); metadata values travel as HTTP headers, so
 non-ASCII values are not supported (the kit writes only ids and scopes); `put` reports the request
-time as `uploaded` (S3's PutObject does not answer the stored one; `head`/`get` do).
+time as `uploaded` (S3's PutObject does not answer the stored one; `head`/`get` do), and so does
+`putStream`. A range read is one range — no multi-range (`multipart/byteranges`). `putStream`
+cannot resume: a failed upload is aborted and the caller sends the stream again. Nothing in core
+calls `putStream` yet (uploads are multipart forms under `MAX_UPLOAD_BYTES`).
 
 ## 7. UI shell
 

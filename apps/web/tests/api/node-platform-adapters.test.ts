@@ -7,7 +7,7 @@
  * limiter and locks against the test database; the converter on documents built in-test; the AI
  * tiers with a recording fetch — no network.
  */
-import { randomUUID } from 'node:crypto'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { crc32, deflateSync } from 'node:zlib'
 import { DEFAULT_CHAT_MODELS } from '@rocketpod/shared/ai/config'
 import { eq, sql } from 'drizzle-orm'
@@ -22,6 +22,7 @@ import { createNodeConverter, htmlToText } from '@/node/converter'
 import { createPostgresLocks, createPostgresRateLimiter } from '@/node/limits'
 import { createNodePlatform } from '@/node/platform'
 import { createS3Storage, quoteEtag, storageConfigOf } from '@/node/storage'
+import { type GetOptions, StorageRangeNotSatisfiableError } from '@/platform/types'
 import { setupTestDatabase, testDatabaseUrl } from '../helpers/db'
 
 const db = setupTestDatabase()
@@ -144,6 +145,138 @@ describe('S3 storage (StorageService over the S3 API)', () => {
     await chunked.deleteMany(keys)
     expect(await storage().list(dir)).toEqual([])
     await expect(chunked.deleteMany([])).resolves.toBeUndefined()
+  })
+
+  it('reads exactly the bytes a range names, and reports which of how many', async ({ skip }) => {
+    if (!s3Reachable) skip()
+    const key = `${prefix}ranges/${randomUUID()}`
+    const bytes = randomBytes(1000)
+    await storage().put(key, bytes, { contentType: 'video/webm' })
+    const read = async (range: GetOptions | undefined) => {
+      const got = await storage().get(key, range)
+      return {
+        bytes: new Uint8Array(await new Response(got?.body).arrayBuffer()),
+        range: got?.range,
+        size: got?.size,
+      }
+    }
+
+    // `bytes=a-b`, end inclusive; `size` stays the whole object's, not the slice's.
+    const closed = await read({ range: { start: 100, end: 199 } })
+    expect(closed.bytes).toEqual(new Uint8Array(bytes.subarray(100, 200)))
+    expect(closed.range).toEqual({ start: 100, end: 199, total: 1000 })
+    expect(closed.size).toBe(1000)
+
+    // `bytes=a-` to the end, and an end past the object clamped to its last byte.
+    const open = await read({ range: { start: 990 } })
+    expect(open.bytes).toEqual(new Uint8Array(bytes.subarray(990)))
+    expect(open.range).toEqual({ start: 990, end: 999, total: 1000 })
+    expect((await read({ range: { start: 995, end: 5000 } })).range).toEqual({
+      start: 995,
+      end: 999,
+      total: 1000,
+    })
+
+    // `bytes=-n`, the last n bytes; a suffix longer than the object reads all of it.
+    const suffix = await read({ range: { suffix: 7 } })
+    expect(suffix.bytes).toEqual(new Uint8Array(bytes.subarray(993)))
+    expect(suffix.range).toEqual({ start: 993, end: 999, total: 1000 })
+    expect((await read({ range: { suffix: 5000 } })).range).toEqual({
+      start: 0,
+      end: 999,
+      total: 1000,
+    })
+
+    // No range asked, none answered.
+    const whole = await read(undefined)
+    expect(whole.range).toBeUndefined()
+    expect(whole.bytes).toEqual(new Uint8Array(bytes))
+  })
+
+  it('answers a range past the end as not satisfiable, and refuses a malformed one', async ({
+    skip,
+  }) => {
+    if (!s3Reachable) skip()
+    const key = `${prefix}ranges/${randomUUID()}`
+    await storage().put(key, randomBytes(100), { contentType: 'video/webm' })
+
+    await expect(storage().get(key, { range: { start: 100 } })).rejects.toBeInstanceOf(
+      StorageRangeNotSatisfiableError
+    )
+    // A missing key is still null, ranged or not.
+    expect(await storage().get(`${prefix}missing`, { range: { start: 0 } })).toBeNull()
+    // S3 IGNORES a malformed Range and answers 200 with the whole object; never send one.
+    await expect(storage().get(key, { range: { start: 50, end: 10 } })).rejects.toThrow(RangeError)
+    await expect(storage().get(key, { range: { start: -1 } })).rejects.toThrow(RangeError)
+  })
+
+  it('streams a body of unknown length up in parts, byte-exact', async ({ skip }) => {
+    if (!s3Reachable) skip()
+    const key = `${prefix}streams/${randomUUID()}`
+    const MiB = 1024 * 1024
+    // 6.5 MiB in 1 MiB pieces: more than one 5 MiB part, the last piece short.
+    const pieces = [...Array.from({ length: 6 }, () => randomBytes(MiB)), randomBytes(MiB / 2)]
+    const total = pieces.reduce((n, p) => n + p.byteLength, 0)
+    const expected = createHash('sha256')
+    for (const p of pieces) expected.update(p)
+    let i = 0
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        const next = pieces[i++]
+        if (next) controller.enqueue(new Uint8Array(next))
+        else controller.close()
+      },
+    })
+
+    const put = await storage().putStream(key, body, {
+      contentType: 'video/webm',
+      metadata: { tenantId: 't-1', fileId: 'f-1' },
+    })
+    expect(put).toMatchObject({ key, size: total, contentType: 'video/webm' })
+
+    const head = await storage().head(key)
+    expect(head).toMatchObject({
+      size: total,
+      contentType: 'video/webm',
+      metadata: { tenantId: 't-1', fileId: 'f-1' },
+    })
+    const got = await storage().get(key)
+    const actual = createHash('sha256').update(
+      new Uint8Array(await new Response(got?.body).arrayBuffer())
+    )
+    expect(actual.digest('hex')).toBe(expected.digest('hex'))
+
+    // Across the first part boundary: parts reassembled in order, not merely all present.
+    const seam = await storage().get(key, { range: { start: 5 * MiB - 4, end: 5 * MiB + 3 } })
+    const all = Buffer.concat(pieces)
+    expect(new Uint8Array(await new Response(seam?.body).arrayBuffer())).toEqual(
+      new Uint8Array(all.subarray(5 * MiB - 4, 5 * MiB + 4))
+    )
+  })
+
+  it('streams a body smaller than one part, and leaves nothing when the stream fails', async ({
+    skip,
+  }) => {
+    if (!s3Reachable) skip()
+    const small = `${prefix}streams/${randomUUID()}`
+    const put = await storage().putStream(small, new Blob(['a short upload']).stream(), {
+      contentType: 'text/plain',
+    })
+    expect(put.size).toBe(14)
+    expect(await new Response((await storage().get(small))?.body).text()).toBe('a short upload')
+
+    const broken = `${prefix}streams/${randomUUID()}`
+    let sent = 0
+    const failing = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (sent++ < 6) controller.enqueue(new Uint8Array(1024 * 1024))
+        else controller.error(new Error('the browser went away'))
+      },
+    })
+    await expect(
+      storage().putStream(broken, failing, { contentType: 'video/webm' })
+    ).rejects.toThrow()
+    expect(await storage().head(broken)).toBeNull()
   })
 
   it('normalises an ETag to the quoted form R2 answers', () => {

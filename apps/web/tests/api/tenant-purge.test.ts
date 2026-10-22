@@ -9,7 +9,7 @@ import { eq } from 'drizzle-orm'
 import { describe, expect, it, vi } from 'vitest'
 import { processJobsBatch } from '@/api/queues/jobs'
 import { buildJobEnvelope } from '@/api/services/jobs'
-import { purgeTenantObjects, tenantStoragePrefix } from '@/api/services/storage'
+import { purgePrefix, purgeTenantObjects, tenantStoragePrefix } from '@/api/services/storage'
 import type { Logger } from '@/api/utils/core/logger'
 import { runTenantDeletedHooks } from '@/api/utils/db/tenant-helpers'
 import { loadConfig } from '@/config'
@@ -171,6 +171,32 @@ describe('purgeTenantObjects', () => {
     // A page size the fixture exceeds: one page would silently leave three objects behind.
     expect(await purgeTenantObjects(storage, tenantId, { limit: 2 })).toBe(5)
     expect([...storage.objects.keys()]).toEqual(['tenants/other/uploads/keep.txt'])
+  })
+})
+
+describe('purgePrefix', () => {
+  it('deletes one directory of a tenant and nothing beside it', async () => {
+    const storage = new MemoryStorage()
+    const t = tenantStoragePrefix('66666666-6666-4666-8666-666666666666')
+    await storage.put(`${t}reports/r-1/a.pdf`, 'x')
+    await storage.put(`${t}reports/r-1/b.pdf`, 'x')
+    await storage.put(`${t}reports/r-10/a.pdf`, 'x')
+    await storage.put(`${t}uploads/keep.txt`, 'x')
+
+    expect(await purgePrefix(storage, `${t}reports/r-1/`, { limit: 1 })).toBe(2)
+    expect([...storage.objects.keys()].sort()).toEqual([
+      `${t}reports/r-10/a.pdf`,
+      `${t}uploads/keep.txt`,
+    ])
+  })
+
+  it('refuses a prefix that is not a whole tenant directory, before listing anything', async () => {
+    const storage = new MemoryStorage()
+    await storage.put('tenants/t/reports/r-10/a.pdf', 'x')
+    for (const bad of ['', 'tenants/', 'tenants/t/reports/r-1', 'tenants/t/../u/', 'other/t/']) {
+      await expect(purgePrefix(storage, bad)).rejects.toThrow(/not a tenant directory prefix/)
+    }
+    expect(storage.objects.size).toBe(1)
   })
 })
 

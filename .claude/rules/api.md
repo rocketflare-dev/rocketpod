@@ -280,6 +280,14 @@ input)` (`jobs: JobsQueue`, a structural slice so tests pass a `RecordingQueue`)
 patch, realtime?)`, `notify(db, input, realtime?)`) or inside their `input` (`changeMemberRole`,
 `removeMember`, `acceptInvitation`). Storage routes read the seam from the platform:
 `c.get('platform').storage` → `StorageService`, 503 `storage_not_configured` when it is null.
+**A route that streams a stored object serves HTTP ranges itself** (`GET /api/files/:id`):
+`parseByteRange` (`utils/routes/byte-range.ts` — ONE range, `a-b` / `a-` / `-n`; anything else is
+ignored and the whole object is a 200) → `storage.get(key, { range })` → 206 with `Content-Range`
+from the store's `range`, `Accept-Ranges: bytes` on every answer, and
+`StorageRangeNotSatisfiableError` → 416 `range_not_satisfiable` with `Content-Range: bytes
+*/<total>` (set with `c.header` before throwing — the error handler keeps it). A ranged request
+never answers 304. The body is the store's stream, never buffered; there is no compression
+middleware, and none may be added in front of such a route.
 
 ## Config
 

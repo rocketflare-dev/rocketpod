@@ -16,6 +16,7 @@ import { deterministicEmbedding } from '@/api/services/ai/deterministic-embeddin
 import type { AppBindings } from '@/api/types'
 import type {
   DocumentConverter,
+  GetOptions,
   JobsQueue,
   Locks,
   Platform,
@@ -27,7 +28,9 @@ import type {
   StorageBody,
   StorageService,
   StoredObjectMeta,
+  StoredRange,
 } from '@/platform/types'
+import { StorageRangeNotSatisfiableError } from '@/platform/types'
 
 // ---- KV -----------------------------------------------------------------------------------
 
@@ -234,12 +237,36 @@ export class MemoryStorage implements StorageService {
     return this.meta(key, entry)
   }
 
-  async get(key: string) {
+  async putStream(
+    key: string,
+    body: ReadableStream<Uint8Array>,
+    options?: Partial<PutOptions>
+  ): Promise<StoredObjectMeta> {
+    return this.put(key, await new Response(body).arrayBuffer(), options)
+  }
+
+  /** S3's range semantics: clamp `end`, a long suffix reads everything, past the end is a 416. */
+  async get(key: string, options?: GetOptions) {
     const e = this.objects.get(key)
     if (!e) return null
+    let bytes = e.body
+    let range: StoredRange | undefined
+    if (options?.range) {
+      const total = e.body.byteLength
+      const r = options.range
+      const start = 'suffix' in r ? Math.max(0, total - r.suffix) : r.start
+      const end = 'suffix' in r ? total - 1 : Math.min(r.end ?? total - 1, total - 1)
+      const empty = 'suffix' in r ? r.suffix === 0 : false
+      if (total === 0 || empty || start >= total) {
+        throw new StorageRangeNotSatisfiableError(key, total)
+      }
+      range = { start, end, total }
+      bytes = e.body.subarray(start, end + 1)
+    }
     return {
       ...this.meta(key, e),
-      body: new Response(e.body as unknown as BodyInit).body as ReadableStream<Uint8Array>,
+      body: new Response(bytes as unknown as BodyInit).body as ReadableStream<Uint8Array>,
+      ...(range ? { range } : {}),
     }
   }
 

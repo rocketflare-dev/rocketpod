@@ -27,7 +27,9 @@ filesystem, so a read-only root filesystem works (`/tmp` is mounted for librarie
   **transaction** mode breaks `LISTEN`: point `DATABASE_LISTEN_URL` straight at Postgres (or at a
   session-mode pool). Unset, it is `DATABASE_URL`.
 - **An S3-compatible bucket** (`STORAGE_*`): AWS S3, Cloudflare R2, GCS (interoperability mode),
-  MinIO, Versity, Ceph… — only the endpoint and path style differ. Unset, uploads answer 503.
+  MinIO, Versity, Ceph… — only the endpoint and path style differ. Unset, uploads answer 503. The
+  store must honour `Range` on `GetObject` (a ranged download from one that ignores it is an error,
+  not a wrong body) and multipart uploads (`putStream`); every store named here does.
 - **An AI provider key**, for chat, agents or knowledge: `ANTHROPIC_API_KEY`, or `AI_API_KEY`
   (+ `AI_BASE_URL`/`AI_MODEL` for any OpenAI-compatible endpoint such as OpenRouter). Knowledge
   uploads also need `EMBEDDINGS_API_KEY` (+ `EMBEDDINGS_BASE_URL`/`EMBEDDINGS_MODEL`) for an

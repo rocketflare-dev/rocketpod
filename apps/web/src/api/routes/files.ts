@@ -12,7 +12,15 @@
  * `middleware/security-headers.ts`) so the document viewer can embed it — a separate list from the
  * inline one on purpose, because inline and framable are not the same property. `documents` scope rows are created by `/api/ai/documents/upload`
  * and only deleted with their document (409 `owned_by_document` here).
+ *
+ * A download honours ONE `Range` (`bytes=a-b`, `a-`, `-n` — `parseByteRange`) with a 206 and
+ * `Content-Range`, so a browser can seek a stored video or resume a download; a range it ignores
+ * (malformed, several, another unit) is the whole file as a 200; a range starting past the end is
+ * a 416 with `Content-Range: bytes *\/<size>`. `If-Range` naming anything but the current ETag gets
+ * the whole file. The body is the store's stream, never buffered.
  */
+
+import { ERROR_CODES } from '@rocketpod/shared/errors'
 import {
   AVATAR_MIME_TYPES,
   type FileScope,
@@ -31,7 +39,13 @@ import { uploadBodyLimit } from '../middleware/body-limit'
 import { can, guardPermission } from '../middleware/permissions'
 import { type AccessScope, accessScopeOf, visibleDocuments } from '../services/access'
 import { recordActivity } from '../services/activity'
-import { deleteStoredFile, type StorageService, storeUploadedFile } from '../services/storage'
+import {
+  deleteStoredFile,
+  StorageRangeNotSatisfiableError,
+  type StorageService,
+  type StoredObject,
+  storeUploadedFile,
+} from '../services/storage'
 import type { AppContext } from '../types'
 import {
   ApiError,
@@ -41,6 +55,7 @@ import {
   NotFoundError,
   ServiceUnavailableError,
 } from '../utils/core/errors'
+import { parseByteRange } from '../utils/routes/byte-range'
 import { uuidParam, withAuthAndDb } from '../utils/routes/route-helpers'
 import { createRouter } from '../utils/routes/router'
 import { validate } from '../utils/routes/validate'
@@ -190,10 +205,31 @@ filesRouter.get('/:id', async c => {
     throw new NotFoundError('File not found')
   }
 
-  const object = await storageFor(c).get(row.key)
+  const storage = storageFor(c)
+  let range = parseByteRange(c.req.header('Range'))
+  let object: StoredObject | null
+  try {
+    object = await storage.get(row.key, range ? { range } : undefined)
+  } catch (err) {
+    if (!(err instanceof StorageRangeNotSatisfiableError)) throw err
+    // `c.header` before the throw: the error handler's `c.json` keeps headers already set.
+    const total = err.total ?? (await storage.head(row.key))?.size
+    c.header('Accept-Ranges', 'bytes')
+    if (total !== undefined) c.header('Content-Range', `bytes */${total}`)
+    throw new ApiError(416, 'That byte range is outside the file', ERROR_CODES.rangeNotSatisfiable)
+  }
   if (!object) {
     logger.warn({ fileId: row.id, key: row.key }, 'files: row exists but the object is missing')
     throw new NotFoundError('File not found')
+  }
+  if (range && c.req.header('If-Range') !== undefined) {
+    if (c.req.header('If-Range')?.trim() !== object.etag) {
+      // The client's copy is of another version: the whole file, not a slice it cannot splice.
+      await object.body.cancel().catch(() => {})
+      object = await storage.get(row.key)
+      range = null
+      if (!object) throw new NotFoundError('File not found')
+    }
   }
 
   // BEFORE the 304: a revalidation from inside the viewer's `<object>` must carry the relaxed
@@ -201,21 +237,28 @@ filesRouter.get('/:id', async c => {
   if (isEmbeddableMimeType(row.contentType)) c.set('embeddable', true)
 
   const headers: Record<string, string> = {
+    'Accept-Ranges': 'bytes',
     'Cache-Control': 'private, max-age=3600',
     ETag: object.etag,
   }
-  if (c.req.header('If-None-Match') === object.etag) {
+  if (!range && c.req.header('If-None-Match') === object.etag) {
     await object.body.cancel().catch(() => {})
     return c.body(null, 304, headers)
   }
   headers['Content-Type'] = row.contentType
-  headers['Content-Length'] = String(object.size)
   // Images and PDFs render inline; everything else downloads, so a stored `text/html` or SVG can
   // never execute script on this origin. A PDF is safe because the browser hands it to its own
   // viewer, which does not run the file's script in this document's context.
   headers['Content-Disposition'] = isInlineMimeType(row.contentType)
     ? 'inline'
     : `attachment; filename="${row.filename.replace(/"/g, '')}"`
+  if (object.range) {
+    const { start, end, total } = object.range
+    headers['Content-Range'] = `bytes ${start}-${end}/${total}`
+    headers['Content-Length'] = String(end - start + 1)
+    return c.body(object.body, 206, headers)
+  }
+  headers['Content-Length'] = String(object.size)
   return c.body(object.body, 200, headers)
 })
 

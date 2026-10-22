@@ -51,7 +51,9 @@ enforces every rule above.
 
 Add to `unreleased.md` in the same pull request as the change — `.claude/rules/code-quality.md`
 lists it in the "Docs in sync" table, CI fails a PR that touches `apps/**` or `packages/**` without
-one, and `pnpm kit:release <version>` folds it into `X.Y.Z.md` at release time.
+one, and `pnpm kit:release <version>` folds it into `X.Y.Z.md` at release time. `.gitattributes`
+merges it with `merge=union`, so branches that each add an entry never conflict on it: both sides'
+lines are kept, and a repeated step number is tidied when the release is cut.
 
 **A note is instructions, not an essay.** An agent ports a release by following it top to bottom.
 Rationale lives in `docs/CONCEPTS.md` — the decision record — and is LINKED from here, never

@@ -211,6 +211,8 @@ export async function ensureAccessRequest(
 /**
  * What a member-less user gets (D9/D25):
  *   single           → join the one tenant as `member` (a bootstrap admin creates it if missing)
+ *   multi, the bootstrap admin on an install with no tenant yet
+ *                    → the first workspace, named `APP_NAME`, as `owner` (whatever SIGNUP_MODE)
  *   multi + open     → a personal workspace as `owner`
  *   otherwise        → nothing; the session has no tenant (→ /pending or /select-tenant)
  */
@@ -251,6 +253,19 @@ export async function onNoTenant(
     })
     return single.id
   }
+  // The first deploy of an invite-only or approval app: nobody can be invited until a workspace
+  // exists, and only SQL could make one. Once ANY tenant exists this never fires again, so an admin
+  // who later leaves every workspace is not handed a new one.
+  if (user.isGlobalAdmin && isBootstrapAdmin(cfg, user.email) && !(await anyTenantExists(db))) {
+    const created = await createTenantForUser(db, {
+      name: cfg.APP_NAME,
+      userId: user.id,
+      role: 'owner',
+      features: await platformFeatures(db, cfg),
+    })
+    logger.warn({ tenantId: created.id }, 'BOOTSTRAP_ADMIN_EMAILS: created the first workspace')
+    return created.id
+  }
   if (cfg.SIGNUP_MODE === 'open') {
     const tenant = await createTenantForUser(db, {
       name: `${user.name}'s workspace`,
@@ -261,6 +276,12 @@ export async function onNoTenant(
     return tenant.id
   }
   return null
+}
+
+/** Has this install any workspace yet? `tenants` is global — no tenant to scope by. */
+async function anyTenantExists(db: Database): Promise<boolean> {
+  const row = await db.query.tenants.findFirst({ columns: { id: true } })
+  return Boolean(row)
 }
 
 /** Oldest membership → the tenant a fresh session selects. */

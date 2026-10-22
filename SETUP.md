@@ -357,7 +357,10 @@ refused (`?error=email_unverified`); an existing kit user is linked by verified 
 `BOOTSTRAP_ADMIN_EMAILS=you@example.com` (comma-separated). Promoted to global admin on the first
 **verified** login, logged loudly. Absent: promote by hand once —
 `UPDATE users SET is_global_admin = true WHERE email = '…'` — or every sign-up parks on `/pending`
-with nobody to approve it (`SIGNUP_MODE=invite_only` default). Verify: `/admin` is reachable.
+with nobody to approve it (`SIGNUP_MODE=invite_only` default). On an install with no workspace yet,
+that first login also creates one, named `APP_NAME`, with the admin as owner — in multi mode too,
+so there is someone to invite people into it. Verify: `/admin` is reachable, and the app opens on
+that workspace.
 
 ### 2.5 AI — chat, agents, embeddings
 Resolution (`docs/CONCEPTS.md` §9): a per-agent assignment → the tenant's default provider in

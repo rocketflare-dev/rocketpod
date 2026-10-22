@@ -1,0 +1,6 @@
+# The porting note every behaviour change appends to. Parallel branches (worktrees, sub-agents)
+# all add bullets and numbered steps to it, and a plain merge conflicts on every one of them; a
+# union merge keeps both sides' lines instead. Step numbers may repeat after one — Markdown numbers
+# an ordered list from its first item; tidy them when the release is cut — and CI's note check
+# (release-check --unreleased) still refuses a merge that broke the frontmatter.
+docs/upgrades/unreleased.md merge=union

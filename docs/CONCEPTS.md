@@ -39,7 +39,9 @@ suites on vitest 4, §9 — never part of the gate).
   (`requireMultiTenant`) and hidden via `useTenancyMode()`. Switching to `multi` needs no migration.
 - **`SIGNUP_MODE = open | invite_only | approval` (D9)**, default `invite_only`. Uninvited logins
   land on `/pending`; `approval` also files an `access_requests` row at *verify* time;
-  `open` gives a personal tenant through `onNoTenant`. Invitations are handled first on every login
+  `open` gives a personal tenant through `onNoTenant`. Whatever the mode, the `BOOTSTRAP_ADMIN_EMAILS`
+  admin's first login on an install with NO tenant yet creates the first one (named `APP_NAME`, as
+  owner) — the only other way to it was SQL — and never again once any tenant exists. Invitations are handled first on every login
   path, and every fallback gates on "has no memberships", not "is new".
 - **Roles (D10).** `owner | admin | member` plus `support` (minted from `/admin`, visible to the
   customer); `users.isGlobalAdmin` is a platform flag. Default for a new subject: owner/admin/support

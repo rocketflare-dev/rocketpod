@@ -270,10 +270,11 @@ export default function SideNav({ items = navigationConfig, footer }: SideNavPro
           return renderItem(item)
         })}
 
-        {/* Deployed release (RELEASE_VERSION via /api/health) — quiet, end of the nav */}
+        {/* Deployed release (RELEASE_VERSION via /api/health — the tag, e.g. `v0.2.0`, or "dev"),
+            shown exactly as reported: never prefix a "v" */}
         {version && !isCollapsed && (
           <div className="px-2.5 pt-4 text-[11px] font-mono text-muted" title="Deployed release">
-            v{version}
+            {version}
           </div>
         )}
       </nav>

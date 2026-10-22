@@ -127,15 +127,18 @@ describe('SideNav', () => {
   })
 
   it('shows everything when the guard allows all (Phase 0 default)', async () => {
-    vi.stubGlobal('fetch', stubHealthFetch())
+    // RELEASE_VERSION is the tag name, which already carries its "v".
+    vi.stubGlobal('fetch', stubHealthFetch({ version: 'v1.2.3' }))
     renderWithProviders(<SideNav items={config} />)
 
     expect(screen.getByRole('link', { name: /^Home/ })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /Settings/ })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /Admin/ })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /Reports/ })).toBeInTheDocument()
-    // The version footer comes from /api/health
-    await waitFor(() => expect(screen.getByText('v1.2.3')).toBeInTheDocument())
+    // The version footer is /api/health's RELEASE_VERSION (the tag name) as-is — no second "v"
+    await waitFor(() =>
+      expect(screen.getByTitle('Deployed release')).toHaveTextContent(/^v1\.2\.3$/)
+    )
   })
 
   it('hides items whose guard is denied', () => {

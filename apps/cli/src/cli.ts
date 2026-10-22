@@ -235,4 +235,7 @@ config.command('path').description('print the config file path').action(action(r
 // and exit-code mapping as everything above.
 for (const plugin of cliPlugins) plugin.register(program, action)
 
+// Bare `rocketpod` is asking for the command list, not making a mistake: help on stdout, exit 0
+// (commander's default writes it to stderr and exits 1).
+if (process.argv.length <= 2) program.help()
 program.parseAsync(process.argv)

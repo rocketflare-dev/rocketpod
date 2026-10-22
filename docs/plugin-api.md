@@ -635,7 +635,7 @@ Components and hooks, for a lazy PAGE. Never for the UI entry.
 - `function ToastContainer()`
   Bottom-right stack. Mount once.
 - `type ToastType = 'success' \| 'error' \| 'warning' \| 'info'`
-- `function URLTabs({ tabs, defaultTab, param = 'tab', className = '', actions, }: URLTabsProps)`
+- `function URLTabs({ tabs, defaultTab, param = 'tab', className = '', actions, orientation = 'horizontal', }: URLTabsProps)`
   Tabs whose active state lives in `?tab=`, so deep links and back/forward work.
 - `function useAuth(): AuthContextValue`
 - `function useFeature(name: FeatureName): boolean`
@@ -1332,7 +1332,7 @@ nothing in the comparison that can throw.
 @/plugins/api/ui :: interface :: Toast :: interface Toast
 @/plugins/api/ui :: function :: ToastContainer :: function ToastContainer()
 @/plugins/api/ui :: type :: ToastType :: type ToastType = 'success' | 'error' | 'warning' | 'info'
-@/plugins/api/ui :: function :: URLTabs :: function URLTabs({ tabs, defaultTab, param = 'tab', className = '', actions, }: URLTabsProps)
+@/plugins/api/ui :: function :: URLTabs :: function URLTabs({ tabs, defaultTab, param = 'tab', className = '', actions, orientation = 'horizontal', }: URLTabsProps)
 @/plugins/api/ui :: function :: useAuth :: function useAuth(): AuthContextValue
 @/plugins/api/ui :: function :: useFeature :: function useFeature(name: FeatureName): boolean
 @/plugins/api/ui :: function :: useGroups :: function useGroups(typeId?: string, enabled = true)

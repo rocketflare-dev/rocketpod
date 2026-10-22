@@ -43,7 +43,7 @@
     "clean": "pnpm -r clean",
     "clean:deep": "pnpm clean && rm -rf node_modules apps/*/node_modules packages/*/node_modules",
     "web": "pnpm --filter @rocketpod/web",
-    "cli": "pnpm --filter @rocketpod/cli exec tsx src/cli.ts"
+    "cli": "tsx apps/cli/src/cli.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.11",

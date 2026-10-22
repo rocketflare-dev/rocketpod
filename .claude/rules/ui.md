@@ -105,7 +105,9 @@ string in the service's nudge and in `query-keys.ts`, and never subscribe to the
 authenticated with a tenant, reconnects on tenant switch, disconnects on sign-out, and uses
 `useQueryClient()` to `invalidateQueries({ queryKey })` per root; `notification.created` refreshes
 the bell and is never a toast.
-Components subscribe to query state, never to the socket; `WebSocketStatus` (header dot) and
+Components subscribe to query state, never to the socket — the one exception is DECLARING interest
+in a realtime TOPIC (`useRealtimeTopic(topic)`, reference-counted in `websocketClient.subscribe` and
+resent on every reconnect), whose events still arrive through the provider's invalidation; `WebSocketStatus` (header dot) and
 `ConnectionBanner` (after 5 s degraded) read the store only. Tests inject a fake socket with
 `websocketClient.setFactory()` — reset it in `afterEach`.
 

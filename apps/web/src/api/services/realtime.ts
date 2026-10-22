@@ -49,3 +49,14 @@ export function nudgeUsers(
   if (!rt || !hub || userIds.length === 0) return
   rt.defer(() => hub.toUsers(event.tenantId, userIds, event))
 }
+
+/**
+ * Every socket SUBSCRIBED to `topic` (`@rocketpod/shared/realtime` § Topics) — one row's viewers,
+ * not the whole tenant. Build the topic with `tenantTopic(prefix, tenantId, id)`, which refuses an
+ * unregistered kind. No-op without a hub.
+ */
+export function nudgeTopic(rt: Realtime | undefined, topic: string, event: RealtimeEvent): void {
+  const hub = rt?.hub
+  if (!rt || !hub) return
+  rt.defer(() => hub.toTopic(topic, event))
+}

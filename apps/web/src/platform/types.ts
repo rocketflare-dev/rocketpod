@@ -163,6 +163,23 @@ export interface Broadcaster {
   toTenant(tenantId: string, event: RealtimeEvent): Promise<BroadcastResult>
   toUser(tenantId: string, userId: string, event: RealtimeEvent): Promise<BroadcastResult>
   toUsers(tenantId: string, userIds: string[], event: RealtimeEvent): Promise<BroadcastResult>
+  /**
+   * Every socket SUBSCRIBED to `topic` (`@rocketpod/shared/realtime` § Topics) — the hub let it
+   * subscribe only if `canSubscribeTopic` said so. A tenant topic reaches only sockets of the
+   * tenant it names; a platform topic any subscribed socket.
+   */
+  toTopic(topic: string, event: RealtimeEvent): Promise<BroadcastResult>
+}
+
+/** The identity `/ws` hands the hub — the only caller of `accept`. */
+export interface RealtimeMember {
+  tenantId: string
+  userId: string
+  sessionId: string
+  /** Gates `platform` topics only (`canSubscribeTopic`); nothing tenant-scoped reads it. */
+  globalAdmin?: boolean
+  /** The topic subjects this member's role may `read` in `tenantId` (`realtimeTopicSubjects`). */
+  canRead?: readonly string[]
 }
 
 /** The socket side of realtime: accept an authenticated `/ws` upgrade for one tenant member. */
@@ -171,10 +188,7 @@ export interface RealtimeHub extends Broadcaster {
    * Hand the upgrade request over. The caller has ALREADY authenticated the user and checked the
    * membership; the hub trusts `tenantId`/`userId` and answers the 101 (or an error response).
    */
-  accept(
-    request: Request,
-    member: { tenantId: string; userId: string; sessionId: string }
-  ): Promise<Response>
+  accept(request: Request, member: RealtimeMember): Promise<Response>
 }
 
 // ---- Durable runs ---------------------------------------------------------------------------

@@ -39,7 +39,7 @@ entry (`src/node/platform.ts`) and read as `c.get('platform')` / `ctx.platform`:
 |---|---|
 | `jobs` | pg-boss producer (`src/node/jobs.ts`); the consumer runs `processJobsBatch` |
 | `runs` | OpenWorkflow (`src/node/runs.ts`) driving `runAgentRun` (`api/workflows/agent-run-body.ts`) |
-| `realtime` | `ws` on `/ws` + Postgres LISTEN/NOTIFY fan-out (`src/node/realtime.ts`) |
+| `realtime` | `ws` on `/ws` + Postgres LISTEN/NOTIFY fan-out (`src/node/realtime.ts`): per tenant, per user, or per subscribed TOPIC (`toTopic`, gated by `canSubscribeTopic`) |
 | `storage` | any S3-compatible store (`src/node/storage.ts`, `STORAGE_*`): ranged `get` (`StorageRange` → `StoredRange`, `StorageRangeNotSatisfiableError`), multipart `putStream` (`@aws-sdk/lib-storage`, pinned to `client-s3`'s version) |
 | `rateLimiter`, `locks` | Postgres tables `rate_limits`, `operation_locks` (`src/node/limits.ts`) |
 | `converter` | unpdf / mammoth (`src/node/converter.ts`) |

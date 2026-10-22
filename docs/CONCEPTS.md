@@ -326,13 +326,35 @@ dispatches. All three run in a `worker` (or `all`) process; a `web` process only
   socket which missed the last one, and close code 1001 on shutdown. A NOTIFY payload over 7999
   bytes is logged and dropped — large data belongs in a row the client refetches. A lost listener
   reconnects with backoff; notifications sent meanwhile are lost (best effort).
+- **Topics**: a channel a socket subscribes to by NAME — one row's live progress — instead of the
+  tenant-wide fan-out. The kinds are a REGISTRY (`@rocketpod/shared/realtime` § Topics):
+  `CORE_REALTIME_TOPICS` (empty — no kit page needs more than the tenant-wide nudge yet) plus each
+  installed plugin's `SharedPlugin.realtimeTopics`, `{ prefix, subject, scope? }`, where the prefix
+  is the plugin id or `<id>.<name>` (never `kit`) and `buildRealtimeTopicRegistry` refuses
+  anything else at module evaluation. A `tenant` topic is `<prefix>:<tenantId>:<id>`
+  (`tenantTopic`); a `platform` one `<prefix>:<id>` (`platformTopic`), for state no tenant owns.
+  The client sends `{"type":"subscribe","topic":…}` / `unsubscribe` (`realtimeClientMessageSchema`;
+  `websocketClient.subscribe(topic)` is reference-counted and resent on every open, so a reconnect
+  resubscribes; `useRealtimeTopic(topic)` ties it to a page). `/ws` hands the hub `globalAdmin` and
+  `canRead` — the registered subjects the MEMBERSHIP's role may `read` — and the hub keeps a topic
+  only when `canSubscribeTopic` allows: a registered kind, `read` on its subject, and the socket's
+  own tenant (a platform topic: a global admin). Anything else is silently refused, at most 64 per
+  socket. `Broadcaster.toTopic(topic, event)` (`nudgeTopic`; a plugin's `ctx.nudgeTopic`) publishes
+  `{t, k, e}`, delivered to the subscribed sockets of the tenant the topic NAMES (any tenant for a
+  platform topic); an unregistered topic is logged and dropped. Events still go through
+  `REALTIME_INVALIDATIONS`, so no component reads the socket.
 
 **Known gaps:** `/api/admin` paths do not nudge; `notification.read` is never emitted;
 `activity.record` has no producer; nothing consumes or redrives the dead-letter queue (`boss.redrive`
 by hand); no pg-boss or OpenWorkflow dashboard is wired (OpenWorkflow's has no auth); OpenWorkflow
 caps a run at 1000 step attempts; a plugin cannot register a durable workflow of its own;
 `sendEvent` keeps re-sending for the full 5 s in the rare case the run skipped its wait;
-`BroadcastResult.delivered` is always 0 (a publish cannot count remote sockets); realtime has no
+`BroadcastResult.delivered` is always 0 (a publish cannot count remote sockets); a socket's topic
+grants are fixed when it connects (a role change takes effect on the next connect); a subscribe is
+not acknowledged, so a refused one looks like silence; topics are not persisted — a change made
+while a subscriber was reconnecting reaches it only through its next refetch; a global admin with
+no tenant membership has no socket, so no platform topic either; core publishes on no topic yet;
+realtime has no
 connection cap per tenant or user and no metrics; the missed-occurrence catch-up of a cron after
 downtime is pg-boss's default, untested.
 
@@ -839,7 +861,10 @@ Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
   schema, ui, cli. Each exports an `as const`
   tuple plus a widened list, so an empty kit still typechecks. **Opening a closed set** always
   follows one pattern: `X = [...CORE_X, ...plugins]`. `ServerPlugin<S>` checks handlers, agents and
-  prompts exhaustively against the plugin's own keys.
+  prompts exhaustively against the plugin's own keys. `SharedPlugin.realtimeTopics` opens the
+  realtime TOPIC registry the same way (§5): a plugin declares `{ prefix: '<id>.<kind>', subject }`,
+  publishes with `ctx.nudgeTopic(tenantTopic(…), entity, id)` (`JobCtx.nudgeTopic` in a handler)
+  and its page subscribes with `useRealtimeTopic` from `@/plugins/api/ui`.
 - **Namespacing**: the id is `^[a-z][a-z0-9-]*$` and namespaces jobs (`<id>.x`), query keys
   (`<id>:`), `/api/<id>`, CLI commands and CUSTOM events. Never `kit.`. Table prefixes are a human
   convention; **two plugins declaring the same table is a `plugin check` failure**.

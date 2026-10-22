@@ -51,7 +51,7 @@ import { uuidParam, withAuthAndDb } from '../../api/utils/routes/route-helpers'
 import { createRouter } from '../../api/utils/routes/router'
 import { validate } from '../../api/utils/routes/validate'
 import { isAdminLevel, isGlobalAdmin, isOwnerLevel, type PluginAuth } from './auth'
-import { nudgeEntity } from './events'
+import { nudgeEntity, nudgeEntityTopic } from './events'
 import type { PluginContext } from './types'
 
 export type { AppRouter } from '../../api/utils/routes/router'
@@ -180,6 +180,12 @@ export interface RequestCtx extends PluginContext, PluginAuth {
    * family root, so declaring it once covers the socket wiring (D8).
    */
   nudge(entity: string, id?: string): void
+  /**
+   * The same nudge to the sockets SUBSCRIBED to `topic` only — one row's viewers (D8, `@rocketpod/
+   * shared/realtime` § Topics). `topic` is `tenantTopic('<id>.<kind>', ctx.tenantId, rowId)` over
+   * a kind declared in `SharedPlugin.realtimeTopics`; the page subscribes with `useRealtimeTopic`.
+   */
+  nudgeTopic(topic: string, entity: string, id?: string): void
   /** Object storage, or a 503 `storage_not_configured` — loud, because a silently absent store loses bytes. */
   storage(): StorageService
 
@@ -317,6 +323,8 @@ export function requestCtx(c: AppContext): RequestCtx {
       await enqueueJobs(c.get('platform').jobs, inputs, options)
     },
     nudge: (entity, id) => nudgeEntity(route.realtime, route.tenantId, entity, id),
+    nudgeTopic: (topic, entity, id) =>
+      nudgeEntityTopic(route.realtime, route.tenantId, topic, entity, id),
     storage: () => {
       const storage = c.get('platform').storage
       if (!storage) {

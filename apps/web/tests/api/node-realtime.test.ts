@@ -1,15 +1,17 @@
 // @vitest-isolate
-// Boots the Node entry (`installProcessPool` is process-wide) and LISTENs on the test database.
+// Boots the Node entry (`installProcessPool` is process-wide), LISTENs on the test database, and mocks the shared plugin barrel (test topic kinds).
 /**
  * Realtime on Node (M5, `src/node/realtime.ts`): `/ws` upgraded in-process after the route's own
  * auth and membership check, events fanned out through Postgres `LISTEN/NOTIFY` — so a second
  * hub (another pod) reaches this server's sockets — with the DO's wire protocol, per-user and
  * per-tenant targeting, the NOTIFY size limit, a listener that comes back after its connection is
- * killed, and 1001 on shutdown.
+ * killed, 1001 on shutdown, and TOPICS — subscribed by name, granted by the registry and the
+ * member's role (the barrel is mocked to add `test-topics`' kinds: the kit ships none).
  */
 import { randomUUID } from 'node:crypto'
+import { platformTopic, tenantTopic } from '@rocketpod/shared/realtime'
 import { sql } from 'drizzle-orm'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import WebSocket from 'ws'
 import { realtimeEvent } from '@/api/services/realtime'
 import { loadConfig } from '@/config'
@@ -17,6 +19,7 @@ import { rows } from '@/db/client'
 import { createNodeRealtime, GOING_AWAY, type NodeRealtime } from '@/node/realtime'
 import { type RunningServer, startServer } from '@/node/server'
 import {
+  createTestGlobalAdmin,
   createTestSession,
   createTestTenant,
   createTestTenantWithUser,
@@ -25,6 +28,10 @@ import {
   sessionCookieHeader,
 } from '../helpers/auth'
 import { setupTestDatabase, testDatabaseUrl } from '../helpers/db'
+
+vi.mock('@rocketpod/shared/plugins', async importOriginal =>
+  (await import('../helpers/test-topics-shared')).withTestTopics(await importOriginal())
+)
 
 const db = setupTestDatabase()
 const appName = `rp-realtime-test-${randomUUID().slice(0, 8)}`
@@ -246,6 +253,105 @@ describe('fan-out through LISTEN/NOTIFY', () => {
     expect(received).toEqual(event)
     client.ws.close()
   }, 15_000)
+})
+
+describe('topics', () => {
+  /** A ping round trip proves every frame sent before it was processed. */
+  async function settle(c: Client) {
+    c.ws.send(JSON.stringify({ type: 'ping' }))
+    expect(await c.next()).toEqual({ type: 'pong' })
+  }
+  const subscribe = (c: Client, topic: string) =>
+    c.ws.send(JSON.stringify({ type: 'subscribe', topic }))
+
+  /**
+   * Assert every client hears its tenant's marker NEXT — i.e. nothing published before it reached
+   * them. ONE marker for all of them: it goes to every socket in the tenant, so a second marker
+   * would find the first still queued on the others.
+   */
+  async function hearsOnlyMarker(clients: Client[], tenantId: string) {
+    const marker = realtimeEvent('member.changed', tenantId, { marker: randomUUID() })
+    await otherPod.hub.toTenant(tenantId, marker)
+    for (const c of clients) expect(await c.next()).toEqual(marker)
+  }
+
+  it('delivers to a subscriber who may read the subject, and not to one who may not', async () => {
+    const owner = await member('owner')
+    const plain = await createTestUser(db)
+    await linkUserToTenant(db, plain.id, owner.tenant.id, 'member')
+    const plainCookie = sessionCookieHeader(await createTestSession(db, plain.id, owner.tenant.id))
+    const topic = tenantTopic('test-topics.trace', owner.tenant.id, randomUUID())
+
+    const allowed = await connect(owner.cookie)
+    const refused = await connect(plainCookie)
+    const idle = await connect(owner.cookie)
+    subscribe(allowed, topic)
+    subscribe(refused, topic) // a member cannot `read Trace`
+    for (const c of [allowed, refused]) await settle(c)
+
+    const event = realtimeEvent('entity.changed', owner.tenant.id, { entity: 'traces' })
+    await otherPod.hub.toTopic(topic, event)
+    expect(await allowed.next()).toEqual(event)
+    // The refused member and the owner who never subscribed hear nothing on it.
+    await hearsOnlyMarker([allowed, refused, idle], owner.tenant.id)
+
+    // The same member MAY subscribe to a kind whose subject every member reads.
+    const docs = tenantTopic('test-topics.doc', owner.tenant.id, randomUUID())
+    subscribe(refused, docs)
+    await settle(refused)
+    const docEvent = realtimeEvent('entity.changed', owner.tenant.id, { entity: 'documents' })
+    await otherPod.hub.toTopic(docs, docEvent)
+    expect(await refused.next()).toEqual(docEvent)
+
+    // Unsubscribed, the owner hears nothing more on it.
+    allowed.ws.send(JSON.stringify({ type: 'unsubscribe', topic }))
+    await settle(allowed)
+    await otherPod.hub.toTopic(topic, event)
+    await hearsOnlyMarker([allowed, refused, idle], owner.tenant.id)
+
+    for (const c of [allowed, refused, idle]) c.ws.close()
+  })
+
+  it('refuses a topic naming another tenant, and one no installed plugin declares', async () => {
+    const mine = await member('owner')
+    const theirs = await member('owner')
+    const theirTopic = tenantTopic('test-topics.doc', theirs.tenant.id, randomUUID())
+    // Well-formed, but its kind is not in the registry: an uninstalled plugin's topic.
+    const unknown = `orders.order:${mine.tenant.id}:${randomUUID()}`
+
+    const spy = await connect(mine.cookie)
+    subscribe(spy, theirTopic)
+    subscribe(spy, unknown)
+    await settle(spy)
+
+    await otherPod.hub.toTopic(theirTopic, realtimeEvent('entity.changed', theirs.tenant.id))
+    await otherPod.hub.toTopic(unknown, realtimeEvent('entity.changed', mine.tenant.id))
+    await hearsOnlyMarker([spy], mine.tenant.id)
+    expect(logs.some(l => l.includes('unregistered topic'))).toBe(true)
+    spy.ws.close()
+  })
+
+  it('delivers a platform topic to a subscribed global admin on any tenant, and to nobody else', async () => {
+    const admin = await createTestGlobalAdmin(db)
+    const tenant = await createTestTenant(db)
+    await linkUserToTenant(db, admin.id, tenant.id, 'member')
+    const adminCookie = sessionCookieHeader(await createTestSession(db, admin.id, tenant.id))
+    const owner = await member('owner')
+    const topic = platformTopic('test-topics.platform', randomUUID())
+
+    const staff = await connect(adminCookie)
+    const notStaff = await connect(owner.cookie)
+    subscribe(staff, topic)
+    subscribe(notStaff, topic)
+    for (const c of [staff, notStaff]) await settle(c)
+
+    // Published for a tenant neither socket is in.
+    const event = realtimeEvent('entity.changed', randomUUID(), { entity: 'admin' })
+    await otherPod.hub.toTopic(topic, event)
+    expect(await staff.next()).toEqual(event)
+    await hearsOnlyMarker([notStaff], owner.tenant.id)
+    for (const c of [staff, notStaff]) c.ws.close()
+  })
 })
 
 describe('shutdown', () => {

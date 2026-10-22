@@ -34,7 +34,12 @@ and `isPrivateSelection()` (a `groups` selection with nothing in it means owner-
 UI warns, it does not block) · Phase 2 (server ⇄ UI, no HTTP):
 `realtime.ts` — `realtimeEventSchema` `{ type, tenantId, at, payload? }`, `realtimeEventTypeSchema`,
 `REALTIME_INVALIDATIONS` (event type → TanStack query-key roots) + `invalidationsFor()` (D8; it is
-one of the five composers — it unions each plugin's `realtimeRoots` into `access.changed`) ·
+one of the five composers — it unions each plugin's `realtimeRoots` into `access.changed`), and
+§ Topics: `CORE_REALTIME_TOPICS` (empty) + each plugin's `realtimeTopics` →
+`buildRealtimeTopicRegistry` / `REALTIME_TOPICS` (throws on a prefix outside the plugin's
+namespace, in `kit`, or declared twice), `tenantTopic` / `platformTopic`, `parseRealtimeTopic`,
+`realtimeClientMessageSchema` (`ping` / `subscribe` / `unsubscribe`), `realtimeTopicSubjects` and
+`canSubscribeTopic(member, topic)` — the hub's one gate ·
 `plugins/types.ts` + `plugins/index.ts` (D31) — `SharedPlugin`, `PLUGIN_ID_RE`/`isPluginId`, the
 `SHARED_PLUGINS` barrel one line per installed plugin is written into, and the per-plugin
 derivations the composers read — `DeclaredBy<P, K>` first, which narrows the barrel union to the

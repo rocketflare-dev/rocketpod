@@ -24,6 +24,7 @@ import type {
   RateLimitDecision,
   RateLimiter,
   RealtimeHub,
+  RealtimeMember,
   RunEngine,
   StorageBody,
   StorageService,
@@ -314,14 +315,14 @@ export class MemoryStorage implements StorageService {
 
 export interface RecordedBroadcast {
   tenantId: string
-  /** `[method, ...args]` — `broadcast`, `broadcastToUser` or `broadcastToUsers`, then its arguments. */
+  /** `[method, ...args]` — `broadcast`, `broadcastToUser`, `broadcastToUsers` or `broadcastToTopic`, then its arguments. */
   args: unknown[]
 }
 
 /** One `/ws` upgrade the route handed to the hub. */
 export interface RecordedAccept {
   request: Request
-  member: { tenantId: string; userId: string; sessionId: string }
+  member: RealtimeMember
 }
 
 /**
@@ -349,6 +350,11 @@ export class RecordingRealtime implements RealtimeHub {
 
   toUsers(tenantId: string, userIds: string[], event: RealtimeEvent) {
     return this.record(tenantId, ['broadcastToUsers', userIds, event])
+  }
+
+  /** Recorded under the event's tenant, like the others: `['broadcastToTopic', topic, event]`. */
+  toTopic(topic: string, event: RealtimeEvent) {
+    return this.record(event.tenantId, ['broadcastToTopic', topic, event])
   }
 
   async accept(request: Request, member: RecordedAccept['member']): Promise<Response> {

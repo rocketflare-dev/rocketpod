@@ -43,7 +43,7 @@ import type { Database } from '@/db/client'
 import type { User } from '@/db/schema'
 import { buildAbility } from '@/permissions'
 import type { AccessScope } from '@/plugins/api'
-import { nudgeEntity } from '@/plugins/api'
+import { nudgeEntity, nudgeEntityTopic } from '@/plugins/api'
 import type { ToolCtx } from '@/plugins/api/ai'
 import { toolCtx } from '@/plugins/api/ai'
 import type { RequestCtx } from '@/plugins/api/http'
@@ -253,6 +253,8 @@ export function makeRequestCtx(options: RequestCtxOptions): FakeRequestCtx {
       await enqueueJobs(env.jobs, inputs, opts)
     },
     nudge: (entity, id) => nudgeEntity(realtime, options.tenantId, entity, id),
+    nudgeTopic: (topic, entity, id) =>
+      nudgeEntityTopic(realtime, options.tenantId, topic, entity, id),
     storage: () => {
       const storage = env.storage
       if (!storage) {

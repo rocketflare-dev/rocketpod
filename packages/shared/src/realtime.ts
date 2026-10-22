@@ -7,6 +7,9 @@
  */
 import { z } from 'zod'
 import { sharedPlugins } from './plugins/index'
+import type { RealtimeTopicDefinition, SharedPlugin } from './plugins/types'
+
+export type { RealtimeTopicDefinition } from './plugins/types'
 
 export const realtimeEventTypeSchema = z.enum([
   'notification.created',
@@ -84,4 +87,176 @@ export function invalidationsFor(event: RealtimeEvent): string[][] {
     return parsed.success ? [[parsed.data.entity]] : []
   }
   return REALTIME_INVALIDATIONS[event.type]
+}
+
+// ---- Topics -------------------------------------------------------------------------------------
+
+/**
+ * A TOPIC is a channel a socket subscribes to by NAME — one row's live progress — instead of the
+ * tenant-wide fan-out every other nudge rides. The socket sends `{ type: 'subscribe', topic }`
+ * (again after every reconnect, `websocketClient.subscribe`) and the hub delivers
+ * `toTopic(topic, event)` to the sockets subscribed to it. Who may subscribe is decided by the hub,
+ * from the identity `/ws` authenticated: `canSubscribeTopic`.
+ *
+ * The KINDS of topic are a registry: core's (`CORE_REALTIME_TOPICS`, none today) plus every
+ * installed plugin's `SharedPlugin.realtimeTopics`. A topic whose prefix is not registered — an
+ * uninstalled plugin's, a typo — parses as nothing and is refused. Topics are nudges like
+ * everything else here: the event says what moved, the client re-queries.
+ *
+ * - `tenant` (default): `<prefix>:<tenantId>:<id>` — the socket's own tenant only, and its role
+ *   must `read` the entry's subject.
+ * - `platform`: `<prefix>:<id>` — state no tenant owns; a global admin who may `read` the subject.
+ */
+const TOPIC_PREFIX_RE = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)*$/
+const TOPIC_ID_RE = /^[A-Za-z0-9_-]{1,128}$/
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+/** Longer than any topic the grammar above can build; a frame naming more is not one. */
+export const REALTIME_TOPIC_MAX_LENGTH = 256
+/** The namespace the kit keeps for itself; no topic kind may live in it. */
+const RESERVED_NAMESPACE = 'kit'
+
+/** Core's own topic kinds. Empty: no kit page needs more than the tenant-wide nudge yet. */
+export const CORE_REALTIME_TOPICS: readonly RealtimeTopicDefinition[] = []
+
+/** The registry: prefix → its definition. Built by `buildRealtimeTopicRegistry`. */
+export type RealtimeTopicRegistry = ReadonlyMap<string, RealtimeTopicDefinition>
+
+/**
+ * Core's topics plus each plugin's, refusing — at module evaluation, so a bad declaration fails
+ * every test rather than one subscription — a prefix that is malformed, a plugin prefix outside
+ * its own id's namespace (`<id>` or `<id>.<name>`), anything in the reserved `kit` namespace, a
+ * kind with no subject, and a prefix declared twice.
+ */
+export function buildRealtimeTopicRegistry(
+  plugins: readonly Pick<SharedPlugin, 'id' | 'realtimeTopics'>[],
+  core: readonly RealtimeTopicDefinition[] = CORE_REALTIME_TOPICS
+): RealtimeTopicRegistry {
+  const registry = new Map<string, RealtimeTopicDefinition>()
+  const add = (owner: string | null, def: RealtimeTopicDefinition) => {
+    const where = owner ? `plugin ${owner}` : 'core'
+    if (!TOPIC_PREFIX_RE.test(def.prefix)) {
+      throw new Error(`realtime topics: ${where} declares a malformed prefix ${def.prefix}`)
+    }
+    if (def.prefix.split('.')[0] === RESERVED_NAMESPACE) {
+      throw new Error(`realtime topics: ${where} uses the reserved kit namespace (${def.prefix})`)
+    }
+    if (owner && def.prefix !== owner && !def.prefix.startsWith(`${owner}.`)) {
+      throw new Error(
+        `realtime topics: plugin ${owner} declares ${def.prefix}, outside its namespace (${owner}.*)`
+      )
+    }
+    if (!def.subject) throw new Error(`realtime topics: ${def.prefix} names no subject`)
+    if (registry.has(def.prefix)) {
+      throw new Error(`realtime topics: ${def.prefix} is declared twice (${where})`)
+    }
+    registry.set(def.prefix, def)
+  }
+  for (const def of core) add(null, def)
+  for (const plugin of plugins) for (const def of plugin.realtimeTopics ?? []) add(plugin.id, def)
+  return registry
+}
+
+/** Every topic kind this deployment knows: core + the installed plugins. */
+export const REALTIME_TOPICS: RealtimeTopicRegistry = buildRealtimeTopicRegistry(sharedPlugins)
+
+/** The CASL subjects any registered topic needs — what `/ws` asks the member's ability about. */
+export function realtimeTopicSubjects(registry: RealtimeTopicRegistry = REALTIME_TOPICS): string[] {
+  return [...new Set([...registry.values()].map(def => def.subject))]
+}
+
+export interface ParsedRealtimeTopic {
+  definition: RealtimeTopicDefinition
+  /** The tenant a `tenant` topic belongs to; absent on a `platform` one. */
+  tenantId?: string
+  id: string
+}
+
+/** A topic string → its registered kind and parts, or null for anything the registry does not know. */
+export function parseRealtimeTopic(
+  topic: string,
+  registry: RealtimeTopicRegistry = REALTIME_TOPICS
+): ParsedRealtimeTopic | null {
+  if (topic.length > REALTIME_TOPIC_MAX_LENGTH) return null
+  const parts = topic.split(':')
+  const definition = registry.get(parts[0] ?? '')
+  if (!definition) return null
+  if (definition.scope === 'platform') {
+    const [, id] = parts
+    if (parts.length !== 2 || !id || !TOPIC_ID_RE.test(id)) return null
+    return { definition, id }
+  }
+  const [, tenantId, id] = parts
+  if (parts.length !== 3 || !tenantId || !UUID_RE.test(tenantId)) return null
+  if (!id || !TOPIC_ID_RE.test(id)) return null
+  return { definition, tenantId, id }
+}
+
+/**
+ * The topic of one row of a registered TENANT kind. A typo, or an uninstalled plugin's prefix,
+ * throws here at the publisher rather than publishing to nobody.
+ */
+export function tenantTopic(
+  prefix: string,
+  tenantId: string,
+  id: string,
+  registry: RealtimeTopicRegistry = REALTIME_TOPICS
+): string {
+  const topic = `${prefix}:${tenantId}:${id}`
+  const parsed = parseRealtimeTopic(topic, registry)
+  if (!parsed || parsed.definition.scope === 'platform') {
+    throw new Error(`realtime topics: ${topic} is not a registered tenant topic`)
+  }
+  return topic
+}
+
+/** The topic of one row of a registered PLATFORM kind (state no tenant owns). */
+export function platformTopic(
+  prefix: string,
+  id: string,
+  registry: RealtimeTopicRegistry = REALTIME_TOPICS
+): string {
+  const topic = `${prefix}:${id}`
+  if (parseRealtimeTopic(topic, registry)?.definition.scope !== 'platform') {
+    throw new Error(`realtime topics: ${topic} is not a registered platform topic`)
+  }
+  return topic
+}
+
+/**
+ * What a socket may SEND: the keepalive, and (un)subscribing a topic. The topic is only a bounded
+ * string here: whether it is one this member may hear is `canSubscribeTopic`'s answer, and
+ * unsubscribing anything is harmless.
+ */
+export const realtimeClientMessageSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('ping') }),
+  z.object({ type: z.literal('subscribe'), topic: z.string().max(REALTIME_TOPIC_MAX_LENGTH) }),
+  z.object({ type: z.literal('unsubscribe'), topic: z.string().max(REALTIME_TOPIC_MAX_LENGTH) }),
+])
+export type RealtimeClientMessage = z.infer<typeof realtimeClientMessageSchema>
+
+/** What the hub knows about a socket — decided by `/ws`, which authenticated it. */
+export interface TopicSubscriber {
+  /** The tenant the socket connected for (a verified membership). */
+  tenantId: string
+  globalAdmin?: boolean
+  /** The topic subjects this member's role may `read` in that tenant (`/ws` asks the ability). */
+  canRead?: readonly string[]
+}
+
+/**
+ * May this socket hear `topic`? A tenant topic: it names the socket's OWN tenant and the member
+ * may `read` the kind's subject. A platform topic: a global admin who may `read` it. Anything the
+ * registry does not know — an uninstalled plugin's prefix included — is refused. An id the tenant
+ * does not hold is harmless: nothing is ever published on it.
+ */
+export function canSubscribeTopic(
+  member: TopicSubscriber,
+  topic: string,
+  registry: RealtimeTopicRegistry = REALTIME_TOPICS
+): boolean {
+  const parsed = parseRealtimeTopic(topic, registry)
+  if (!parsed) return false
+  if (member.canRead?.includes(parsed.definition.subject) !== true) return false
+  if (parsed.definition.scope === 'platform') return member.globalAdmin === true
+  return parsed.tenantId === member.tenantId
 }

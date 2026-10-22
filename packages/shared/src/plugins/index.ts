@@ -25,6 +25,7 @@ export type {
   JobTypeOf,
   JobVariant,
   PromptKeyOf,
+  RealtimeTopicDefinition,
   SharedPlugin,
   SubjectOf,
 } from './types'

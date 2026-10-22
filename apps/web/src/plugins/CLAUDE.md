@@ -93,6 +93,15 @@ in the host. Each half is checked where it is written; only the merge is cast.
   SET UP or OPERATE — an app registration, a secret, a console, an error to decode — deserves one:
   the skill drives the steps an agent can take and coaches the ones only a human can.
   `.claude/skills/example-feature/` is the worked example.
+- **Its realtime topics are declared, namespaced and read-gated.** `SharedPlugin.realtimeTopics`
+  lists `{ prefix, subject, scope? }`; the prefix is the plugin id or `<id>.<name>` (never `kit`),
+  and `buildRealtimeTopicRegistry` (`@rocketpod/shared/realtime`) throws at import on anything
+  else or a duplicate. A member subscribes only when its role may `read` the subject in the topic's
+  own tenant (`canSubscribeTopic`) — so declare the subject in `subjects` and grant `read` in
+  `grants`, or nobody can listen. Publish with `ctx.nudgeTopic(tenantTopic('<id>.<kind>',
+  ctx.tenantId, rowId), entity, id)` (`JobCtx.nudgeTopic` awaited in a handler); the page calls
+  `useRealtimeTopic(topic)` from `@/plugins/api/ui`. A topic is a nudge like any other: ids only.
+  `tests/config/realtime-topics.test.ts` covers the registry with fixtures.
 - **It composes, never redefines.** `grants` are additive over its own subjects; hooks are
   post-commit, idempotent and best-effort; `agentTools` are appended after the kit's (async
   allowed, `[]` for a tenant that has not turned the tool on, a throw is logged and skipped). A

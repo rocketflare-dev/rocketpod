@@ -133,6 +133,36 @@ describe('websocketClient', () => {
     expect(seen).toHaveLength(1)
   })
 
+  it('subscribes a topic once however many callers want it, resubscribes after a reconnect, and unsubscribes on the last release', () => {
+    const topic = 'fixture.thing:00000000-0000-4000-8000-000000000000:row-1'
+    const frame = (type: string) => JSON.stringify({ type, topic })
+    // Asked for before the socket is open: sent when it opens.
+    const releaseA = websocketClient.subscribe(topic)
+    websocketClient.connect('tenant-a')
+    latest().open()
+    expect(latest().sent).toEqual([frame('subscribe')])
+    const releaseB = websocketClient.subscribe(topic)
+    expect(latest().sent).toEqual([frame('subscribe')])
+
+    // A deploy drops the socket; the new one asks again without anybody re-subscribing.
+    latest().serverClose(1001)
+    vi.advanceTimersByTime(FAST_RECONNECT_MS)
+    latest().open()
+    expect(latest().sent).toEqual([frame('subscribe')])
+
+    releaseA()
+    releaseA() // idempotent: a double release must not steal B's interest
+    expect(latest().sent).toEqual([frame('subscribe')])
+    releaseB()
+    expect(latest().sent).toEqual([frame('subscribe'), frame('unsubscribe')])
+
+    // Released for good: the next connection does not ask for it.
+    latest().serverClose(1001)
+    vi.advanceTimersByTime(FAST_RECONNECT_MS)
+    latest().open()
+    expect(latest().sent).toEqual([])
+  })
+
   it('reconnects with backoff after an abnormal close, resetting the attempt on open', () => {
     websocketClient.connect('tenant-a')
     latest().open()

@@ -7,7 +7,10 @@
  * without counting as a failure. Sends `{"type":"ping"}` every 30 s — the server answers `pong`.
  *
  * State is pushed into `stores/websocketStore.ts`; events go to `onEvent` subscribers
- * (`WebSocketProvider` turns them into query invalidations). Components never touch this module.
+ * (`WebSocketProvider` turns them into query invalidations). Components never touch this module —
+ * a page that wants one row's TOPIC declares it with `useRealtimeTopic(topic)`, which calls
+ * `subscribe` here: reference-counted, and every held topic is re-sent on each open, so a reconnect
+ * (or a tenant switch) resubscribes without the page knowing.
  */
 import { type RealtimeEvent, realtimeEventSchema } from '@rocketpod/shared/realtime'
 import { useWebSocketStore } from '../stores/websocketStore'
@@ -52,6 +55,8 @@ class WebSocketClient {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null
   private readonly listeners = new Set<EventListener>()
+  /** Topic → how many callers want it; (re)sent on every open, so a reconnect resubscribes. */
+  private readonly topics = new Map<string, number>()
   private factory: WebSocketFactory = url => new WebSocket(url)
 
   /** Test seam. */
@@ -71,6 +76,34 @@ class WebSocketClient {
     this.tenantId = tenantId
     this.attempt = 0
     this.open()
+  }
+
+  /**
+   * Ask the hub for a TOPIC's events (`@rocketpod/shared/realtime` § Topics). Reference-counted:
+   * the returned function releases this caller's interest (idempotently), and only the last
+   * release unsubscribes. The events arrive through `onEvent` like any other, so the provider's
+   * invalidation handles them. The hub silently refuses a topic this member may not hear.
+   */
+  subscribe(topic: string): () => void {
+    const count = this.topics.get(topic) ?? 0
+    this.topics.set(topic, count + 1)
+    if (count === 0) this.sendFrame({ type: 'subscribe', topic })
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      const left = (this.topics.get(topic) ?? 1) - 1
+      if (left > 0) {
+        this.topics.set(topic, left)
+        return
+      }
+      this.topics.delete(topic)
+      this.sendFrame({ type: 'unsubscribe', topic })
+    }
+  }
+
+  private sendFrame(frame: object): void {
+    if (this.ws && this.ws.readyState === OPEN) this.ws.send(JSON.stringify(frame))
   }
 
   disconnect(): void {
@@ -124,6 +157,7 @@ class WebSocketClient {
       if (generation !== this.generation) return
       this.attempt = 0
       useWebSocketStore.getState().setStatus('open')
+      for (const topic of this.topics.keys()) ws.send(JSON.stringify({ type: 'subscribe', topic }))
       this.heartbeatTimer = setInterval(() => {
         if (ws.readyState === OPEN) ws.send(JSON.stringify({ type: 'ping' }))
       }, HEARTBEAT_MS)

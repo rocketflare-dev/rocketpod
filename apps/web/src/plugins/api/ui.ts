@@ -79,6 +79,8 @@ export {
 export { useAuth, useTenancyMode } from '../../ui/hooks/useAuth'
 export { useGroups, useGroupTypes, useMyGroups } from '../../ui/hooks/useGroups'
 export { useFeature, usePermissions } from '../../ui/hooks/usePermissions'
+/** Hear one row's realtime TOPIC while mounted — a kind the plugin declared in `realtimeTopics`. */
+export { useRealtimeTopic } from '../../ui/hooks/useRealtimeTopic'
 export type { ApiRequestOptions } from '../../ui/lib/api-client'
 /** Every request goes through this: `credentials: 'include'`, the shared error envelope, and a
  * `schema` option that parses the response with the same contract the server validated with. */

@@ -96,6 +96,24 @@ export interface SharedPlugin {
    * `visibility` has to be re-fetched when somebody's group membership moves under them.
    */
   readonly realtimeRoots?: readonly string[]
+  /**
+   * Realtime TOPICS this plugin publishes on (`@rocketpod/shared/realtime` § Topics): a channel a
+   * page subscribes to by name — one row's live progress — rather than the tenant-wide fan-out.
+   * Each `prefix` is the plugin's id or `<id>.<name>` (never `kit.`), and `subject` is the CASL
+   * subject a member must be able to `read` to subscribe. The registry refuses anything else.
+   */
+  readonly realtimeTopics?: readonly RealtimeTopicDefinition[]
+}
+
+/**
+ * One kind of realtime topic. A `tenant` topic (the default) is `<prefix>:<tenantId>:<id>` and only
+ * a socket connected for THAT tenant whose role may `read` the subject can subscribe; a `platform`
+ * topic is `<prefix>:<id>`, for state no tenant owns, and needs a global admin as well.
+ */
+export interface RealtimeTopicDefinition {
+  readonly prefix: string
+  readonly subject: string
+  readonly scope?: 'tenant' | 'platform'
 }
 
 // ---- Derivations the host's closed sets read ------------------------------------------------

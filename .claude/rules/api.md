@@ -349,7 +349,11 @@ SIGTERM.
 
 Routes never touch the realtime hub directly. `apps/web/src/api/services/realtime.ts` is the
 **only** caller: `nudge(realtime, event)` (tenant-wide), `nudgeUser(realtime, userId, event)`,
-`nudgeUsers(realtime, userIds, event)`, over the platform's `Broadcaster` (`c.get('platform').realtime`, `src/node/realtime.ts` — a
+`nudgeUsers(realtime, userIds, event)`, `nudgeTopic(realtime, topic, event)` (only the sockets
+SUBSCRIBED to a registered topic — `tenantTopic(prefix, tenantId, id)`, `@rocketpod/shared/realtime`
+§ Topics; the kinds are `CORE_REALTIME_TOPICS` + each plugin's `SharedPlugin.realtimeTopics`, and the
+hub admits a subscriber only through `canSubscribeTopic`: `read` on the kind's subject in the
+topic's own tenant, a global admin for a `platform` topic), over the platform's `Broadcaster` (`c.get('platform').realtime`, `src/node/realtime.ts` — a
 `pg_notify` publish every pod's listener delivers to its local sockets; `{ delivered }` is always
 0). `realtime` is the `Realtime` (`{ defer,
 hub }`) returned by `withAuth()`; every nudge goes through `defer`/`waitUntil`, is never awaited on
@@ -362,7 +366,10 @@ its two nudges past the `db.transaction`).
 
 `GET /ws` (`routes/ws.ts`): not an upgrade → 426 `upgrade_required`; no cookie → 401; not a member
 of `?tenantId` (or the session tenant) → 403; suspended → 403 `tenant_suspended`; no hub → 503
-`realtime_not_configured`; else `hub.accept(request, { tenantId, userId, sessionId })`. The hub
+`realtime_not_configured`; else `hub.accept(request, { tenantId, userId, sessionId, globalAdmin,
+canRead })` — `canRead` is `realtimeTopicSubjects()` filtered by `buildAbility` for THIS
+membership's role (the session's features only when it is the session's tenant), the only input
+the hub's topic check reads. The hub
 trusts that identity **only** because this route is its sole caller — the server completes the
 handshake only when the route accepted (`src/node/server.ts`).
 

@@ -7,11 +7,20 @@
  * to the platform's realtime hub (`accept`, `src/node/realtime.ts`), which trusts the identity it
  * is given — it is reachable only from this route, inside the upgrade's request scope.
  *
+ * It also decides what the socket may SUBSCRIBE to (`@rocketpod/shared/realtime` § Topics): the
+ * hub is handed `globalAdmin` and `canRead` — the registered topic subjects this MEMBERSHIP's role
+ * may `read`, asked of the ability for the requested tenant (not necessarily the session's) — and
+ * `canSubscribeTopic` reads nothing else. They are fixed for the socket's life: a role change takes
+ * effect on the next connect.
+ *
  * A non-upgrade GET gets a JSON 426 envelope; CSRF needs no exemption (GET is a safe method).
  */
 import { ERROR_CODES } from '@rocketpod/shared/errors'
+import type { Subjects } from '@rocketpod/shared/permissions'
+import { realtimeTopicSubjects } from '@rocketpod/shared/realtime'
 import { and, eq } from 'drizzle-orm'
 import { tenants, tenantUsers } from '../../db/schema'
+import { buildAbility } from '../../permissions/abilities'
 import { resolveCookieAuth } from '../middleware/auth'
 import {
   ApiError,
@@ -38,7 +47,7 @@ wsRouter.get('/', async c => {
 
   const db = c.get('db')
   const [membership] = await db
-    .select({ tenantId: tenantUsers.tenantId, status: tenants.status })
+    .select({ tenantId: tenantUsers.tenantId, status: tenants.status, role: tenantUsers.role })
     .from(tenantUsers)
     .innerJoin(tenants, eq(tenants.id, tenantUsers.tenantId))
     .where(and(eq(tenantUsers.userId, auth.user.id), eq(tenantUsers.tenantId, requested)))
@@ -52,9 +61,18 @@ wsRouter.get('/', async c => {
   if (!hub) {
     throw new ServiceUnavailableError('Realtime is not configured', 'realtime_not_configured')
   }
+  const globalAdmin = auth.user.isGlobalAdmin === true
+  const ability = buildAbility({
+    role: membership.role,
+    isGlobalAdmin: globalAdmin,
+    // The session's features are its OWN tenant's; for another tenant, none (fail closed).
+    features: membership.tenantId === auth.tenantId ? auth.features : [],
+  })
   return hub.accept(c.req.raw, {
     tenantId: membership.tenantId,
     userId: auth.user.id,
     sessionId: auth.session.id,
+    globalAdmin,
+    canRead: realtimeTopicSubjects().filter(subject => ability.can('read', subject as Subjects)),
   })
 })

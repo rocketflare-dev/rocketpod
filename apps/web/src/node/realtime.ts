@@ -20,6 +20,13 @@
  * the previous one. Shutdown closes every socket with 1001 ("going away"), which the client treats
  * as a deploy and reconnects at once.
  *
+ * **Topics** (`@rocketpod/shared/realtime` § Topics): a client may also send
+ * `{"type":"subscribe","topic":…}` / `unsubscribe` (`realtimeClientMessageSchema`). The hub keeps
+ * a topic on the connection only when `canSubscribeTopic(member, topic)` allows — the member's
+ * `canRead` and `globalAdmin` were decided by `/ws` — and silently refuses anything else, at most
+ * `MAX_TOPICS_PER_SOCKET` per socket. `toTopic` publishes `{ t, k, e }`; delivery is to the
+ * subscribed sockets of the tenant the topic names (any tenant for a platform topic).
+ *
  * `accept()` is the RealtimeHub seam: `routes/ws.ts` authenticates and checks membership, then
  * hands over the identity. Node's HTTP upgrade happens outside the fetch handler, so the server
  * runs the app inside `upgradeScope` (an AsyncLocalStorage slot); `accept()` records the member in
@@ -29,12 +36,17 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import type { IncomingMessage } from 'node:http'
 import type { Duplex } from 'node:stream'
-import type { RealtimeEvent } from '@rocketpod/shared/realtime'
+import {
+  canSubscribeTopic,
+  parseRealtimeTopic,
+  type RealtimeEvent,
+  realtimeClientMessageSchema,
+} from '@rocketpod/shared/realtime'
 import postgres from 'postgres'
 import { type WebSocket, WebSocketServer } from 'ws'
 import type { AppConfig } from '../config'
 import { resolveDatabaseUrl } from '../db/client'
-import type { BroadcastResult, RealtimeHub } from '../platform/types'
+import type { BroadcastResult, RealtimeHub, RealtimeMember } from '../platform/types'
 
 export const REALTIME_CHANNEL = 'rp_realtime'
 /** NOTIFY's payload limit is 8000 bytes; stay strictly under it. */
@@ -44,18 +56,26 @@ const PONG = JSON.stringify({ type: 'pong' })
 /** "Going away": the UI reconnects at once instead of backing off. */
 export const GOING_AWAY = 1001
 
-export interface HubMember {
-  tenantId: string
-  userId: string
-  sessionId: string
-}
+/** Who a socket is: `routes/ws.ts` decided it (topic grants included); the hub only reads it. */
+export type HubMember = RealtimeMember
 
-/** What travels through NOTIFY: the tenant, an optional user filter, and the event itself. */
+/** Topics one socket may hold at once — a page subscribes to a handful, never hundreds. */
+export const MAX_TOPICS_PER_SOCKET = 64
+
+/**
+ * What travels through NOTIFY: the tenant, an optional user filter, and the event itself — or, for
+ * a TOPIC send, the topic `k`: delivered to the sockets subscribed to it, within tenant `t` for a
+ * tenant topic (the tenant the topic names) and on any tenant for a platform one (`t` = `*`).
+ */
 interface Envelope {
   t: string
   u?: string[]
+  k?: string
   e: RealtimeEvent
 }
+
+/** Any tenant: a platform topic's envelope. */
+const ANY_TENANT = '*'
 
 /** The per-upgrade slot `accept()` fills while the app handles an upgrade request. */
 export interface UpgradeSlot {
@@ -78,6 +98,8 @@ interface Connection {
   ws: WebSocket
   member: HubMember
   alive: boolean
+  /** The topics this socket subscribed to (and was allowed to). */
+  topics: Set<string>
 }
 
 export interface NodeRealtimeOptions {
@@ -135,27 +157,39 @@ export function createNodeRealtime(options: NodeRealtimeOptions): NodeRealtime {
 
   // ---- local sockets ----------------------------------------------------------------------------
 
-  function deliver(envelope: Envelope): void {
-    const conns = byTenant.get(envelope.t)
-    if (!conns) return
-    const users = envelope.u ? new Set(envelope.u) : null
-    const payload = JSON.stringify(envelope.e)
-    for (const conn of conns) {
-      if (users && !users.has(conn.member.userId)) continue
+  function send(conn: Connection, payload: string): void {
+    try {
+      conn.ws.send(payload)
+    } catch {
       try {
-        conn.ws.send(payload)
+        conn.ws.close(1011, 'send failed')
       } catch {
-        try {
-          conn.ws.close(1011, 'send failed')
-        } catch {
-          // already closed
-        }
+        // already closed
       }
     }
   }
 
+  function deliver(envelope: Envelope): void {
+    const payload = JSON.stringify(envelope.e)
+    if (envelope.k !== undefined) {
+      const topic = envelope.k
+      const pools = envelope.t === ANY_TENANT ? [...byTenant.values()] : [byTenant.get(envelope.t)]
+      for (const conns of pools) {
+        for (const conn of conns ?? []) if (conn.topics.has(topic)) send(conn, payload)
+      }
+      return
+    }
+    const conns = byTenant.get(envelope.t)
+    if (!conns) return
+    const users = envelope.u ? new Set(envelope.u) : null
+    for (const conn of conns) {
+      if (users && !users.has(conn.member.userId)) continue
+      send(conn, payload)
+    }
+  }
+
   function register(ws: WebSocket, member: HubMember): void {
-    const conn: Connection = { ws, member, alive: true }
+    const conn: Connection = { ws, member, alive: true, topics: new Set() }
     let conns = byTenant.get(member.tenantId)
     if (!conns) {
       conns = new Set()
@@ -173,10 +207,20 @@ export function createNodeRealtime(options: NodeRealtimeOptions): NodeRealtime {
         ws.send(PONG)
         return
       }
+      let parsed: unknown
       try {
-        if ((JSON.parse(text) as { type?: unknown }).type === 'ping') ws.send(PONG)
+        parsed = JSON.parse(text)
       } catch {
-        // ignore malformed frames
+        return // ignore malformed frames
+      }
+      const message = realtimeClientMessageSchema.safeParse(parsed)
+      if (!message.success) return
+      const frame = message.data
+      if (frame.type === 'ping') ws.send(PONG)
+      else if (frame.type === 'unsubscribe') conn.topics.delete(frame.topic)
+      // A refused subscription is silently not added: the socket learns nothing about the topic.
+      else if (conn.topics.size < MAX_TOPICS_PER_SOCKET && canSubscribeTopic(member, frame.topic)) {
+        conn.topics.add(frame.topic)
       }
     })
     const drop = () => {
@@ -298,6 +342,15 @@ export function createNodeRealtime(options: NodeRealtimeOptions): NodeRealtime {
     toUser: (tenantId, userId, event) => publish({ t: tenantId, u: [userId], e: event }),
     toUsers: (tenantId, userIds, event) =>
       publish({ t: tenantId, u: [...new Set(userIds)], e: event }),
+    async toTopic(topic, event) {
+      const parsed = parseRealtimeTopic(topic)
+      if (!parsed) {
+        log(`realtime: dropped a ${event.type} event for an unregistered topic ${topic}`)
+        return { delivered: 0 }
+      }
+      // A tenant topic is delivered inside the tenant it NAMES, whatever the event claims.
+      return publish({ t: parsed.tenantId ?? ANY_TENANT, k: topic, e: event })
+    },
     async accept(_request, member) {
       const slot = upgradeScope.getStore()
       if (!wss || !slot) {

@@ -15,7 +15,13 @@
 
 import type { RealtimeEvent } from '@rocketpod/shared/realtime'
 import type { Realtime } from '../../api/services/realtime'
-import { nudge, nudgeUser, nudgeUsers, realtimeEvent } from '../../api/services/realtime'
+import {
+  nudge,
+  nudgeTopic,
+  nudgeUser,
+  nudgeUsers,
+  realtimeEvent,
+} from '../../api/services/realtime'
 import type { Broadcaster } from '../../platform/types'
 
 export interface StepRealtime {
@@ -27,6 +33,8 @@ export interface StepRealtime {
   send(event: RealtimeEvent): Promise<void>
   sendToUser(userId: string, event: RealtimeEvent): Promise<void>
   sendToUsers(userIds: string[], event: RealtimeEvent): Promise<void>
+  /** The sockets subscribed to `topic` (`@rocketpod/shared/realtime` § Topics). */
+  sendToTopic(topic: string, event: RealtimeEvent): Promise<void>
 }
 
 export function createStepRealtimeFor(hub: Broadcaster | null): StepRealtime {
@@ -58,6 +66,10 @@ export function createStepRealtimeFor(hub: Broadcaster | null): StepRealtime {
     },
     sendToUsers: async (userIds, event) => {
       nudgeUsers(realtime, userIds, event)
+      await settle()
+    },
+    sendToTopic: async (topic, event) => {
+      nudgeTopic(realtime, topic, event)
       await settle()
     },
   }

@@ -79,6 +79,8 @@ export {
   notifyMany,
   nudge,
   nudgeEntity,
+  nudgeEntityTopic,
+  nudgeTopic,
   nudgeUser,
   nudgeUsers,
   realtimeEvent,

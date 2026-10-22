@@ -23,6 +23,9 @@ React 18 + Vite + React Router 6 + TanStack Query 5 + zustand; DaisyUI 5 on Tail
   (connects the singleton once authenticated with a tenant, `useQueryClient()` →
   `invalidateQueries` per root from `invalidationsFor(event)`, toasts `notification.created`),
   `WebSocketStatus` (header dot), `ConnectionBanner` (after 5 s away from `open`).
+  `hooks/useRealtimeTopic.ts` (`useRealtimeTopic(topic | null)`) declares interest in one realtime
+  TOPIC while mounted (`websocketClient.subscribe`: reference-counted, resent on every reconnect);
+  its events arrive through the provider like any other.
   `components/shared/` — generic primitives only (Toast, Modal, SectionPanel, PaginationControls,
   FieldError…) plus the D29 visibility trio (`AccessPicker`, `AccessBadge`, `VisibilityModal`) —
   markdown-free by construction, which is what lets them sit in the eager barrel. `components/ai/` (D17) — `Markdown` (react-markdown + GFM, `skipHtml`, links

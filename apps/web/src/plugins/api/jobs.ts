@@ -21,6 +21,7 @@ import type { JobContext } from '../../api/queues/jobs'
 import type { TaskContext } from '../../api/scheduled'
 import { tenantFeatures } from '../../api/services/features'
 import { enqueueJob, enqueueJobs } from '../../api/services/jobs'
+import { realtimeEvent } from '../../api/services/realtime'
 import type { Platform } from '../../platform/types'
 import { createStepRealtimeFor } from './realtime-step'
 import type { PluginContext } from './types'
@@ -45,6 +46,11 @@ export interface BackgroundMethods {
    * nudge: there is no `waitUntil` here to hang it on.
    */
   nudge(tenantId: string, entity: string, id?: string): Promise<void>
+  /**
+   * The same nudge to the sockets SUBSCRIBED to `topic` only (`tenantTopic(...)` over a kind the
+   * plugin declared in `SharedPlugin.realtimeTopics`). Awaited, like `nudge`.
+   */
+  nudgeTopic(tenantId: string, topic: string, entity: string, id?: string): Promise<void>
   /**
    * The feature keys one organisation has (D30) — what `auth.features` is on a request, resolved
    * here for a tenant named per call. A cron that fans out across every organisation reads this to
@@ -82,6 +88,12 @@ export function backgroundMethods(
     },
     nudge: async (tenantId, entity, id) => {
       await createStepRealtimeFor(platform.realtime).nudgeEntity(tenantId, entity, id)
+    },
+    nudgeTopic: async (tenantId, topic, entity, id) => {
+      await createStepRealtimeFor(platform.realtime).sendToTopic(
+        topic,
+        realtimeEvent('entity.changed', tenantId, { entity, ...(id && { id }) })
+      )
     },
     features: tenantId => tenantFeatures(db, config, tenantId),
   }

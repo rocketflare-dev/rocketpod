@@ -206,6 +206,10 @@ The server surface: the context family, and the types a plugin must be able to n
   Tenant-wide nudge (member / invitation / tenant changes). No-op without a hub.
 - `function nudgeEntity( realtime: Realtime \| undefined, tenantId: string, entity: string, id?: string ): void`
   Nudge every socket in one tenant that a family of rows moved.
+- `function nudgeEntityTopic( realtime: Realtime \| undefined, tenantId: string, topic: string, entity: string, id?: string ): void`
+  Nudge the sockets SUBSCRIBED to one topic that a family of rows moved — the viewers of one row, not the whole tenant. `topic` is `tenantTopic('<id>.<kind>', tenantId, rowId)` from…
+- `function nudgeTopic(rt: Realtime \| undefined, topic: string, event: RealtimeEvent): void`
+  Every socket SUBSCRIBED to `topic` (`@rocketpod/shared/realtime` § Topics) — one row's viewers, not the whole tenant. Build the topic with `tenantTopic(prefix, tenantId, id)`,…
 - `function nudgeUser(rt: Realtime \| undefined, userId: string, event: RealtimeEvent): void`
   One user's sockets in the tenant (their notifications).
 - `function nudgeUsers( rt: Realtime \| undefined, userIds: string[], event: RealtimeEvent ): void`
@@ -328,6 +332,8 @@ The server surface: the context family, and the types a plugin must be able to n
   - `enqueueMany(inputs: readonly JobInput[], options?: { delaySeconds?: number }): Promise<void>`
   - `nudge(entity: string, id?: string): void`
     Tell this organisation's open tabs that a family of rows moved. `entity` IS the query-key family root, so declaring it once covers the socket wiring (D8).
+  - `nudgeTopic(topic: string, entity: string, id?: string): void`
+    The same nudge to the sockets SUBSCRIBED to `topic` only — one row's viewers (D8, `@rocketpod/ shared/realtime` § Topics). `topic` is `tenantTopic('<id>.<kind>', ctx.tenantId,…
   - `storage(): StorageService`
     Object storage, or a 503 `storage_not_configured` — loud, because a silently absent store loses bytes.
   - `notFound(message?: string, code?: string): never`
@@ -420,6 +426,8 @@ The server surface: the context family, and the types a plugin must be able to n
   - `send(event: RealtimeEvent): Promise<void>`
   - `sendToUser(userId: string, event: RealtimeEvent): Promise<void>`
   - `sendToUsers(userIds: string[], event: RealtimeEvent): Promise<void>`
+  - `sendToTopic(topic: string, event: RealtimeEvent): Promise<void>`
+    The sockets subscribed to `topic` (`@rocketpod/shared/realtime` § Topics).
 - `type Subjects = CoreSubject \| PluginSubject \| FeatureSubject`
 - `type Tenant = typeof tenants.$inferSelect`
 - `interface Tool<Input = unknown>`
@@ -645,6 +653,7 @@ Components and hooks, for a lazy PAGE. Never for the UI entry.
 - `function useMyGroups()`
   Every member may read their OWN groups — the profile list, and what the picker offers them.
 - `function usePermissions()`
+- `function useRealtimeTopic(topic: string \| null): void`
 - `function useTenancyMode(): TenancyMode`
   `'single'` hides OrgSwitcher, /select-tenant and org create/delete (D25).
 - `const useToastStore: UseBoundStore<StoreApi<ToastStore>>`
@@ -823,6 +832,8 @@ What a plugin's CONTRACT module imports: the error envelope, pagination, `Shared
     Extra `[vars]` / secrets, merged into the Worker's config schema (`apps/web/src/config.ts`). A zod raw shape rather than a whole object so the kit's schema stays one schema.
   - `readonly realtimeRoots?: readonly string[]`
     Query-key roots that `access.changed` should invalidate (D29): a plugin whose rows carry `visibility` has to be re-fetched when somebody's group membership moves under them.
+  - `readonly realtimeTopics?: readonly RealtimeTopicDefinition[]`
+    Realtime TOPICS this plugin publishes on (`@rocketpod/shared/realtime` § Topics): a channel a page subscribes to by name — one row's live progress — rather than the tenant-wide…
 - `type SubjectOf = NonNullable<DeclaredBy<S, 'subjects'>>[number]`
   The CASL subjects one plugin declares.
 - `type Subjects = CoreSubject \| PluginSubject \| FeatureSubject`
@@ -1076,6 +1087,8 @@ nothing in the comparison that can throw.
 @/plugins/api :: function :: notifyMany :: async function notifyMany( db: Database, userIds: string[], input: Omit<NotifyInput, 'userId'>, realtime?: Realtime )
 @/plugins/api :: function :: nudge :: function nudge(rt: Realtime | undefined, event: RealtimeEvent): void
 @/plugins/api :: function :: nudgeEntity :: function nudgeEntity( realtime: Realtime | undefined, tenantId: string, entity: string, id?: string ): void
+@/plugins/api :: function :: nudgeEntityTopic :: function nudgeEntityTopic( realtime: Realtime | undefined, tenantId: string, topic: string, entity: string, id?: string ): void
+@/plugins/api :: function :: nudgeTopic :: function nudgeTopic(rt: Realtime | undefined, topic: string, event: RealtimeEvent): void
 @/plugins/api :: function :: nudgeUser :: function nudgeUser(rt: Realtime | undefined, userId: string, event: RealtimeEvent): void
 @/plugins/api :: function :: nudgeUsers :: function nudgeUsers( rt: Realtime | undefined, userIds: string[], event: RealtimeEvent ): void
 @/plugins/api :: function :: openSecret :: async function openSecret(config: PluginConfig, sealed: string): Promise<string>
@@ -1150,6 +1163,7 @@ nothing in the comparison that can throw.
 @/plugins/api :: member :: RequestCtx.enqueue :: enqueue(input: JobInput, options?: { delaySeconds?: number }): Promise<JobEnvelope>
 @/plugins/api :: member :: RequestCtx.enqueueMany :: enqueueMany(inputs: readonly JobInput[], options?: { delaySeconds?: number }): Promise<void>
 @/plugins/api :: member :: RequestCtx.nudge :: nudge(entity: string, id?: string): void
+@/plugins/api :: member :: RequestCtx.nudgeTopic :: nudgeTopic(topic: string, entity: string, id?: string): void
 @/plugins/api :: member :: RequestCtx.storage :: storage(): StorageService
 @/plugins/api :: member :: RequestCtx.notFound :: notFound(message?: string, code?: string): never
 @/plugins/api :: member :: RequestCtx.badRequest :: badRequest(message?: string, code?: string, details?: unknown): never
@@ -1210,6 +1224,7 @@ nothing in the comparison that can throw.
 @/plugins/api :: member :: StepRealtime.send :: send(event: RealtimeEvent): Promise<void>
 @/plugins/api :: member :: StepRealtime.sendToUser :: sendToUser(userId: string, event: RealtimeEvent): Promise<void>
 @/plugins/api :: member :: StepRealtime.sendToUsers :: sendToUsers(userIds: string[], event: RealtimeEvent): Promise<void>
+@/plugins/api :: member :: StepRealtime.sendToTopic :: sendToTopic(topic: string, event: RealtimeEvent): Promise<void>
 @/plugins/api :: type :: Subjects :: type Subjects = CoreSubject | PluginSubject | FeatureSubject
 @/plugins/api :: type :: Tenant :: type Tenant = typeof tenants.$inferSelect
 @/plugins/api :: interface :: Tool :: interface Tool<Input = unknown>
@@ -1339,6 +1354,7 @@ nothing in the comparison that can throw.
 @/plugins/api/ui :: function :: useGroupTypes :: function useGroupTypes(enabled = true)
 @/plugins/api/ui :: function :: useMyGroups :: function useMyGroups()
 @/plugins/api/ui :: function :: usePermissions :: function usePermissions()
+@/plugins/api/ui :: function :: useRealtimeTopic :: function useRealtimeTopic(topic: string | null): void
 @/plugins/api/ui :: function :: useTenancyMode :: function useTenancyMode(): TenancyMode
 @/plugins/api/ui :: const :: useToastStore :: const useToastStore: UseBoundStore<StoreApi<ToastStore>>
 @/plugins/api/ui :: function :: VisibilityModal :: function VisibilityModal({ open, onClose, name, visibility, groups, available, tenantName, isSaving = false, onSave, }: VisibilityModalProps)
@@ -1438,6 +1454,7 @@ nothing in the comparison that can throw.
 @rocketpod/shared/plugins/api :: member :: SharedPlugin.features :: readonly features?: Readonly<Record<string, FeatureDefinition>>
 @rocketpod/shared/plugins/api :: member :: SharedPlugin.config :: readonly config?: ZodRawShape
 @rocketpod/shared/plugins/api :: member :: SharedPlugin.realtimeRoots :: readonly realtimeRoots?: readonly string[]
+@rocketpod/shared/plugins/api :: member :: SharedPlugin.realtimeTopics :: readonly realtimeTopics?: readonly RealtimeTopicDefinition[]
 @rocketpod/shared/plugins/api :: type :: SubjectOf :: type SubjectOf = NonNullable<DeclaredBy<S, 'subjects'>>[number]
 @rocketpod/shared/plugins/api :: type :: Subjects :: type Subjects = CoreSubject | PluginSubject | FeatureSubject
 '../api' (apps/cli/src/plugins/api.ts) :: type :: ActionWrapper :: type ActionWrapper = ( handler: (ctx: CommandContext, command: Command) => Promise<void> ) => (...args: unknown[]) => Promise<void>

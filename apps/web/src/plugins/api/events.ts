@@ -15,7 +15,13 @@
 import { recordActivity } from '../../api/services/activity'
 import { notify, notifyMany } from '../../api/services/notifications'
 import type { Realtime } from '../../api/services/realtime'
-import { nudge, nudgeUser, nudgeUsers, realtimeEvent } from '../../api/services/realtime'
+import {
+  nudge,
+  nudgeTopic,
+  nudgeUser,
+  nudgeUsers,
+  realtimeEvent,
+} from '../../api/services/realtime'
 
 export type { ActivityInput } from '../../api/services/activity'
 export type { NotifyInput } from '../../api/services/notifications'
@@ -38,6 +44,26 @@ export function nudgeEntity(
 }
 
 /**
+ * Nudge the sockets SUBSCRIBED to one topic that a family of rows moved — the viewers of one row,
+ * not the whole tenant. `topic` is `tenantTopic('<id>.<kind>', tenantId, rowId)` from
+ * `@rocketpod/shared/realtime`, over a kind the plugin declared in `SharedPlugin.realtimeTopics`
+ * (an undeclared one throws there). The UI side is `useRealtimeTopic(topic)`.
+ */
+export function nudgeEntityTopic(
+  realtime: Realtime | undefined,
+  tenantId: string,
+  topic: string,
+  entity: string,
+  id?: string
+): void {
+  nudgeTopic(
+    realtime,
+    topic,
+    realtimeEvent('entity.changed', tenantId, { entity, ...(id && { id }) })
+  )
+}
+
+/**
  * Write a notification (and nudge the recipient's bell). Post-commit, like every nudge: a
  * notification about a row nobody can read yet is worse than a late one.
  */
@@ -45,4 +71,13 @@ export function nudgeEntity(
  * Append to the tenant's audit log. Fire it through `ctx.defer(...)` from a route — it is a side
  * effect that must never fail the response — and `await` it everywhere else.
  */
-export { notify, notifyMany, nudge, nudgeUser, nudgeUsers, realtimeEvent, recordActivity }
+export {
+  notify,
+  notifyMany,
+  nudge,
+  nudgeTopic,
+  nudgeUser,
+  nudgeUsers,
+  realtimeEvent,
+  recordActivity,
+}

@@ -4,9 +4,9 @@
  * creates one, named `APP_NAME`, as owner; once any tenant exists it never fires again. Before
  * this the only way to the first workspace was SQL.
  *
- * "No tenant yet" cannot be arranged in the shared test database, so each case runs inside a
- * transaction that deletes every tenant first and always rolls back — at REPEATABLE READ, because
- * other test workers keep creating tenants in parallel.
+ * "No tenant yet" cannot be arranged in the shared test database — deleting every tenant races
+ * the other test workers — so the empty install is a view of the real database whose one
+ * "does any tenant exist?" read (`db.query.tenants.findFirst`) answers no. Every write is real.
  */
 import { eq } from 'drizzle-orm'
 import { describe, expect, it, vi } from 'vitest'
@@ -21,25 +21,19 @@ import { createTestEnv } from '../mocks/bindings'
 const db = setupTestDatabase()
 const logger = () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() })
 
-class Rollback extends Error {}
-
-/** Run `body` against a database with no tenants, then undo everything. */
-async function onEmptyInstall(body: (tx: Database) => Promise<void>) {
-  await db
-    .transaction(
-      async tx => {
-        await tx.delete(tenants)
-        await body(tx as unknown as Database)
-        throw new Rollback()
-        // REPEATABLE READ: one snapshot for the whole transaction, so a tenant another test worker
-        // commits meanwhile is not seen (under READ COMMITTED it was, and the case flaked).
-      },
-      { isolationLevel: 'repeatable read' }
-    )
-    .catch(err => {
-      if (!(err instanceof Rollback)) throw err
+/** `db`, as an install with no tenant: `query.tenants.findFirst` finds nothing. */
+const emptyInstall = new Proxy(db, {
+  get(target, prop, receiver) {
+    if (prop !== 'query') return Reflect.get(target, prop, receiver)
+    const query = target.query
+    return new Proxy(query, {
+      get: (q, table) =>
+        table === 'tenants'
+          ? { ...q.tenants, findFirst: async () => undefined }
+          : Reflect.get(q, table),
     })
-}
+  },
+}) as Database
 
 const cfgFor = (email: string) =>
   loadConfig(
@@ -53,32 +47,30 @@ const cfgFor = (email: string) =>
 
 describe('onNoTenant — the bootstrap admin on a fresh multi-tenant install', () => {
   it('creates the first workspace, named APP_NAME, with the admin as owner', async () => {
-    await onEmptyInstall(async tx => {
-      const admin = await createTestUser(tx, { isGlobalAdmin: true })
-      const tenantId = await onNoTenant(tx, cfgFor(admin.email), admin, logger())
-      expect(tenantId).not.toBeNull()
-      const [tenant] = await tx
-        .select()
-        .from(tenants)
-        .where(eq(tenants.id, tenantId as string))
-      expect(tenant?.name).toBe('Acme')
-      const [member] = await tx
-        .select()
-        .from(tenantUsers)
-        .where(eq(tenantUsers.tenantId, tenantId as string))
-      expect(member).toMatchObject({ userId: admin.id, role: 'owner' })
-    })
+    const admin = await createTestUser(db, { isGlobalAdmin: true })
+    const tenantId = await onNoTenant(emptyInstall, cfgFor(admin.email), admin, logger())
+    expect(tenantId).not.toBeNull()
+    const [tenant] = await db
+      .select()
+      .from(tenants)
+      .where(eq(tenants.id, tenantId as string))
+    expect(tenant?.name).toBe('Acme')
+    const members = await db
+      .select()
+      .from(tenantUsers)
+      .where(eq(tenantUsers.tenantId, tenantId as string))
+    expect(members).toEqual([expect.objectContaining({ userId: admin.id, role: 'owner' })])
   })
 
   it('does nothing once any tenant exists, or for a global admin who is not a bootstrap one', async () => {
-    // A tenant exists (the shared database always has some): invite-only means no workspace.
+    // A real tenant exists: invite-only means no workspace, bootstrap admin or not.
     await createTestTenantWithUser(db, 'owner')
     const admin = await createTestUser(db, { isGlobalAdmin: true })
     expect(await onNoTenant(db, cfgFor(admin.email), admin, logger())).toBeNull()
     // An empty install, but this global admin is not on BOOTSTRAP_ADMIN_EMAILS.
-    await onEmptyInstall(async tx => {
-      const other = await createTestUser(tx, { isGlobalAdmin: true })
-      expect(await onNoTenant(tx, cfgFor('someone-else@example.test'), other, logger())).toBeNull()
-    })
+    const other = await createTestUser(db, { isGlobalAdmin: true })
+    expect(
+      await onNoTenant(emptyInstall, cfgFor('someone-else@example.test'), other, logger())
+    ).toBeNull()
   })
 })

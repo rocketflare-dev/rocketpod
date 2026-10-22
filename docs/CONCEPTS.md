@@ -459,7 +459,9 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   sent, so the model must honour it) → 503. **There is no zero-key mode** (D41): no key means chat,
   agents and indexing answer 503; the gate needs none (tests point both at an in-process fake
   OpenAI-compatible endpoint). Credentials never leave the server (`hasCredential`); every
-  error is normalised to `AiError` with secrets redacted.
+  error is normalised to `AiError` with secrets redacted. Every `ai_configs` WRITE goes through
+  `services/ai/configs.ts` (validate, encrypt, upsert, default swap, delete), so a second screen
+  that manages a tenant's providers cannot drift from Settings → AI.
 - **Providers**: `anthropic`, `anthropic_compatible`, `openai`, `openai_compatible`. There is no
   Vercel AI SDK and no Bedrock (a SigV4 adapter behind `ChatClient` is the extension). History rows
   written by Rocketflare's `workers_ai` provider still parse (`RECORDED_AI_PROVIDERS`) and show as
@@ -497,7 +499,8 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   `streamDatabase(c)`. A cancelled run emits no terminal event. Chat can call the three knowledge
   tools (`CHAT_KNOWLEDGE_TOOLS`), capped at 6 turns. **Long threads are compacted**: a
   character-budget window (`CHAT_HISTORY_MAX_CHARS`), with the dropped prefix folded into
-  `conversations.summary` by the `chat.compact` job (compare-and-set). Document cards come from
+  `conversations.summary` by the `chat.compact` job (compare-and-set) — its work is
+  `compactConversation` (`services/ai/chat-compaction.ts`), callable on any thread. Document cards come from
   `kit.document` events produced by a pure mapper, so nothing about a card is stored. The admin
   inspector (`/stats`) is derived per request.
 - **Agents (D7)**: `POST /api/agents/runs` enqueues (row → Workflow instance → 202); the exclusive

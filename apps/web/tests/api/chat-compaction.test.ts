@@ -12,13 +12,13 @@
  */
 import { KIT_CUSTOM_EVENTS } from '@rocketpod/shared/ai/agui'
 import { CHAT_COMPACTION_MIN_CHARS } from '@rocketpod/shared/ai/chat'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { handleChatCompact } from '@/api/queues/handlers/chat-compact'
 import type { JobContext } from '@/api/queues/jobs'
 import { AiNotConfiguredError } from '@/api/services/ai/errors'
 import { loadConfig } from '@/config'
-import { conversations, messages } from '@/db/schema'
+import { aiUsage, conversations, messages } from '@/db/schema'
 import { aguiFrames, customEvent, FakeChatClient } from '../helpers/ai'
 import { createTestSession, createTestTenantWithUser, sessionCookieHeader } from '../helpers/auth'
 import { setupTestDatabase } from '../helpers/db'
@@ -127,6 +127,14 @@ describe('the chat.compact job', () => {
     expect(after?.summary).toBe('User asked about volcanoes; assistant explained eruptions.')
     // 2 messages fit the 2 500-char budget, so the watermark is the 6th of 8.
     expect(after?.summarisedThroughId).toBe(t.rows[5]?.id)
+    // The usage row is written BEFORE the handler returns — the consumer closes the job's client
+    // right after, so a fire-and-forget write would race it.
+    const usage = await db
+      .select()
+      .from(aiUsage)
+      .where(and(eq(aiUsage.tenantId, t.tenant.id), eq(aiUsage.feature, 'chat:compaction')))
+    expect(usage).toHaveLength(1)
+    expect(usage[0]).toMatchObject({ userId: t.user.id, model: 'fake-model' })
   })
 
   it('folds the previous summary in rather than replacing it blind', async () => {

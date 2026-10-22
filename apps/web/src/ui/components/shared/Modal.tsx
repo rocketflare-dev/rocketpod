@@ -1,5 +1,5 @@
 import { XMarkIcon } from '@heroicons/react/24/outline'
-import { type ReactNode, useEffect, useRef } from 'react'
+import { type ReactNode, useEffect, useId, useRef } from 'react'
 
 export interface ModalProps {
   open: boolean
@@ -29,6 +29,7 @@ export function Modal({
   className = '',
 }: ModalProps) {
   const ref = useRef<HTMLDialogElement>(null)
+  const titleId = useId()
 
   useEffect(() => {
     const dialog = ref.current
@@ -46,6 +47,7 @@ export function Modal({
     <dialog
       ref={ref}
       className="modal"
+      aria-labelledby={title ? titleId : undefined}
       onCancel={e => {
         // Escape: keep React in charge of `open`
         e.preventDefault()
@@ -58,7 +60,11 @@ export function Modal({
       <div className={`modal-box popover-surface p-0 flex flex-col max-h-[85vh] ${className}`}>
         {(title || closeButton) && (
           <div className="flex items-start justify-between gap-4 px-5 pt-5 shrink-0">
-            {title && <h3 className="text-base font-semibold leading-6">{title}</h3>}
+            {title && (
+              <h3 id={titleId} className="text-base font-semibold leading-6">
+                {title}
+              </h3>
+            )}
             {closeButton && (
               <button
                 type="button"

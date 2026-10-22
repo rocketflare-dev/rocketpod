@@ -14,6 +14,7 @@ export {
   evalSkipReason,
   skipEvals,
 } from './env'
+export { contextFromGuideResult, guideHarness } from './guide-target'
 export { judgeHarness } from './judge-harness'
 export {
   BudgetJudge,

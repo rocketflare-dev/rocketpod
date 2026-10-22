@@ -103,12 +103,16 @@ export const RLS_REVOKED_TABLES = [
  * tenant column at all, readable by the app role on every request (D30). Its per-tenant companion,
  * `tenant_feature_overrides`, is policied like any other tenant table. `platform_agent_models` is
  * the same kind of row: the platform default model per prompt key, with no tenant column, read by
- * the resolver for any tenant that decided nothing for that key.
+ * the resolver for any tenant that decided nothing for that key. `guide_chunks` is excluded for
+ * the same kind of reason: the Guide is static product documentation shared by every tenant, with
+ * no tenant column and no tenant data (`schema/guide-chunks.ts`); the guide route decides access
+ * and retrieval applies the reader's audience.
  */
 export const RLS_EXCLUDED_TABLES = [
   ...RLS_REVOKED_TABLES,
   'feature_flags',
   'platform_agent_models',
+  'guide_chunks',
 ] as const
 
 /**

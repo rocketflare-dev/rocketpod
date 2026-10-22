@@ -68,6 +68,8 @@ describe('the image', () => {
     expect(DOCKERFILE).toMatch(/^CMD \["web"\]$/m)
     expect(DOCKERFILE).toContain('/repo/apps/web/dist/ui ./dist/ui')
     expect(DOCKERFILE).toContain('/repo/apps/web/migrations ./migrations')
+    // `defaultGuideContentDir()` reads `content/guide` under the working directory (`/app`).
+    expect(DOCKERFILE).toContain('/repo/apps/web/content/guide ./content/guide')
     expect(DOCKERFILE).toMatch(/^USER node$/m)
   })
 

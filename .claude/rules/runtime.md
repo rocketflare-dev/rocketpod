@@ -43,6 +43,7 @@ entry (`src/node/platform.ts`) and read as `c.get('platform')` / `ctx.platform`:
 | `storage` | any S3-compatible store (`src/node/storage.ts`, `STORAGE_*`): ranged `get` (`StorageRange` → `StoredRange`, `StorageRangeNotSatisfiableError`), multipart `putStream` (`@aws-sdk/lib-storage`, pinned to `client-s3`'s version) |
 | `rateLimiter`, `locks` | Postgres tables `rate_limits`, `operation_locks` (`src/node/limits.ts`) |
 | `converter` | unpdf / mammoth (`src/node/converter.ts`) |
+| `guide` | the Guide's pages and images under `content/guide` (`src/node/guide-content.ts`; cached when `NODE_ENV=production`, re-read in dev). A `web`/`all` boot also loads the pages into `guide_chunks` in the defer set (`loadGuide: false` in tests) |
 
 There is no `ai` member: the provider keys (`ANTHROPIC_API_KEY`, `AI_*`, `EMBEDDINGS_*`) cover AI.
 A null member is a configuration state the callers already answer (503 `*_not_configured`, a no-op

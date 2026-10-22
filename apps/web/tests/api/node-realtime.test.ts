@@ -52,7 +52,15 @@ beforeAll(async () => {
     heartbeatMs: 150,
     applicationName: appName,
   })
-  server = await startServer({ env, mode: 'web', port: 0, realtime, log: () => {} })
+  // `loadGuide: false`: the boot load writes the GLOBAL `guide_chunks`, which `guide.test.ts` owns.
+  server = await startServer({
+    env,
+    mode: 'web',
+    port: 0,
+    realtime,
+    loadGuide: false,
+    log: () => {},
+  })
   await realtime.ready()
   wsBase = `ws://127.0.0.1:${server.port}/ws`
   // "Another pod": publishes through NOTIFY only, like a worker process.

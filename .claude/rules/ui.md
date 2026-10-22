@@ -210,6 +210,7 @@ resent on every reconnect), whose events still arrive through the provider's inv
   render model output through `Markdown` (`skipHtml`, links `noopener`), never
   `dangerouslySetInnerHTML`; user text renders verbatim (`whitespace-pre-wrap`). `pages/agents/**`
   imports `Markdown` too and is lazy for the same reason (Vite emits one shared `Markdown-*.js`)
+- **The Guide** (`docs/CONCEPTS.md` §18): `pages/guide/**` is a lazy page and the ONE place raw HTML renders (`rehype-raw`, `script` dropped) — Guide pages are our own committed content; model output, documents and chat keep `skipHtml`. `components/guide/GuideHelp` (the header `?` and the `?` key) and `GuideChatProvider` (the one conversation, held above the routes) sit in the eager shell, so the chat body is `lazy(() => import('./GuideChat'))` and the AG-UI client `await import('@/ui/lib/guideAsk')` — `tests/config/ui-bundle.test.ts` pins both. A contextual help link is `<GuideLink path={GUIDE_SCREEN_PAGES.x} />` (`components/shared`), never a page path typed inline; a new screen gets its key in `@rocketpod/shared/guide-screens` and its line in `ui/lib/guideScreens.ts` (`screenForRoute` — fixed vocabulary only, never a URL segment)
 - **A plugin's heavy dependencies stay in its own lazy chunk (D19, D31)**: the analytics plugin's
   `drizzle-cube/client`, `recharts`, `d3`, `react-grid-layout` and `react-is` are reached only from
   its own pages and components, never from the `components/shared` barrel, `App.tsx`, `SideNav` or a

@@ -63,10 +63,26 @@ const PROSE =
   'prose-ul:my-1 prose-ol:my-1 prose-headings:text-inherit prose-strong:text-inherit ' +
   'prose-li:text-inherit prose-code:text-inherit prose-a:text-primary'
 
-function MarkdownImpl({ content, className = '' }: { content: string; className?: string }) {
+function MarkdownImpl({
+  content,
+  className = '',
+  components,
+}: {
+  content: string
+  className?: string
+  /**
+   * Element overrides merged over the defaults (Ask the Guide's in-app reader links). Keep the
+   * object stable (module-level or memoised) or the memo below cannot skip a re-render.
+   */
+  components?: Components
+}) {
   return (
     <div className={`${PROSE} ${className}`}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]} skipHtml components={COMPONENTS}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        skipHtml
+        components={components ? { ...COMPONENTS, ...components } : COMPONENTS}
+      >
         {content}
       </ReactMarkdown>
     </div>

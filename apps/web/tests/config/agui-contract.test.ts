@@ -171,6 +171,19 @@ const CUSTOM_SAMPLES: Record<string, unknown> = {
     method: 'typesafe',
     answers: [{ id: 'item_0', type: 'noul', answer: 'yes', confidence: 0.86 }],
   },
+  [KIT_CUSTOM_EVENTS.guideAnswer]: {
+    answer: 'Open Settings, then People.',
+    citations: [
+      {
+        page: 'admin/members-and-invitations.md',
+        heading: 'invite-someone',
+        note: 'the invite form',
+        title: 'Members and invitations',
+        valid: true,
+      },
+    ],
+    retrieval: 'lexical',
+  },
 }
 
 describe('AG-UI contract', () => {

@@ -5,7 +5,8 @@
  *               `AI_MODEL`) → 503
  *   embeddings: tenant default `ai_configs(scope='embeddings')` → `EMBEDDINGS_API_KEY`
  *               (OpenAI-compatible at `EMBEDDINGS_BASE_URL`, else OpenAI; model
- *               `EMBEDDINGS_MODEL`) → 503
+ *               `EMBEDDINGS_MODEL`) → 503; `resolvePlatformEmbeddings` is the platform tier
+ *               alone (the Guide's global corpus)
  *   decisions:  tenant default `ai_configs(scope='decisions')` (TypeSafe) → platform
  *               `TYPESAFE_API_KEY` → the chat model on prompt key `agent-decide` (D37, the
  *               uncalibrated `llm_self_report` fallback) → 503 from `resolveChat`
@@ -421,6 +422,31 @@ export async function resolveChat(
     }
   }
   throw new AiNotConfiguredError('chat')
+}
+
+/**
+ * The PLATFORM embeddings tier alone (`EMBEDDINGS_*`), never a tenant's row — for a GLOBAL corpus
+ * (the Guide, `services/guide-kb.ts`) whose committed vectors were built with the operator's
+ * model, so the query embedder must be the same one whichever tenant asks. Null when no platform
+ * key is set.
+ */
+export function resolvePlatformEmbeddings(
+  cfg: AppConfig,
+  options: { fetch?: FetchLike } = {}
+): { client: EmbeddingsClient; provider: AiProvider; model: string } | null {
+  const keyed = platformKeyEmbeddings(cfg)
+  if (!keyed) return null
+  return {
+    client: createEmbeddingsClient({
+      provider: keyed.provider,
+      model: keyed.model,
+      apiKey: keyed.apiKey,
+      baseUrl: keyed.baseUrl,
+      fetch: options.fetch,
+    }),
+    provider: keyed.provider,
+    model: keyed.model,
+  }
 }
 
 export async function resolveEmbeddings(

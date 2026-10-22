@@ -3,8 +3,8 @@
 # Rocketpod's one image (M7, docs/DEPLOY.md): the Hono API + React UI + background worker, and the
 # migrate one-shot. `pnpm build` bundles the Node entry into `dist/server.js` and the migrate entry
 # into `dist/migrate.js` (apps/web/scripts/build-server.mjs) — every dependency is inside the
-# bundle, so the runtime stage carries no node_modules at all: Node, the two bundles, the built UI
-# and the drizzle SQL.
+# bundle, so the runtime stage carries no node_modules at all: Node, the two bundles, the built UI,
+# the drizzle SQL and the Guide's content.
 #
 #   docker run IMAGE                  → web    (API + UI + /ws on :3001)
 #   docker run IMAGE worker           → jobs, cron and agent runs
@@ -48,6 +48,9 @@ ENV RELEASE_VERSION=${RELEASE_VERSION}
 COPY --from=build --chown=node:node /repo/apps/web/dist/server.js /repo/apps/web/dist/migrate.js ./dist/
 COPY --from=build --chown=node:node /repo/apps/web/dist/ui ./dist/ui
 COPY --from=build --chown=node:node /repo/apps/web/migrations ./migrations
+# The Guide's pages, images and committed vectors: read by the reader routes and chunked into
+# `guide_chunks` at boot (`src/node/guide-content.ts` resolves `content/guide` under WORKDIR).
+COPY --from=build --chown=node:node /repo/apps/web/content/guide ./content/guide
 
 # The `node` user (uid 1000) from the base image; the app writes nothing to its filesystem.
 USER node

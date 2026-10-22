@@ -22,6 +22,7 @@ setup in `SETUP.md`; the runtime in `.claude/rules/runtime.md`; RLS in `docs/RLS
 | 7 | [UI shell](#7-ui-shell) | 15 | [Feature flags](#15-feature-flags) |
 | 8 | [Analytics](#8-analytics) | 16 | [Plugins](#16-plugins) |
 |  |  | 17 | [Connectors](#17-connectors) |
+|  |  | 18 | [The Guide](#18-the-guide) |
 
 **Layout (D26).** A pnpm workspace: `apps/web` (the Node server — Hono API + React UI, §§1–10),
 `apps/cli` (§11), `packages/shared` (zod contracts, §12), and `apps/evals` (developer-run eval
@@ -1076,3 +1077,73 @@ no MCP client; directory sync does not provision kit users or groups (it only ma
 
 TypeSafe (Jev) is NOT a connector in this sense: it answers questions rather than syncing an
 organisation's data, so it is an AI provider in the `decisions` scope (§9, D37).
+
+## 18. The Guide
+
+Server: `api/routes/guide.ts`, `api/services/guide-{content,facts,kb,tools,citations}.ts`,
+`src/node/guide-content.ts`, `db/schema/guide-chunks.ts`. UI: `ui/pages/guide/**`,
+`ui/components/guide/**`, `components/shared/GuideLink.tsx`. Contracts: `@rocketpod/shared/guide`,
+`@rocketpod/shared/guide-screens`. Content: `apps/web/content/guide/`. Writing and keeping pages
+true: the `rp-doc-sync` skill.
+
+The in-app user guide: markdown pages read at `/guide` (contents rail, page, a resizable "Ask the
+Guide" pane) and from a header `?` slide-over (or the `?` key) that shares one conversation.
+
+- **Pages are files with frontmatter** (`title`, `part`, `section`, `order`, `audience`, `summary`,
+  `sources`, `verified`) under `content/guide/<part>/`. The TOC is DERIVED — sorted by
+  `GUIDE_PARTS`, then `GUIDE_SECTIONS`, then `order`; there is no hand-kept index. The parts and
+  sections are the app's to rewrite. The kit ships four starter pages (signing in, members and
+  invitations, API keys and the CLI, AI settings) as the `example-guide-pages` surface. Content
+  reaches the server through a `Platform` member (`guide`: `markdownFiles`, `screenshotManifest`,
+  `image`), cached in production and re-read in development; the image copies `content/guide`
+  beside `dist/`.
+- **Every member of a tenant reads it** (session or API key), and the AUDIENCE is derived
+  server-side from role (`guideAudienceFor` = `isAdminLevel`): an `admin` page is invisible to a
+  member — absent from the TOC, the same 404 as a missing page, and a SQL predicate in retrieval.
+  A member page may not link to an admin page (the staleness test fails it).
+- **Facts, not typed numbers.** A page writes `{{fact:key}}`; `guide-facts.ts` resolves it at
+  render AND index time from the real constant (`@rocketpod/shared`, light server modules), or from
+  a PINNED literal for what the server must not import (the CLI's ports, config path, exit codes,
+  bin name; two server TTLs) that `tests/config/guide-facts.test.ts` holds to the real constant.
+  `apps/cli/src/auth-constants.ts` exists so that test can read the login constants without loading
+  the CLI's HTTP client. An unknown key fails the staleness test.
+- **Retrieval is over `guide_chunks`, a global table** (no `tenant_id`; `RLS_EXCLUDED_TABLES` — no
+  tenant data). Every `web`/`all` boot chunks the pages NOW (split at H2, the reader's own heading
+  ids, `Title › Section` lead) and rewrites the table under a transaction advisory lock only when a
+  chunk differs. Vectors are optional: the committed `embeddings.jsonl.gz` (`pnpm web
+  guide:index`, which needs a platform `EMBEDDINGS_API_KEY` and costs a little) is a CACHE of
+  vectors keyed by chunk text — a chunk borrows one only when the fixture embedded that exact text
+  with its majority model. So no fixture, or a stale one, degrades to keyword search for the
+  chunks it does not cover and never breaks the Guide; the kit ships none. Search is the kit's
+  hybrid shape: the lexical half (any term, `ts_rank_cd` over the stored `search_vector`) always
+  runs, the dense half only when vectors exist AND the PLATFORM embedder (`resolvePlatformEmbeddings`,
+  never a tenant's) is the model that built them, fused by RRF; the answer reports `hybrid` or
+  `lexical` and the UI says so.
+- **Ask the Guide** (`POST /api/guide/ask`, AG-UI) runs on the tenant's chat provider (prompt key
+  `guide-chat`, so `agent_models` can pin it), with ONE tool, `search_guide`, which only this route
+  builds — the chat, agents and knowledge tools never see a Guide row
+  (`tests/config/guide-isolation.test.ts` is the source scan, `tests/api/guide.test.ts` the
+  behaviour). The model ends with a `CITATIONS:` block; the route resolves it against the asker's
+  own TOC and emits `CUSTOM kit.guide.answer`. Stateless: the client sends prior turns, nothing is
+  stored but the `ai_usage` row and the trace. A screen hint (fixed vocabulary from
+  `screenForRoute`, a character-limited label, never a URL segment) tells the model where the
+  reader is; its `page` is named only when it is a screen-map target the asker can read.
+- **Screen → page map**: `GUIDE_SCREEN_PAGES` / `GUIDE_ADMIN_SCREEN_PAGES` / `GUIDE_TOPIC_PAGES` are
+  the one place a screen's help topic is defined; `GuideLink` takes its target from there, and the
+  staleness test holds every target to a real page (a member screen to a member page).
+- **Staying true**: `pnpm web docs:stale` lists pages whose `sources` changed after `verified`
+  (structural errors exit 1; staleness never does). A Claude Code `Stop` hook runs it on the
+  working tree (`--changed --quiet --hook`): silent when nothing is stale, a `systemMessage` when
+  something is, and it never blocks or fails a session. `pnpm web guide:shots` regenerates the
+  screenshots in `screenshots.yaml` from a local dev server (dev login as the seed's owner, frozen
+  animation, fixed theme and viewport, rewritten only past a pixel-diff threshold, `--stale`);
+  Playwright is not a kit dependency — the script tells you how to install it.
+- **Evals**: `apps/evals/suites/guide/ask.eval.ts` over the committed pages (`guide-chat` dataset;
+  its baseline is provisional until someone runs it with a key).
+
+**Known gaps:** a plugin cannot contribute pages (they live only in `content/guide/`, and a
+plugin's tree is not shipped beside the bundle); no global-search hit kind for Guide sections; no
+re-ranker; no screenshot ships in the kit (the manifest is empty); one fixed set of parts per app,
+no per-tenant pages or overrides; no i18n; `screenForRoute` knows only the kit's routes and the
+Settings `?tab=`; the image `COPY` needs `content/guide/` to exist (it always holds
+`screenshots.yaml`); Ask the Guide keeps no history across tabs or reloads.

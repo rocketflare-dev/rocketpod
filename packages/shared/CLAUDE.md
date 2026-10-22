@@ -17,7 +17,7 @@ response with the same schema. `pnpm web test:config` covers the pure parts.
 `auth.ts` session/login · `tenants.ts` roles, slugs, members, invitations · `access-requests.ts` ·
 `permissions.ts` actions/subjects/`AppAbility`/packed rules (matrix lives in `apps/web/src/permissions/`) ·
 `api-keys.ts` · `tenant-settings.ts` · `user-settings.ts` · `notifications.ts` · `admin.ts` ·
-`activity.ts` · `errors.ts` envelope + codes · `pagination.ts` · `gate.ts` (`gateListSchema` — the
+`activity.ts` · `guide.ts` (the in-app Guide, `docs/CONCEPTS.md` §18: `GUIDE_PARTS` / `GUIDE_PART_LABELS` / `GUIDE_SECTIONS` — the app's own table of contents, `GUIDE_AUDIENCES` + `visibleAudiences`, `guidePageFrontmatterSchema`, the TOC/page/outline responses, `guideHref` / `guideSlugger` / `resolveGuideLink` / `guideLinkHref` / `guideImageSrc`, `GUIDE_CALLOUT_LABELS`, `guideScreenHintSchema` (a character-limited label — it is appended to a system prompt), `askGuideSchema`, `guideAnswerSchema` = `CUSTOM kit.guide.answer`'s payload, the top-k caps) · `guide-screens.ts` (`GUIDE_SCREEN_PAGES` / `GUIDE_ADMIN_SCREEN_PAGES` / `GUIDE_TOPIC_PAGES`, the one screen → page map) · `errors.ts` envelope + codes · `pagination.ts` · `gate.ts` (`gateListSchema` — the
 `pnpm gate --list --json` contract) ·
 `features.ts` (D30) — the feature-flag registry (`CORE_FEATURE_FLAGS`, now EMPTY — the kit's demo
 flag is the `example-feature` PLUGIN — merged with each plugin's `SharedPlugin.features` into

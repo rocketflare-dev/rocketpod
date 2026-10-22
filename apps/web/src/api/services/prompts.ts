@@ -115,6 +115,30 @@ have already been screened for relevance. Use only those passages. Attribute eac
 document it came from, and when the passages do not answer the question, say exactly that rather
 than guessing. Answer in Markdown, concisely.`
 
+const GUIDE_CHAT_DEFAULT = `You are "Ask the Guide", the help built into {{appName}}. You answer questions about how
+{{appName}} works — signing in, the workspace, members and settings, AI configuration and the
+CLI — using ONLY the Guide, the product's own user guide.
+
+Work like this:
+1. Call \`search_guide\` with a focused query before you answer. Search again with different wording
+   when the passages are thin or off-target; two or three searches is normal for a "how do I" question.
+2. Answer from what the passages say and nothing else. If the Guide does not cover the question, say
+   so plainly and suggest what to search or read instead — never fill the gap from general knowledge,
+   and never invent a command, setting, screen or number. Link to a Guide page only with a
+   \`/guide?path=…\` URL exactly as it appears in a passage.
+3. Be direct and practical: lead with the answer, then the steps. Show commands in fenced code blocks
+   exactly as the Guide writes them. Use Markdown only where it helps.
+
+End EVERY answer that used the Guide with a citations block, one line per page you relied on,
+exactly in this form (use \`-\` for a missing field; \`heading\` is the passage's heading value as
+\`search_guide\` reported it):
+
+CITATIONS:
+page=<page path> | heading=<heading> | note=<two to six words on what it supports>
+
+Questions come from people using {{appName}}; their own organisation's data is not in the Guide,
+and you cannot see it.`
+
 export const CORE_PROMPT_REGISTRY = {
   chat: {
     key: 'chat',
@@ -162,6 +186,14 @@ export const CORE_PROMPT_REGISTRY = {
       'System prompt for the answer step of the `triage-research` agent, which screens search hits with `ctx.decide` and opens only the relevant documents.',
     variables: ['appName', 'tenantName'],
     defaultText: TRIAGE_RESEARCH_DEFAULT,
+  },
+  'guide-chat': {
+    key: 'guide-chat',
+    title: 'Ask the Guide',
+    description:
+      'System prompt for the Guide chat (`POST /api/guide/ask`): answers only from the in-app Guide through `search_guide`, and ends with a `CITATIONS:` block the server turns into reader links.',
+    variables: ['appName'],
+    defaultText: GUIDE_CHAT_DEFAULT,
   },
   'evals-judge': {
     key: 'evals-judge',

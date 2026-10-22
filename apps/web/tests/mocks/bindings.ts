@@ -730,6 +730,7 @@ const PLATFORM_KEYS = [
   'rateLimiter',
   'locks',
   'converter',
+  'guide',
 ] as const satisfies readonly (keyof Platform)[]
 
 /** The converter backed by a fake model endpoint's `toMarkdown`, or null. */
@@ -768,6 +769,8 @@ export function createTestEnv(overrides: Partial<TestEnv> = {}): TestEnv {
     rateLimiter: createMemoryRateLimiter(kv),
     locks: createMemoryLocks(kv),
     converter: converterOf(ai),
+    // No Guide by default: a test that reads it hands in a source (`tests/api/guide.test.ts`).
+    guide: null,
   }
   const members: Record<string, unknown> = { ...base }
   for (const key of PLATFORM_KEYS) if (key in overrides) members[key] = overrides[key]

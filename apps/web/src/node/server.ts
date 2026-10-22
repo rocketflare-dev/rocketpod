@@ -33,6 +33,7 @@ import { type DatabaseHandle, installProcessPool } from '../db/client'
 import type { Platform } from '../platform/types'
 import { createNodeAssets } from './assets'
 import { createDeferSet, type DeferSet } from './defer'
+import { describeGuideLoad, loadGuideFromDisk } from './guide-content'
 import { createNodeJobs, type NodeJobs } from './jobs'
 import { createNodePlatform } from './platform'
 import {
@@ -63,6 +64,11 @@ export interface StartServerOptions {
   uiDir?: string
   /** Replace the Node platform (tests). */
   platform?: Platform
+  /**
+   * Load the Guide into `guide_chunks` at boot (default: in `web`/`all` mode when the platform is
+   * the Node one). Tests pass `false`: the table is global, and `tests/api/guide.test.ts` owns it.
+   */
+  loadGuide?: boolean
   log?: (message: string) => void
   /** How long shutdown waits for deferred work (and in-flight jobs) before giving up. */
   drainTimeoutMs?: number
@@ -109,6 +115,17 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
     prepare: true,
   })
   let draining = false
+  // The Guide's pages (and any committed vectors) into `guide_chunks` — idempotent and lock-guarded,
+  // so every web process may do it; off the startup path (a slow database never delays the
+  // listener), and tracked by the defer set so shutdown waits for it.
+  if (mode !== 'worker' && (options.loadGuide ?? !options.platform)) {
+    defer.add(
+      loadGuideFromDisk(pool.db).then(
+        result => log(describeGuideLoad(result)),
+        err => log(`guide: load failed: ${String(err)}`)
+      )
+    )
+  }
 
   // ONE env object for the life of the process: `loadConfig` memoises per env object, so every
   // request reuses the parse. Per-request facts ride on the execution context instead.

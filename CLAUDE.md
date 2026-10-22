@@ -14,6 +14,10 @@ files. `AGENTS.md` symlinks here.
 > `/rp-traces`, `/rp-evals` and `/rp-plugin` you may run yourself. **Deploying** (image, Compose,
 > Helm — `docs/DEPLOY.md`) is `/rp-deploy`: it renders and checks locally, and asks the user before
 > it pushes an image, touches a cluster or creates anything billed.
+> **The Guide** (`docs/CONCEPTS.md` §18): in-app user docs at `/guide` + "Ask the Guide". Pages in
+> `apps/web/content/guide/` declare the code they describe (`sources:`/`verified:`); changing that
+> code makes them stale — the `Stop` hook says so, `/rp-doc-sync` fixes them. A number a page
+> states is a `{{fact:key}}`, never typed.
 > **Plugins** (D31, `docs/CONCEPTS.md` §16): a plugin is a git repository copied in, wired through five
 > barrels — `pnpm plugin add|upgrade|remove|list|check`, driven by `/rp-plugin`, which always shows the
 > plan before `--apply`. It imports the host only through the DECLARED entries (`docs/plugin-api.md`,
@@ -80,6 +84,7 @@ TEST_DATABASE_BRANCH=gate-… pnpm test  # a sandbox gate: no Docker, the whole 
 pnpm eval [suite] [--model x] [--compare] · pnpm eval:baseline · pnpm eval:view  # real-model evals (D33, docs/EVALS.md)
 pnpm lint · pnpm typecheck · pnpm build  # workspace-wide
 pnpm web <script>  # any apps/web script (test:api, db:check…)
+pnpm web docs:stale · pnpm web guide:index [--dry-run] · pnpm web guide:shots [--stale]  # the Guide: stale pages / re-embed (needs EMBEDDINGS_API_KEY, costs) / screenshots (Playwright, on demand)
 pnpm db:generate · pnpm db:studio
 pnpm kit:upgrade [--to X.Y.Z] [--apply] · pnpm kit:release X.Y.Z  # port a kit release into a copy / cut one
 ```
@@ -102,6 +107,8 @@ apps/web/          @rocketpod/web — .env(.example), .env.test, docker-compose.
 │  src/api/        index.ts (Hono app, middleware order, ASSETS catch-all) · queue.ts · scheduled.ts ·
 │                  middleware/ · auth/ · routes/ (thin) · services/ (ai/, agents/, prompts.ts) ·
 │                  workflows/ (agent-run-body.ts) · observability/ · utils/ · queues/
+│  content/guide/  the in-app Guide's pages (frontmatter + {{fact:…}}), screenshots.yaml, images/,
+│                  optional embeddings.jsonl.gz (CONCEPTS §18) — shipped in the image
 │  src/ui/         React app
 │  src/plugins/    D31 seam: types.ts, api/ (the context family a plugin imports) + the
 │                  server/ui/schema barrels (one line per installed plugin)
@@ -130,6 +137,7 @@ docs/upgrades/     one porting note per kit release (+ unreleased.md) — CHANGE
                    rp-how-do-i (+ example-orders.md) · rp-upgrade (+ porting.md — port later kit releases) ·
                    rp-plugin (+ reference.md — install/upgrade/remove a plugin, D31) ·
                    rp-traces (debug a run from its span tree; pick a tracing backend, D32) ·
+                   rp-doc-sync (keep the Guide's pages true to the code; docs:stale + the Stop hook) ·
                    rp-evals (+ reference.md — author, run, compare, harvest, baseline, improve; D33) ·
                    rp-deploy (Compose or Helm, the secrets checklist, never prints a secret) ·
                    example-feature (demo the reference plugin)

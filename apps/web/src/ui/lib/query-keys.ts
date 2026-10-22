@@ -20,6 +20,12 @@ type UnionToIntersection<U> = (U extends unknown ? (u: U) => void : never) exten
   : never
 
 const CORE_QUERY_KEYS = {
+  /** `/api/guide/*` — the in-app Guide: static content, identical for every tenant */
+  guide: {
+    all: ['guide'] as const,
+    toc: ['guide', 'toc'] as const,
+    page: (path: string) => ['guide', 'page', path] as const,
+  },
   /** `/api/health` — version + environment; effectively immutable for the tab's lifetime */
   appInfo: {
     all: ['app-info'] as const,

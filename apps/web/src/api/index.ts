@@ -36,6 +36,7 @@ import { featuresRouter } from './routes/features'
 import { feedbackRouter } from './routes/feedback'
 import { filesRouter } from './routes/files'
 import { groupsRouter } from './routes/groups'
+import { guideRouter } from './routes/guide'
 import { healthRouter } from './routes/health'
 import { invitationsRouter } from './routes/invitations'
 import { inviteRouter } from './routes/invite'
@@ -132,6 +133,8 @@ const mounts: readonly (readonly [string, Hono<AppEnv>, MiddlewareHandler?])[] =
   // D33: thumbs on AI answers (member create; admin+ read) and the eval-case export (admin+).
   ['/api/feedback', feedbackRouter],
   ['/api/evals', evalsRouter],
+  // The Guide: the in-app user guide and Ask the Guide — every member, global static content.
+  ['/api/guide', guideRouter],
   // D31: installed plugins, last, so a plugin can never shadow a kit prefix — Hono matches in
   // registration order. Each mount gets `authMiddleware` and its own optional gate exactly like a
   // kit mount; the convention is `/api/<plugin id>`, and `tests/config/plugins.test.ts` is what

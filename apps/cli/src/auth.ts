@@ -11,16 +11,15 @@ import { tenantSchema } from '@rocketpod/shared/tenants'
 import { meResponseSchema as sharedMeResponseSchema } from '@rocketpod/shared/user-settings'
 import type { z } from 'zod'
 import { type ApiClient, CliApiError, createApiClient, type FetchLike } from './api'
+import { CALLBACK_PORT_END, CALLBACK_PORT_START, LOGIN_TIMEOUT_MS } from './auth-constants'
 import { type CliConfig, type ConfigStore, redactKey } from './config'
 import type { OpenLike } from './context'
 import { CliError } from './errors'
 import { BIN_NAME } from './package-info'
 import type { Logger } from './utils/logger'
 
-export const CALLBACK_PORT_START = 8765
-export const CALLBACK_PORT_END = 8770
+export { CALLBACK_PORT_END, CALLBACK_PORT_START, LOGIN_TIMEOUT_MS } from './auth-constants'
 export const CALLBACK_PATH = '/callback'
-export const LOGIN_TIMEOUT_MS = 5 * 60 * 1000
 /** Server route that starts the browser side of the handoff. */
 export const AUTH_CLI_PATH = '/auth/cli'
 

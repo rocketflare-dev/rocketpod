@@ -17,6 +17,8 @@ import type { PluginRouteTier } from '@/plugins/types'
 import { uiPlugins } from '@/plugins/ui'
 import { ConnectionBanner } from '@/ui/components/ConnectionBanner'
 import { ErrorBoundary } from '@/ui/components/ErrorBoundary'
+import { GuideChatProvider } from '@/ui/components/guide/GuideChatProvider'
+import { GuideHelp } from '@/ui/components/guide/GuideHelp'
 import Layout from '@/ui/components/Layout'
 import { LoadingIndicator } from '@/ui/components/LoadingIndicator'
 import { NotificationsBell } from '@/ui/components/NotificationsBell'
@@ -58,6 +60,8 @@ const RunPage = lazy(() => import('@/ui/pages/agents/RunPage'))
 // D18: the knowledge base — ingest/upload + list on /documents, hybrid search on /search.
 const DocumentsPage = lazy(() => import('@/ui/pages/documents/DocumentsPage'))
 const SearchPage = lazy(() => import('@/ui/pages/documents/SearchPage'))
+// The Guide: the reader carries react-markdown + rehype-raw — its own chunk.
+const GuideReader = lazy(() => import('@/ui/pages/guide/GuideReader'))
 // The detail page — no SideNav entry; it is reached from the list, from Search and from a citation.
 const DocumentViewPage = lazy(() => import('@/ui/pages/documents/DocumentViewPage'))
 const AdminLayout = lazy(() => import('@/ui/pages/admin/AdminLayout'))
@@ -130,11 +134,21 @@ function TenantFooter() {
  */
 function ShellRoutes() {
   return (
+    // The Guide chat's one conversation outlives navigation, so it is held above the routes.
+    <GuideChatProvider>
+      <ShellLayout />
+    </GuideChatProvider>
+  )
+}
+
+function ShellLayout() {
+  return (
     <Layout
       headerStart={<OrgSwitcher />}
       headerEnd={
         <>
           <WebSocketStatus />
+          <GuideHelp />
           <NotificationsBell />
           <UserMenu />
         </>
@@ -203,6 +217,8 @@ function ShellRoutes() {
               </RequireGuard>
             }
           />
+          {/* The Guide: every member of a tenant reads it; the server applies the audience. */}
+          <Route path="/guide" element={<GuideReader />} />
           <Route
             path="/activity"
             element={

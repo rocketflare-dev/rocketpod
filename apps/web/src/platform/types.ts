@@ -325,6 +325,28 @@ export interface DocumentConverter {
   convert(document: MarkdownDocumentInput): Promise<MarkdownConversion>
 }
 
+// ---- The Guide's content --------------------------------------------------------------------
+
+/** One file of the Guide's content: its POSIX path relative to the content dir, and its text. */
+export interface GuideFile {
+  path: string
+  raw: string
+}
+
+/**
+ * The Guide's static content (`apps/web/content/guide/`, shipped in the image beside the bundle).
+ * Read-only. The parsing is `services/guide-content.ts` (pure); this member only reads bytes, so
+ * routes never touch the filesystem.
+ */
+export interface GuideContentSource {
+  /** Every `.md` file under the content dir (pages and notes — the caller filters). */
+  markdownFiles(): Promise<GuideFile[]>
+  /** `screenshots.yaml`, or null when there is none. */
+  screenshotManifest(): Promise<string | null>
+  /** One image under `images/` by bare filename, or null when there is no such image. */
+  image(file: string): Promise<{ bytes: Uint8Array; contentType: string } | null>
+}
+
 // ---- Request lifetime -----------------------------------------------------------------------
 
 /** Work that may outlive the response (`waitUntil`). Never awaited on the response path. */
@@ -352,6 +374,8 @@ export interface Platform {
   readonly locks: Locks | null
   /** Document → markdown; absent = only text-like uploads are indexable. */
   readonly converter: DocumentConverter | null
+  /** The Guide's static content; absent = the Guide is empty. */
+  readonly guide: GuideContentSource | null
 }
 
 /** A platform with nothing in it — the state a bare test or a script starts from. */
@@ -363,4 +387,5 @@ export const EMPTY_PLATFORM: Platform = Object.freeze({
   rateLimiter: null,
   locks: null,
   converter: null,
+  guide: null,
 })

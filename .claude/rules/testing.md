@@ -206,6 +206,7 @@ a fake `WebSocket` factory left set) is on you.
   the converter). Route tests for `/ws` stop at `hub.accept` (`stubs(env).hub.accepted`)
 - Nudges: `stubs(env).hub.broadcasts` after `waitOnExecutionContext(ctx)` — assert the tenant id,
   the method and the event `type`; `realtime-nudges.test.ts` covers the kit's emitters
+- The Guide (`docs/CONCEPTS.md` §18): `tests/api/guide.test.ts` (`// @vitest-isolate`) OWNS the global `guide_chunks` table and empties it per case — so every `startServer` in a test passes `loadGuide: false`, and nothing else writes it. Content comes in through `createTestEnv({ guide: <a GuideContentSource> })` (null by default); vectors from `stubs(env).ai.respond`. The pure rules are `config` tests: `guide-content` (THE staleness test over the committed pages — frontmatter, facts, `shot:` refs, links and headings, member→admin links, the screen map), `guide-facts` (pinned facts = the real constants), `guide-isolation` (the source scan), `guide-shots`, `docs-stale`; `tests/ui/guide.test.tsx` renders every committed page and checks its heading ids match the server's outline
 - Run body (`agent-run-workflow.test.ts`, `// @vitest-isolate` because it mocks the resolve seam):
   the step bodies are plain exported functions in `services/agents/runtime.ts` — `claimStep(db, platform,
   logger, params)`, `executeRun(db, cfg, platform, logger, params)`, `finishStep(db, platform, logger, params,

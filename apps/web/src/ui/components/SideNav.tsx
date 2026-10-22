@@ -1,4 +1,5 @@
 import {
+  AcademicCapIcon,
   BookOpenIcon,
   ChatBubbleLeftRightIcon,
   ChevronLeftIcon,
@@ -84,6 +85,9 @@ const CORE_NAVIGATION: NavConfig = [
         icon: MagnifyingGlassIcon,
         guard: { action: 'read', subject: 'Document' },
       },
+      // The Guide: how the app works, and Ask the Guide — every member of a tenant (the server
+      // applies the audience, so a member never sees an admin page).
+      { to: '/guide', label: 'Guide', icon: AcademicCapIcon },
     ],
   },
   {

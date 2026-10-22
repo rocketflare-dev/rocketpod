@@ -36,6 +36,13 @@
       "when": 1792657275933,
       "tag": "0004_chunks-search-vector",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792658907045,
+      "tag": "0005_guide-chunks",
+      "breakpoints": true
     }
   ]
 }

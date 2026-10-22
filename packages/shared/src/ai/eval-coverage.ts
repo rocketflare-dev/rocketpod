@@ -127,6 +127,17 @@ const TRIAGE_RESEARCH: EvalCoverage = {
   minCases: 3,
 }
 
+/**
+ * Ask the Guide (`POST /api/guide/ask`): a suite over the COMMITTED Guide pages — does it search,
+ * stay inside what it found, and say when the Guide does not cover a question.
+ */
+const GUIDE: EvalCoverage = {
+  suite: 'suites/guide/ask.eval.ts',
+  datasets: ['guide-chat'],
+  baseline: 'guide-ask',
+  minCases: 3,
+}
+
 /** Core prompt key → coverage. Keys are `CORE_PROMPT_REGISTRY`'s. */
 export const CORE_PROMPT_EVAL_COVERAGE: Readonly<Record<string, EvalCoverageEntry>> = {
   chat: CHAT,
@@ -136,6 +147,7 @@ export const CORE_PROMPT_EVAL_COVERAGE: Readonly<Record<string, EvalCoverageEntr
   // The chat-model fallback for `ctx.decide`: measured by triage-research's DecisionJudge on a run
   // without `TYPESAFE_API_KEY` (the agent target then records this prompt's version too).
   'agent-decide': TRIAGE_RESEARCH,
+  'guide-chat': GUIDE,
   'chat-compaction': {
     exempt:
       'Background summariser with no suite yet; its summary is only read back by the chat model. A compaction suite (a long thread whose early facts must survive the fold) is the follow-up.',

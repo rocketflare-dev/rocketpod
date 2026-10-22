@@ -4,3 +4,11 @@
 # an ordered list from its first item; tidy them when the release is cut — and CI's note check
 # (release-check --unreleased) still refuses a merge that broke the frontmatter.
 docs/upgrades/unreleased.md merge=union
+
+# The Guide's committed vectors (`pnpm web guide:index`): gzipped NDJSON, so binary — no text diff,
+# no line-ending conversion, and never a textual merge. On a conflict take either side and re-run
+# `pnpm web guide:index` (it reuses every vector whose chunk text is unchanged). A stale file is
+# harmless meanwhile: the server chunks the pages itself and borrows only vectors that still match.
+apps/web/content/guide/embeddings.jsonl.gz binary
+# Screenshots (`pnpm web guide:shots`) are plain PNGs, regenerated rather than merged.
+apps/web/content/guide/images/*.png binary

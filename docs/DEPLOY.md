@@ -11,7 +11,9 @@ Rocketpod ships as **one image** that runs three ways, plus a one-shot:
 
 The image (`Dockerfile`) is multi-stage: `pnpm build` bundles the server and the migrate entry with
 esbuild (every dependency inside the bundle) and Vite builds the UI. The runtime stage is
-`node:24-alpine` with npm, corepack and yarn removed — two bundles, `dist/ui` and the drizzle SQL,
+`node:24-alpine` with npm, corepack and yarn removed — two bundles, `dist/ui`, the drizzle SQL and
+the Guide's content (`content/guide`: pages, images, any committed vectors — every `web` boot
+chunks the pages into `guide_chunks`, so a release with edited pages needs nothing else run),
 about 14 MB on top of Node — running as the `node` user (uid 1000). It writes nothing to its
 filesystem, so a read-only root filesystem works (`/tmp` is mounted for libraries that expect one).
 

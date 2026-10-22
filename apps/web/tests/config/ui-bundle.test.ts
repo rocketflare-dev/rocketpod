@@ -33,3 +33,22 @@ describe('components/shared', () => {
     expect(offenders).toEqual([])
   })
 })
+
+/**
+ * The Guide's header button and its conversation provider live in the eager shell; the chat body
+ * (markdown) and the AG-UI client (`@ag-ui/core` schemas) must arrive only when someone asks.
+ */
+describe('the Guide in the shell', () => {
+  const UI_DIR = path.resolve(__dirname, '../../src/ui')
+  it('loads the chat body and the AG-UI client lazily', () => {
+    const help = readFileSync(path.join(UI_DIR, 'components/guide/GuideHelp.tsx'), 'utf8')
+    expect(help).not.toMatch(/^import [^\n]*'\.\/GuideChat'/m)
+    expect(help).toMatch(/lazy\(\(\) => import\('\.\/GuideChat'\)\)/)
+    const provider = readFileSync(
+      path.join(UI_DIR, 'components/guide/GuideChatProvider.tsx'),
+      'utf8'
+    )
+    expect(provider).not.toMatch(/^import [^\n]*guideAsk/m)
+    expect(provider).toMatch(/await import\('@\/ui\/lib\/guideAsk'\)/)
+  })
+})

@@ -56,6 +56,8 @@ describe('the kit name is never an identifier in code (a hyphenated slug would n
 const BARE_LITERAL_ALLOWED: Record<string, string> = {
   'apps/cli/src/package-info.ts': 'the bin-name fallback — a bin may be `my-app`',
   'apps/evals/scripts/eval.mjs': 'a bracket-access report key (`report[HEADER_KEY]`)',
+  'apps/web/src/api/services/guide-facts.ts':
+    "the Guide's pinned CLI bin name (`BIN_NAME`'s value) — a bin may be `my-app`",
   'apps/web/src/api/observability/otlp-fetch.ts': 'the OTLP instrumentation scope name',
   'packages/shared/src/plugins/types.ts': 'plugin ids are hyphenated slugs too',
   'scripts/plugin.mjs': "the diff translator's fallback names, passed to deriveNames(slug)",

@@ -596,3 +596,42 @@
 .toast-in {
   animation: toast-in var(--dur-panel) ease-out;
 }
+
+/* The Guide's callouts (`> **RULE OF THUMB** — …`, rendered as `<aside class="guide-callout">` by
+   `pages/guide/remarkGuide.ts`): a tinted panel with a quiet label, never shouting. */
+.guide-content .guide-callout {
+  margin: 1.5em 0;
+  padding: 0.75em 1em;
+  border-left: 3px solid var(--color-accent);
+  border-radius: 0.5rem;
+  background: var(--surface-inset);
+}
+.guide-content .guide-callout[data-callout='rule-of-thumb'] {
+  border-left-color: var(--color-success);
+}
+.guide-content .guide-callout[data-callout='watch-out'] {
+  border-left-color: var(--color-warning);
+}
+.guide-content .guide-callout > :last-child {
+  margin-bottom: 0;
+}
+.guide-content kbd {
+  display: inline-block;
+  min-width: 1.5em;
+  padding: 0 0.35em;
+  border: 1px solid var(--border-default);
+  border-bottom-width: 2px;
+  border-radius: 0.3rem;
+  background: var(--surface-inset);
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  line-height: 1.5;
+  text-align: center;
+  white-space: nowrap;
+}
+.guide-content .guide-callout-label {
+  margin: 0 0 0.25em;
+  font-size: 0.8em;
+  font-weight: 600;
+  color: var(--text-secondary);
+}

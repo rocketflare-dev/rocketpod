@@ -39,6 +39,7 @@ import {
   ToolCallStartEventSchema,
 } from '@ag-ui/core/schemas'
 import { z } from 'zod'
+import { guideAnswerSchema } from '../guide'
 import { agentArtifactSchema } from './artifacts'
 import { MAX_MESSAGE_LENGTH, tokenUsageSchema } from './chat'
 import { aiProviderSchema } from './config'
@@ -153,6 +154,12 @@ export const KIT_CUSTOM_EVENTS = {
    * not the row — the full request and distribution are on `GET /runs/:id` `decisions[]`.
    */
   agentDecision: 'kit.agent.decision',
+  /**
+   * "Ask the Guide" finished an answer (`POST /api/guide/ask`): the answer text with its trailing
+   * `CITATIONS:` block split off and resolved against the asker's own TOC, and how the passages
+   * were found (`hybrid` / `lexical`). Emitted once, just before `RUN_FINISHED`.
+   */
+  guideAnswer: 'kit.guide.answer',
 } as const
 
 export type KitCustomEventName = (typeof KIT_CUSTOM_EVENTS)[keyof typeof KIT_CUSTOM_EVENTS]
@@ -225,6 +232,7 @@ export const kitCustomPayloadSchema = {
   [KIT_CUSTOM_EVENTS.agentSteering]: kitAgentSteeringSchema,
   [KIT_CUSTOM_EVENTS.agentArtifact]: kitAgentArtifactSchema,
   [KIT_CUSTOM_EVENTS.agentDecision]: kitAgentDecisionSchema,
+  [KIT_CUSTOM_EVENTS.guideAnswer]: guideAnswerSchema,
 } as const
 
 /**

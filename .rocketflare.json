@@ -194,6 +194,72 @@
       "registries": ["package.json#eval", "pnpm-workspace.yaml"]
     },
     {
+      "id": "feature-guide",
+      "kind": "optional-feature",
+      "label": "The in-app Guide (reader, Ask the Guide, guide_chunks, docs:stale, guide:shots)",
+      "anchor": "apps/web/src/api/routes/guide.ts",
+      "paths": [
+        "apps/web/src/api/routes/guide.ts",
+        "apps/web/src/api/services/guide-*.ts",
+        "apps/web/src/node/guide-content.ts",
+        "apps/web/src/db/schema/guide-chunks.ts",
+        "apps/web/src/ui/pages/guide/**",
+        "apps/web/src/ui/components/guide/**",
+        "apps/web/src/ui/components/shared/GuideLink.tsx",
+        "apps/web/src/ui/lib/guide.ts",
+        "apps/web/src/ui/lib/guideAsk.ts",
+        "apps/web/src/ui/lib/guideScreens.ts",
+        "packages/shared/src/guide.ts",
+        "apps/web/scripts/guide-*.ts",
+        "apps/web/scripts/docs-stale.ts",
+        "apps/web/scripts/lib/guide-shots.ts",
+        "apps/web/scripts/lib/docs-stale.ts",
+        "apps/web/content/guide/screenshots.yaml",
+        "apps/web/content/guide/images/**",
+        "apps/web/tests/api/guide.test.ts",
+        "apps/web/tests/config/guide-*.test.ts",
+        "apps/web/tests/config/docs-stale.test.ts",
+        "apps/web/tests/ui/guide.test.tsx",
+        "apps/evals/kit/guide-target.ts",
+        "apps/evals/suites/guide/**",
+        "apps/evals/datasets/guide-chat.jsonl",
+        "apps/evals/baselines/guide-ask.json",
+        ".claude/skills/rp-doc-sync/**"
+      ],
+      "registries": [
+        "apps/web/src/api/index.ts",
+        "apps/web/src/ui/App.tsx",
+        "apps/web/src/ui/components/SideNav.tsx",
+        "apps/web/src/db/schema/index.ts",
+        "apps/web/src/db/schema/rls.ts#RLS_EXCLUDED_TABLES",
+        "apps/web/src/platform/types.ts#Platform.guide",
+        "apps/web/src/node/platform.ts",
+        "apps/web/src/node/server.ts",
+        "apps/web/src/api/services/prompts.ts#CORE_PROMPT_REGISTRY",
+        "packages/shared/src/ai/eval-coverage.ts#CORE_PROMPT_EVAL_COVERAGE",
+        "packages/shared/src/ai/agui.ts#KIT_CUSTOM_EVENTS",
+        "apps/web/package.json#guide:index",
+        ".claude/settings.json#Stop",
+        "Dockerfile"
+      ]
+    },
+    {
+      "id": "example-guide-pages",
+      "kind": "example",
+      "label": "The Guide's starter pages (signing in, members, API keys and the CLI, AI settings)",
+      "anchor": "apps/web/content/guide/start/signing-in.md",
+      "paths": [
+        "apps/web/content/guide/start/signing-in.md",
+        "apps/web/content/guide/admin/members-and-invitations.md",
+        "apps/web/content/guide/admin/ai-settings.md",
+        "apps/web/content/guide/reference/api-keys-and-the-cli.md"
+      ],
+      "registries": [
+        "packages/shared/src/guide-screens.ts#GUIDE_SCREEN_PAGES",
+        "packages/shared/src/guide.ts#GUIDE_SECTIONS"
+      ]
+    },
+    {
       "id": "demo-seed",
       "kind": "example",
       "label": "The --demo block of the seed script",

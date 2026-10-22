@@ -26,7 +26,15 @@ beforeAll(async () => {
   writeFileSync(path.join(uiDir, 'index.html'), '<!doctype html><title>shell</title>')
   mkdirSync(path.join(uiDir, 'assets'))
   writeFileSync(path.join(uiDir, 'assets', 'app-abc123.js'), 'console.log("app")')
-  server = await startServer({ env: testEnv(), mode: 'web', port: 0, uiDir, log: () => {} })
+  // `loadGuide: false`: the boot load writes the GLOBAL `guide_chunks`, which `guide.test.ts` owns.
+  server = await startServer({
+    env: testEnv(),
+    mode: 'web',
+    port: 0,
+    uiDir,
+    loadGuide: false,
+    log: () => {},
+  })
   base = `http://127.0.0.1:${server.port}`
 })
 
@@ -92,6 +100,7 @@ describe('the Node entry, shutdown', () => {
       env: testEnv(),
       mode: 'all',
       port: 0,
+      loadGuide: false,
       log: () => {},
       // The suite's server above holds the process pool; this one may not install a second.
     }).catch((error: unknown) => error)

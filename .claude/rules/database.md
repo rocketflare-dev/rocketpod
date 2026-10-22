@@ -91,6 +91,7 @@ predicate**, not SQL injection — the app role can `set_config` itself.
   was deleted. The grain is a `unique('<table>_grain').on(...)` constraint, `.nullsNotDistinct()`
   when a grain column is nullable (`UNIQUE NULLS NOT DISTINCT`, Postgres 15+). First index column is
   `tenant_id`, as everywhere. Rows are derived data — rebuilt, never hand-migrated.
+- **`guide_chunks`** (the Guide, `docs/CONCEPTS.md` §18) is the kit's one GLOBAL content table: no `tenant_id`, an `RLS_EXCLUDED_TABLES` entry, derived rows (every web boot rewrites it from the pages when a chunk differs, inside one transaction under `pg_advisory_xact_lock`), a NULLABLE `embedding`. Its read scope is the reader's audience, a predicate in SQL like visibility is — never a filter on what came back
 - **Visibility (D29)**: a resource people may restrict carries a `visibility` text column
   (`RESOURCE_VISIBILITY_VALUES` in `_helpers.ts`, `tenant | groups`, default `tenant`) PLUS its own
   junction table to `groups` (`document_groups`, and a plugin's own — the analytics plugin's

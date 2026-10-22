@@ -1,0 +1,35 @@
+# The Guide's screenshots: declared here, produced by `pnpm web guide:shots`, never by hand.
+#
+# A page shows one as `![Alt text](shot:<id>)`; the image is `images/<id>.png`, committed as a
+# plain PNG (no Git LFS). Every shot is taken against a LOCAL dev server (`pnpm dev`, UI and API
+# ports from `scripts/lib/dev-ports.mjs`) signed in with dev login as the seed's owner
+# (`owner@example.test`). Seed it with `pnpm seed --demo`. Playwright is not a kit dependency: the
+# script says how to install it the first time.
+#
+#   pnpm web guide:shots                # every entry
+#   pnpm web guide:shots --only a,b     # just these ids
+#   pnpm web guide:shots --stale        # entries whose `sources` changed since the image's last commit
+#
+# An image is rewritten only when it differs from the committed one beyond a small threshold, so
+# re-running on an unchanged screen causes no churn.
+#
+# Fields
+#   id        kebab-case; the file name and the `shot:` reference
+#   route     a UI path (`/settings?tab=people`, `/guide`…); a `{name}` placeholder is filled by
+#             `routeValues` in `scripts/guide-shots.ts` (the kit defines none — add your lookups there)
+#   steps     optional, in order: `- click: <selector>`, `- waitFor: <selector>`, `- press: <key>`
+#             (Playwright spelling, `Meta+k`) or `- fill: { selector: <selector>, text: <text> }`
+#   crop      selector of the element to capture (first match); omitted = the viewport
+#   theme     light (default) | dark
+#   viewport  { width, height } in CSS px, default 1440×900 (captured at 2× pixel density)
+#   sources   coarse globs (repo-relative) of the UI code that, when changed, makes this shot stale
+#
+# Example:
+#
+#   - id: settings-people
+#     route: /settings?tab=people
+#     steps:
+#       - waitFor: '[role="tabpanel"]'
+#     sources: [apps/web/src/ui/pages/settings/People.tsx]
+
+shots: []

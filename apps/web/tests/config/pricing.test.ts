@@ -19,6 +19,22 @@ describe('priceFor', () => {
     expect(priceFor('openai', 'gpt-4.1')?.input).toBe(2)
   })
 
+  it('prices a vendor-qualified id on a compatible provider, by the longest prefix', () => {
+    // Fireworks ids are the same on both wire formats.
+    const oss = 'accounts/fireworks/models/gpt-oss-120b'
+    expect(priceFor('anthropic_compatible', oss)).toEqual(priceFor('openai_compatible', oss))
+    expect(priceFor('anthropic_compatible', oss)).not.toBeNull()
+    // `glm-5p3-flash` must not be priced as the bigger `glm-5p3`.
+    expect(priceFor('anthropic_compatible', 'accounts/fireworks/models/glm-5p3-flash')).not.toEqual(
+      priceFor('anthropic_compatible', 'accounts/fireworks/models/glm-5p3')
+    )
+    expect(priceFor('openai_compatible', 'gemini-2.5-flash-lite-preview')).toEqual(
+      MODEL_PRICES.openai_compatible?.['gemini-2.5-flash-lite']
+    )
+    // Gemini has no Anthropic-compatible endpoint, so that provider does not know it.
+    expect(priceFor('anthropic_compatible', 'gemini-2.5-flash')).toBeNull()
+  })
+
   it('knows nothing about a self-hosted or unlisted model', () => {
     expect(priceFor('openai_compatible', 'llama-on-my-laptop')).toBeNull()
     expect(priceFor('anthropic', 'claude-9-imaginary')).toBeNull()

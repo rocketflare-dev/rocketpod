@@ -18,7 +18,7 @@ import type { TokenUsage } from './chat'
 import type { RecordedAiProvider } from './config'
 
 /** When the rates below were last checked, ISO date. Update it when you edit a price. */
-export const PRICES_UPDATED = '2026-10-13'
+export const PRICES_UPDATED = '2026-10-15'
 
 /** USD per MILLION tokens. `cacheRead`/`cacheWrite` default to the input rate when absent. */
 export interface ModelPrice {
@@ -31,10 +31,42 @@ export interface ModelPrice {
 /**
  * Keyed by provider, then by a model-id PREFIX — provider ids carry dates and suffixes
  * (`claude-sonnet-4-5-20250929`), so the longest matching prefix wins. `openai_compatible` and
- * `anthropic_compatible` have no entries by design: they point at whatever host an app configured,
- * whose rates only that app knows.
+ * `anthropic_compatible` point at whatever host an app configured, so they carry only VENDOR-QUALIFIED
+ * ids: Fireworks' `accounts/fireworks/models/<name>` (both wire formats) and Google's `gemini-*`
+ * (its OpenAI-compatible endpoint). A self-hosted model id matches neither and stays unpriced.
  */
+/** Fireworks serverless, standard tier (docs.fireworks.ai/serverless/pricing). */
+const FIREWORKS_PRICES: Record<string, ModelPrice> = {
+  'accounts/fireworks/models/gpt-oss-120b': { input: 0.15, output: 0.6, cacheRead: 0.015 },
+  'accounts/fireworks/models/kimi-k3': { input: 3, output: 15, cacheRead: 0.3 },
+  'accounts/fireworks/models/deepseek-v4p1-flash': { input: 0.3, output: 1.2, cacheRead: 0.006 },
+  'accounts/fireworks/models/glm-5p3-flash': { input: 0.15, output: 0.5, cacheRead: 0.03 },
+  'accounts/fireworks/models/glm-5p3': { input: 1.4, output: 4.4, cacheRead: 0.26 },
+  'accounts/fireworks/models/qwen3p8-max': { input: 2, output: 6, cacheRead: 0.25 },
+  'accounts/fireworks/models/minimax-m3': { input: 0.3, output: 1.2, cacheRead: 0.06 },
+}
+
+/**
+ * Gemini API, standard paid tier, ≤ 200k-token prompts (ai.google.dev/gemini-api/docs/pricing).
+ * `gemini-4-argon` doubles on 2026-12-01 and the 3.6/3.8 Flash models on 2027-01-01 — update these
+ * then; a recorded cost is frozen at write time, so old rows keep the old rate.
+ */
+const GEMINI_PRICES: Record<string, ModelPrice> = {
+  'gemini-4-argon': { input: 2, output: 10, cacheRead: 0.1 },
+  'gemini-3.8-flash': { input: 0.75, output: 3.75, cacheRead: 0.075 },
+  'gemini-3.6-flash': { input: 0.75, output: 3.75, cacheRead: 0.075 },
+  'gemini-3.5-flash-lite': { input: 0.3, output: 2.5, cacheRead: 0.03 },
+  'gemini-3.1-pro': { input: 2, output: 12, cacheRead: 0.2 },
+  'gemini-3.1-flash-lite': { input: 0.25, output: 1.5, cacheRead: 0.025 },
+  'gemini-3-flash': { input: 0.5, output: 3, cacheRead: 0.05 },
+  'gemini-2.5-pro': { input: 1.25, output: 10, cacheRead: 0.125 },
+  'gemini-2.5-flash-lite': { input: 0.1, output: 0.4, cacheRead: 0.01 },
+  'gemini-2.5-flash': { input: 0.3, output: 2.5, cacheRead: 0.03 },
+}
+
 export const MODEL_PRICES: Partial<Record<RecordedAiProvider, Record<string, ModelPrice>>> = {
+  anthropic_compatible: FIREWORKS_PRICES,
+  openai_compatible: { ...FIREWORKS_PRICES, ...GEMINI_PRICES },
   // Claude list prices (platform.claude.com/docs/en/about-claude/pricing). `cacheWrite` is the
   // 5-minute write, the only cache the kit asks for. The 4.5+ Opus models dropped to $5/$25 while
   // Opus 4 / 4.1 stayed at $15/$75, so each has its own prefix; longest match wins.
@@ -97,18 +129,22 @@ export const MODEL_PRICES: Partial<Record<RecordedAiProvider, Record<string, Mod
   },
 }
 
-/** The price for a model id, by longest matching prefix; null when the table does not know it. */
-export function priceFor(provider: RecordedAiProvider, model: string): ModelPrice | null {
-  const table = MODEL_PRICES[provider]
+/** The entry for a model id by longest matching (case-insensitive) prefix, or null. */
+function longestPrefix<T>(table: Record<string, T> | undefined, model: string): T | null {
   if (!table) return null
   const id = model.trim().toLowerCase()
-  let best: { key: string; price: ModelPrice } | null = null
-  for (const [key, price] of Object.entries(table)) {
+  let best: { key: string; value: T } | null = null
+  for (const [key, value] of Object.entries(table)) {
     const candidate = key.toLowerCase()
     if (!id.startsWith(candidate)) continue
-    if (!best || candidate.length > best.key.length) best = { key: candidate, price }
+    if (!best || candidate.length > best.key.length) best = { key: candidate, value }
   }
-  return best?.price ?? null
+  return best?.value ?? null
+}
+
+/** The price for a model id, by longest matching prefix; null when the table does not know it. */
+export function priceFor(provider: RecordedAiProvider, model: string): ModelPrice | null {
+  return longestPrefix(MODEL_PRICES[provider], model)
 }
 
 /** Microcents (1/1 000 000 of a cent) per USD — the `ai_usage.cost_microcents` unit. */

@@ -548,7 +548,10 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   replaced, chunks rebuilt, a replaced original removed from storage — so a connector's re-sync never
   duplicates. Plugins reach it through `ingestDocument` (§16).
 - **Usage**: one `ai_usage` row per call, costed at write time from the one price table
-  (`shared/ai/pricing`; an unknown model gets `null` and is counted as unpriced).
+  (`shared/ai/pricing`, longest prefix wins; an unknown model gets `null` and is counted as
+  unpriced). The two `*_compatible` providers are priced only for VENDOR-QUALIFIED ids — Fireworks'
+  `accounts/fireworks/models/<name>` on both, Google's `gemini-*` on `openai_compatible` — so a
+  self-hosted model stays unpriced.
 - **Tracing (D32, supersedes D16's Langfuse ingestion client)**: `api/observability/`. Every AI call
   site talks to the `Tracer` seam; the recorder batches ended spans and flushes (in `waitUntil`, or
   awaited at the end of a stream, step or job) to two sinks: our own **OTLP/HTTP exporter**

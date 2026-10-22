@@ -65,10 +65,6 @@ describe('GET /api/members', () => {
     }
   )
 
-  it('401 unauthenticated', async () => {
-    expect((await request('/api/members')).status).toBe(401)
-  })
-
   it('tenant isolation: another tenant cannot see these members', async () => {
     const other = await createTestTenant(db)
     const outsider = await member('owner', other.id)

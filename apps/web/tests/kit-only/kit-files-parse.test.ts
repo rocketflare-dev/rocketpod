@@ -1,7 +1,7 @@
 /**
  * Kit-only: the workflows THIS checkout carries parse with the dependency-free reader
  * `scripts/kit-check.mjs` uses (`scripts/lib/yaml-lite.mjs`). A copy's files are the app's to
- * change, so the readers' own tests (`tests/config/kit-check-parsers.test.ts`) use inline
+ * change, so the readers' own tests (`kit-check-parsers.test.ts`) use inline
  * documents. Rocketpod has no tomls to parse (M6b).
  */
 import { readdirSync, readFileSync } from 'node:fs'

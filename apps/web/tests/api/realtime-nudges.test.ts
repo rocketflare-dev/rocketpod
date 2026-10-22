@@ -206,17 +206,4 @@ describe('realtime nudges', () => {
     ).not.toThrow()
     expect(defer).not.toHaveBeenCalled()
   })
-
-  it('the hub addresses the tenant DO by name and returns { delivered }', async () => {
-    const env = createTestEnv()
-    const event = realtimeEvent('tenant.changed', 'tenant-x', { id: 'tenant-x' })
-    await expect(env.realtime?.toTenant('tenant-x', event)).resolves.toEqual({
-      delivered: 0,
-    })
-    await env.realtime?.toUsers('tenant-x', ['u1', 'u2'], event)
-    expect(stubs(env).hub.broadcasts).toEqual([
-      { tenantId: 'tenant-x', args: ['broadcast', event] },
-      { tenantId: 'tenant-x', args: ['broadcastToUsers', ['u1', 'u2'], event] },
-    ])
-  })
 })

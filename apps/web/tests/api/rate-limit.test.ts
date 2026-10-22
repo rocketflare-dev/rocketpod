@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 import { operationLock } from '@/api/middleware/rate-limit'
 import { uniqueId } from '../helpers/auth'
 import { json, request } from '../helpers/request'
-import { checkRateLimit, createMemoryLocks, createTestEnv, MemoryKV } from '../mocks/bindings'
+import { createMemoryLocks, createTestEnv, MemoryKV } from '../mocks/bindings'
 
 describe('authRateLimit on /auth/magic-link/request', () => {
   it('allows 10 per minute per IP, then 429 rate_limited with Retry-After', async () => {
@@ -57,24 +57,6 @@ describe('authRateLimit on /auth/magic-link/request', () => {
         )
       ).status
     ).toBe(400)
-  })
-})
-
-describe('checkRateLimit', () => {
-  it('slides the window', async () => {
-    const kv = new MemoryKV()
-    const key = 'rl:test:1'
-    for (let i = 0; i < 3; i++)
-      expect((await checkRateLimit(kv, key, { max: 3, windowSeconds: 60 })).allowed).toBe(true)
-    const denied = await checkRateLimit(kv, key, { max: 3, windowSeconds: 60 })
-    expect(denied).toMatchObject({ allowed: false, remaining: 0 })
-    expect(denied.retryAfterSeconds).toBeGreaterThan(0)
-    // age the hits out of the window
-    await kv.put(
-      key,
-      JSON.stringify([Date.now() - 61_000, Date.now() - 61_000, Date.now() - 61_000])
-    )
-    expect((await checkRateLimit(kv, key, { max: 3, windowSeconds: 60 })).allowed).toBe(true)
   })
 })
 

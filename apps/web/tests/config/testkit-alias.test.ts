@@ -29,25 +29,8 @@ const WEB_ROOT = path.resolve(__dirname, '../..')
 const read = (rel: string) => readFileSync(path.join(WEB_ROOT, rel), 'utf8')
 
 describe('the @testkit alias', () => {
-  it('is registered in tsconfig.json, so a test typechecks', () => {
-    const tsconfig = JSON.parse(read('tsconfig.json')) as {
-      compilerOptions: { paths: Record<string, string[]> }
-    }
-    expect(tsconfig.compilerOptions.paths['@testkit/*']).toEqual(['tests/kit/*'])
-  })
-
-  it('is registered in vitest.config.ts, so a test resolves it', () => {
-    expect(read('vitest.config.ts')).toMatch(/'@testkit':\s*path\.resolve/)
-  })
-
   it('is NOT registered in vite.config.ts — the whole reason it is safe', () => {
     expect(read('vite.config.ts')).not.toMatch(/@testkit/)
-  })
-
-  it('names two entries that exist', () => {
-    for (const entry of ['tests/kit/integration.ts', 'tests/kit/unit.ts']) {
-      expect(existsSync(path.join(WEB_ROOT, entry)), entry).toBe(true)
-    }
   })
 })
 

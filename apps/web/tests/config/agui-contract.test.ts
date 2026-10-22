@@ -276,10 +276,6 @@ describe('a parked run’s interrupt outcome', () => {
     // Every field, not just the id: a partial message is exactly what a silent fallback produces.
     expect(decoded.outcome).toEqual({ type: 'interrupt', interrupts: [interrupt] })
   })
-
-  it('is not in the list of events protobuf cannot carry', () => {
-    expect(PROTO_UNSUPPORTED_EVENTS).not.toContain('RUN_FINISHED')
-  })
 })
 
 describe('the protobuf transport', () => {
@@ -316,11 +312,6 @@ describe('RunAgentInput', () => {
   it('accepts a well-formed tail', () => {
     const parsed = kitRunAgentInputSchema.parse(input())
     expect(readRunAgentTail(parsed)).toEqual({ ok: true, id: USER_MESSAGE, content: 'hello' })
-  })
-
-  it('requires a uuid threadId and at least one message', () => {
-    expect(kitRunAgentInputSchema.safeParse(input({ threadId: 'nope' })).success).toBe(false)
-    expect(kitRunAgentInputSchema.safeParse(input({ messages: [] })).success).toBe(false)
   })
 
   it('refuses client-side tools rather than ignoring them', () => {

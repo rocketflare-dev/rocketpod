@@ -175,6 +175,9 @@ code-quality.md · runtime.md. Runbooks: `docs/DEPLOY.md` · `docs/RLS.md`
 
 - **Gate**: `pnpm gate` (lint → typecheck → test → build) passes before every commit — the same
   command a copy's CI job and Launch's ship gate run
+- **Tests catch real bugs**: no test restates a constant, tests a fake, greps docs, duplicates
+  another file's assertion, or cannot fail; a kit-maintainer claim lives in `tests/kit-only/` —
+  `.claude/rules/testing.md` "A test must be able to catch a real bug"
 - **Driver seam**: app code never names the driver; `apps/web/src/db/client.ts` is the only place
   it is, the guard in `driver-results.test.ts` bans the rest, and `tests/driver/` proves it (a
   per-request client and the Node process pool) and is never skipped (`apps/web/src/db/CLAUDE.md`)

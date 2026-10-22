@@ -77,11 +77,6 @@ describe('OrgSwitcher', () => {
     expect(requestBody(fetchMock, 'POST /auth/select-tenant')).toEqual({
       tenantId: IDS.otherTenant,
     })
-    console.log(
-      'DEBUG',
-      Array.from(document.querySelectorAll('summary')).map(s => s.getAttribute('aria-label')),
-      document.body.textContent
-    )
     // The header now names the new organisation
     await waitFor(() => expect(screen.getByLabelText('Organisation: Beta')).toBeInTheDocument())
   })

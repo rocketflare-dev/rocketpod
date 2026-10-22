@@ -35,7 +35,10 @@ test belongs there when it is true of the kit repository and of nothing made fro
 notes and the root version being the kit's (`upgrade-notes`), the release and rename machinery
 (`release-lib`, `release-root`, `rename-lib`, `rename-safe-identifiers`), the maintainer nudge hooks,
 the plugin CI that plugin repositories call from the kit, and the manifest's kit-state claims
-(`kit-only/kit-manifest.test.ts`). `scripts/rename.mjs` deletes the directory when a copy is born
+(`kit-only/kit-manifest.test.ts`), and every tooling case that reads this checkout AS the kit or covers
+a branch only the kit runs — release floors, changelog sections, `isDeployable`, the rename's
+unwiring, the Launch kit check and its parsers (`kit-tooling`, `kit-check`, `kit-check-parsers`,
+`launch-kit-manifest{,-shape}`). `scripts/rename.mjs` deletes the directory when a copy is born
 and unwires `--project kit-only`; the project is registered only while the directory exists;
 `kit:upgrade` never ports one; `tests/config/kit-manifest.test.ts` fails a copy that carries one.
 A test of tooling a copy RUNS (upgrade, plugin, bootstrap, the update-check hook, the manifest
@@ -45,6 +48,49 @@ because a copy's differ by design (renamed). Build a fixture (`tests/config/fixt
 `kit-fixture.mjs` makes a whole kit), and put the claim about THIS checkout in `kit-only`. The one
 deliberate exception is `packaging.test.ts`, which holds this checkout's Dockerfile, compose file
 and chart to its own build and `src/config.ts` — a copy must keep those in step too.
+
+## A test must be able to catch a real bug
+
+Before writing a test, name the regression it would catch. If you cannot, do not write it. These
+were all found in this suite (and in the first app built on the kit) and deleted; do not
+reintroduce them:
+
+- **Restating the source.** A constant, price table, catalogue, registry list, zod `.default()` /
+  `z.enum`, `.env.test` value or literal id asserted equal to what it was written as. Changing
+  the value breaks the test and catches nothing. Test the LOGIC that reads the table
+  (longest-prefix match, fallback), never the table. Holding two modules to EACH OTHER is not
+  restating — the queue's `retryLimit` against `JOBS_RETRY_LIMIT`, its retry delay against the
+  consumer's backoff curve.
+- **What the compiler already proves.** `satisfies Record<K, …>` coverage, "exported", "is a
+  function", "the same function from two modules", "has exactly one handler per role" on a typed
+  `Record`. `pnpm typecheck` is the test.
+- **Testing the fake.** `MemoryStorage`, the recording hub, a `FakeChatClient` returning its own
+  script, `invalidateQueries` on a key with no observers. The real adapter has its own test
+  (`node-platform-adapters`, `node-realtime`); the fake is scaffolding.
+- **Re-implementing the code under test** inside the test and comparing — it drifts with the
+  code, so it can never disagree with it. Call the shared function both sides use.
+- **Reading text instead of running code.** No test greps docs, CLAUDE.md or markdown for
+  strings. Source scans are kept only where they guard a seam the compiler cannot
+  (`platform-seam`, `driver-results`, `driver-conformance`, `unscoped-allowlist`, `ui-bundle`'s
+  import rules, `features`' `featureDefinition` guard), and the one YAML reader is
+  `packaging.test.ts`, because config ↔ chart drift is a production outage the gate would
+  otherwise never see.
+- **Duplicates.** The visibility matrix (`access-visibility`) owns hidden-equals-missing;
+  `tenancy-single` owns single mode; `auth-session` owns the shared 401 from `authMiddleware`. A
+  per-feature file adds only what is unique to it, not another copy of the same assertion.
+- **Tests that cannot fail.** A loop over an empty list (no plugins installed), a branch on a
+  driver that has one value, a check against a `dist/` the gate has not built yet (tests run
+  before `build`), a title promising behaviour the body never asserts. Read the body against the
+  title.
+- **Pinned copy and layout.** Exact nav labels and order, which static label sits in which panel,
+  exact prompt or hint sentences, JSON key order. Assert the behaviour (filtered, gated, rendered
+  on data), not the wording — unless the mapping IS the behaviour (error code → message).
+- **Code a copy never runs, outside `kit-only`.** Kit-maintainer branches (`app === null`, the
+  rename, release floors, changelog sections, `launch.kit.json`) go in `tests/kit-only/` so the
+  rename takes them away; Cloudflare leftovers (Workflows event-type rules, Durable Object names,
+  per-environment queue names) go nowhere.
+- **Leftovers.** No `console.log` debugging in a committed test; a `describe` with no `it` fails
+  vitest, so delete it with its last case.
 
 ## Tests run under Node, against the real Hono app
 

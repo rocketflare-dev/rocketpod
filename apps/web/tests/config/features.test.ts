@@ -93,10 +93,6 @@ describe('featureBucket', () => {
     }
   })
 
-  it('is deterministic', () => {
-    expect(featureBucket(KEY, 'tenant-9')).toBe(featureBucket(KEY, 'tenant-9'))
-  })
-
   it('spreads roughly evenly across the 100 buckets', () => {
     const counts = new Array<number>(100).fill(0)
     for (const id of ids(10_000)) counts[featureBucket(KEY, id)]++

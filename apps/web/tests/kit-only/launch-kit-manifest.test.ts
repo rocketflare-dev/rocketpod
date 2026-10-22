@@ -7,7 +7,7 @@
  * `release`) are kept for the schema alone, and say so (`$runtime`).
  *
  * Kit-only: it judges this checkout's own manifest, which a copy is free to change. The shape cases, on a fixture manifest, are
- * `tests/config/launch-kit-manifest.test.ts` and travel into every copy.
+ * `launch-kit-manifest-shape.test.ts` beside it.
  */
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'

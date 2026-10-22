@@ -332,21 +332,6 @@ describe('GET /api/ai/config + DELETE', () => {
       (await request('/api/ai/config/not-a-uuid', { method: 'DELETE', headers: a.cookie })).status
     ).toBe(404)
   })
-
-  it('GET /providers serves the catalog with scopes and presets', async () => {
-    const a = await actor('member')
-    const body = await json<{
-      items: Array<{ id: string; scopes: string[]; presets: unknown[] }>
-      defaultMaxOutputTokens: number
-    }>(await request('/api/ai/config/providers', { headers: a.cookie }))
-    expect(body.defaultMaxOutputTokens).toBe(16384)
-    expect(body.items.find(p => p.id === 'openai_compatible')?.scopes).toEqual([
-      'chat',
-      'embeddings',
-    ])
-    expect(body.items.find(p => p.id === 'workers_ai')).toBeUndefined()
-    expect(body.items.find(p => p.id === 'anthropic_compatible')?.presets.length).toBeGreaterThan(0)
-  })
 })
 
 describe('GET /api/ai/config/readiness', () => {

@@ -11,7 +11,7 @@
  *
  * The `config` project: no database, no network.
  */
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -215,14 +215,6 @@ describe('usesOf', () => {
   })
 
   /**
-   * A type is part of the surface: removing one breaks a plugin exactly as removing a value does,
-   * it just breaks at compile time. So `RequestCtx` above is not an oversight — it is the point.
-   */
-  it('counts a type-only import', () => {
-    expect(usesOf(root, 'orders')['@/plugins/api']).toContain('RequestCtx')
-  })
-
-  /**
    * Third-party packages and the plugin's own files are absent: there is no host surface on the
    * other side of either, so there is nothing to compare against. Another plugin's imports are
    * absent for the same reason — `deepImportIssue` is what rules on whether reaching there was
@@ -233,20 +225,6 @@ describe('usesOf', () => {
     expect(Object.values(uses).flat()).not.toContain('z')
     expect(Object.values(uses).flat()).not.toContain('ORDERS_ENTITY')
     expect(Object.values(uses).flat()).not.toContain('notify')
-  })
-
-  /**
-   * **A declared entry that is not ledgered is RECORDED, not dropped.** The whole of
-   * `packages/shared/src` is importable while only part of it is ledgered, and keying the walk by
-   * ledger entry alone meant a plugin importing `@rocketpod/shared/pagination` measured as using
-   * *nothing* — indistinguishable from a plugin that imports nothing at all. Losing the
-   * measurement in the walk is the silent drift this machinery exists to remove, so the data is
-   * kept here and `missingFrom` owns the policy of which entries the ledger may judge.
-   */
-  it('records an importable entry the ledger does not cover', () => {
-    expect(usesOf(root, 'orders')['@rocketpod/shared/pagination']).toEqual([
-      'paginationQuerySchema',
-    ])
   })
 
   it('leaves an unledgered entry out of the DIFF, which is where the policy lives', () => {
@@ -314,20 +292,4 @@ describe('missingFrom', () => {
     // A null ledger yields an empty list: the CALLER owns treating that as its own failure.
     expect(missingFrom({ '@/plugins/api': ['anything'] }, null)).toEqual([])
   })
-
-  /**
-   * The live canary. `example-feature` is migrated onto the contract and vendored with the kit, so
-   * every symbol it names must be in the ledger this checkout emits — if this fails, either the
-   * document is stale or the reference plugin has reached for something the kit no longer provides.
-   */
-  // ADAPTING tells an app to remove the reference plugin; a bare kit has nothing to check here.
-  it.skipIf(!existsSync(path.join(REPO_ROOT, 'apps/web/src/plugins/example-feature')))(
-    'finds nothing missing for the reference plugin against the real ledger',
-    () => {
-      const real = readLedger(REPO_ROOT)
-      const uses = usesOf(REPO_ROOT, 'example-feature')
-      expect(Object.keys(uses).length).toBeGreaterThan(0)
-      expect(missingFrom(uses, real)).toEqual([])
-    }
-  )
 })

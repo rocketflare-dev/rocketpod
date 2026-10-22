@@ -2,11 +2,10 @@
  * `scripts/kit-check.mjs` — the Launch kit conformance check (D36), shared with the meta-kit
  * (rocketflare-dev/launch-kit, whose `scripts/tests/kit-check.test.mjs` this ports to vitest).
  *
- * Every case runs on a fixture kit built in a temp directory (`./fixtures/kit-fixture.mjs`, shared
- * with the meta-kit), never on this checkout: the test travels into every copy, whose files differ
- * from the kit's by design — renamed, then provisioned by Launch's `write_config`, which commits
- * the real KV ids. Whether THIS checkout conforms is kit.yml's `Launch kit check` step (and the
- * renamed copy's), never a test. The `config` project: no database.
+ * Every case runs on a fixture kit built in a temp directory (`../config/fixtures/kit-fixture.mjs`,
+ * shared with the meta-kit), never on this checkout. Kit-only: the check is kit-maintainer tooling
+ * a copy never runs, so the rename deletes this file with the rest of `tests/kit-only/`. No
+ * database.
  */
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
@@ -29,7 +28,7 @@ import {
   FIXTURE_TOMLS,
   provisionLikeLaunch,
   writeKitFixture,
-} from './fixtures/kit-fixture.mjs'
+} from '../config/fixtures/kit-fixture.mjs'
 
 const SCRIPT = path.resolve(__dirname, '../../../../scripts/kit-check.mjs')
 const APP = { slug: 'zz-desk', display: 'Zz Desk', domain: 'zz.example' }

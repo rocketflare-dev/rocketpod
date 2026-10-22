@@ -50,12 +50,6 @@ describe.skipIf(EPHEMERAL)(`db-roles as a non-superuser owner (Neon)${SKIPPED}`,
     await superuser.end({ timeout: 5 })
   })
 
-  it('the throwaway owner really is not a superuser', async () => {
-    const [row] = await superuser<{ rolsuper: boolean; rolcreaterole: boolean }[]>`
-      SELECT rolsuper, rolcreaterole FROM pg_roles WHERE rolname = ${ownerRole}`
-    expect(row).toEqual({ rolsuper: false, rolcreaterole: true })
-  })
-
   it('runs the role phase and leaves the app role unable to bypass RLS', async () => {
     await expect(
       applyDbRoles({ databaseUrl: ownerUrl(), phase: 'role', quiet: true })

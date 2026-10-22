@@ -16,15 +16,11 @@ import type { Manifest } from '../../../../scripts/lib/upgrade-lib.d.mts'
 import {
   absentSurfaces,
   BinaryPatchError,
-  behaviourFiles,
   classifyPath,
   countLines,
   defaultPluginEntries,
   defaultPluginEntryProblems,
-  defaultPluginProblems,
   globToRegExp,
-  hasChangelogSection,
-  isDeployable,
   isKitManifest,
   isVendored,
   KIT_ONLY_PATHS,
@@ -33,7 +29,6 @@ import {
   parseNote,
   splitDiff,
   stripIndexLines,
-  stripKitOnlyWiring,
   translateBlock,
 } from '../../../../scripts/lib/upgrade-lib.mjs'
 
@@ -276,36 +271,6 @@ describe('kit-only wiring', () => {
       'b/**',
     ])
   })
-
-  it('drops `--project kit-only` from every script and removes a script that only runs it', () => {
-    const pkg = `${JSON.stringify(
-      {
-        name: '@acme/web',
-        scripts: {
-          'test:isolated': 'vitest run --project api-isolated --project config --project kit-only',
-          'test:ephemeral': 'X=1 vitest run --project kit-only --project ui && echo done',
-          'test:kit-only': 'vitest run --project kit-only',
-          'test:config': 'vitest run --project config',
-          other: 'vitest run --project kit-only-lookalike',
-        },
-      },
-      null,
-      2
-    )}\n`
-    const { text, removed, edited } = stripKitOnlyWiring(pkg)
-    expect(removed).toEqual(['test:kit-only'])
-    expect(edited).toEqual(['test:isolated', 'test:ephemeral'])
-    const scripts = JSON.parse(text).scripts
-    expect(scripts['test:isolated']).toBe('vitest run --project api-isolated --project config')
-    expect(scripts['test:ephemeral']).toBe('X=1 vitest run --project ui && echo done')
-    expect(scripts.other).toBe('vitest run --project kit-only-lookalike')
-    expect(text.endsWith('}\n')).toBe(true)
-  })
-
-  it('returns the text untouched when there is nothing to unwire', () => {
-    const pkg = '{\n  "scripts": { "test": "vitest run" }\n}\n'
-    expect(stripKitOnlyWiring(pkg)).toEqual({ text: pkg, removed: [], edited: [] })
-  })
 })
 
 describe('isVendored', () => {
@@ -313,11 +278,6 @@ describe('isVendored', () => {
   // this one normalises the URL, the other compared strings exactly — so the same plugin could be
   // vendored for `kit:release` and third-party for `plugin check`, over one manifest.
   const KIT_REPO = 'https://github.com/rocketflare-dev/rocketflare.git'
-
-  it('is the same answer from either module', async () => {
-    const { isVendored: fromPluginLib } = await import('../../../../scripts/lib/plugin-lib.mjs')
-    expect(fromPluginLib).toBe(isVendored)
-  })
 
   it('normalises a trailing slash and a missing .git, and refuses a subdirectory', () => {
     expect(isVendored({ repo: KIT_REPO, subdir: '' }, KIT_REPO)).toBe(true)
@@ -339,7 +299,6 @@ describe('default plugins', () => {
   // plugin comes from; a string still parses, and is then reported as having no repo rather than
   // having a URL guessed for it.
   const KIT = 'https://github.com/rocketflare-dev/rocketflare.git'
-  const ok = (minKit: string | null) => () => ({ ok: true, minKit })
 
   it('normalises both shapes and defaults the optional fields', () => {
     expect(
@@ -352,89 +311,6 @@ describe('default plugins', () => {
     ])
     expect(defaultPluginEntries(null)).toEqual([])
     expect(defaultPluginEntries({} as never)).toEqual([])
-  })
-
-  it('passes a plugin whose floor is at or below the version being cut', () => {
-    const entries = defaultPluginEntries({
-      defaultPlugins: [{ id: 'analytics', repo: 'https://example.test/a.git', ref: '0.2.0' }],
-    } as never)
-    expect(defaultPluginProblems(entries, '0.6.0', ok('0.5.0'))).toEqual([])
-    // The floor is a floor: equal passes, and there is no ceiling to fall off the top of.
-    expect(defaultPluginProblems(entries, '0.6.0', ok('0.6.0'))).toEqual([])
-    expect(defaultPluginProblems(entries, '9.9.9', ok('0.5.0'))).toEqual([])
-  })
-
-  it('refuses a version BELOW the floor, naming the floor and the release', () => {
-    const entries = defaultPluginEntries({
-      defaultPlugins: [{ id: 'analytics', repo: 'https://example.test/a.git' }],
-    } as never)
-    const problems = defaultPluginProblems(entries, '0.6.0', ok('0.7.0'))
-    expect(problems).toHaveLength(1)
-    expect(problems[0]).toMatch(/analytics.*needs kit 0\.7\.0 or newer.*this release is 0\.6\.0/)
-  })
-
-  it('refuses an entry the resolver cannot reach, and one with no repo', () => {
-    const entries = defaultPluginEntries({
-      defaultPlugins: [
-        { id: 'gone', repo: 'https://example.test/gone.git', ref: '9.9.9' },
-        'nameless',
-      ],
-    } as never)
-    const problems = defaultPluginProblems(entries, '0.6.0', entry =>
-      entry.id === 'gone' ? { ok: false, reason: 'no such ref' } : { ok: true, minKit: '0.1.0' }
-    )
-    // Shape problems come first now: they are the whole of `defaultPluginEntryProblems`, and
-    // somebody fixing a hand-edited list wants every one of them in one run.
-    expect(problems).toEqual([
-      expect.stringContaining('has no "repo"'),
-      expect.stringContaining('no such ref'),
-    ])
-  })
-
-  it('tells an unread floor, an OLD-SHAPE declaration and a real refusal apart', () => {
-    // "I could not check", "this plugin was written against a contract this kit no longer reads"
-    // and "I checked and it is too old" are three different answers with three different fixes,
-    // and only the absence of all three may cut a release.
-    const entries = defaultPluginEntries({
-      defaultPlugins: [{ id: 'analytics', repo: 'https://example.test/a.git' }],
-    } as never)
-    expect(defaultPluginProblems(entries, '0.6.0', ok(null))[0]).toMatch(
-      /cannot read its minKit floor/
-    )
-    // A manifest still carrying `requires.kit` is named, never silently skipped — the range is
-    // carried out of the resolver for exactly this sentence, and is never used as a floor.
-    const legacy = () => ({ ok: true, minKit: null, legacyRange: '>=0.5.0 <1.0.0' })
-    const problem = defaultPluginProblems(entries, '0.6.0', legacy)[0]
-    expect(problem).toMatch(/declares requires\.kit '>=0\.5\.0 <1\.0\.0'/)
-    expect(problem).toMatch(/"minKit"/)
-    // And a floor wearing range language is reported, not approximated: nothing here can read it.
-    expect(defaultPluginProblems(entries, '0.6.0', ok('>=0.5.0'))[0]).toMatch(
-      /not a bare X\.Y\.Z version/
-    )
-  })
-
-  it('exempts a VENDORED plugin from the floor check, as §16 says', () => {
-    // Same repository, no subdirectory: the same release cut both, so the floor describes the kit
-    // it shipped inside rather than a compatibility claim.
-    const entries = defaultPluginEntries({
-      defaultPlugins: [{ id: 'example-feature', repo: KIT, ref: '0.4.0' }],
-    } as never)
-    expect(defaultPluginProblems(entries, '0.6.0', ok('9.9.9'), { kitRepo: KIT })).toEqual([])
-    // …but a plugin in a SUBDIRECTORY of the kit repo is not vendored, and is checked.
-    const sub = [{ id: 'x', repo: KIT, ref: null, subdir: 'plugins/x' }]
-    expect(defaultPluginProblems(sub, '0.6.0', ok('9.9.9'), { kitRepo: KIT })).toHaveLength(1)
-  })
-
-  it('catches the same plugin listed twice', () => {
-    const entries = defaultPluginEntries({
-      defaultPlugins: [
-        { id: 'a', repo: 'https://example.test/a.git' },
-        { id: 'a', repo: 'https://example.test/a.git' },
-      ],
-    } as never)
-    expect(defaultPluginProblems(entries, '0.6.0', ok('0.1.0'))).toEqual([
-      expect.stringContaining("lists 'a' twice"),
-    ])
   })
 })
 
@@ -474,66 +350,6 @@ describe('defaultPluginEntryProblems', () => {
     expect(defaultPluginEntryProblems(entries(['analytics']))[0]).toMatch(
       /'analytics' has no "repo"/
     )
-  })
-})
-
-describe('behaviourFiles', () => {
-  // The porting-note predicate, shared by the CI gate (`release-check --unreleased`) and the
-  // pre-commit hook (`changelog-nudge.mjs`). They were two copies of one regex pair, and a hook
-  // that disagrees with the gate is a hook people learn to ignore.
-  it('is source under apps/ or packages/, tests and markdown excluded', () => {
-    expect(
-      behaviourFiles([
-        'apps/web/src/api/index.ts',
-        'packages/shared/src/jobs.ts',
-        'apps/web/tests/api/chat.test.ts',
-        'apps/web/src/api/thing.test.ts',
-        'apps/web/src/ui/CLAUDE.md',
-        'docs/CONCEPTS.md',
-        'scripts/release.mjs',
-        '.github/workflows/ci.yml',
-      ])
-    ).toEqual(['apps/web/src/api/index.ts', 'packages/shared/src/jobs.ts'])
-    expect(behaviourFiles([])).toEqual([])
-    expect(behaviourFiles(undefined)).toEqual([])
-  })
-})
-
-describe('hasChangelogSection', () => {
-  const changelog = '# Changelog\n\n## 0.6.10 — 2026-01-02\n\nx\n\n## 0.6.1 — 2026-01-01\n\ny\n'
-
-  it('does not accept 0.6.10 as 0.6.1 — the bug a two-digit patch would have found', () => {
-    // `changelog.includes('## 0.6.1')` is true of `## 0.6.10`, so the tag gate would have passed
-    // on another release's section, in the direction that lets a release through.
-    expect(hasChangelogSection('# Changelog\n\n## 0.6.10 — 2026-01-02\n', '0.6.1')).toBe(false)
-    expect(hasChangelogSection(changelog, '0.6.1')).toBe(true)
-    expect(hasChangelogSection(changelog, '0.6.10')).toBe(true)
-    expect(hasChangelogSection(changelog, '0.7.0')).toBe(false)
-  })
-
-  it('anchors to the start of a line, so a mention in prose is not a section', () => {
-    expect(hasChangelogSection('see ## 0.6.1 below\n', '0.6.1')).toBe(false)
-  })
-})
-
-describe('isDeployable', () => {
-  // This gates a release workflow, so the expensive mistake is a false "skip": somebody's
-  // production release quietly not happening. Every ambiguous case must deploy.
-  const KIT = { app: null } as unknown as Manifest
-  const APP = { app: { slug: 'acme', display: 'Acme', domain: 'acme.io' } } as unknown as Manifest
-
-  it('skips only the kit itself', () => {
-    const d = isDeployable(KIT)
-    expect(d.deployable).toBe(false)
-    expect(d.reason).toContain('the kit itself')
-  })
-
-  it('deploys an app', () => {
-    expect(isDeployable(APP).deployable).toBe(true)
-  })
-
-  it('deploys when there is no manifest at all', () => {
-    expect(isDeployable(null).deployable).toBe(true)
   })
 })
 

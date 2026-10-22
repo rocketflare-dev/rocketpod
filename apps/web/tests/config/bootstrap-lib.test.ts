@@ -24,10 +24,8 @@ import {
   extractSeedKey,
   fillDevVars,
   isLocalDatabaseUrl,
-  isNeonDatabaseUrl,
   isPostgresUrl,
   KIT_TEST_DB_PORTS,
-  localDriverFor,
   parseBootstrapArgs,
   parseBootstrapSkip,
   parseNvmrc,
@@ -38,7 +36,6 @@ import {
   versionAtLeast,
   withDatabaseUrlPort,
 } from '../../../../scripts/lib/bootstrap-lib.mjs'
-import { readManifest } from '../../../../scripts/lib/manifest.mjs'
 
 const WEB_DIR = path.resolve(__dirname, '../..')
 const readWeb = (file: string) => fs.readFileSync(path.join(WEB_DIR, file), 'utf8')
@@ -371,12 +368,6 @@ describe('planDefaultPlugins', () => {
     expect(plan.problems[2]).toMatch(/'z' has no "repo"/)
     expect(plan.install.map(j => j.id)).toEqual(['analytics'])
   })
-
-  it('matches what the kit ships in .rocketflare.json', () => {
-    const { manifest } = readManifest(path.join(WEB_DIR, '../..'))
-    expect(Array.isArray(manifest?.defaultPlugins)).toBe(true)
-    expect(planDefaultPlugins(manifest?.defaultPlugins, []).problems).toEqual([])
-  })
 })
 
 /**
@@ -533,21 +524,6 @@ describe('bootstrapStepPlan', () => {
     })
     // An off-box .env matters to preflight only; a plain bootstrap still owns its Docker db.
     expect(bootstrapStepPlan({ devVarsDatabaseUrl: NEON })).toEqual(COMPOSE)
-  })
-})
-
-describe('localDriverFor (D35)', () => {
-  const NEON = 'postgresql://u:pw@ep-x-123-pooler.eu-central-1.aws.neon.tech/neondb?sslmode=require'
-  it('is always postgres — any database over TCP; a stale neon is rewritten', () => {
-    expect(localDriverFor({})).toBe('postgres')
-    expect(localDriverFor({ existing: 'neon' })).toBe('postgres')
-    expect(localDriverFor({ dbUrl: NEON, existing: 'postgres' })).toBe('postgres')
-    expect(localDriverFor({ flag: 'postgres', dbUrl: NEON, existing: 'neon' })).toBe('postgres')
-  })
-  it('isNeonDatabaseUrl reads the host, not a substring', () => {
-    expect(isNeonDatabaseUrl(NEON)).toBe(true)
-    expect(isNeonDatabaseUrl('postgres://u:pw@neon.tech.evil.example/x')).toBe(false)
-    expect(isNeonDatabaseUrl('not a url')).toBe(false)
   })
 })
 

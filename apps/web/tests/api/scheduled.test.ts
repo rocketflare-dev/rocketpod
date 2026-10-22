@@ -1,12 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { dispatchScheduled, SCHEDULED_TASKS, type ScheduledTask, scheduled } from '@/api/scheduled'
+import { dispatchScheduled, type ScheduledTask } from '@/api/scheduled'
 import { createExecutionContext, createTestEnv, waitOnExecutionContext } from '../mocks/bindings'
 
 describe('scheduled dispatcher', () => {
-  it('registers pruneExpired and the trace-store retention on the nightly cron', () => {
-    expect(SCHEDULED_TASKS['0 4 * * *']?.map(t => t.name)).toEqual(['pruneExpired', 'pruneAiSpans'])
-  })
-
   it('runs the tasks registered for event.cron and reports each', async () => {
     const env = createTestEnv()
     const ctx = createExecutionContext()
@@ -46,12 +42,5 @@ describe('scheduled dispatcher', () => {
   it('an unknown cron runs nothing', async () => {
     const ctx = createExecutionContext()
     expect(await dispatchScheduled('59 23 31 12 *', createTestEnv(), ctx)).toEqual([])
-  })
-
-  it('the cron entry accepts a ScheduledController', async () => {
-    const ctx = createExecutionContext()
-    const controller = { cron: '0 4 * * *', scheduledTime: Date.now(), noRetry() {} }
-    await scheduled(controller, createTestEnv(), ctx)
-    await waitOnExecutionContext(ctx)
   })
 })

@@ -403,17 +403,6 @@ describe('document converter (Node)', () => {
     })
     expect(corrupt).toMatchObject({ format: 'error' })
   })
-
-  it('declares exactly the types it reads, so the upload route can refuse the rest', () => {
-    expect([...converter.contentTypes].sort()).toEqual(
-      ['application/pdf', 'application/xml', DOCX, 'text/html'].sort()
-    )
-    expect(converter.contentTypes.has('application/vnd.ms-excel')).toBe(false)
-  })
-
-  it('is the Node platform’s converter', () => {
-    expect(createNodePlatform(config).converter?.contentTypes).toBe(converter.contentTypes)
-  })
 })
 
 // ---- Platform AI tiers --------------------------------------------------------------------------

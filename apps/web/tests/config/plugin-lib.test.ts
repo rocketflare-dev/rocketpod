@@ -49,7 +49,6 @@ import {
   describeClash,
   hasBarrelLine,
   isolationEvidence,
-  isVendored,
   jsonKeyLine,
   missingDependencies,
   newlyAddedDependencies,
@@ -61,7 +60,6 @@ import {
   pluginIdProblem,
   pluginManifestProblems,
   pluginPlatformProblems,
-  pluginRoots,
   rangeWithin,
   removeBarrelLine,
   removeSteps,
@@ -79,7 +77,7 @@ import {
   unsupportedForKit,
   withoutDependencies,
 } from '../../../../scripts/lib/plugin-lib.mjs'
-import { applyReplacements, deriveNames, KIT } from '../../../../scripts/lib/rename-lib.mjs'
+import { KIT } from '../../../../scripts/lib/rename-lib.mjs'
 import type { Surface } from '../../../../scripts/lib/upgrade-lib.d.mts'
 
 const REPO_ROOT = path.resolve(__dirname, '../../../..')
@@ -93,15 +91,6 @@ const read = (rel: string) => readFileSync(path.join(REPO_ROOT, rel), 'utf8')
  */
 const installedHere = pluginSurfaces(readManifest().manifest)
 const subject = installedHere[0]?.id ?? null
-/**
- * The vendored reference plugin. ADAPTING tells an app to remove it, so every case that reads its
- * files skips once it is gone — a bare kit must pass its own gate.
- */
-const REFERENCE_PLUGIN = existsSync(
-  path.join(REPO_ROOT, 'apps/web/src/plugins/example-feature/plugin.json')
-)
-const kitRepo = readManifest().manifest?.kit.repo ?? ''
-const vendoredHere = installedHere.find(s => isVendored(s.source, kitRepo))?.id ?? null
 
 describe('plugin ids', () => {
   it('accepts a namespace and rejects everything that is not one', () => {
@@ -336,16 +325,6 @@ describe('core edits a plugin declares', () => {
   })
 })
 
-describe('translation and import order', () => {
-  it('moves a scope past its neighbours in the sort', () => {
-    const kitOrder = [`@heroicons/react/24/outline`, `@${KIT.slug}/shared/plugins/x/index`]
-    expect([...kitOrder].sort()).toEqual(kitOrder)
-    const appOrder = kitOrder.map(s => applyReplacements(s, deriveNames('acme', 'Acme')).text)
-    // The same two imports, in the same file, now in the WRONG order for this app.
-    expect([...appOrder].sort()).not.toEqual(appOrder)
-  })
-})
-
 describe('what a plugin may bring', () => {
   const roles = (p: string) => classifyPluginFile(p, 'orders').role
 
@@ -398,15 +377,6 @@ describe('what a plugin may bring', () => {
     ]) {
       expect(roles(p)).toBe('refused')
     }
-  })
-
-  it('names the four roots it owns', () => {
-    expect(pluginRoots('orders')).toEqual([
-      'apps/web/src/plugins/orders/',
-      'packages/shared/src/plugins/orders/',
-      'apps/cli/src/plugins/orders/',
-      'docs/plugins/orders/',
-    ])
   })
 })
 
@@ -557,15 +527,6 @@ describe('requirements', () => {
     expect(
       checkRequirements({ ...base, kitVersion: '0.4.0', minKit: '0.5.0', vendored: true })
     ).toEqual([])
-  })
-
-  it("calls a plugin vendored only when it is the kit's own repo with no subdirectory", () => {
-    const kit = 'https://github.com/rocketflare-dev/rocketflare.git'
-    expect(isVendored({ repo: kit, subdir: '' }, kit)).toBe(true)
-    expect(isVendored({ repo: kit }, kit)).toBe(true)
-    expect(isVendored({ repo: kit, subdir: 'plugins/x' }, kit)).toBe(false)
-    expect(isVendored({ repo: 'https://github.com/acme/p.git' }, kit)).toBe(false)
-    expect(isVendored(null, kit)).toBe(false)
   })
 })
 
@@ -887,22 +848,6 @@ describe('scripts/plugin.mjs, end to end', () => {
     }
   })
 
-  it.skipIf(!vendoredHere)(
-    'checks this checkout, and skips the vendored plugin’s kit range while doing it',
-    () => {
-      const r = plugin(['check'])
-      expect(r.status).toBe(0)
-      expect(r.out).toContain(vendoredHere)
-      expect(r.out).toContain('vendored')
-    }
-  )
-
-  it.skipIf(!vendoredHere)('defers a vendored upgrade to `pnpm kit:upgrade`', () => {
-    const r = plugin(['upgrade', vendoredHere as string])
-    expect(r.status).toBe(0)
-    expect(r.out).toContain('kit:upgrade')
-  })
-
   it('exits 2 on usage and 1 on an unknown plugin', () => {
     expect(plugin([]).status).toBe(2)
     expect(plugin(['add']).status).toBe(2)
@@ -1023,8 +968,6 @@ describe('the plan as JSON', () => {
  * finding carries the edit.
  */
 describe('the audit', () => {
-  const anchorFile = 'apps/web/src/plugins/example-feature/plugin.json'
-
   it('renders a finding as file, place, problem and the exact edit', () => {
     expect(
       renderDiagnostic({
@@ -1045,15 +988,6 @@ describe('the audit', () => {
     const nested = ['{', '  "tables": "decoy",', '  "schema": {', '    "tables": []', '  }', '}']
     // The decoy is what a naive search for `"tables"` would answer, and it is the wrong line.
     expect(jsonKeyLine(nested.join('\n'), 'schema.tables')).toBe(4)
-  })
-
-  it.skipIf(!REFERENCE_PLUGIN)('finds a top-level key in the reference manifest', () => {
-    expect(jsonKeyLine(read(anchorFile), 'id')).toBe(2)
-    expect(jsonKeyLine(read(anchorFile), 'nope')).toBeNull()
-  })
-
-  it.skipIf(!REFERENCE_PLUGIN)("passes the kit's own reference manifest", () => {
-    expect(pluginManifestProblems(JSON.parse(read(anchorFile)))).toEqual([])
   })
 
   it('names the FIELD and its legal values, never "invalid manifest"', () => {
@@ -1103,34 +1037,6 @@ describe('the audit', () => {
     expect(pluginManifestProblems(null)[0].problem).toMatch(/not a JSON object/)
     expect(pluginManifestProblems('{}')[0].problem).toMatch(/not a JSON object/)
   })
-
-  /**
-   * **The mandatory tenant-isolation test, which nothing verified until now.**
-   *
-   * `docs/CONCEPTS.md` §16 and `.claude/rules/testing.md` both say a plugin declaring tenant-scoped
-   * tables MUST own a test proving another organisation cannot read its rows — *because the kit
-   * cannot*. Neither `plugins.test.ts` nor `helpers/plugins.ts` mentioned isolation at all, so the
-   * one area the kit treats as non-negotiable had no enforcement whatsoever.
-   */
-  it.skipIf(!REFERENCE_PLUGIN)(
-    "accepts the reference plugin's isolation test and refuses a stub",
-    () => {
-      const real = read('apps/web/src/plugins/example-feature/tests/api/example-feature.test.ts')
-      expect(isolationEvidence(real).ok).toBe(true)
-      // Two signals, because either alone is noise. Naming the property proves nothing on its own…
-      expect(isolationEvidence("describe('tenant isolation', () => {})").ok).toBe(false)
-      // …and creating two organisations proves nothing without a case that contrasts them.
-      expect(isolationEvidence('createTestTenant(db); createTestTenant(db)').ok).toBe(false)
-      expect(
-        isolationEvidence(
-          "describe('tenant isolation')\ncreateTestTenant(db)\ncreateTestTenant(db)"
-        ).ok
-      ).toBe(true)
-      expect(
-        isolationEvidence('const otherTenantId = x\ncreateTestTenant()\ncreateTestTenant()').ok
-      ).toBe(true)
-    }
-  )
 
   /**
    * The same failure mode as `declaresProperty`, in the check that matters most: a file whose

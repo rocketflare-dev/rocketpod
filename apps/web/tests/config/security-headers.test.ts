@@ -9,27 +9,6 @@
 
 import { EMBEDDABLE_MIME_TYPES, INLINE_MIME_TYPES } from '@rocketpod/shared/files'
 import { describe, expect, it } from 'vitest'
-import {
-  CONTENT_SECURITY_POLICY,
-  EMBEDDABLE_CONTENT_SECURITY_POLICY,
-} from '@/api/middleware/security-headers'
-
-const directives = (policy: string) => policy.split('; ').map(d => d.trim())
-
-describe('content security policies', () => {
-  it('differ in exactly the frame-ancestors directive', () => {
-    const strict = directives(CONTENT_SECURITY_POLICY)
-    const embeddable = directives(EMBEDDABLE_CONTENT_SECURITY_POLICY)
-    expect(strict).toContain("frame-ancestors 'none'")
-    expect(embeddable).toContain("frame-ancestors 'self'")
-    expect(strict.filter(d => !d.startsWith('frame-ancestors'))).toEqual(
-      embeddable.filter(d => !d.startsWith('frame-ancestors'))
-    )
-    // Exactly one of each, so neither policy can be read two ways.
-    expect(strict.filter(d => d.startsWith('frame-ancestors'))).toHaveLength(1)
-    expect(embeddable.filter(d => d.startsWith('frame-ancestors'))).toHaveLength(1)
-  })
-})
 
 describe('inline vs embeddable media types', () => {
   it('are separate lists, and everything framable is also inline', () => {

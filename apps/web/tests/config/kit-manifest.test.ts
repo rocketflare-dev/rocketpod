@@ -23,11 +23,9 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import rawManifest from '../../../../.rocketflare.json'
 import { readManifest } from '../../../../scripts/lib/manifest.mjs'
-import { KIT } from '../../../../scripts/lib/rename-lib.mjs'
 import type { Manifest } from '../../../../scripts/lib/upgrade-lib.d.mts'
 import {
   classifyPath,
-  isKitManifest,
   KIT_ONLY_PROJECT,
   kitOnlyGlobs,
   matchesAny,
@@ -59,18 +57,6 @@ const tracked = execFileSync('git', ['ls-files', '--cached', '--others', '--excl
   // `pnpm plugin remove --apply` deletes three directories and the gate runs BEFORE any `git add`,
   // so without this filter the scan dies with ENOENT on a file the tool correctly removed.
   .filter(f => existsSync(path.join(REPO_ROOT, f)))
-
-describe('.rocketflare.json', () => {
-  it('names the KIT, in the kit and in every copy', () => {
-    // The rename leaves this file alone by design, so the provenance is the same string everywhere
-    // — which is what `kit:upgrade` descends from.
-    expect(committed.kit.name).toBe(KIT.slug)
-    expect(committed.kit.repo).toMatch(/^https:\/\/github\.com\/.+\.git$/)
-    // …and the two readers agree about which checkout this is, whichever it is.
-    expect(isKitManifest(committed)).toBe(committed.app == null)
-    expect(isKit).toBe(committed.app == null)
-  })
-})
 
 describe('surfaces', () => {
   // Whether each anchor, path and registry is still on disk is a KIT-only claim

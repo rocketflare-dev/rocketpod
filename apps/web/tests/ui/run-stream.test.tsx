@@ -165,21 +165,6 @@ describe("['agent-run-agui'] is deliberately not a nudge target", () => {
     expect(nudge).toEqual([queryKeys.agentRuns.all])
     expect(nudge).not.toContainEqual(queryKeys.agentRunAgui.all)
   })
-
-  it('a run nudge leaves the streamed list untouched', () => {
-    const queryClient = createTestQueryClient()
-    const key = queryKeys.agentRunAgui.detail(RUN_ID)
-    queryClient.setQueryData(key, { events: [started], lastSeq: 3 })
-    for (const root of invalidationsFor({
-      type: 'entity.changed',
-      tenantId: 't',
-      at: new Date().toISOString(),
-      payload: { entity: 'agent-run', id: RUN_ID },
-    })) {
-      void queryClient.invalidateQueries({ queryKey: root })
-    }
-    expect(queryClient.getQueryData(key)).toEqual({ events: [started], lastSeq: 3 })
-  })
 })
 
 describe('useRunStream', () => {

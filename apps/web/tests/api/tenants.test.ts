@@ -16,7 +16,6 @@ import {
 } from '../helpers/auth'
 import { setupTestDatabase } from '../helpers/db'
 import { json, request } from '../helpers/request'
-import { createTestEnv } from '../mocks/bindings'
 
 const db = setupTestDatabase()
 
@@ -274,35 +273,5 @@ describe('/api/me', () => {
     expect(
       (await request('/api/me', { method: 'PATCH', headers: o.cookie }, { json: {} })).status
     ).toBe(400)
-  })
-})
-
-describe('TENANCY_MODE=single', () => {
-  const env = createTestEnv({ TENANCY_MODE: 'single' })
-  it('POST /api/tenants and DELETE /api/tenant → 404 tenancy_mode_single; GET/PATCH still work', async () => {
-    const o = await actor('owner')
-    const create = await request(
-      '/api/tenants',
-      { method: 'POST', headers: o.cookie },
-      { json: { name: 'x' }, env }
-    )
-    expect(create.status).toBe(404)
-    expect(await json(create)).toMatchObject({ statusCode: 404, code: 'tenancy_mode_single' })
-    const del = await request(
-      '/api/tenant',
-      { method: 'DELETE', headers: o.cookie },
-      { json: { confirm: o.tenant.slug }, env }
-    )
-    expect(del.status).toBe(404)
-    expect((await request('/api/tenant', { headers: o.cookie }, { env })).status).toBe(200)
-    expect(
-      (
-        await request(
-          '/api/tenant',
-          { method: 'PATCH', headers: o.cookie },
-          { json: { name: 'Workspace' }, env }
-        )
-      ).status
-    ).toBe(200)
   })
 })

@@ -10,7 +10,6 @@ import {
   sanitizeFilename,
   tenantStoragePrefix,
 } from '@/api/services/storage'
-import { MemoryStorage } from '../mocks/bindings'
 
 const TENANT = '11111111-1111-4111-8111-111111111111'
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
@@ -68,48 +67,5 @@ describe('buildStorageKey', () => {
     expect(buildStorageKey({ tenantId: TENANT, scope: 'avatars', name: 'a' })).toContain(
       tenantStoragePrefix(TENANT, 'avatars')
     )
-  })
-})
-
-describe('MemoryStorage (the api suite’s StorageService)', () => {
-  it('put → head/get → list → delete round-trips through the bucket', async () => {
-    const storage = new MemoryStorage()
-    const key = `tenants/${TENANT}/uploads/k1-hello.txt`
-
-    const meta = await storage.put(key, 'hello', {
-      contentType: 'text/plain',
-      metadata: { tenantId: TENANT },
-    })
-    expect(meta).toMatchObject({ key, size: 5, contentType: 'text/plain' })
-    expect(meta.etag).toMatch(/^".*"$/)
-    expect(storage.objects.has(key)).toBe(true)
-
-    const head = await storage.head(key)
-    expect(head).toMatchObject({ key, size: 5, contentType: 'text/plain', etag: meta.etag })
-    expect(head?.metadata).toEqual({ tenantId: TENANT })
-
-    const got = await storage.get(key)
-    expect(got).not.toBeNull()
-    expect(await new Response(got?.body).text()).toBe('hello')
-
-    await storage.put(`tenants/${TENANT}/avatars/k2-a.png`, new Uint8Array([1, 2, 3]), {
-      contentType: 'image/png',
-    })
-    const all = await storage.list(tenantStoragePrefix(TENANT))
-    expect(all.map(o => o.key).sort()).toEqual([key, `tenants/${TENANT}/avatars/k2-a.png`].sort())
-    expect((await storage.list(tenantStoragePrefix(TENANT, 'avatars'))).map(o => o.key)).toEqual([
-      `tenants/${TENANT}/avatars/k2-a.png`,
-    ])
-
-    await storage.delete(key)
-    await storage.delete(key) // idempotent
-    expect(await storage.get(key)).toBeNull()
-    expect(await storage.head(key)).toBeNull()
-  })
-
-  it('defaults an unknown content type to application/octet-stream', async () => {
-    const storage = new MemoryStorage()
-    await storage.put('raw', 'x')
-    expect((await storage.head('raw'))?.contentType).toBe('application/octet-stream')
   })
 })

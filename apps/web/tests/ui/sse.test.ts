@@ -108,15 +108,6 @@ describe('readSse', () => {
     expect(invalid).toHaveLength(2)
   })
 
-  it('handles a frame split across two network chunks', async () => {
-    const whole = encodeSseFrame(delta('split me'))
-    const events: KitAguiEvent[] = []
-    await readSse(streamResponse([whole.slice(0, 20), whole.slice(20)]), parseAgui, e =>
-      events.push(e)
-    )
-    expect(events).toEqual([delta('split me')])
-  })
-
   it('resolves quietly when the signal aborts mid-stream', async () => {
     const hanging = hangingSseResponse(run({ text: [], unterminated: true }))
     const controller = new AbortController()

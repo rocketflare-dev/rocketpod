@@ -3,30 +3,10 @@
  * (provider model ids carry dates), cache rates falling back to the input rate, and — the property
  * that matters — an unknown model priced `null` rather than guessed at.
  */
-import {
-  estimateCostMicrocents,
-  MODEL_PRICES,
-  PRICES_UPDATED,
-  priceFor,
-} from '@rocketpod/shared/ai/pricing'
+import { estimateCostMicrocents, MODEL_PRICES, priceFor } from '@rocketpod/shared/ai/pricing'
 import { describe, expect, it } from 'vitest'
 
 describe('priceFor', () => {
-  it('keeps each Claude and GPT generation on its own rate (the longest prefix wins)', () => {
-    // Opus 4.5+ dropped to $5/$25; Opus 4 / 4.1 did not.
-    expect(priceFor('anthropic', 'claude-opus-4-6')?.input).toBe(5)
-    expect(priceFor('anthropic', 'claude-opus-4-1-20250805')?.input).toBe(15)
-    expect(priceFor('anthropic', 'claude-opus-5-5')).toMatchObject({ input: 4, cacheRead: 0.2 })
-    expect(priceFor('anthropic', 'claude-fable-5-1')?.cacheRead).toBe(0.25)
-    expect(priceFor('anthropic', 'claude-fable-5')?.cacheRead).toBe(1)
-    expect(priceFor('anthropic', 'claude-haiku-5-5')?.input).toBe(0.1)
-    expect(priceFor('openai', 'gpt-6-luna')).toMatchObject({ input: 0.1, cacheWrite: 0.125 })
-    expect(priceFor('openai', 'gpt-6.1-sol')?.cacheRead).toBe(0.1)
-    // A `-pro` id must never be priced as its base model.
-    expect(priceFor('openai', 'gpt-5.5-pro')?.input).toBe(30)
-    expect(priceFor('openai', 'gpt-5.2-2025-12-11')?.input).toBe(1.75)
-  })
-
   it('matches a dated model id by its longest prefix', () => {
     expect(priceFor('anthropic', 'claude-sonnet-4-5-20250929')).toEqual(
       MODEL_PRICES.anthropic?.['claude-sonnet-4']
@@ -44,10 +24,6 @@ describe('priceFor', () => {
     expect(priceFor('anthropic', 'claude-9-imaginary')).toBeNull()
     // A provider Rocketpod dropped still parses on old rows, and simply has no price.
     expect(priceFor('workers_ai', '@cf/baai/bge-m3')).toBeNull()
-  })
-
-  it('records when the rates were last checked', () => {
-    expect(PRICES_UPDATED).toMatch(/^\d{4}-\d{2}-\d{2}$/)
   })
 })
 

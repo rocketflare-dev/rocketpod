@@ -443,20 +443,6 @@ describe('the lifecycle around a park', () => {
     expect(await resumeRun(db, tenant.id, run.id)).toBeNull()
   })
 
-  it('a second enqueue while parked deduplicates — the widened exclusive index', async () => {
-    const env = createTestEnv()
-    const { run, tenant, user } = await claimedRun(env)
-    await parkRun(db, tenant.id, run.id)
-    const second = await enqueueRun(db, env, {
-      tenantId: tenant.id,
-      agentKey: 'summarize-text',
-      input: { text: 'again' },
-      userId: user.id,
-    })
-    expect(second).toMatchObject({ deduplicated: true })
-    expect(second.run.id).toBe(run.id)
-  })
-
   it('cancelling a parked run settles it, expires its asks and wakes the instance', async () => {
     const env = createTestEnv()
     const { run, tenant } = await claimedRun(env)

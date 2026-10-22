@@ -2,7 +2,6 @@ import { ERROR_CODES } from '@rocketpod/shared/errors'
 import { describe, expect, it } from 'vitest'
 import { allowedOrigins, DEV_ORIGINS } from '@/api/middleware/cors'
 import { SESSION_COOKIE_NAME } from '@/api/middleware/csrf'
-import { API_PREFIXES } from '@/api/utils/routes/api-prefixes'
 import type { AppConfig } from '@/config'
 import { json, request } from '../helpers/request'
 import { createTestEnv } from '../mocks/bindings'
@@ -41,27 +40,6 @@ describe('not found', () => {
     expect(res.status).toBe(status)
     expect(res.headers.get('content-type')).toContain('application/json')
     expect(await json(res)).toMatchObject({ statusCode: status })
-  })
-
-  /**
-   * The same guarantee for every prefix an installed PLUGIN owns (D31). It is asserted over
-   * `API_PREFIXES` rather than a list of literals, because the kit cannot know what is installed —
-   * and because the point of the guard is structural: a plugin prefix missing from that list is
-   * silently served `index.html`, which reads as "the route works" until somebody parses it.
-   *
-   * A path under a plugin prefix is an envelope, never HTML. Whether it is 401 (a mount behind
-   * `authMiddleware`) or 404 (a prefix with no route there) is the plugin's business; both are
-   * JSON, and that is what this checks.
-   */
-  it('every prefix API_PREFIXES names answers an envelope, not the SPA', async () => {
-    const pluginPrefixes = API_PREFIXES.filter(p => !['/api', '/auth', '/ws'].includes(p))
-    for (const prefix of pluginPrefixes) {
-      for (const path of [prefix, `${prefix}/nope`]) {
-        const res = await request(path)
-        expect(res.headers.get('content-type'), path).toContain('application/json')
-        expect(await json(res), path).toMatchObject({ statusCode: expect.any(Number) })
-      }
-    }
   })
 
   it('non-API path falls through to the ASSETS binding', async () => {

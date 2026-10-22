@@ -3,7 +3,7 @@
  * and the test plan runs every project — the `driver` conformance project included — on the
  * target an explicit variable picks, never the shape of a URL.
  */
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { gateListSchema } from '@rocketpod/shared/gate'
 import { describe, expect, it } from 'vitest'
@@ -42,10 +42,6 @@ describe('pnpm gate', () => {
     expect(GATE_STEPS.find(s => s.id === 'test')?.command).toEqual(['pnpm', 'test'])
   })
 
-  it('has no step for generated files (the four owners live elsewhere)', () => {
-    expect(GATE_STEPS.map(s => s.id)).not.toContain('generated')
-  })
-
   it('parses steps, --skip and --keep-going, and keeps gate order', () => {
     expect(parseGateArgs([])).toEqual({
       list: false,
@@ -75,19 +71,6 @@ describe('pnpm gate', () => {
     expect(parseGateArgs(['--fast'])).toMatchObject({
       error: expect.stringMatching(/unknown option/),
     })
-  })
-
-  it('is wired: the root scripts run the gate and the test runner', () => {
-    const scripts = JSON.parse(readFileSync(path.join(REPO, 'package.json'), 'utf8')).scripts
-    expect(scripts.gate).toBe('node scripts/gate.mjs')
-    expect(scripts.test).toBe('node scripts/test.mjs')
-    // One test command: the profiles it replaced are gone, with no aliases.
-    expect(scripts['test:neon']).toBeUndefined()
-    expect(scripts['test:ephemeral']).toBeUndefined()
-    expect(scripts['test:gate']).toBeUndefined()
-    const web = JSON.parse(readFileSync(path.join(REPO, 'apps/web/package.json'), 'utf8')).scripts
-    // The gate's `typecheck` step owns the typecheck; `build` does not repeat it.
-    expect(web.build).not.toMatch(/typecheck/)
   })
 })
 

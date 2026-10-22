@@ -13,12 +13,10 @@ import { membershipRoleSchema } from '@rocketpod/shared/tenants'
 import { describe, expect, it } from 'vitest'
 import {
   abilityFromPackedRules,
-  applyFeatureFlags,
   buildAbility,
   emptyAbility,
   getEffectiveRole,
   packRules,
-  rolePermissions,
   unpackRules,
 } from '@/permissions'
 
@@ -143,15 +141,6 @@ describe('feature flags (access)', () => {
     expect(ability.can('manage', 'all')).toBe(false)
     expect(ability.can('access', 'Feature:Tenant')).toBe(true)
   })
-
-  it('applyFeatureFlags is exported for custom builders', () => {
-    const calls: unknown[][] = []
-    applyFeatureFlags(((...args: unknown[]) => calls.push(args)) as never, ['a', 'b'])
-    expect(calls).toEqual([
-      ['access', 'Feature:a'],
-      ['access', 'Feature:b'],
-    ])
-  })
 })
 
 describe('getEffectiveRole', () => {
@@ -162,10 +151,6 @@ describe('getEffectiveRole', () => {
     expect(getEffectiveRole({ isGlobalAdmin: false, tenantUser: { role: 'admin' } })).toBe('admin')
     expect(getEffectiveRole({ role: 'support' })).toBe('support')
     expect(getEffectiveRole({ isGlobalAdmin: false, tenantUser: null })).toBeNull()
-  })
-
-  it('rolePermissions has exactly one handler per effective role', () => {
-    expect(Object.keys(rolePermissions).sort()).toEqual([...ROLES, 'globalAdmin'].sort())
   })
 })
 

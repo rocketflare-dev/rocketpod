@@ -1,11 +1,3 @@
-/**
- * `scripts/lib/update-check-lib.mjs` — the decisions behind the `SessionStart` hook that tells a
- * copy of the kit about a newer release once per session (`scripts/kit-update-check.mjs`): who is
- * checked at all, how long an answer is trusted, which tag is newest, what changed, and the one
- * message Claude is handed. The `config` project: no database, no network.
- */
-import { readFileSync } from 'node:fs'
-import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   CACHE_TTL_MS,
@@ -20,7 +12,6 @@ import {
 } from '../../../../scripts/lib/update-check-lib.mjs'
 import type { Manifest } from '../../../../scripts/lib/upgrade-lib.d.mts'
 
-const REPO_ROOT = path.resolve(__dirname, '../../../..')
 const REPO = 'https://github.com/rocketflare-dev/rocketflare.git'
 
 const copy = (over: Partial<Manifest> = {}) =>
@@ -65,15 +56,6 @@ describe('skipReason', () => {
     )
     const noVersion = copy({ kit: { repo: REPO, version: 'main' } as Manifest['kit'] })
     expect(skipReason({ source: 'startup', manifest: noVersion, env: {} })).toMatch(/kit\.version/)
-  })
-
-  // The real manifest: `app: null` in the kit, stamped by `rename.mjs` in a copy — and this test
-  // ships to both, so it asserts the decision each one should get rather than assuming the kit.
-  it('stays silent in the kit repository itself and checks a renamed copy — from the real manifest', () => {
-    const manifest = JSON.parse(readFileSync(path.join(REPO_ROOT, '.rocketflare.json'), 'utf8'))
-    const reason = skipReason({ source: 'startup', manifest, env: {} })
-    if (manifest.app === null) expect(reason).toMatch(/kit itself/)
-    else expect(reason).toBeNull()
   })
 })
 

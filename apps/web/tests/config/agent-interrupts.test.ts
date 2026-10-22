@@ -13,13 +13,9 @@
  */
 import {
   ACTIVE_RUN_STATUSES,
-  AGENT_RESUME_EVENT,
   AGENT_RUN_EVENT_DATA,
-  AGENT_RUN_EVENT_TYPES,
-  agentRunStatusSchema,
   CLAIMABLE_RUN_STATUSES,
   isRunActive,
-  WORKFLOW_EVENT_TYPE_PATTERN,
 } from '@rocketpod/shared/ai/agents'
 import {
   ARTIFACT_JSON_MAX_CHARS,
@@ -27,11 +23,8 @@ import {
   agentArtifactSchema,
 } from '@rocketpod/shared/ai/artifacts'
 import {
-  AGENT_INTERRUPT_KINDS,
   type AgentInterruptSpec,
   aguiReasonFor,
-  formValuesSchemaFor,
-  INTERRUPT_REJECTION,
   interruptPayloadSchema,
   rejectionFor,
 } from '@rocketpod/shared/ai/interrupts'
@@ -42,28 +35,7 @@ const TENANT = '22222222-2222-4222-8222-222222222222'
 const ARTIFACT = '33333333-3333-4333-8333-333333333333'
 const AT = new Date('2026-09-16T09:00:00.000Z')
 
-describe('the Workflow resume event (T8)', () => {
-  it('is a legal Cloudflare Workflows event type', () => {
-    expect(AGENT_RESUME_EVENT).toMatch(WORKFLOW_EVENT_TYPE_PATTERN)
-  })
-
-  it('is spelled with a hyphen, because a dot is rejected at runtime', () => {
-    expect(AGENT_RESUME_EVENT).toBe('agent-resume')
-    expect('agent.resume').not.toMatch(WORKFLOW_EVENT_TYPE_PATTERN)
-  })
-
-  it('rejects the other shapes somebody might reach for', () => {
-    for (const bad of ['agent resume', 'agent/resume', '', 'a'.repeat(101), 'agent:resume']) {
-      expect(bad).not.toMatch(WORKFLOW_EVENT_TYPE_PATTERN)
-    }
-  })
-})
-
 describe('run statuses', () => {
-  it('appends `awaiting_input` last, because the enum mirrors a text column', () => {
-    expect(agentRunStatusSchema.options.at(-1)).toBe('awaiting_input')
-  })
-
   it('treats a parked run as active — it still holds the exclusive slot', () => {
     expect(isRunActive('awaiting_input')).toBe(true)
     expect([...ACTIVE_RUN_STATUSES]).toEqual(['queued', 'running', 'awaiting_input'])
@@ -78,10 +50,6 @@ describe('run statuses', () => {
 })
 
 describe('event payload schemas', () => {
-  it('has a schema for every event type — no more lenient local copies', () => {
-    expect(Object.keys(AGENT_RUN_EVENT_DATA).sort()).toEqual([...AGENT_RUN_EVENT_TYPES].sort())
-  })
-
   it('lets a tool row carry whatever the agent attached beside the name', () => {
     const parsed = AGENT_RUN_EVENT_DATA['tool.end'].parse({
       name: 'submit_summary',
@@ -93,17 +61,6 @@ describe('event payload schemas', () => {
 })
 
 describe('INTERRUPT_REJECTION', () => {
-  it('covers every kind', () => {
-    expect(Object.keys(INTERRUPT_REJECTION).sort()).toEqual([...AGENT_INTERRUPT_KINDS].sort())
-  })
-
-  it('makes a declined approval stop the run, and every other decline an answer', () => {
-    expect(INTERRUPT_REJECTION.approval).toBe('cancel_run')
-    expect(INTERRUPT_REJECTION.choice).toBe('tell_model')
-    expect(INTERRUPT_REJECTION.input).toBe('tell_model')
-    expect(INTERRUPT_REJECTION.form).toBe('tell_model')
-  })
-
   it('lets one ask override its kind’s default', () => {
     const spec: AgentInterruptSpec = { kind: 'approval', message: 'Retry?', onReject: 'tell_model' }
     expect(rejectionFor(spec)).toBe('tell_model')
@@ -226,14 +183,6 @@ describe('interruptPayloadSchema — form', () => {
       schema.safeParse({ values: { subject: 'Hi', tone: 'formal', isAdmin: true } }).success
     ).toBe(false)
   })
-
-  it('is the same function the UI validates its draft with', () => {
-    // `formValuesSchemaFor` is what the panel calls; `interruptPayloadSchema` wraps it. One
-    // implementation, so a green client-side pass can never become a 400.
-    expect(formValuesSchemaFor(spec.kind === 'form' ? spec.fields : []).safeParse({}).success).toBe(
-      false
-    )
-  })
 })
 
 describe('artifacts', () => {
@@ -263,15 +212,6 @@ describe('artifacts', () => {
         data: { kind: 'markdown', markdown: 'hi' },
       }).success
     ).toBe(false)
-  })
-
-  it('carries ids for a document or a file, never the bytes', () => {
-    const parsed = agentArtifactSchema.parse({
-      ...base,
-      kind: 'document',
-      data: { kind: 'document', documentId: RUN },
-    })
-    expect(parsed.data).toEqual({ kind: 'document', documentId: RUN })
   })
 
   it('caps inline payloads in the contract rather than in the column', () => {

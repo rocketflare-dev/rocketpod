@@ -84,12 +84,6 @@ const path = () => screen.getByTestId('path').textContent
 describe('ProtectedRoute', () => {
   afterEach(() => vi.unstubAllGlobals())
 
-  it('shows a spinner while the session loads', () => {
-    renderWithProviders(<App />, { session: makeSession() })
-    // Seeded cache resolves synchronously on first render — nothing to wait for
-    expect(page()).toBe('home')
-  })
-
   it('unauthenticated → /login with the attempted path as returnUrl', async () => {
     renderWithProviders(<App />, { session: null, route: '/settings/people?x=1' })
     expect(screen.getByRole('status', { name: 'Loading' })).toBeInTheDocument()

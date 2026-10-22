@@ -59,34 +59,6 @@ const start = (
   )
 
 describe('GET /api/agents', () => {
-  it('lists the registry meta (no schemas on the wire); 401 anon', async () => {
-    const a = await actor()
-    const body = agentListResponseSchema.parse(
-      await json(await request('/api/agents', { headers: a.cookie }))
-    )
-    expect(body.items).toEqual([
-      expect.objectContaining({
-        key: 'summarize-text',
-        promptKey: 'summarize-text',
-        exclusive: true,
-        title: expect.any(String),
-      }),
-      expect.objectContaining({
-        key: 'research-topic',
-        promptKey: 'research-topic',
-        exclusive: true,
-        title: expect.any(String),
-      }),
-      expect.objectContaining({
-        key: 'triage-research',
-        promptKey: 'triage-research',
-        exclusive: true,
-        title: expect.any(String),
-      }),
-    ])
-    expect((await request('/api/agents')).status).toBe(401)
-  })
-
   /**
    * The gap that let `inputJsonSchema` ship unpopulated: every earlier test drove the field
    * renderer from a schema it wrote ITSELF, so nothing walked registry → route → page. This asserts

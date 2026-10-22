@@ -254,19 +254,6 @@ describe('RunPage', () => {
     expect(input.querySelector('pre')?.textContent).toContain('"style": "bullets"')
   })
 
-  it('moves the timestamps into Usage and keeps duration in the header', async () => {
-    mount()
-    const summary = await screen.findByRole('region', { name: 'Run summary' })
-    expect(summary).toHaveTextContent('Duration')
-    // Three rows of chrome above the fold, read once in a hundred visits: they live with the rest
-    // of what the rows know instead.
-    expect(summary).not.toHaveTextContent('Requested')
-    fireEvent.click(screen.getByRole('tab', { name: /Usage/ }))
-    expect(await screen.findByText('Requested')).toBeInTheDocument()
-    expect(screen.getByText('Started')).toBeInTheDocument()
-    expect(screen.getByText('Finished')).toBeInTheDocument()
-  })
-
   it('gives the timeline the major column while working, the output once settled', async () => {
     mount()
     await screen.findByText('Summarising')

@@ -3,11 +3,10 @@
  * Launch's zod schema (`@launch/shared/kit-manifest`), shared with the meta-kit (its
  * `scripts/tests/manifest.test.mjs` is ported here).
  *
- * Judged on the fixture kit's manifest (`./fixtures/kit-fixture.mjs`, shared with the meta-kit),
- * never this checkout's: the test travels into every copy, and a copy's manifest is the app's to
- * change. That THIS kit's manifest is valid and says what the kit really does is
- * `tests/kit-only/launch-kit-manifest.test.ts` (and kit.yml's `Launch kit check`). The `config`
- * project: no database.
+ * Judged on the fixture kit's manifest (`../config/fixtures/kit-fixture.mjs`, shared with the
+ * meta-kit). That THIS kit's manifest is valid and says what the kit really does is
+ * `launch-kit-manifest.test.ts` beside it. Kit-only: `launch.kit.json` is the kit's contract with
+ * Launch, which a copy never maintains. No database.
  */
 import { describe, expect, it } from 'vitest'
 import {
@@ -15,7 +14,7 @@ import {
   type KitManifest,
   validateManifest,
 } from '../../../../scripts/lib/kit-manifest.mjs'
-import { fixtureManifest } from './fixtures/kit-fixture.mjs'
+import { fixtureManifest } from '../config/fixtures/kit-fixture.mjs'
 
 const own = (): KitManifest => fixtureManifest()
 

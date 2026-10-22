@@ -10,8 +10,6 @@ import {
   buildJobEnvelope,
   enqueueJob,
   enqueueJobs,
-  isJobsQueue,
-  JOBS_QUEUE_NAME_PREFIX,
   JobsQueueNotConfiguredError,
 } from '@/api/services/jobs'
 import {
@@ -102,15 +100,6 @@ describe('enqueueJob / enqueueJobs', () => {
     expect(jobs).toHaveLength(150)
     expect(queue.messages).toHaveLength(150)
     expect(new Set(jobs.map(j => j.id)).size).toBe(150)
-  })
-
-  it('isJobsQueue matches every environment of the queue by prefix', () => {
-    expect(isJobsQueue(JOBS_QUEUE_NAME_PREFIX)).toBe(true)
-    expect(isJobsQueue('rocketpod-jobs')).toBe(true)
-    expect(isJobsQueue('rocketpod-jobs-staging')).toBe(true)
-    expect(isJobsQueue('rocketpod-jobs-dlq')).toBe(true)
-    expect(isJobsQueue('other-queue')).toBe(false)
-    expect(isJobsQueue('')).toBe(false)
   })
 })
 

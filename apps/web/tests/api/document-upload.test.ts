@@ -194,21 +194,6 @@ describe('POST /api/ai/documents/upload', () => {
     expect(stubs(env).queue.messages).toEqual([])
   })
 
-  it('spreadsheets and OpenDocument are outside the allowlist → 415 (no converter reads them)', async () => {
-    const { cookie } = await actor()
-    const env = createTestEnv()
-    for (const [name, type] of [
-      ['a.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
-      ['a.xls', 'application/vnd.ms-excel'],
-      ['a.odt', 'application/vnd.oasis.opendocument.text'],
-      ['a.ods', 'application/vnd.oasis.opendocument.spreadsheet'],
-    ]) {
-      const res = await upload(env, cookie, { bytes: 'x', name, type })
-      expect(res.status, name).toBe(415)
-    }
-    expect(stubs(env).files.objects.size).toBe(0)
-  })
-
   it('no embeddings provider at all → 503 ai_not_configured and nothing written', async () => {
     const { tenant, cookie } = await actor()
     const env = createTestEnv({ ai: null, EMBEDDINGS_API_KEY: undefined })

@@ -2,8 +2,8 @@
  * The two dependency-free readers `scripts/kit-check.mjs` parses the tomls and the workflows with
  * (`scripts/lib/toml-lite.mjs`, `scripts/lib/yaml-lite.mjs`), shared with the meta-kit — its
  * `scripts/tests/parsers.test.mjs`, ported to vitest. Inline documents only: that this checkout's
- * own tomls and workflows parse is kit-only (`tests/kit-only/kit-files-parse.test.ts`). The
- * `config` project: no database.
+ * own tomls and workflows parse is `kit-files-parse.test.ts`. Kit-only, like the check that uses
+ * the readers: a copy never runs it. No database.
  */
 import { describe, expect, it } from 'vitest'
 import { parseToml, TomlError } from '../../../../scripts/lib/toml-lite.mjs'

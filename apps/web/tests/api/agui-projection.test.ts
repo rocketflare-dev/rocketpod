@@ -105,28 +105,6 @@ describe('projectRunToAgui', () => {
     expect(first).toEqual({ type: 'RUN_STARTED', threadId: RUN_ID, runId: RUN_ID })
   })
 
-  it('declares what the server can do in the STATE_SNAPSHOT, so an approve button is never a lie', () => {
-    const [, snapshot] = projectRunToAgui(run({ status: 'queued' }), [])
-    expect(snapshot).toMatchObject({
-      type: 'STATE_SNAPSHOT',
-      snapshot: {
-        runId: RUN_ID,
-        agentKey: 'research-topic',
-        status: 'queued',
-        capabilities: {
-          humanInTheLoop: {
-            supported: true,
-            approvals: true,
-            interrupts: true,
-            interventions: true,
-            feedback: true,
-            approveWithEdits: true,
-          },
-        },
-      },
-    })
-  })
-
   it('maps a step to STEP_STARTED/FINISHED plus the label CUSTOM stepName cannot carry', () => {
     const events = [
       event('status', { status: 'running' }),
@@ -282,17 +260,6 @@ describe('projectRunToAgui', () => {
     expect(() => out.map(e => kitAguiEventSchema.parse(e))).not.toThrow()
     expect(aguiTypes(out)).not.toContain('TEXT_MESSAGE_START')
   })
-
-  it('emits only events the kit declares', () => {
-    const out = projectRunToAgui(run(), [
-      event('status', { status: 'running' }),
-      event('step', { key: 'k', label: 'L', status: 'running' }),
-      event('text', { text: 'hi' }),
-      event('tool.start', { name: 't', input: {} }),
-      event('tool.end', { name: 't', isError: true }),
-    ])
-    for (const e of out) expect(kitAguiEventSchema.safeParse(e).success).toBe(true)
-  })
 })
 
 describe('createRunProjector (the resumable form)', () => {
@@ -330,10 +297,6 @@ describe('createRunProjector (the resumable form)', () => {
       { type: 'RUN_FINISHED', threadId: RUN_ID, runId: RUN_ID, result: { answer: 'yes' } },
     ])
   })
-
-  it('head is only the two opening events, so a resume can skip it', () => {
-    expect(aguiTypes(createRunProjector(run()).head())).toEqual(['RUN_STARTED', 'STATE_SNAPSHOT'])
-  })
 })
 
 describe('tool-call pairing', () => {
@@ -350,17 +313,6 @@ describe('tool-call pairing', () => {
     // Keyed by name alone, the second start overwrote the first and BOTH results claimed call B.
     expect(results.map(r => r.toolCallId)).toEqual([startB.id, startA.id])
     expect(results.map(r => JSON.parse(r.content).result)).toEqual(['B', 'A'])
-  })
-
-  it('leaves the emitted toolCallId as the START row’s id — the ids are the row ids', () => {
-    const start = event('tool.start', { name: 'get_document', toolCallId: 'call_z' })
-    const end = event('tool.end', { name: 'get_document', toolCallId: 'call_z' })
-    const out = projectRunToAgui(run(), [start, end])
-    for (const e of out) {
-      if (e.type === 'TOOL_CALL_START' || e.type === 'TOOL_CALL_RESULT') {
-        expect(e.toolCallId).toBe(start.id)
-      }
-    }
   })
 
   it('keeps the arguments free of the pairing id', () => {

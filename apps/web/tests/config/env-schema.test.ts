@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import {
   ConfigError,
   configuredOAuthProviders,
-  hasEmail,
   hasOidc,
   isOidcOnly,
   loadConfig,
@@ -18,32 +17,6 @@ describe('loadConfig', () => {
   it('rejects a missing APP_URL and names the key', () => {
     expect(() => loadConfig({ APP_ENV: 'development' })).toThrow(ConfigError)
     expect(() => loadConfig({ APP_ENV: 'development' })).toThrow(/APP_URL/)
-  })
-
-  it('rejects bad enum values', () => {
-    expect(() => loadConfig({ ...base, APP_ENV: 'prod' })).toThrow(/APP_ENV/)
-    expect(() => loadConfig({ ...base, SIGNUP_MODE: 'anyone' })).toThrow(/SIGNUP_MODE/)
-    expect(() => loadConfig({ ...base, TENANT_SCOPE_MODE: 'pin' })).toThrow(/TENANT_SCOPE_MODE/)
-  })
-
-  it('accepts the .env.test-shaped environment', () => {
-    const cfg = loadConfig(process.env)
-    expect(cfg.APP_URL).toBe('http://localhost:3001')
-    expect(cfg.LOG_LEVEL).toBe('silent')
-    expect(cfg.TENANCY_MODE).toBe('multi')
-    expect(cfg.SIGNUP_MODE).toBe('invite_only')
-    expect(cfg.TENANT_SCOPE_MODE).toBe('off')
-    expect(configuredOAuthProviders(cfg)).toEqual(['google', 'microsoft'])
-  })
-
-  it('applies defaults for optional vars', () => {
-    const cfg = loadConfig(base)
-    expect(cfg.APP_NAME).toBe('Rocketpod')
-    expect(cfg.RELEASE_VERSION).toBe('dev')
-    expect(cfg.LOG_LEVEL).toBe('info')
-    expect(cfg.BOOTSTRAP_ADMIN_EMAILS).toEqual([])
-    expect(hasEmail(cfg)).toBe(false)
-    expect(configuredOAuthProviders(cfg)).toEqual([])
   })
 
   it('parses BOOTSTRAP_ADMIN_EMAILS as a lower-cased csv list', () => {

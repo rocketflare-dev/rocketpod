@@ -179,10 +179,6 @@ describe('GroupMembersModal', () => {
     expect(screen.getByText('In this group')).toBeInTheDocument()
     // Olive is already in, so she is offered only on the right; only Mia can be picked.
     await waitFor(() => expect(screen.getAllByRole('checkbox')).toHaveLength(1))
-    console.log(
-      'PARAS',
-      [...document.querySelectorAll('p')].map(e => JSON.stringify(e.textContent))
-    )
     expect(await screen.findByText('1 person not in this group')).toBeInTheDocument()
     expect(screen.getByText('Mia')).toBeInTheDocument()
 

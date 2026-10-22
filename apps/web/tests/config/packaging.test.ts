@@ -5,7 +5,7 @@
  * here, not at somebody's first deploy. Text checks (there is no YAML parser in the workspace, the
  * same choice as ci-workflows.test.ts); `helm lint`/`kubeconform` run in `.github/workflows/image.yml`.
  */
-import { readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { parseServerMode } from '../../src/node/server'
@@ -69,6 +69,25 @@ describe('the image', () => {
     expect(DOCKERFILE).toContain('/repo/apps/web/dist/ui ./dist/ui')
     expect(DOCKERFILE).toContain('/repo/apps/web/migrations ./migrations')
     expect(DOCKERFILE).toMatch(/^USER node$/m)
+  })
+
+  /**
+   * `pnpm install` runs on the manifests copied BEFORE `COPY . .` — so a workspace package with no
+   * `COPY <dir>/package.json` line there is installed with none of its dependencies, and the build
+   * fails inside the image only (Agentic Mapper's vendored package did, at a release). A glob
+   * cannot fix it: Docker's `COPY packages/*\/package.json` flattens the directories.
+   */
+  it('copies every workspace package manifest before pnpm install', () => {
+    const install = DOCKERFILE.indexOf('pnpm install')
+    const copied = DOCKERFILE.slice(0, install)
+    const packages = ['apps', 'packages'].flatMap(root =>
+      readdirSync(path.join(REPO_ROOT, root))
+        .map(dir => `${root}/${dir}`)
+        .filter(dir => existsSync(path.join(REPO_ROOT, dir, 'package.json')))
+    )
+    expect(packages.length).toBeGreaterThan(3)
+    const missing = packages.filter(dir => !copied.includes(`COPY ${dir}/package.json ${dir}/`))
+    expect(missing, 'add a COPY <dir>/package.json <dir>/ line before pnpm install').toEqual([])
   })
 
   it('the migrate entry runs what pnpm db:migrate runs', () => {

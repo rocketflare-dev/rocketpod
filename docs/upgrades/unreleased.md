@@ -105,6 +105,7 @@ Every runtime capability is now a neutral `Platform`, a Node entry (`src/node/se
 - `pnpm gate` writes its verdict to `.gate/last.json` (`passed`, `full`, `failed`, per-step seconds, HEAD's `sha`, `dirty`; `gateVerdict` in `scripts/lib/gate-lib.mjs`), and `CLAUDE.md`, `code-quality.md`, `docs/DEPLOY.md` and `rp-deploy` say to judge the gate by that verdict, never by a piped or backgrounded exit code — an agent once tagged an auto-deploying release on a gate that had failed.
 - `tests/config/platform-seam.test.ts` reads each source once for both of its whole-tree scans and gives each 30 s (`SCAN_TIMEOUT_MS`): the Cloudflare scan once passed vitest's 5 s default on CI's 2-vCPU runner and failed an app's release, which then deleted the guard.
 - Root `pnpm cli` runs `tsx apps/cli/src/cli.ts` directly (no nested `pnpm --filter … exec`), and a bare `rocketpod` prints its help on stdout and exits 0. The side nav shows the deployed version exactly as reported (`v0.2.0`, `dev`), no longer prefixing a second `v`. Settings is full width with its sections in a left rail: `URLTabs` takes `orientation="vertical"` and a per-tab `group` (Organisation / AI, and a plugin's tabs default to More).
+- `packaging.test.ts` fails when a workspace package under `apps/` or `packages/` has no `COPY <dir>/package.json <dir>/` line before the Dockerfile's `pnpm install`: such a package is installed without its dependencies and the image build fails at a release, never in the gate.
 
 ## How to apply
 
@@ -172,6 +173,7 @@ Every runtime capability is now a neutral `Platform`, a Node entry (`src/node/se
 51. Take `scripts/gate.mjs`, `GATE_VERDICT_FILE` and `gateVerdict` in `scripts/lib/gate-lib.mjs` (+ `.d.mts`), and add `.gate/` to `.gitignore`.
 52. Take the kit's `apps/web/tests/config/platform-seam.test.ts` (the `read()` cache and `SCAN_TIMEOUT_MS` on the two scans). A copy that already deleted the Cloudflare scan keeps the Node-entry fence at least.
 53. Take the root `package.json` `cli` script, the `program.help()` line before `parseAsync` in `apps/cli/src/cli.ts`, the version line in `apps/web/src/ui/components/SideNav.tsx`, and `apps/web/src/ui/components/shared/URLTabs.tsx` + `apps/web/src/ui/pages/settings/SettingsLayout.tsx`; give a settings tab of your own a `group`. Regenerate `docs/plugin-api.md` if your copy publishes one.
+54. Take the new case in `apps/web/tests/config/packaging.test.ts`; if it names a package, add its `COPY <dir>/package.json <dir>/` line to the `Dockerfile` beside the others.
 
 ## Conflicts to expect
 

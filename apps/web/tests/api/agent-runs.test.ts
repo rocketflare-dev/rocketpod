@@ -1,3 +1,5 @@
+// @vitest-isolate
+// Mocks both plugin barrels to register the test-only agents (tests/helpers/test-agents.ts).
 /**
  * `/api/agents` (D7): the enqueue handoff — 202 + a `queued` row + a Workflow instance recorded on
  * the stub binding (id = run id, params `{ runId, tenantId }`); exclusive dedupe (same run back with
@@ -13,7 +15,7 @@ import {
   createAgentRunResponseSchema,
 } from '@rocketpod/shared/ai/agents'
 import { eq } from 'drizzle-orm'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AGENTS } from '@/api/services/agents/registry'
 import { enqueueRun, RECONCILE_LIVENESS_MS } from '@/api/services/agents/runs'
 import { agentRunEvents, agentRuns } from '@/db/schema'
@@ -27,7 +29,15 @@ import {
 } from '../helpers/auth'
 import { setupTestDatabase } from '../helpers/db'
 import { json, request } from '../helpers/request'
+import { TEST_RESEARCH, TEST_SUMMARIZE } from '../helpers/test-agents-shared'
 import { createTestEnv, stubs, type TestEnv } from '../mocks/bindings'
+
+vi.mock('@rocketpod/shared/plugins', async importOriginal =>
+  (await import('../helpers/test-agents-shared')).withTestAgents(await importOriginal())
+)
+vi.mock('@/plugins/server', async () =>
+  (await import('../helpers/test-agents')).testAgentsServerBarrel()
+)
 
 const db = setupTestDatabase()
 
@@ -55,7 +65,7 @@ const start = (
   request(
     `/api/agents/runs${qs}`,
     { method: 'POST', headers: cookie },
-    { env, json: { agentKey: 'summarize-text', input: { text } } }
+    { env, json: { agentKey: TEST_SUMMARIZE, input: { text } } }
   )
 
 describe('GET /api/agents', () => {
@@ -82,7 +92,7 @@ describe('GET /api/agents', () => {
       ).not.toBeNull()
       expect(fields?.length).toBeGreaterThan(0)
     }
-    const research = body.items.find(i => i.key === 'research-topic')
+    const research = body.items.find(i => i.key === TEST_RESEARCH)
     expect(fieldsFromJsonSchema(research?.inputJsonSchema)).toEqual([
       expect.objectContaining({ name: 'topic', label: 'Topic', type: 'textarea', required: true }),
     ])
@@ -98,7 +108,7 @@ describe('POST /api/agents/runs', () => {
     const run = createAgentRunResponseSchema.parse(await json(res))
     expect(run).toMatchObject({
       tenantId: a.tenant.id,
-      agentKey: 'summarize-text',
+      agentKey: TEST_SUMMARIZE,
       status: 'queued',
       input: { text: 'Some text to summarise.', style: 'bullets', index: false },
       output: null,
@@ -154,7 +164,7 @@ describe('POST /api/agents/runs', () => {
     const bad = await request(
       '/api/agents/runs',
       { method: 'POST', headers: a.cookie },
-      { env, json: { agentKey: 'summarize-text', input: { text: '' } } }
+      { env, json: { agentKey: TEST_SUMMARIZE, input: { text: '' } } }
     )
     expect(bad.status).toBe(400)
     expect(await json(bad)).toMatchObject({ statusCode: 400, code: 'validation_failed' })
@@ -203,7 +213,11 @@ describe('GET /api/agents/runs(/:id) — visibility', () => {
     expect(mineDetail).toMatchObject({ id: mine.id, status: 'queued', events: [] })
 
     const adminList = await json<{ items: Array<{ id: string }>; pagination: { total: number } }>(
-      await request('/api/agents/runs?agentKey=summarize-text', { headers: admin.cookie }, { env })
+      await request(
+        `/api/agents/runs?agentKey=${TEST_SUMMARIZE}`,
+        { headers: admin.cookie },
+        { env }
+      )
     )
     expect(adminList.items.map(i => i.id)).toEqual([mine.id])
     expect(adminList.pagination.total).toBe(1)
@@ -496,21 +510,21 @@ describe('reconcile liveness guard', () => {
 })
 
 describe('enqueueRun — the exclusive slot (concurrency_key)', () => {
-  const original = AGENTS['summarize-text']
+  const original = AGENTS[TEST_SUMMARIZE]
   afterEach(() => {
-    AGENTS['summarize-text'] = original
+    AGENTS[TEST_SUMMARIZE] = original
   })
   const enqueue = (tenantId: string, env: TestEnv, concurrencyKey?: string) =>
     enqueueRun(db, env, {
       tenantId,
-      agentKey: 'summarize-text',
+      agentKey: TEST_SUMMARIZE,
       input: { text: 'Some text.' },
       userId: null,
       concurrencyKey,
     })
 
   it('a non-exclusive agent holds no slot: two active runs in one tenant', async () => {
-    AGENTS['summarize-text'] = { ...original, meta: { ...original.meta, exclusive: false } }
+    AGENTS[TEST_SUMMARIZE] = { ...original, meta: { ...original.meta, exclusive: false } }
     const { tenant } = await createTestTenantWithUser(db, 'member')
     const env = createTestEnv()
     const first = await enqueue(tenant.id, env)

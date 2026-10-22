@@ -57,7 +57,7 @@ const DOCS = paged([
     id: DOC_B,
     ownerUserId: IDS.otherUser,
     title: 'Release notes',
-    source: 'agent:summarize-text',
+    source: 'agent:test-summarize',
     status: 'failed',
     error: 'Embeddings provider timed out',
     chunkCount: 0,

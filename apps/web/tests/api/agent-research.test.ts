@@ -9,15 +9,14 @@
  * document search never returned is DROPPED, and a loop that ends in prose is salvaged by one
  * forced `submit_answer` call instead of failing.
  *
- * Plus the resume contract: a retryable failure mid-loop leaves a checkpoint on `agent_runs`, and
- * the next `execute` attempt continues that conversation instead of replaying (and re-billing) it —
- * including the documents the first attempt's searches found, which are folded back out of the
- * stored transcript so their citations are not dropped as hallucinations.
+ * Plus what this agent adds to the runtime's resume contract: the documents a first attempt's
+ * searches found are folded back out of the resumed transcript, so their citations are not dropped
+ * as hallucinations. The contract itself (checkpoint, no replay, usage once, a gated tool parks with
+ * nothing written) is the runtime's, in `agent-tool-loop-runtime.test.ts` on a test-only agent.
  *
  * And the two human-in-the-loop shapes this agent exists to demonstrate (issue #17): `ask_human`
  * raising a `choice` interrupt from INSIDE a tool handler, and `index_finding` gated by
- * `Tool.requiresApproval` — where the point of the second is that the gate raises before the
- * handler ever runs, so a parked run has written nothing.
+ * `Tool.requiresApproval` with edits allowed, saving the approved finding as a document artifact.
  */
 import { researchTopicOutputSchema } from '@rocketpod/shared/ai/agents'
 import { eq } from 'drizzle-orm'
@@ -28,11 +27,10 @@ import { enqueueRun, getRun, listEvents, resumeRun } from '@/api/services/agents
 import { claimStep, executeRun } from '@/api/services/agents/runtime'
 import { AiError } from '@/api/services/ai/errors'
 import { ingestText } from '@/api/services/ai/ingest'
-import { parseToolLoopCheckpoint } from '@/api/services/ai/kit'
 import type { ChatClient } from '@/api/services/ai/types'
 import type { Logger } from '@/api/utils/core/logger'
 import { loadConfig } from '@/config'
-import { agentRunEffects, agentRuns, aiUsage, documents } from '@/db/schema'
+import { aiUsage, documents } from '@/db/schema'
 import { FakeChatClient, type FakeScript } from '../helpers/ai'
 import { createTestTenantWithUser } from '../helpers/auth'
 import { setupTestDatabase } from '../helpers/db'
@@ -255,7 +253,7 @@ describe('research-topic agent', () => {
     expect(steps.some(s => s.key === 'answer' && s.detail?.includes('no_tool_call'))).toBe(true)
   })
 
-  it('resumes a retried run from its checkpoint instead of replaying the conversation', async () => {
+  it('keeps a citation found before a retry: `seen` is rebuilt from the resumed transcript', async () => {
     const env = createTestEnv()
     const { tenant, user, document } = await tenantWithDocument(env)
     const logger = fakeLogger()
@@ -280,15 +278,8 @@ describe('research-topic agent', () => {
     await expect(executeRun(db, loadConfig(env), env, logger, params)).rejects.toThrow(/overloaded/)
     expect(first.calls).toHaveLength(2)
 
-    // The row is still active and now carries the resume point for the one completed turn.
-    const afterFailure = await db.query.agentRuns.findFirst({ where: eq(agentRuns.id, run.id) })
-    expect(afterFailure?.status).toBe('running')
-    const checkpoint = parseToolLoopCheckpoint(afterFailure?.checkpoint)
-    expect(checkpoint?.turns).toBe(1)
-    expect(checkpoint?.messages).toHaveLength(3)
-
     // Attempt 2: the model answers straight away, citing the document the FIRST attempt found.
-    const second = script([
+    script([
       {
         toolUses: [
           {
@@ -305,68 +296,9 @@ describe('research-topic agent', () => {
     const outcome = await executeRun(db, loadConfig(env), env, logger, params)
     expect(outcome.status).toBe('succeeded')
 
-    // It did NOT replay turn 1: the very first request already carries the stored transcript.
-    expect(second.calls[0]?.messages.slice(0, 3)).toEqual(checkpoint?.messages)
     const output = researchTopicOutputSchema.parse((await getRun(db, tenant.id, run.id))?.output)
-    // Turns carry forward, so `maxTurns` stays a budget for the RUN, not for each attempt.
-    expect(output.turns).toBe(2)
-    // The citation survives: `seen` was rebuilt from the resumed transcript's tool results, so a
-    // document found before the retry is not mistaken for a hallucination.
+    // The document the FIRST attempt found counts as seen on the second.
     expect(output.citations).toEqual([{ documentId: document.id, title: 'Onboarding handbook' }])
-
-    // Ledgered ONCE for the whole run, summing both attempts — `ctx.once` is what stops the
-    // resumed attempt writing the loop's tokens a second time.
-    const usage = await db.query.aiUsage.findMany({ where: eq(aiUsage.tenantId, tenant.id) })
-    expect(usage).toHaveLength(1)
-    expect(usage[0]).toMatchObject({ inputTokens: 100, outputTokens: 30 })
-    const effects = await db.query.agentRunEffects.findMany({
-      where: eq(agentRunEffects.runId, run.id),
-    })
-    expect(effects.map(e => e.key)).toEqual(['loop-usage'])
-
-    // Settling drops the checkpoint: nothing will resume, and the transcript is not a record.
-    const settled = await db.query.agentRuns.findFirst({ where: eq(agentRuns.id, run.id) })
-    expect(settled?.checkpoint).toBeNull()
-  })
-
-  it('starts fresh when the stored checkpoint cannot be parsed, rather than failing the run', async () => {
-    const env = createTestEnv()
-    const { tenant, user, document } = await tenantWithDocument(env)
-    const logger = fakeLogger()
-    const client = script([
-      {
-        toolUses: [
-          {
-            name: 'submit_answer',
-            input: { answer: 'Fresh start.', citations: [{ documentId: document.id, title: 't' }] },
-          },
-        ],
-      },
-    ])
-    const { run } = await enqueueRun(db, env, {
-      tenantId: tenant.id,
-      agentKey: 'research-topic',
-      input: { topic: 'Anything?' },
-      userId: user.id,
-    })
-    const params = { runId: run.id, tenantId: tenant.id }
-    expect(await claimStep(db, env, logger, params)).toBe(true)
-    // A shape an older build might have written, or a corrupted value.
-    await db
-      .update(agentRuns)
-      .set({ checkpoint: { nonsense: true } })
-      .where(eq(agentRuns.id, run.id))
-
-    const outcome = await executeRun(db, loadConfig(env), env, logger, params)
-    expect(outcome.status).toBe('succeeded')
-    // Fresh start = the seed only, not a resumed transcript.
-    expect(client.calls[0]?.messages.slice(0, 1)).toEqual([
-      { role: 'user', content: 'Research this: Anything?' },
-    ])
-    // A citation still needs a document the tools returned THIS attempt; none were called, so it
-    // is dropped. The run is correct — just as expensive as before checkpoints existed.
-    const output = researchTopicOutputSchema.parse((await getRun(db, tenant.id, run.id))?.output)
-    expect(output.citations).toEqual([])
   })
 
   it('ask_human raises a choice interrupt from inside its handler, and the re-entered handler finds the ANSWER', async () => {
@@ -418,10 +350,10 @@ describe('research-topic agent', () => {
     expect(transcript).toContain('The person answered: US.')
   })
 
-  it('index_finding is gated: the run parks with NOTHING written, then the approved call runs once', async () => {
+  it('index_finding is gated with edits allowed, and the approved call saves the edited finding', async () => {
     const env = createTestEnv()
     const { tenant, user } = await tenantWithDocument(env)
-    const client = script([
+    script([
       {
         toolUses: [
           {
@@ -448,12 +380,6 @@ describe('research-topic agent', () => {
       tool: { name: 'index_finding', allowEdits: true },
       onReject: 'tell_model',
     })
-    // The gate raises BEFORE any handler runs: the write has not happened.
-    expect(await db.select().from(documents).where(eq(documents.tenantId, tenant.id))).toHaveLength(
-      before.length
-    )
-    expect(client.calls).toHaveLength(1)
-
     // Approve, with the arguments edited — `allowEdits` is why that is allowed at all.
     const { outcome: resumed } = await answerAndReExecute(env, tenant.id, runId, user.id, {
       editedInput: { title: 'Access SLA (checked)', text: 'Two working days.' },
@@ -464,11 +390,6 @@ describe('research-topic agent', () => {
     expect(after).toHaveLength(before.length + 1)
     const saved = after.find(d => !before.some(b => b.id === d.id))
     expect(saved).toMatchObject({ title: 'Access SLA (checked)', source: 'agent:research-topic' })
-    // `runApproved: ctx.once` is the ledger entry that stops a step retry writing it twice.
-    const effects = await db.query.agentRunEffects.findMany({
-      where: eq(agentRunEffects.runId, runId),
-    })
-    expect(effects.filter(e => e.key.startsWith('tool:'))).toHaveLength(1)
     const artifacts = await listArtifacts(db, tenant.id, runId)
     expect(artifacts.map(a => [a.key, a.kind])).toEqual([
       [`finding:${saved?.id}`, 'document'],

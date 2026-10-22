@@ -23,8 +23,7 @@
       "paths": [
         "apps/web/src/api/services/agents/examples/summarize-text.ts",
         "apps/web/src/ui/pages/agents/forms/summarize-text.tsx",
-        "apps/web/tests/api/agent-runs.test.ts",
-        "apps/web/tests/api/agent-run-workflow.test.ts"
+        "apps/web/tests/ui/agent-examples.test.tsx"
       ],
       "registries": [
         "apps/web/src/api/services/agents/registry.ts#CORE_AGENTS",

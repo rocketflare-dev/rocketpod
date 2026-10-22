@@ -1,9 +1,9 @@
 // @vitest-isolate
-// Mocks `@/api/services/ai/resolve` (the chat provider seam), so this file needs its own module registry.
+// Mocks the AI resolve seam and both plugin barrels (the test-only agents), so this file needs its own module registry.
 /**
  * The agent run's durable body (D7, `runAgentRun`) driven end to end: a fake `step` (runs callbacks
  * inline, records names/config) and test bindings against the real database. claim → execute
- * `summarize-text` with a `FakeChatClient` answering the `submit_summary` tool call → events in order
+ * the test-only `test-summarize` (`tests/helpers/test-agents.ts`) with a `FakeChatClient` answering the `submit_summary` tool call → events in order
  * → row `succeeded` with the output → `ai_usage` row → nudges. Also: cancellation between turns →
  * `cancelled`; a non-retryable provider error → `failed` with a redacted sentence; a retryable one
  * rethrows on attempt 1 (the platform retries) and the finish backstop settles the row; a run
@@ -45,8 +45,16 @@ import { agentRunEffects, agentRuns, aiSpans, aiUsage, chunks, documents } from 
 import { FakeChatClient, type FakeScript } from '../helpers/ai'
 import { createTestTenantWithUser } from '../helpers/auth'
 import { setupTestDatabase } from '../helpers/db'
+import { TEST_SUMMARIZE } from '../helpers/test-agents-shared'
 import { createTestEnv, FAKE_EMBEDDINGS_MODEL, stubs, type TestEnv } from '../mocks/bindings'
 import { createFakeStep, type FakeStepOptions } from '../mocks/step'
+
+vi.mock('@rocketpod/shared/plugins', async importOriginal =>
+  (await import('../helpers/test-agents-shared')).withTestAgents(await importOriginal())
+)
+vi.mock('@/plugins/server', async () =>
+  (await import('../helpers/test-agents')).testAgentsServerBarrel()
+)
 
 const state: { client: ChatClient | null } = { client: null }
 
@@ -97,7 +105,7 @@ async function queuedRun(
   const { user, tenant } = await createTestTenantWithUser(db, 'member')
   const { run } = await enqueueRun(db, env, {
     tenantId: tenant.id,
-    agentKey: 'summarize-text',
+    agentKey: TEST_SUMMARIZE,
     input,
     userId: user.id,
   })
@@ -120,15 +128,14 @@ async function drive(
   return { outcome, calls, waits, names }
 }
 
-const originalAgent = AGENTS['summarize-text']
+const originalAgent = AGENTS[TEST_SUMMARIZE]
 
 /**
- * Swap `summarize-text` for an agent written for this test. The kit's own agents do not interrupt
- * until phase 8 and the registry is keyed by `AgentKey`, so there is no third key to borrow; the
- * swap is undone after every test and the file is `@vitest-isolate` for it.
+ * Swap `test-summarize`'s definition for an agent written for this test. The swap is undone
+ * after every test and the file is `@vitest-isolate` for it.
  */
 function installAgent(run: (ctx: AgentContext) => Promise<unknown>): void {
-  AGENTS['summarize-text'] = {
+  AGENTS[TEST_SUMMARIZE] = {
     meta: { ...originalAgent.meta, inputSchema: z.any(), outputSchema: z.any() },
     run,
   } as AnyAgentDefinition
@@ -168,7 +175,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  AGENTS['summarize-text'] = originalAgent
+  AGENTS[TEST_SUMMARIZE] = originalAgent
 })
 
 describe('the agent run (runAgentRun)', () => {
@@ -231,7 +238,7 @@ describe('the agent run (runAgentRun)', () => {
     expect(ledger).toHaveLength(1)
     expect(ledger[0]).toMatchObject({
       userId: user.id,
-      feature: 'agent:summarize-text',
+      feature: `agent:${TEST_SUMMARIZE}`,
       provider: 'anthropic_compatible',
       model: 'fake-model',
       inputTokens: 33,
@@ -260,7 +267,7 @@ describe('the agent run (runAgentRun)', () => {
     const step = spans.find(s => s.name === 'execute#0')
     expect(root).toMatchObject({
       spanId: rootSpanIdForRun(run.id),
-      name: 'invoke_agent summarize-text',
+      name: `invoke_agent ${TEST_SUMMARIZE}`,
       kind: 'agent',
       status: 'ok',
       userId: user.id,
@@ -373,7 +380,7 @@ describe('the agent run (runAgentRun)', () => {
       .where(eq(documents.id, documentId as string))
     expect(doc).toMatchObject({
       tenantId: tenant.id,
-      source: 'agent:summarize-text',
+      source: `agent:${TEST_SUMMARIZE}`,
       status: 'indexed',
       chunkCount: 1,
       embeddingModel: FAKE_EMBEDDINGS_MODEL,

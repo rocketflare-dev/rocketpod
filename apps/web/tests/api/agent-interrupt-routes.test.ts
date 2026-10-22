@@ -1,6 +1,7 @@
 // @vitest-isolate
 // Swaps entries in the `AGENTS` module singleton (to get an `approvers: 'admin'` agent and one that
 // interrupts) and mocks `@/api/services/ai/resolve`, so this file needs its own module registry.
+// Also mocks both plugin barrels to register the test-only agents (tests/helpers/test-agents.ts).
 /**
  * The human-in-the-loop routes (issue #17, phase 5):
  *
@@ -20,6 +21,7 @@
  * - **`editedInput` is not taken on trust.** Without `allowEdits` it is a 400; with it, the edit is
  *   re-checked against the tool's stored schema.
  */
+import type { AgentKey } from '@rocketpod/shared/ai/agents'
 import { agentRunSchema, agentRunWithEventsSchema } from '@rocketpod/shared/ai/agents'
 import type { AgentInterruptSpec } from '@rocketpod/shared/ai/interrupts'
 import { interruptInboxItemSchema } from '@rocketpod/shared/ai/interrupts'
@@ -45,8 +47,16 @@ import {
 } from '../helpers/auth'
 import { setupTestDatabase } from '../helpers/db'
 import { json, request } from '../helpers/request'
+import { TEST_RESEARCH, TEST_SUMMARIZE } from '../helpers/test-agents-shared'
 import { createTestEnv, stubs, type TestEnv } from '../mocks/bindings'
 import { createFakeStep } from '../mocks/step'
+
+vi.mock('@rocketpod/shared/plugins', async importOriginal =>
+  (await import('../helpers/test-agents-shared')).withTestAgents(await importOriginal())
+)
+vi.mock('@/plugins/server', async () =>
+  (await import('../helpers/test-agents')).testAgentsServerBarrel()
+)
 
 const state: { client: ChatClient | null } = { client: null }
 
@@ -76,9 +86,9 @@ afterEach(() => {
   state.client = null
 })
 
-/** Replace an agent for one test — the kit's own two do not interrupt until phase 8. */
+/** Replace a test agent's definition for one test. */
 function installAgent(
-  key: 'summarize-text' | 'research-topic',
+  key: AgentKey,
   run: (ctx: AgentContext) => Promise<unknown>,
   meta: Partial<AnyAgentDefinition['meta']> = {}
 ): void {
@@ -121,15 +131,13 @@ async function parked(
   env: TestEnv,
   owner: { user: { id: string }; tenant: { id: string } },
   specs: Array<{ key: string; spec: AgentInterruptSpec }> = [{ key: 'send-it', spec: APPROVAL }],
-  agentKey: 'summarize-text' | 'research-topic' = 'summarize-text'
+  agentKey: AgentKey = TEST_SUMMARIZE
 ) {
   const { run } = await enqueueRun(db, env, {
     tenantId: owner.tenant.id,
     agentKey,
     input:
-      agentKey === 'summarize-text'
-        ? { text: 'Volcanoes erupt.' }
-        : { topic: 'Why volcanoes erupt' },
+      agentKey === TEST_SUMMARIZE ? { text: 'Volcanoes erupt.' } : { topic: 'Why volcanoes erupt' },
     userId: owner.user.id,
   })
   await db.update(agentRuns).set({ status: 'running' }).where(eq(agentRuns.id, run.id))
@@ -231,7 +239,7 @@ describe('POST /api/agents/runs/:id/interrupts/:interruptId', () => {
 
   it('403s a member when the agent declares approvers: admin, and 200s an admin', async () => {
     const a = await actor('member')
-    installAgent('summarize-text', async () => ({}), { approvers: 'admin' })
+    installAgent(TEST_SUMMARIZE, async () => ({}), { approvers: 'admin' })
     const env = createTestEnv()
     const { run, interrupts } = await parked(env, a)
     const ask = interrupts[0]
@@ -393,7 +401,7 @@ describe('the restart fallback, end to end (T4/T5)', () => {
     // The runtime resolves a chat client before it runs the agent; this one never calls it.
     state.client = new FakeChatClient([], 'anthropic_compatible')
     let entries = 0
-    installAgent('summarize-text', async ctx => {
+    installAgent(TEST_SUMMARIZE, async ctx => {
       entries += 1
       const decision = await ctx.interrupt({ key: 'send-it', spec: APPROVAL })
       return { entries, answer: decision.payload }
@@ -441,7 +449,7 @@ describe('a parked run is still THE active run', () => {
     const again = await request(
       '/api/agents/runs',
       { method: 'POST', headers: a.cookie },
-      { env, json: { agentKey: 'summarize-text', input: { text: 'Something else entirely.' } } }
+      { env, json: { agentKey: TEST_SUMMARIZE, input: { text: 'Something else entirely.' } } }
     )
     expect(again.status).toBe(202)
     expect(await json(again)).toMatchObject({ id: run.id, deduplicated: true })
@@ -544,7 +552,7 @@ describe('GET /api/agents/interrupts (the inbox)', () => {
       env,
       { user: other.user, tenant: a.tenant },
       undefined,
-      'research-topic'
+      TEST_RESEARCH
     )
     const elsewhere = await actor('owner')
     await parked(env, elsewhere)
@@ -558,7 +566,7 @@ describe('GET /api/agents/interrupts (the inbox)', () => {
     expect(asMember.items[0]).toMatchObject({
       status: 'pending',
       canAnswer: true,
-      run: { id: mine.run.id, agentKey: 'summarize-text', status: 'awaiting_input' },
+      run: { id: mine.run.id, agentKey: TEST_SUMMARIZE, status: 'awaiting_input' },
     })
 
     const admin = await memberOf(a.tenant.id, 'admin')

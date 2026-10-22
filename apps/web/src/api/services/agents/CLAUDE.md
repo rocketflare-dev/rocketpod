@@ -38,4 +38,9 @@ Rules:
   Anything a decision's ITEMS came from must be frozen first (`ctx.once`), or a replayed answer is
   mapped onto a different list. The `llm_self_report` fallback's numbers are not calibrated: never
   tune a production threshold on them without an eval.
+- **Runtime tests never borrow an example's key.** They drive `test-summarize` / `test-research` from
+  `tests/helpers/test-agents.ts`, registered through the plugin seam: the file mocks
+  `@rocketpod/shared/plugins` (`withTestAgents`) and `@/plugins/server` (`testAgentsServerBarrel`) and
+  is `// @vitest-isolate` for it. An example's own behaviour is tested in its own file
+  (`agent-research`, `agent-triage-research`, `tests/ui/agent-examples.test.tsx`), which a copy deletes with it.
 - Adding an agent: key in `@rocketpod/shared/ai/agents` (`CORE_AGENT_KEYS` + schemas) → prompt in `services/prompts.ts` → `examples/<key>.ts` → entry in `CORE_AGENTS`. No migration. (`AGENT_KEYS` / `AGENTS` are those plus every installed plugin's, D31.)

@@ -25,6 +25,7 @@ import {
 } from '../helpers/auth'
 import { setupTestDatabase } from '../helpers/db'
 import { json, request } from '../helpers/request'
+import { TEST_RESEARCH, TEST_SUMMARIZE } from '../helpers/test-agents-shared'
 
 const db = setupTestDatabase()
 
@@ -34,7 +35,7 @@ const TENANT_ID = '88888888-8888-4888-8888-888888888888'
 const run = (over: Partial<AgentRun> = {}): AgentRun => ({
   id: RUN_ID,
   tenantId: TENANT_ID,
-  agentKey: 'research-topic',
+  agentKey: TEST_RESEARCH,
   status: 'succeeded',
   input: { question: 'why' },
   output: { answer: 'because' },
@@ -342,7 +343,7 @@ describe('GET /api/agents/runs/:id/agui', () => {
       .insert(agentRuns)
       .values({
         tenantId: tenant.id,
-        agentKey: 'summarize-text',
+        agentKey: TEST_SUMMARIZE,
         status,
         input: { text: 'hello' },
         output: status === 'succeeded' ? { summary: 'hi', keyPoints: [] } : null,

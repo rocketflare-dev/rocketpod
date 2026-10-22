@@ -13,6 +13,7 @@ import {
 import { aiConfigSchema, DEFAULT_MODELS } from '@rocketpod/shared/ai/config'
 import { describe, expect, it } from 'vitest'
 import { resolveChat } from '@/api/services/ai/resolve'
+import { PROMPT_KEYS } from '@/api/services/prompts'
 import { loadConfig } from '@/config'
 import {
   createTestSession,
@@ -65,15 +66,7 @@ describe('/api/ai/agent-models', () => {
     expect(first.isDefault).toBe(true)
 
     let items = (await list(a.cookie)).items
-    expect(items.map(i => i.promptKey).sort()).toEqual([
-      'agent-decide',
-      'chat',
-      'chat-compaction',
-      'evals-judge',
-      'research-topic',
-      'summarize-text',
-      'triage-research',
-    ])
+    expect(items.map(i => i.promptKey).sort()).toEqual([...PROMPT_KEYS].sort())
     for (const item of items) {
       expect(item.assignment).toBeNull()
       expect(item.effective).toEqual({
@@ -84,20 +77,20 @@ describe('/api/ai/agent-models', () => {
       })
     }
 
-    // Assign the agent to the second config with an explicit model.
+    // Assign one key (the compaction summariser) to the second config with an explicit model.
     const put = await request(
-      '/api/ai/agent-models/summarize-text',
+      '/api/ai/agent-models/chat-compaction',
       { method: 'PUT', headers: a.cookie },
       { env, json: { aiConfigId: second.id, model: 'claude-opus-4-1-20250805' } }
     )
     expect(put.status).toBe(200)
     expect(agentModelAssignmentSchema.parse(await json(put))).toMatchObject({
-      promptKey: 'summarize-text',
+      promptKey: 'chat-compaction',
       aiConfigId: second.id,
       model: 'claude-opus-4-1-20250805',
     })
     items = (await list(a.cookie)).items
-    expect(items.find(i => i.promptKey === 'summarize-text')?.effective).toEqual({
+    expect(items.find(i => i.promptKey === 'chat-compaction')?.effective).toEqual({
       source: 'assignment',
       provider: 'anthropic',
       model: 'claude-opus-4-1-20250805',
@@ -105,7 +98,7 @@ describe('/api/ai/agent-models', () => {
     })
     expect(items.find(i => i.promptKey === 'chat')?.effective.configId).toBe(first.id)
 
-    const agent = await resolveChat(db, cfg, env, a.tenant.id, { promptKey: 'summarize-text' })
+    const agent = await resolveChat(db, cfg, env, a.tenant.id, { promptKey: 'chat-compaction' })
     expect(agent).toMatchObject({
       source: 'agent',
       model: 'claude-opus-4-1-20250805',
@@ -147,7 +140,7 @@ describe('/api/ai/agent-models', () => {
       (await request(`/api/ai/config/${second.id}`, { method: 'DELETE', headers: a.cookie })).status
     ).toBe(204)
     expect(
-      await resolveChat(db, cfg, env, a.tenant.id, { promptKey: 'summarize-text' })
+      await resolveChat(db, cfg, env, a.tenant.id, { promptKey: 'chat-compaction' })
     ).toMatchObject({
       source: 'tenant',
       model: 'claude-sonnet-4-5',
@@ -168,21 +161,21 @@ describe('/api/ai/agent-models', () => {
       model: DEFAULT_MODELS.anthropic,
     })
     await request(
-      '/api/ai/agent-models/summarize-text',
+      '/api/ai/agent-models/chat-compaction',
       { method: 'PUT', headers: a.cookie },
       { env: platform, json: { model: 'claude-opus-4-1' } }
     )
     items = agentModelsListResponseSchema.parse(
       await json(await request('/api/ai/agent-models', { headers: a.cookie }, { env: platform }))
     ).items
-    expect(items.find(i => i.promptKey === 'summarize-text')?.effective).toEqual({
+    expect(items.find(i => i.promptKey === 'chat-compaction')?.effective).toEqual({
       source: 'assignment',
       provider: 'anthropic',
       model: 'claude-opus-4-1',
     })
     expect(
       await resolveChat(db, loadConfig(platform), platform, a.tenant.id, {
-        promptKey: 'summarize-text',
+        promptKey: 'chat-compaction',
       })
     ).toMatchObject({ source: 'agent', provider: 'anthropic', model: 'claude-opus-4-1' })
     items = (await list(a.cookie)).items

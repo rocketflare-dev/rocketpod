@@ -17,6 +17,7 @@ import {
 } from '../helpers/auth'
 import { setupTestDatabase } from '../helpers/db'
 import { json, request } from '../helpers/request'
+import { TEST_SUMMARIZE } from '../helpers/test-agents-shared'
 
 const db = setupTestDatabase()
 
@@ -51,7 +52,7 @@ describe('usage ledger', () => {
     })
     await recordUsage(db, {
       tenantId: a.tenant.id,
-      feature: 'summarize-text',
+      feature: `agent:${TEST_SUMMARIZE}`,
       provider: 'openai',
       model: 'm2',
       usage: { inputTokens: 100, outputTokens: 50 },
@@ -99,7 +100,7 @@ describe('usage ledger', () => {
       {
         provider: 'openai',
         model: 'm2',
-        feature: 'summarize-text',
+        feature: `agent:${TEST_SUMMARIZE}`,
         calls: 1,
         inputTokens: 100,
         outputTokens: 50,

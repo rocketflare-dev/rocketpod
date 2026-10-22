@@ -1,6 +1,7 @@
 // @vitest-isolate
 // Mocks `@/api/services/ai/resolve` (the chat provider seam) and runs OpenWorkflow workers against the
 // test database in schemas of its own, so no other file's worker can claim these runs.
+// Also mocks both plugin barrels to register the test-only agents (tests/helpers/test-agents.ts).
 /**
  * Durable agent runs on Node (M4, `src/node/runs.ts`): OpenWorkflow under the neutral `Step`.
  *
@@ -52,6 +53,14 @@ import type { Platform, Step } from '@/platform/types'
 import { FakeChatClient, type FakeScript } from '../helpers/ai'
 import { createTestTenantWithUser } from '../helpers/auth'
 import { setupTestDatabase, testDatabaseUrl } from '../helpers/db'
+import { TEST_SUMMARIZE } from '../helpers/test-agents-shared'
+
+vi.mock('@rocketpod/shared/plugins', async importOriginal =>
+  (await import('../helpers/test-agents-shared')).withTestAgents(await importOriginal())
+)
+vi.mock('@/plugins/server', async () =>
+  (await import('../helpers/test-agents')).testAgentsServerBarrel()
+)
 
 const state: { client: ChatClient | null } = { client: null }
 
@@ -455,14 +464,14 @@ describe('agent runs on the Node worker', () => {
     ],
     usage: { inputTokens: 10, outputTokens: 5 },
   }
-  const originalAgent = AGENTS['summarize-text']
+  const originalAgent = AGENTS[TEST_SUMMARIZE]
 
   function script(s: FakeScript) {
     state.client = new FakeChatClient(s, 'anthropic_compatible')
   }
 
   function installAgent(run: (ctx: AgentContext) => Promise<unknown>): void {
-    AGENTS['summarize-text'] = {
+    AGENTS[TEST_SUMMARIZE] = {
       meta: { ...originalAgent.meta, inputSchema: z.any(), outputSchema: z.any() },
       run,
     } as AnyAgentDefinition
@@ -472,7 +481,7 @@ describe('agent runs on the Node worker', () => {
     const { user, tenant } = await createTestTenantWithUser(db, 'member')
     const { run } = await enqueueRun(db, platform, {
       tenantId: tenant.id,
-      agentKey: 'summarize-text',
+      agentKey: TEST_SUMMARIZE,
       input,
       userId: user.id,
     })
@@ -498,7 +507,7 @@ describe('agent runs on the Node worker', () => {
   })
 
   afterEach(() => {
-    AGENTS['summarize-text'] = originalAgent
+    AGENTS[TEST_SUMMARIZE] = originalAgent
   })
 
   it('enqueueRun → the worker runs the agent → succeeded; the instance reads complete', async () => {

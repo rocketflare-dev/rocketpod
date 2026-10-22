@@ -1,6 +1,7 @@
 /**
- * `/agents` (D7): the registry renders with the exclusive badge; the run modal validates with the
- * shared input schema and posts the exact `{ agentKey, input }` body; a 202 `deduplicated` answer
+ * `/agents` (D7): the registry renders with the exclusive badge; the run modal, built from the
+ * agent's own JSON Schema, maps the route's 400 onto the field and posts the exact
+ * `{ agentKey, input }` body; a 202 `deduplicated` answer
  * toasts and opens the existing run; a 503 `agent_runs_not_configured` renders the explanatory
  * empty state instead of a toast; the runs table shows status, agent and filters.
  */
@@ -10,6 +11,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useToastStore } from '@/ui/components/shared/Toast'
 import AgentsPage from '@/ui/pages/agents/AgentsPage'
 import RunPage from '@/ui/pages/agents/RunPage'
+import { TEST_SUMMARIZE } from '../helpers/test-agents-shared'
 import {
   errorResponse,
   IDS,
@@ -18,9 +20,14 @@ import {
   paged,
   type RouteTable,
   renderWithProviders,
-  requestBody,
   stubFetch,
 } from './helpers/renderWithProviders'
+
+// The test-only agents' keys (`tests/helpers/test-agents-shared.ts`), so the page is tested apart
+// from the kit's example agents; the responses below are parsed with the real `agentKeySchema`.
+vi.mock('@rocketpod/shared/plugins', async importOriginal =>
+  (await import('../helpers/test-agents-shared')).withTestAgents(await importOriginal())
+)
 
 const now = '2025-06-01T00:00:00Z'
 const RUN_ID = '99999999-9999-4999-8999-999999999999'
@@ -28,11 +35,20 @@ const RUN_ID = '99999999-9999-4999-8999-999999999999'
 const AGENTS = {
   items: [
     {
-      key: 'summarize-text',
+      key: TEST_SUMMARIZE,
       title: 'Summarize text',
       description: 'Summarises a block of text.',
-      promptKey: 'summarize-text',
+      promptKey: TEST_SUMMARIZE,
       exclusive: true,
+      inputJsonSchema: {
+        type: 'object',
+        properties: {
+          text: { type: 'string', title: 'Text to summarise', minLength: 1 },
+          style: { type: 'string', title: 'Style', enum: ['bullets', 'paragraph'] },
+          index: { type: 'boolean', title: 'Index the result for search' },
+        },
+        required: ['text'],
+      },
     },
   ],
 }
@@ -40,7 +56,7 @@ const AGENTS = {
 const run = (overrides: Record<string, unknown> = {}) => ({
   id: RUN_ID,
   tenantId: IDS.tenant,
-  agentKey: 'summarize-text',
+  agentKey: TEST_SUMMARIZE,
   status: 'queued',
   input: { text: 'hello', style: 'bullets', index: false },
   output: null,
@@ -97,10 +113,22 @@ describe('Agents page', () => {
     expect(screen.getByLabelText('Status')).toHaveValue('')
   })
 
-  it('validates with the shared schema and posts the exact run body', async () => {
+  it("maps the route's 400 onto the field, then posts the exact run body", async () => {
     const fetchMock = mount({
       'POST /api/agents/runs': (init: RequestInit | undefined) => {
-        const body = JSON.parse(String(init?.body)) as { input: unknown }
+        const body = JSON.parse(String(init?.body)) as { input: { text?: string } }
+        // A schema-generated form validates thinly; the route's zod issues are the authority.
+        if (!body.input.text) {
+          return jsonResponse(
+            {
+              error: 'Validation failed',
+              statusCode: 400,
+              code: 'validation_failed',
+              details: [{ path: ['text'], message: 'Text is required' }],
+            },
+            400
+          )
+        }
         return jsonResponse(run({ input: body.input }), 202)
       },
       [`/api/agents/runs/${RUN_ID}`]: { ...run(), events: [], interrupts: [], artifacts: [] },
@@ -109,22 +137,25 @@ describe('Agents page', () => {
     const form = document.getElementById('run-agent-form') as HTMLFormElement
     expect(openDialog()).toBeTruthy()
 
-    // Empty text → a field error, no request
+    // Empty text → the route's issue lands on the field, and nothing navigates.
     fireEvent.submit(form)
-    expect(await screen.findAllByRole('alert')).not.toHaveLength(0)
-    expect(requestBody(fetchMock, 'POST /api/agents/runs')).toBeUndefined()
+    expect(await screen.findByText('Text is required')).toBeInTheDocument()
+    expect(openDialog()).toBeTruthy()
 
-    fireEvent.change(screen.getByLabelText('Text to summarise'), {
-      target: { value: '  Some long text  ' },
+    fireEvent.change(screen.getByLabelText(/Text to summarise/), {
+      target: { value: 'Some long text' },
     })
-    fireEvent.change(screen.getByLabelText('Style'), { target: { value: 'paragraph' } })
-    fireEvent.click(screen.getByLabelText('Index the result for search'))
+    fireEvent.change(screen.getByLabelText(/Style/), { target: { value: 'paragraph' } })
+    fireEvent.click(screen.getByLabelText(/Index the result for search/))
     fireEvent.submit(form)
 
+    const posts = () =>
+      fetchMock.mock.calls
+        .filter(([, init]) => init?.method === 'POST')
+        .map(([, init]) => JSON.parse(String(init?.body)) as unknown)
     await waitFor(() =>
-      expect(requestBody(fetchMock, 'POST /api/agents/runs')).toEqual({
-        agentKey: 'summarize-text',
-        // Trimmed by the shared schema; defaults applied
+      expect(posts().at(-1)).toEqual({
+        agentKey: TEST_SUMMARIZE,
         input: { text: 'Some long text', style: 'paragraph', index: true },
       })
     )
@@ -142,7 +173,7 @@ describe('Agents page', () => {
       [`/api/agents/runs/${RUN_ID}`]: { ...run(), events: [], interrupts: [], artifacts: [] },
     })
     fireEvent.click(await screen.findByRole('button', { name: 'Run Summarize text' }))
-    fireEvent.change(screen.getByLabelText('Text to summarise'), { target: { value: 'hello' } })
+    fireEvent.change(screen.getByLabelText(/Text to summarise/), { target: { value: 'hello' } })
     fireEvent.submit(document.getElementById('run-agent-form') as HTMLFormElement)
 
     await waitFor(() =>
@@ -163,7 +194,7 @@ describe('Agents page', () => {
         errorResponse(503, 'Agent runs are not configured', 'agent_runs_not_configured'),
     })
     fireEvent.click(await screen.findByRole('button', { name: 'Run Summarize text' }))
-    fireEvent.change(screen.getByLabelText('Text to summarise'), { target: { value: 'hello' } })
+    fireEvent.change(screen.getByLabelText(/Text to summarise/), { target: { value: 'hello' } })
     fireEvent.submit(document.getElementById('run-agent-form') as HTMLFormElement)
 
     expect(await screen.findByText('Agent runs are not configured')).toBeInTheDocument()

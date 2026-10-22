@@ -57,9 +57,9 @@ const ENTRIES = {
       },
     },
     {
-      promptKey: 'summarize-text',
-      title: 'Summarize text',
-      assignment: { promptKey: 'summarize-text', aiConfigId: CHEAP, model: null, updatedAt: now },
+      promptKey: 'chat-compaction',
+      title: 'Chat compaction',
+      assignment: { promptKey: 'chat-compaction', aiConfigId: CHEAP, model: null, updatedAt: now },
       effective: {
         source: 'assignment',
         provider: 'anthropic',
@@ -90,11 +90,11 @@ describe('Settings → Agent models', () => {
     expect(chatRow).toHaveTextContent('claude-sonnet-4-5')
     expect(chatRow).toHaveTextContent('tenant')
     expect(chatRow).toHaveTextContent('Prod')
-    const agentRow = screen.getByText('Summarize text').closest('tr') as HTMLElement
+    const agentRow = screen.getByText('Chat compaction').closest('tr') as HTMLElement
     expect(agentRow).toHaveTextContent('claude-haiku-4-5')
     expect(agentRow).toHaveTextContent('agent')
     expect(
-      screen.getByRole('button', { name: 'Use default for Summarize text' })
+      screen.getByRole('button', { name: 'Use default for Chat compaction' })
     ).toBeInTheDocument()
     expect(
       screen.queryByRole('button', { name: 'Use default for Chat assistant' })
@@ -156,13 +156,13 @@ describe('Settings → Agent models', () => {
   })
 
   it('"Use default" DELETEs the assignment', async () => {
-    const fetchMock = mount({ 'DELETE /api/ai/agent-models/summarize-text': undefined })
-    fireEvent.click(await screen.findByRole('button', { name: 'Use default for Summarize text' }))
+    const fetchMock = mount({ 'DELETE /api/ai/agent-models/chat-compaction': undefined })
+    fireEvent.click(await screen.findByRole('button', { name: 'Use default for Chat compaction' }))
     await waitFor(() =>
       expect(
         fetchMock.mock.calls.some(
           ([input, init]) =>
-            String(input).endsWith('/api/ai/agent-models/summarize-text') &&
+            String(input).endsWith('/api/ai/agent-models/chat-compaction') &&
             init?.method === 'DELETE'
         )
       ).toBe(true)

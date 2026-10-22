@@ -47,7 +47,7 @@ import {
 } from '../ai/kit'
 import { DECISIONS_FALLBACK_PROMPT_KEY, resolveChat, resolveDecisions } from '../ai/resolve'
 import { notifyMany } from '../notifications'
-import { resolvePrompt } from '../prompts'
+import { type RegistryPromptKey, resolvePrompt } from '../prompts'
 import type { Realtime } from '../realtime'
 import { toAgentArtifact, upsertArtifact } from './artifacts'
 import { createDecide } from './decisions'
@@ -400,7 +400,7 @@ export async function executeRun(
             return toAgentArtifact(row)
           },
           prompt: (vars, promptKey) =>
-            resolvePrompt(db, tenantId, promptKey ?? (agent.meta.promptKey as 'summarize-text'), {
+            resolvePrompt(db, tenantId, promptKey ?? (agent.meta.promptKey as RegistryPromptKey), {
               appName: cfg.APP_NAME,
               tenantName: tenant?.name ?? '',
               ...vars,

@@ -1,19 +1,20 @@
 /**
  * "Run <agent>" with a form GENERATED from the agent's JSON Schema (`schemaForm`, the rung every
- * agent without a hand-written form lands on — `triage-research`, any plugin's agent). Typing must
+ * agent without a hand-written form lands on — any plugin's agent, and most of an app's). Typing must
  * keep the same input mounted: `schemaForm` returns a new `Component` per call, so the modal builds
  * the form once, and a regression here is an input that loses focus after every keystroke.
  */
 import { fireEvent, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { RunAgentModal } from '@/ui/pages/agents/RunAgentModal'
+import { TEST_RESEARCH } from '../helpers/test-agents-shared'
 import { makeSession, renderWithProviders, stubFetch } from './helpers/renderWithProviders'
 
 const agent = {
-  key: 'triage-research' as const,
-  title: 'Triage research',
-  description: 'Screens search hits with typed decisions.',
-  promptKey: 'triage-research',
+  key: TEST_RESEARCH,
+  title: 'Test research',
+  description: 'Answers a question from the knowledge base.',
+  promptKey: TEST_RESEARCH,
   exclusive: true,
   approvers: 'requester' as const,
   inputJsonSchema: {

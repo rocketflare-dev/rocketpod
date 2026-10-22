@@ -146,7 +146,7 @@ describe('evals promote', () => {
               draft({
                 id: 'run-3f9c2b1e',
                 input: { question: 'refunds?' },
-                agentKey: 'research-topic',
+                agentKey: 'test-research',
                 source: { kind: 'agent_run', id: RUN },
               })
             ),
@@ -157,7 +157,7 @@ describe('evals promote', () => {
     const line = (await readFile(join(datasets, 'research.jsonl'), 'utf8')).trim()
     expect(evalCaseSchema.parse(JSON.parse(line))).toMatchObject({
       id: 'refund-window',
-      agentKey: 'research-topic',
+      agentKey: 'test-research',
     })
   })
 

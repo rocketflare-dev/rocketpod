@@ -238,6 +238,16 @@ a fake `WebSocket` factory left set) is on you.
   and `agent-run-stream.test.ts`, which injects `{ now, sleep }` (`RunStreamDeps`) so the suite is
   never timer-bound, and asserts a body error emits **no `RUN_ERROR`** — the deliberate inversion of
   the chat rule
+- **Agent-runtime tests use the test-only agents** (`tests/helpers/test-agents.ts`: `TEST_SUMMARIZE` —
+  one forced call, an approval, an ingest behind `ctx.once`; `TEST_RESEARCH` — a checkpointed
+  `runToolLoop` with a gated `save_note`), never the kit's example agents, which a copy deletes. The
+  file mocks both plugin barrels and is `// @vitest-isolate` for it:
+  `vi.mock('@rocketpod/shared/plugins', async importOriginal => (await import('../helpers/test-agents-shared')).withTestAgents(await importOriginal()))`
+  and `vi.mock('@/plugins/server', async () => (await import('../helpers/test-agents')).testAgentsServerBarrel())`
+  (`api-setup.ts` imports `@/db/client` lazily so the mock lands first). A UI test only needs the shared
+  one (responses are parsed with `agentKeySchema`); a row inserted directly needs neither. An
+  example's own behaviour stays in its own file (`agent-research`, `agent-triage-research`,
+  `ui/agent-examples`)
 - Agent runs (`agent-runs.test.ts`): `POST /api/agents/runs` → 202 + a `queued` row + one entry in
   `stubs(env).workflow.created` with `id === run.id`; the exclusive dedupe (same run back with
   `deduplicated: true`; 409 with `?strict=1`); `createTestEnv({ runs: null })` → 503; reconcile-on-read by `workflow.setStatus(id, { status: 'errored' })` then `GET /runs/:id`

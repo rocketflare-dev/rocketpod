@@ -322,12 +322,10 @@ describe('formFor', () => {
       properties: { topic: { type: 'string', maxLength: 2000 } },
       required: ['topic'],
     }
-    const built = formFor({ key: 'research-topic' as never, inputJsonSchema: schema })
+    const built = formFor({ key: 'an-app-agent' as never, inputJsonSchema: schema })
     expect(built).not.toBe(jsonForm)
     expect(built.initial).toEqual({ topic: '' })
     expect(formFor({ key: 'nope' as never, inputJsonSchema: null })).toBe(jsonForm)
-    // A registered form still wins the first rung.
-    expect(formFor({ key: 'summarize-text', inputJsonSchema: schema })).not.toBe(jsonForm)
   })
 })
 

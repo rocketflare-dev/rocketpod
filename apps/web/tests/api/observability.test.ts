@@ -23,6 +23,7 @@ import {
 import { runToolLoop, type Tool } from '@/api/services/ai/kit'
 import { loadConfig } from '@/config'
 import { FakeChatClient } from '../helpers/ai'
+import { TEST_RESEARCH } from '../helpers/test-agents-shared'
 import { createTestEnv } from '../mocks/bindings'
 
 function recordingFetch(status = 200) {
@@ -252,7 +253,7 @@ describe('nesting', () => {
       { toolUses: [{ id: 'call_1', name: 'lookup', input: { q: 'x' } }] },
       { toolUses: [{ name: 'submit', input: { answer: 'done' } }] },
     ])
-    await withAgentTrace('research-topic', { tracer, tenantId: 't', runId: 'r' }, trace =>
+    await withAgentTrace(TEST_RESEARCH, { tracer, tenantId: 't', runId: 'r' }, trace =>
       runToolLoop(traceChatClient(fake, trace, { provider: 'anthropic' }, tracer), {
         model: 'm',
         system: 's',
@@ -266,7 +267,7 @@ describe('nesting', () => {
     const tool = spans.find(s => s.kind === 'tool')
     const retrieval = spans.find(s => s.kind === 'retrieval')
     const llm = spans.filter(s => s.kind === 'llm')
-    expect(root?.name).toBe('invoke_agent research-topic')
+    expect(root?.name).toBe(`invoke_agent ${TEST_RESEARCH}`)
     expect(llm.map(s => s.name)).toEqual(['chat m', 'chat m'])
     expect(llm.every(s => s.parentSpanId === root?.spanId)).toBe(true)
     expect(tool).toMatchObject({
@@ -354,7 +355,7 @@ describe('workflow trace continuity', () => {
     const second = collectingTracer()
     for (const [round, { tracer }] of [first, second].entries()) {
       await withAgentTrace(
-        'research-topic',
+        TEST_RESEARCH,
         {
           tracer,
           tenantId: 't',

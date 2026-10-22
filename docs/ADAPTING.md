@@ -105,10 +105,16 @@ tell it. That is what makes deleting safe.
   not the example). Removing it touches: `CORE_AGENT_KEYS` + `summarizeText*Schema` +
   `SUMMARIZE_TEXT_MAX_CHARS` in `packages/shared/src/ai/agents.ts`, the `summarize-text` entry in
   `CORE_PROMPT_REGISTRY` (`apps/web/src/api/services/prompts.ts`), the `CORE_AGENTS` entry in
-  `services/agents/registry.ts`, `apps/web/tests/api/{agent-runs,agent-run-workflow,agent-research}.test.ts` (rewrite
-  them around your first agent — the runtime needs at least one), and the agent's TWO UI entries —
+  `services/agents/registry.ts`, the example's OWN tests (`apps/web/tests/api/agent-research.test.ts`,
+  `agent-triage-research.test.ts`, `apps/web/tests/ui/agent-examples.test.tsx` for `summarize-text`'s form and
+  output view) and eval suites/datasets (`apps/evals/{suites/agents,datasets}/<key>.*`), its demo runs in
+  `apps/web/scripts/seed.ts`, and the agent's TWO UI entries —
   `apps/web/src/ui/pages/agents/forms/<key>.tsx` and `outputs/<key>.tsx`, with their registry lines
-  (see `apps/web/src/ui/CLAUDE.md`). `RunPage` itself is the runtime's, not the example's. `AGENT_KEYS` must not be empty (it is a `z.enum`, and `CORE_AGENT_KEYS` leads it):
+  (see `apps/web/src/ui/CLAUDE.md`). `RunPage` itself is the runtime's, not the example's. The
+  runtime's tests (`agent-runs`, `agent-run-workflow`, `agent-interrupts`, `agent-decisions`,
+  `agent-tool-loop-runtime`, `node-runs`, the agents/run pages…) need none of the examples: they
+  drive two test-only agents registered through the plugin barrels (`apps/web/tests/helpers/test-agents.ts`),
+  so they stay green whichever examples you delete. `AGENT_KEYS` must not be empty (it is a `z.enum`, and `CORE_AGENT_KEYS` leads it):
   `agentKeySchema` is a `z.enum`. Rows in `agent_runs` / `agent_run_events` / `prompt_overrides` /
   `agent_models` for the old key are inert data — delete them or leave them
 - **Analytics** — it is a PLUGIN (D31, `docs/CONCEPTS.md` §8), so removing it is one command

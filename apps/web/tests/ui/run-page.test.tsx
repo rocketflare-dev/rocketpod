@@ -24,6 +24,7 @@ import { queryKeys } from '@/ui/lib/query-keys'
 import { websocketClient } from '@/ui/lib/websocketClient'
 import RunPage from '@/ui/pages/agents/RunPage'
 import { useWebSocketStore } from '@/ui/stores/websocketStore'
+import { TEST_SUMMARIZE } from '../helpers/test-agents-shared'
 import {
   errorResponse,
   IDS,
@@ -34,6 +35,12 @@ import {
   requestBody,
   stubFetch,
 } from './helpers/renderWithProviders'
+
+// The test-only agents' keys (`tests/helpers/test-agents-shared.ts`), so the page is tested apart
+// from the kit's example agents; the responses below are parsed with the real `agentKeySchema`.
+vi.mock('@rocketpod/shared/plugins', async importOriginal =>
+  (await import('../helpers/test-agents-shared')).withTestAgents(await importOriginal())
+)
 
 const RUN_ID = '99999999-9999-4999-8999-999999999999'
 const ASK_ID = '77777777-7777-4777-8777-777777777777'
@@ -73,7 +80,7 @@ const EVENTS = [
 const run = (overrides: Record<string, unknown> = {}) => ({
   id: RUN_ID,
   tenantId: IDS.tenant,
-  agentKey: 'summarize-text',
+  agentKey: TEST_SUMMARIZE,
   status: 'running',
   input: { text: 'hello', style: 'bullets', index: false },
   output: null,
@@ -125,10 +132,10 @@ const INPUT_SCHEMA = {
 const agents = (overrides: Record<string, unknown> = {}) => ({
   items: [
     {
-      key: 'summarize-text',
+      key: TEST_SUMMARIZE,
       title: 'Summarize text',
       description: 'Summarises a block of text.',
-      promptKey: 'summarize-text',
+      promptKey: TEST_SUMMARIZE,
       exclusive: true,
       approvers: 'requester',
       inputJsonSchema: INPUT_SCHEMA,
@@ -307,24 +314,15 @@ describe('RunPage', () => {
     expect(header).toHaveAttribute('aria-expanded', 'true')
   })
 
-  it('shows the typed output through the outputs registry once settled', async () => {
+  it('shows a settled output with no typed view as its JSON, and no Cancel', async () => {
     mount({
       [`/api/agents/runs/${RUN_ID}`]: run({
         status: 'succeeded',
         finishedAt: t(4),
-        output: {
-          summary: 'Short summary',
-          keyPoints: ['One', 'Two'],
-          documentId: '55555555-5555-4555-8555-555555555555',
-        },
+        output: { summary: 'Short summary', keyPoints: ['One', 'Two'] },
       }),
     })
-    expect(await screen.findByText('Short summary')).toBeInTheDocument()
-    expect(screen.getByText('One')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /Open the indexed document/ })).toHaveAttribute(
-      'href',
-      '/documents/55555555-5555-4555-8555-555555555555'
-    )
+    expect(await screen.findByText(/"summary": "Short summary"/)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Cancel run' })).not.toBeInTheDocument()
   })
 

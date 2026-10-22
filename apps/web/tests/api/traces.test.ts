@@ -15,6 +15,7 @@ import { FakeChatClient } from '../helpers/ai'
 import { createTestSession, createTestTenantWithUser, sessionCookieHeader } from '../helpers/auth'
 import { setupTestDatabase } from '../helpers/db'
 import { json, request } from '../helpers/request'
+import { TEST_SUMMARIZE } from '../helpers/test-agents-shared'
 import { createTestEnv } from '../mocks/bindings'
 
 const db = setupTestDatabase()
@@ -121,12 +122,12 @@ describe('/api/traces', () => {
     const a = await actor()
     const [run] = await db
       .insert(agentRuns)
-      .values({ tenantId: a.tenant.id, agentKey: 'summarize-text', input: {}, status: 'running' })
+      .values({ tenantId: a.tenant.id, agentKey: TEST_SUMMARIZE, input: {}, status: 'running' })
       .returning()
     if (!run) throw new Error('no run')
     const tracer = tracerFor(cfg, { store: databaseSpanStore(db) })
     await withAgentTrace(
-      'summarize-text',
+      TEST_SUMMARIZE,
       {
         tracer,
         tenantId: a.tenant.id,

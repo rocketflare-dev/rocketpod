@@ -1,6 +1,7 @@
 // @vitest-isolate
 // Mocks `@/api/services/ai/resolve` and swaps an entry of the `AGENTS` registry, so this file
 // needs its own module registry.
+// Also mocks both plugin barrels to register the test-only agents (tests/helpers/test-agents.ts).
 /**
  * The runtime half of human-in-the-loop (issue #17), against the real database: `ctx.interrupt`,
  * `executeRun`'s park and decline arms, steering delivery, artifacts, and the two lifecycle
@@ -58,7 +59,15 @@ import { agentRuns, notifications } from '@/db/schema'
 import { FakeChatClient } from '../helpers/ai'
 import { createTestTenantWithUser } from '../helpers/auth'
 import { setupTestDatabase } from '../helpers/db'
+import { TEST_SUMMARIZE } from '../helpers/test-agents-shared'
 import { createTestEnv, stubs, type TestEnv } from '../mocks/bindings'
+
+vi.mock('@rocketpod/shared/plugins', async importOriginal =>
+  (await import('../helpers/test-agents-shared')).withTestAgents(await importOriginal())
+)
+vi.mock('@/plugins/server', async () =>
+  (await import('../helpers/test-agents')).testAgentsServerBarrel()
+)
 
 const state: { client: ChatClient | null } = { client: null }
 
@@ -90,18 +99,17 @@ function fakeLogger() {
   return log as unknown as Logger & typeof log
 }
 
-const original = AGENTS['summarize-text']
+const original = AGENTS[TEST_SUMMARIZE]
 
 /**
- * Swap `summarize-text`'s definition for the run under test. The kit's own agents do not use
- * interrupts until phase 8, and the registry is keyed by `AgentKey`, so there is no third key to
- * borrow — the swap is undone after every test and the file is `@vitest-isolate` for it.
+ * Swap `test-summarize`'s definition for the run under test — the swap is undone after every
+ * test and the file is `@vitest-isolate` for it.
  */
 function installAgent(
   run: (ctx: AgentContext) => Promise<unknown>,
   meta: Partial<AnyAgentDefinition['meta']> = {}
 ): void {
-  AGENTS['summarize-text'] = {
+  AGENTS[TEST_SUMMARIZE] = {
     meta: {
       ...original.meta,
       inputSchema: z.any(),
@@ -113,7 +121,7 @@ function installAgent(
 }
 
 afterEach(() => {
-  AGENTS['summarize-text'] = original
+  AGENTS[TEST_SUMMARIZE] = original
   state.client = null
 })
 
@@ -138,7 +146,7 @@ async function claimedRun(env: TestEnv, role: 'owner' | 'member' = 'member') {
   const { user, tenant } = await createTestTenantWithUser(db, role)
   const { run } = await enqueueRun(db, env, {
     tenantId: tenant.id,
-    agentKey: 'summarize-text',
+    agentKey: TEST_SUMMARIZE,
     input: { text: 'anything' },
     userId: user.id,
   })

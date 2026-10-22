@@ -33,15 +33,7 @@ describe('/api/ai/prompts', () => {
     let list = promptListResponseSchema.parse(
       await json(await request('/api/ai/prompts', { headers: a.cookie }))
     )
-    expect(list.items.map(i => i.definition.key)).toEqual([
-      'chat',
-      'summarize-text',
-      'chat-compaction',
-      'research-topic',
-      'agent-decide',
-      'triage-research',
-      'evals-judge',
-    ])
+    expect(list.items.map(i => i.definition.key)).toEqual(Object.keys(PROMPT_REGISTRY))
     expect(list.items[0]).toMatchObject({
       isOverridden: false,
       override: null,

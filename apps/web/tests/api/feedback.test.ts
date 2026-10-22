@@ -42,6 +42,7 @@ import {
 } from '../helpers/auth'
 import { setupTestDatabase } from '../helpers/db'
 import { json, request } from '../helpers/request'
+import { TEST_RESEARCH } from '../helpers/test-agents-shared'
 import { createTestEnv } from '../mocks/bindings'
 
 const db = setupTestDatabase()
@@ -135,7 +136,7 @@ async function run(tenantId: string, requestedByUserId: string) {
     .insert(agentRuns)
     .values({
       tenantId,
-      agentKey: 'research-topic',
+      agentKey: TEST_RESEARCH,
       status: 'succeeded',
       input: { topic: 'What is the refund window?' },
       output: { answer: 'Thirty days.', citations: [] },
@@ -343,7 +344,7 @@ describe('GET /api/evals/export', () => {
       await json(await request(`/api/evals/export?runId=${r.id}`, { headers: a.cookie }))
     )
     expect(draft).toMatchObject({
-      agentKey: 'research-topic',
+      agentKey: TEST_RESEARCH,
       input: { topic: 'What is the refund window?' },
       expected: { output: { answer: 'Thirty days.' }, tools: ['search_knowledge'] },
       context: [{ title: 'Refund policy' }],

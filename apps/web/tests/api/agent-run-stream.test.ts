@@ -35,6 +35,7 @@ import {
 } from '../helpers/auth'
 import { setupTestDatabase } from '../helpers/db'
 import { request } from '../helpers/request'
+import { TEST_RESEARCH } from '../helpers/test-agents-shared'
 import { createTestEnv, stubs } from '../mocks/bindings'
 
 const db = setupTestDatabase()
@@ -60,7 +61,7 @@ async function makeRun(
     .insert(agentRuns)
     .values({
       tenantId,
-      agentKey: 'research-topic',
+      agentKey: TEST_RESEARCH,
       status,
       input: { question: 'why' },
       requestedByUserId: userId,

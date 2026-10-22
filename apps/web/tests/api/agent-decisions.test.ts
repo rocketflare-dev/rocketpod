@@ -1,5 +1,6 @@
 // @vitest-isolate
 // Mocks `@/api/services/ai/resolve` (the chat and decisions seams), so this file needs its own module registry.
+// Also mocks both plugin barrels to register the test-only agents (tests/helpers/test-agents.ts).
 /**
  * `ctx.decide` (D37) through the real runtime against Postgres, with a scripted decisions engine:
  * a decision is recorded ONCE per `(run, key)` and a re-entered `run()` replays it without asking
@@ -7,9 +8,8 @@
  * event (projected to AG-UI as `kit.agent.decision`), an `ai_usage` row and an
  * `agent_run_decisions` row that `GET /runs/:id` returns. `sift` and `pick` map answers back onto
  * items.
-
- * `triage-research`, the example built on it, is `agent-triage-research.test.ts`.
  */
+import type { AgentKey } from '@rocketpod/shared/ai/agents'
 import { kitAguiEventSchema } from '@rocketpod/shared/ai/agui'
 import type { DecisionAnswers, DecisionRequest } from '@rocketpod/shared/ai/decisions'
 import { and, eq } from 'drizzle-orm'
@@ -28,7 +28,15 @@ import { FakeChatClient } from '../helpers/ai'
 import { createTestSession, createTestTenantWithUser, sessionCookieHeader } from '../helpers/auth'
 import { setupTestDatabase } from '../helpers/db'
 import { json, request } from '../helpers/request'
+import { TEST_SUMMARIZE } from '../helpers/test-agents-shared'
 import { createTestEnv, type TestEnv } from '../mocks/bindings'
+
+vi.mock('@rocketpod/shared/plugins', async importOriginal =>
+  (await import('../helpers/test-agents-shared')).withTestAgents(await importOriginal())
+)
+vi.mock('@/plugins/server', async () =>
+  (await import('../helpers/test-agents')).testAgentsServerBarrel()
+)
 
 type Decider = (request: DecisionRequest) => DecisionAnswers
 
@@ -106,16 +114,16 @@ function answerAll(p: number, pick?: string): Decider {
     )
 }
 
-const originalAgent = AGENTS['summarize-text']
+const originalAgent = AGENTS[TEST_SUMMARIZE]
 
 function installAgent(run: (ctx: AgentContext) => Promise<unknown>): void {
-  AGENTS['summarize-text'] = {
+  AGENTS[TEST_SUMMARIZE] = {
     meta: { ...originalAgent.meta, inputSchema: z.any(), outputSchema: z.any() },
     run,
   } as AnyAgentDefinition
 }
 
-async function start(env: TestEnv, agentKey: 'summarize-text' | 'triage-research', input: unknown) {
+async function start(env: TestEnv, agentKey: AgentKey, input: unknown) {
   const { user, tenant } = await createTestTenantWithUser(db, 'member')
   return startFor(env, tenant.id, user.id, agentKey, input)
 }
@@ -124,7 +132,7 @@ async function startFor(
   env: TestEnv,
   tenantId: string,
   userId: string,
-  agentKey: 'summarize-text' | 'triage-research',
+  agentKey: AgentKey,
   input: unknown
 ) {
   const { run } = await enqueueRun(db, env, { tenantId, agentKey, input, userId })
@@ -151,7 +159,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  AGENTS['summarize-text'] = originalAgent
+  AGENTS[TEST_SUMMARIZE] = originalAgent
 })
 
 describe('ctx.decide', () => {
@@ -165,7 +173,7 @@ describe('ctx.decide', () => {
       })
       return { urgent: d.answers.urgent?.noul, team: d.answers.team?.choice, replayed: d.replayed }
     })
-    const { outcome, runId, tenantId } = await start(env, 'summarize-text', { text: 'x' })
+    const { outcome, runId, tenantId } = await start(env, TEST_SUMMARIZE, { text: 'x' })
     expect(outcome.status).toBe('succeeded')
     expect((await getRun(db, tenantId, runId))?.output).toEqual({
       urgent: 0.9,
@@ -212,7 +220,7 @@ describe('ctx.decide', () => {
       .select()
       .from(aiUsage)
       .where(
-        and(eq(aiUsage.tenantId, tenantId), eq(aiUsage.feature, 'agent:summarize-text:decide'))
+        and(eq(aiUsage.tenantId, tenantId), eq(aiUsage.feature, `agent:${TEST_SUMMARIZE}:decide`))
       )
     expect(usage).toHaveLength(1)
     expect(usage[0]).toMatchObject({ provider: 'typesafe', inputTokens: 40, outputTokens: 4 })
@@ -229,7 +237,7 @@ describe('ctx.decide', () => {
       await ctx.decide('triage', { state: 'x', questions })
       return {}
     })
-    const { runId, tenantId } = await start(env, 'summarize-text', { text: 'x' })
+    const { runId, tenantId } = await start(env, TEST_SUMMARIZE, { text: 'x' })
     await db
       .update(agentRuns)
       .set({ status: 'running', output: null, finishedAt: null })
@@ -262,7 +270,7 @@ describe('ctx.decide', () => {
       })
       return { kept: sifted.kept, p: sifted.p, picked: picked.item, pickedP: picked.p }
     })
-    const { runId, tenantId } = await start(env, 'summarize-text', { text: 'x' })
+    const { runId, tenantId } = await start(env, TEST_SUMMARIZE, { text: 'x' })
     expect((await getRun(db, tenantId, runId))?.output).toEqual({
       kept: ['a', 'c'],
       p: [0.8, 0.2, 0.5],
@@ -278,7 +286,7 @@ describe('ctx.decide', () => {
       await ctx.decide('triage', { state: 'x', questions: QUESTIONS })
       return {}
     })
-    const { runId, tenantId, userId } = await start(env, 'summarize-text', { text: 'x' })
+    const { runId, tenantId, userId } = await start(env, TEST_SUMMARIZE, { text: 'x' })
     const cookie = sessionCookieHeader(await createTestSession(db, userId, tenantId))
 
     const res = await request(`/api/agents/runs/${runId}`, { headers: cookie }, { env })

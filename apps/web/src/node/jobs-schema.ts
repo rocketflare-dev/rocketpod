@@ -8,6 +8,7 @@
  * through its own small `pg` pool. The retry curve is the consumer's `backoffSeconds`
  * (`src/api/queues/jobs.ts`): `tests/api/node-jobs.test.ts` holds the two together.
  */
+import { JOBS_RETRY_LIMIT } from '@rocketpod/shared/jobs'
 import { PgBoss, type Queue as QueueSpec } from 'pg-boss'
 import { JOBS_QUEUE_NAME_PREFIX } from '../api/services/jobs'
 import { type DatabaseEnv, resolveDatabaseUrl } from '../db/client'
@@ -20,8 +21,8 @@ export const CRON_QUEUE = 'rocketpod-cron'
 
 /** `max_batch_size` in the Cloudflare consumer config. */
 export const JOBS_BATCH_SIZE = 10
-/** `max_retries` in the Cloudflare consumer config: retries after the first delivery. */
-export const JOBS_RETRY_LIMIT = 3
+/** Retries after the first delivery — shared, so a handler can tell its last delivery. */
+export { JOBS_RETRY_LIMIT }
 /** A consumer's wall-clock limit before its job is considered lost and retried. */
 export const JOBS_EXPIRE_SECONDS = 15 * 60
 /** First retry delay, doubling (`BACKOFF_BASE_SECONDS`). */

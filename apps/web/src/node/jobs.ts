@@ -59,7 +59,8 @@ export function createPgBossJobsQueue(boss: () => Promise<PgBoss>): JobsQueue {
         ...startAfter(m.delaySeconds ?? options?.delaySeconds),
       }))
       if (jobs.length === 0) return []
-      return (await boss()).insert(JOBS_QUEUE, jobs)
+      // `returnId` makes pg-boss answer the ids; without it `insert` resolves to nothing.
+      return (await boss()).insert(JOBS_QUEUE, jobs, { returnId: true })
     },
   }
 }

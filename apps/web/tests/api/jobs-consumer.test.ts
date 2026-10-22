@@ -6,6 +6,8 @@
  * retry (poison never loops); provider failure → `retry({ delaySeconds })` with backoff;
  * `activity.record` → row. Every message gets and closes its own DB handle.
  */
+
+import { isFinalJobAttempt, JOBS_RETRY_LIMIT } from '@rocketpod/shared/jobs'
 import { and, eq } from 'drizzle-orm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -24,6 +26,19 @@ import { setupTestDatabase } from '../helpers/db'
 import { createTestEnv } from '../mocks/bindings'
 
 const db = setupTestDatabase()
+
+/** The contexts `activity.record` was handed, so a test can read what the consumer passed. */
+const seenContexts = vi.hoisted(() => [] as { attempts?: number }[])
+vi.mock('@/api/queues/handlers/activity-record', async importOriginal => {
+  const actual = await importOriginal<typeof import('@/api/queues/handlers/activity-record')>()
+  return {
+    ...actual,
+    handleActivityRecord: (async (job, ctx) => {
+      seenContexts.push(ctx)
+      return actual.handleActivityRecord(job, ctx)
+    }) as typeof actual.handleActivityRecord,
+  }
+})
 const TENANT = '11111111-1111-4111-8111-111111111111'
 
 function fakeLogger() {
@@ -192,5 +207,21 @@ describe('processJobsBatch', () => {
       subjectType: 'Thing',
       metadata: { via: 'queue' },
     })
+  })
+})
+
+describe('the delivery count', () => {
+  it('reaches the handler as ctx.attempts, and the last delivery is the one past the retry limit', async () => {
+    const { tenant } = await createTestTenantWithUser(db, 'owner')
+    const { deps: d } = deps()
+    const body = buildJobEnvelope({
+      type: 'activity.record',
+      payload: { tenantId: tenant.id, type: 'test.attempts', subjectType: 'test' },
+    })
+    seenContexts.length = 0
+    await processJobsBatch(fakeBatch([fakeMessage(body, JOBS_RETRY_LIMIT + 1)]), d)
+    expect(seenContexts.map(c => c.attempts)).toEqual([JOBS_RETRY_LIMIT + 1])
+    expect(isFinalJobAttempt(JOBS_RETRY_LIMIT + 1)).toBe(true)
+    expect(isFinalJobAttempt(JOBS_RETRY_LIMIT)).toBe(false)
   })
 })

@@ -167,5 +167,17 @@ export const JOB_TYPES: readonly JobType[] = JOB_VARIANTS.map(
   variant => variant.shape.type.value as JobType
 )
 
+/**
+ * Retries after the first delivery (`src/node/jobs-schema.ts` sets it on the queue). A delivery
+ * whose `attempts` exceeds it is the LAST one — after it the message dead-letters — so a handler
+ * holding a claim row settles it there rather than leave it claimed for ever.
+ */
+export const JOBS_RETRY_LIMIT = 3
+
+/** True for the last delivery a message gets (`attempts` is 1 on the first). */
+export function isFinalJobAttempt(attempts: number): boolean {
+  return attempts > JOBS_RETRY_LIMIT
+}
+
 /** The envelope narrowed to one `type` — what a handler receives. */
 export type JobOf<T extends JobType> = Extract<JobEnvelope, { type: T }>

@@ -122,7 +122,8 @@ describe('the queue policy', () => {
   it('is the consumer’s backoff curve, max_retries = 3, then the dead-letter queue', () => {
     const jobs = QUEUES.find(q => q.name === JOBS_QUEUE)
     expect(jobs).toMatchObject({
-      retryLimit: 3,
+      // The shared limit is what `isFinalJobAttempt` reads: the queue must retry exactly that often.
+      retryLimit: JOBS_RETRY_LIMIT,
       retryDelay: BACKOFF_BASE_SECONDS,
       retryBackoff: true,
       retryDelayMax: BACKOFF_MAX_SECONDS,
@@ -173,7 +174,8 @@ describe('producer → pg-boss → processJobsBatch', () => {
     )
     const [first, ...rest] = envelopes
     const sentId = (await worker.queue.send(first as never)) as string
-    await worker.queue.sendBatch(rest.map(body => ({ body })))
+    const batchIds = (await worker.queue.sendBatch(rest.map(body => ({ body })))) as string[]
+    expect(batchIds).toHaveLength(rest.length)
 
     const written = await until(
       () =>
@@ -189,6 +191,14 @@ describe('producer → pg-boss → processJobsBatch', () => {
       job => job?.state === 'completed'
     )
     expect(done?.data).toMatchObject({ id: first?.id, type: 'activity.record' })
+    // `sendBatch` answers the pg-boss ids of the jobs it inserted, in order.
+    for (const [i, id] of batchIds.entries()) {
+      const job = await until(
+        () => jobById(JOBS_QUEUE, id),
+        j => j?.state === 'completed'
+      )
+      expect(job?.data).toMatchObject({ id: rest[i]?.id })
+    }
     await worker.stop(5_000)
   }, 30_000)
 

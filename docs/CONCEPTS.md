@@ -273,8 +273,11 @@ dispatches. All three run in a `worker` (or `all`) process; a `web` process only
 - **Jobs**: one queue, envelope `{ id, type, payload, enqueuedAt }`, variants are DATA
   (`CORE_JOB_VARIANTS` + plugin `jobs`). A mapped handler table proves completeness, so there is no
   switch. `type` is the version seam (`x.v2`). An invalid envelope is acked; a handler error retries
-  with backoff. A missing queue is a 503 `jobs_not_configured`. Consumers await everything and
-  never use `waitUntil`. Queued today: `tenant.purge`, invitation and access-decision emails,
+  with backoff. A handler sees its delivery count as `ctx.attempts` (1 on the first), and
+  `isFinalJobAttempt(attempts)` (`@rocketpod/shared/jobs`, beside `JOBS_RETRY_LIMIT`) says it is the
+  last one before the dead-letter queue — where a handler holding a claim row settles it instead of
+  leaving it claimed. `sendBatch` answers the inserted jobs' ids. A missing queue is a 503
+  `jobs_not_configured`. Consumers await everything and never use `waitUntil`. Queued today: `tenant.purge`, invitation and access-decision emails,
   `document.index`/`document.convert`, `chat.compact`. The magic link stays inline.
   Detail: `.claude/rules/api.md`.
 - **Transport: pg-boss** in the `pgboss` schema (`src/node/jobs.ts`, `jobs-schema.ts`; `pnpm

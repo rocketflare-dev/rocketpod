@@ -43,6 +43,11 @@ export interface JobContext {
    * (a test, a plugin's own harness) need not supply one; AI handlers use `ctx.tracer ?? noopTracer`.
    */
   tracer?: Tracer
+  /**
+   * This message's delivery count, 1 on the first. Optional like `tracer`; a handler holding a
+   * claim row asks `isFinalJobAttempt(ctx.attempts ?? 1)` to settle it on the last delivery.
+   */
+  attempts?: number
 }
 
 export type JobHandler<T extends JobType> = (
@@ -136,6 +141,7 @@ async function processMessage(
       logger,
       db: handle.db,
       tracer,
+      attempts: message.attempts,
     }
     // `job` is the union and `handlers[job.type]` the matching handler, but TypeScript pairs them
     // only by widening both to their union — which makes the CALL the intersection of every

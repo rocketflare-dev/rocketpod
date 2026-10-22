@@ -107,6 +107,24 @@ describe('callStructuredTool', () => {
     ).rejects.toBeInstanceOf(StructuredOutputError)
     expect(stubborn.calls).toHaveLength(2)
   })
+
+  it('shows the model tool.jsonSchema while validating with the lenient schema', async () => {
+    const strict = z.object({ items: z.array(z.object({ name: z.string() })).min(1) })
+    const lenient = z.object({ items: z.array(z.unknown()) })
+    const client = new FakeChatClient([
+      { toolUses: [{ name: 'record_items', input: { items: [{ name: 'a' }, 42] } }] },
+    ])
+    const out = await callStructuredTool(client, {
+      model: 'm',
+      system: 'sys',
+      messages: [{ role: 'user', content: 'go' }],
+      tool: { name: 'record_items', description: 'Record', schema: lenient, jsonSchema: strict },
+    })
+    // Accepted by the lenient schema on the first call — no retry spent on the bad item.
+    expect(out.items).toEqual([{ name: 'a' }, 42])
+    expect(client.calls).toHaveLength(1)
+    expect(client.calls[0]?.tools?.[0]?.inputSchema).toEqual(toolInputSchema(strict))
+  })
 })
 
 const ZERO_TEST_USAGE = { inputTokens: 0, outputTokens: 0 }

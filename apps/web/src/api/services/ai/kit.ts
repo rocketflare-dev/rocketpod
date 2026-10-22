@@ -269,7 +269,18 @@ export interface CallStructuredToolOptions<T> {
   model: string
   system: SystemPrompt
   messages: ChatMessage[]
-  tool: { name: string; description: string; schema: ZodType<T> }
+  tool: {
+    name: string
+    description: string
+    /** Validates the answer (a parse failure is fed back once, then throws). */
+    schema: ZodType<T>
+    /**
+     * What the MODEL is shown, when it differs from what is accepted: a caller that salvages the
+     * valid parts of an answer validates with a lenient `schema` and still shows the strict one
+     * here, so the model is asked for exactly the right shape. Defaults to `schema`.
+     */
+    jsonSchema?: ZodType
+  }
   maxTokens?: number
   signal?: AbortSignal
   /** Breakpoint on the system prefix — only worth it if this prompt re-runs (default off). */
@@ -289,7 +300,7 @@ export async function callStructuredTool<T>(
   const tool: ToolDefinition = {
     name: opts.tool.name,
     description: opts.tool.description,
-    inputSchema: toolInputSchema(opts.tool.schema),
+    inputSchema: toolInputSchema(opts.tool.jsonSchema ?? opts.tool.schema),
   }
   const messages: ChatMessage[] = [...opts.messages]
   let usage = ZERO_USAGE

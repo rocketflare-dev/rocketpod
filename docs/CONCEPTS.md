@@ -477,7 +477,9 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   misjudged (thinking, sampling, forced tool, effort, a replayed block's signature) and remembers
   it. So an unknown id costs one call, and it is read as the newest generation.
 - **Kit** (`services/ai/kit.ts`): `runStreamingChat`, `runToolLoop`, `callStructuredTool`, prompt
-  caching helpers. Prompts are code (`PROMPT_REGISTRY`) with per-tenant override rows.
+  caching helpers. `callStructuredTool`'s optional `tool.jsonSchema` is what the model is shown
+  when it differs from the `schema` that validates: a caller that salvages the valid parts of an
+  answer validates leniently and still asks for the strict shape. Prompts are code (`PROMPT_REGISTRY`) with per-tenant override rows.
 - **AG-UI is the wire protocol (D28)**: `@ag-ui/core` is pinned exactly and imported only by
   `shared/src/ai/agui.ts`. The kit emits 15 events plus a `kit.` CUSTOM namespace (apps use their
   own prefix). It supports SSE (`data:` only, no `event:` line) or protobuf.

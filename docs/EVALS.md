@@ -51,6 +51,7 @@ describeCases('agent · triage-ticket', {
   judges: [SchemaJudge(triageTicketOutputSchema), ContainsJudge(), RubricJudge()],
   cases: loadDataset('triage-ticket'),
   threshold: 0.7, // mean judge score a case must reach
+  gates: [SchemaJudge(triageTicketOutputSchema)], // must score exactly 1, whatever the mean
 })
 ```
 
@@ -64,6 +65,9 @@ describeCases('agent · triage-ticket', {
 - **Each case runs in a tenant of its own**, with its `context` documents ingested first, so
   retrieval can only find what the case put there. Chat `messages` are seeded as the thread's
   earlier turns.
+- **A gate is a judge a case must pass outright.** List it in `gates` (and in `judges` too if its
+  score belongs in the run file and the baseline): a broken schema, or a tool the case must never
+  call, then fails the case instead of averaging away against the judges that passed.
 - 5–10 cases per suite: happy paths, one the model should refuse or not know, one that should call
   **no** tool (`"tools": [], "toolsMatch": "strict"`), and one edge case.
 

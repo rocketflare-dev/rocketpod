@@ -30,20 +30,21 @@ const assertion = (title: string, scores: Record<string, number | null>, status 
       run: {
         usage: { model: 'claude-x', inputTokens: 10, outputTokens: 5, costUsd: 0.001 },
         timings: { totalMs: 1200 },
-        artifacts: { promptKey: 'chat', promptHash: 'abc123' },
+        artifacts: { promptKey: 'chat', promptVersion: 'chat@abc123' },
       },
     },
   },
 })
 
-const report = (cases: ReturnType<typeof assertion>[]) => ({
-  testResults: [
-    { name: '/repo/apps/evals/suites/chat/knowledge.eval.ts', assertionResults: cases },
-  ],
+const report = (
+  cases: ReturnType<typeof assertion>[],
+  file = '/repo/apps/evals/suites/chat/knowledge.eval.ts'
+) => ({
+  testResults: [{ name: file, assertionResults: cases }],
 })
 
 describe('reading a run', () => {
-  it('keys suites by path under suites/ and reads scores, usage and prompt hashes', () => {
+  it('keys suites by path under suites/ and reads scores, usage and prompt versions', () => {
     expect(suiteId('/x/apps/evals/suites/agents/summarize-text.eval.ts')).toBe(
       'agents-summarize-text'
     )
@@ -54,15 +55,64 @@ describe('reading a run', () => {
       avgScore: 0.75,
       scores: { Rubric: 1, Contains: 0.5 },
       model: 'claude-x',
-      promptHash: 'abc123',
+      promptVersion: 'chat@abc123',
       totalMs: 1200,
     })
     const header = runHeader({ sha: 'abc', dirty: false, createdAt: 't', filters: [], cases: [c] })
     expect(header).toMatchObject({
-      promptHashes: { chat: ['abc123'] },
+      version: 2,
+      promptVersions: { chat: 'chat@abc123' },
       modelsObserved: ['claude-x'],
     })
     expect(renderSummary([c])).toContain('1/1 passed · mean score 0.75')
+  })
+})
+
+describe('baselinesFrom', () => {
+  it("records each suite's own prompt versions and model, which the gate's drift check reads", () => {
+    const chat = extractCases(report([assertion('refund-window', { Rubric: 1 })]))
+    const triage = extractCases(
+      report(
+        [assertion('refund-conditions', { Decisions: 1 })],
+        '/r/apps/evals/suites/agents/triage-research.eval.ts'
+      )
+    ).map(c => ({
+      ...c,
+      model: 'claude-y',
+      promptKey: 'triage-research',
+      promptVersion: 'triage-research@def456',
+      // The chat-model fallback answered `ctx.decide`, so the decisions prompt was measured too.
+      promptVersions: {
+        'triage-research': 'triage-research@def456',
+        'agent-decide': 'agent-decide@0a1b',
+      },
+    }))
+    const header = runHeader({ createdAt: 't', sha: 's', cases: [...chat, ...triage] })
+    const out = baselinesFrom([...chat, ...triage], header)
+    expect(out['chat-knowledge']).toMatchObject({
+      model: 'claude-x',
+      promptVersions: { chat: 'chat@abc123' },
+    })
+    expect(out['agents-triage-research']).toMatchObject({
+      model: 'claude-y',
+      promptVersions: {
+        'triage-research': 'triage-research@def456',
+        'agent-decide': 'agent-decide@0a1b',
+      },
+    })
+    // Each suite carries ITS prompts only: chat's baseline knows nothing of the agent's.
+    expect(out['chat-knowledge']?.promptVersions).not.toHaveProperty('triage-research')
+    expect(out['agents-triage-research']).not.toHaveProperty('provisional')
+  })
+
+  it('keeps every version when one suite ran more than one, so the gate reads it as stale', () => {
+    const cases = extractCases(
+      report([assertion('a', { Rubric: 1 }), assertion('b', { Rubric: 1 })])
+    ).map((c, i) => ({ ...c, promptVersion: `chat@v${i}` }))
+    expect(
+      baselinesFrom(cases, { createdAt: 't', sha: 's', judgeModel: null })['chat-knowledge']
+        ?.promptVersions
+    ).toEqual({ chat: ['chat@v0', 'chat@v1'] })
   })
 })
 

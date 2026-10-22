@@ -11,7 +11,7 @@
  * `run` loads the TEST database from `apps/web/.env.test` and the AI keys (only those) from
  * `apps/web/.env`, runs `vitest --config vitest.config.ts` with the vitest-evals reporter plus a
  * JSON report at `.evals/runs/<timestamp>-<sha>.json`, stamps that file with the git sha, models and
- * prompt hashes, prints a score/cost/latency table, and — with `--compare` — the regressions, exiting
+ * prompt versions, prints a score/cost/latency table, and — with `--compare` — the regressions, exiting
  * 1 past the threshold.
  */
 import { spawnSync } from 'node:child_process'

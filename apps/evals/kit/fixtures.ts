@@ -33,7 +33,7 @@ export interface CaseWorld {
 }
 
 export async function caseWorld(
-  evalCase: EvalCase,
+  evalCase: Pick<EvalCase, 'context'>,
   promptKeys: readonly string[]
 ): Promise<CaseWorld> {
   const db = evalDb()

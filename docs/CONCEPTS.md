@@ -607,7 +607,8 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   **The harness input IS the `EvalCase`** (`shared/ai/evals.ts`: input, messages, context,
   expected `{ output, rubric, tools, toolsMatch, contains }`, tags, source), so judges read each
   case's own expectations; `describeCases` attaches to a case only the judges it declares something
-  for, because vitest-evals averages a `null` score as 0. Deterministic judges (`Contains`,
+  for, because vitest-evals averages a `null` score as 0, and its `gates` are judges a case must
+  score exactly 1 on whatever its mean. Deterministic judges (`Contains`,
   `Matches`, `Schema`, `Trajectory` with agentevals' strict/unordered/subset/superset, `Budget`)
   come first; LLM judges (`Rubric`, `Faithfulness` against what retrieval actually returned,
   `Reference` = vitest-evals' `FactualityJudge`) run through ONE judge harness that calls the kit's
@@ -616,7 +617,8 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   fireworks|gemini` put the target or judge on a real encrypted tenant `ai_configs` row
   (Fireworks through the kit's own `fireworks` preset, Gemini as `openai_compatible`), so vendor
   comparisons also exercise the tenant-config tier. A run is a vitest JSON report in
-  `.evals/runs/<ts>-<sha>.json` (git-ignored), stamped with the sha, models and prompt hashes;
+  `.evals/runs/<ts>-<sha>.json` (git-ignored), stamped with the sha, models and prompt versions
+  (`promptVersion(key, template)` = `<key>@<sha256 12 hex>`, `services/ai/prompt-version.ts`);
   baselines are committed per suite (`baselines/<suite>.json`, `pnpm eval:baseline`) and
   `--compare` exits 1 on a per-case, per-judge drop past `--threshold` (0.1). `pnpm eval:view`
   prints the score diff between two runs, then serves the vitest-evals report UI (runs, cases,

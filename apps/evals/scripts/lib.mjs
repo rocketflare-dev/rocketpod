@@ -18,7 +18,11 @@ const num = v => (typeof v === 'number' && Number.isFinite(v) ? v : null)
 
 /**
  * One row per eval case: `{ suite, id, status, avgScore, scores: { judge: score|null }, rationales,
- * usage, totalMs, promptKey, promptHash, model }`. Skipped cases (no key) come back `status: skipped`.
+ * usage, totalMs, promptKey, promptVersion, promptVersions, model }`. Skipped cases (no key) come
+ * back `status: skipped`. `promptVersion` is `<key>@<hash of the prompt TEMPLATE>` — the same
+ * function the gate's coverage check compares (`apps/web/src/api/services/ai/prompt-version.ts`);
+ * `promptVersions` is every prompt the case used (`{ key: version }`, the target's own included —
+ * an agent run that fell back to the chat model for `ctx.decide` adds `agent-decide`).
  */
 export function extractCases(report) {
   const rows = []
@@ -44,8 +48,9 @@ export function extractCases(report) {
         usage: run?.usage ?? {},
         totalMs: num(run?.timings?.totalMs),
         promptKey: run?.artifacts?.promptKey ?? null,
-        promptHash: run?.artifacts?.promptHash ?? null,
-        model: run?.usage?.model ?? run?.session?.model ?? null,
+        promptVersion: run?.artifacts?.promptVersion ?? null,
+        promptVersions: run?.artifacts?.promptVersions ?? {},
+        model: run?.usage?.model ?? run?.artifacts?.model ?? run?.session?.model ?? null,
         failure: a.failureMessages?.[0]?.split('\n')[0] ?? null,
       })
     }
@@ -68,16 +73,10 @@ export function runHeader({
   judgeProvider,
   cases,
 }) {
-  const promptHashes = {}
   const models = new Set()
-  for (const c of cases) {
-    if (c.promptKey && c.promptHash) {
-      promptHashes[c.promptKey] = [...new Set([...(promptHashes[c.promptKey] ?? []), c.promptHash])]
-    }
-    if (c.model) models.add(c.model)
-  }
+  for (const c of cases) if (c.model) models.add(c.model)
   return {
-    version: 1,
+    version: 2,
     sha,
     dirty,
     createdAt,
@@ -87,26 +86,62 @@ export function runHeader({
     modelsObserved: [...models].sort(),
     judgeProvider: judgeProvider ?? 'anthropic',
     judgeModel: judgeModel ?? null,
-    promptHashes,
+    promptVersions: promptVersionsOf(cases),
   }
 }
 
-/** Baseline files keyed by suite: `{ suite, createdAt, sha, model, judgeModel, cases: { id: { avgScore, scores } } }`. */
+/**
+ * `{ promptKey: version }` over some cases — or `[versions]` when they ran more than one (an
+ * override changed mid-run), which the gate's drift check then reads as "re-baseline".
+ */
+export function promptVersionsOf(cases) {
+  const seen = {}
+  const add = (key, version) => {
+    if (!key || !version) return
+    seen[key] ??= new Set()
+    seen[key].add(version)
+  }
+  for (const c of cases) {
+    add(c.promptKey, c.promptVersion)
+    for (const [key, version] of Object.entries(c.promptVersions ?? {})) add(key, version)
+  }
+  return Object.fromEntries(
+    Object.entries(seen).map(([key, set]) => [key, set.size === 1 ? [...set][0] : [...set].sort()])
+  )
+}
+
+/**
+ * Baseline files keyed by suite: `{ suite, createdAt, sha, model, judgeModel, promptVersions,
+ * cases: { id: { avgScore, scores } } }`. `model` is the `--model` the run was given, else the
+ * models THIS suite's cases observed; `promptVersions` is what the gate compares with the
+ * prompts' current text, so a baseline written from a run is never `provisional`.
+ */
 export function baselinesFrom(cases, header) {
   const bySuite = {}
   for (const c of cases) {
     if (c.status === 'skipped') continue
-    bySuite[c.suite] ??= {
-      suite: c.suite,
-      createdAt: header.createdAt,
-      sha: header.sha,
-      model: header.model ?? header.modelsObserved?.join(', ') ?? null,
-      judgeModel: header.judgeModel,
-      cases: {},
-    }
-    bySuite[c.suite].cases[c.id] = { avgScore: c.avgScore, scores: c.scores }
+    bySuite[c.suite] ??= []
+    bySuite[c.suite].push(c)
   }
-  return bySuite
+  return Object.fromEntries(
+    Object.entries(bySuite).map(([suite, suiteCases]) => {
+      const observed = [...new Set(suiteCases.map(c => c.model).filter(Boolean))].sort()
+      return [
+        suite,
+        {
+          suite,
+          createdAt: header.createdAt,
+          sha: header.sha,
+          model: header.model ?? (observed.length ? observed.join(', ') : null),
+          judgeModel: header.judgeModel,
+          promptVersions: promptVersionsOf(suiteCases),
+          cases: Object.fromEntries(
+            suiteCases.map(c => [c.id, { avgScore: c.avgScore, scores: c.scores }])
+          ),
+        },
+      ]
+    })
+  )
 }
 
 /** A baseline or a run's cases, as `suite → id → { avgScore, scores }`. */

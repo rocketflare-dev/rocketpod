@@ -4,7 +4,6 @@
  * A case runs in its own tenant, so "every row in the tenant except the judge's" is exactly the
  * target's spend — chat turn, agent tool loop and anything they triggered.
  */
-import { createHash } from 'node:crypto'
 import { and, eq, ne, sql } from 'drizzle-orm'
 import type { UsageSummary } from 'vitest-evals'
 import type { Database } from '@/db/client'
@@ -33,9 +32,4 @@ export async function tenantSpend(
     // microcents → USD. Null (an unpriced model) stays unknown rather than reading as free.
     ...(row?.cost !== null && row?.cost !== undefined ? { costUsd: Number(row.cost) / 1e8 } : {}),
   }
-}
-
-/** A short, stable hash of the prompt text a case ran with — what `--compare` groups runs by. */
-export function promptHash(text: string): string {
-  return createHash('sha256').update(text).digest('hex').slice(0, 12)
 }

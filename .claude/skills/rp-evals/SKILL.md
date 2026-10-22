@@ -90,7 +90,8 @@ previous run first. Eval traces are in `ai_spans` tagged `rocketpod.eval=true`
   (keys in `.env`). Their cost shows as "—" (not in the price table), so compare on tokens and
   latency, and say so.
 - Prompts: prompts are code (`apps/web/src/api/services/prompts.ts`). Run, change the prompt, run
-  again. The run header's `promptHashes` proves which text each run used.
+  again. The run header's `promptVersions` (`<key>@<sha256 12 hex>` of each prompt TEMPLATE)
+  proves which text each run used.
 - Present a table: mean score, pass count, tokens, cost, total ms per variant, plus the cases that
   moved and why (from the rationales). Recommend one, with the trade-off in a sentence.
 

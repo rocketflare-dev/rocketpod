@@ -47,7 +47,9 @@
 
 A judge is attached to a case only when the case declares something for it (`appliesTo`), because
 vitest-evals averages a `null` score as 0. A case passes when the mean of its judges reaches the
-suite threshold (0.7 by default).
+suite threshold (0.7 by default) AND scores exactly 1 on every judge in `describeCases`' `gates`
+(a schema or a forbidden-tool check that must never average away; list it in `judges` too if its
+score belongs in the baseline).
 
 | Judge | Kind | Reads | Score |
 |---|---|---|---|
@@ -73,14 +75,17 @@ The scorers are plain functions in `kit/scoring.ts`. An app's own judge is
 | | How it runs | Transcript |
 |---|---|---|
 | `chatHarness()` | `POST /api/chat/conversations` → seed `messages` → `POST …/messages` in-process (the real route, `prepareChatTurn` included) | answer text, tool calls from AG-UI, `retrieved` from `search_knowledge` results, usage from `ai_usage` |
-| `agentHarness(key)` | `enqueueRun` → `claimStep` → `executeRun` (retried up to `EXECUTE_RETRIES`) → `finishStep` inline, no Workflow binding | output, `tool.start`/`tool.end` events, `retrieved` (600-char passage previews), run status |
+| `agentHarness(key)` | `enqueueRun` → `runAgentInProcess` (`kit/run-agent.ts`: `claimStep` → `executeRun`, retried up to `EXECUTE_RETRIES` → `finishStep` inline, no run engine) — reuse it in an app's own agent target | output, `tool.start`/`tool.end` events, `retrieved` (600-char passage previews), run status, `promptVersions` (`agent-decide` too when `ctx.decide` fell back to the chat model) |
 
 A run that parks on a person is settled `cancelled` by `finishStep` and scores as a miss.
 
 ## Run file
 
-A vitest JSON report plus a `rocketpod` header: `{ sha, dirty, createdAt, filters, model,
-modelsObserved, judgeModel, promptHashes: { <promptKey>: [hash] } }`. Per case:
+A vitest JSON report plus a `rocketpod` header: `{ version: 2, sha, dirty, createdAt, filters,
+model, modelsObserved, judgeModel, promptVersions: { <promptKey>: '<key>@<hash>' | [versions] } }`
+(a list only when one run saw several texts of a prompt). A version is `promptVersion(key,
+template)` (`apps/web/src/api/services/ai/prompt-version.ts`); a baseline carries its suite's
+`promptVersions` too, which the gate's coverage check compares (`docs/EVALS.md`). Per case:
 `testResults[].assertionResults[]` → `title` (the case id), `status`, `meta.eval.{avgScore, scores[]}`
 (each with `metadata.rationale`) and `meta.harness.run` (`session.events`, `usage`, `timings`,
 `artifacts`).

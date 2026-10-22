@@ -1,14 +1,18 @@
 /**
  * The agent target (D33): one case → one real agent run, IN-PROCESS, through the real runtime —
- * `enqueueRun` (the row, validated input), then the three step bodies inline (`claimStep` →
- * `executeRun` → `finishStep`) exactly as the run body (`runAgentRun`) calls them, with no run
- * engine. `executeRun` throws only to ask for a step retry, so it is retried here up to the same
- * limit the engine gives it (`EXECUTE_RETRIES`).
+ * `enqueueRun` (the row, validated input), then the three step bodies inline (`runAgentInProcess`:
+ * `claimStep` → `executeRun` → `finishStep`) exactly as the run body (`runAgentRun`) calls them,
+ * with no run engine.
  *
  * A run that PARKS on a person (`ask_human`, an approval) cannot be answered by an eval: the final
  * `finishStep` settles it `cancelled`, the output is null, and the judges score it as the miss it
  * is. The transcript is built from `agent_run_events`, the same rows the run page and the AG-UI
  * projection read.
+ *
+ * `promptVersions` names every registry prompt the run used (`promptVersion`, the TEMPLATE): the
+ * agent's own, plus `agent-decide` when a `ctx.decide` answer came from the chat-model fallback
+ * (`llm_self_report`) rather than Jev — so a baseline records the decisions prompt only when the
+ * suite actually measured it.
  */
 import type { AgentKey } from '@rocketpod/shared/ai/agents'
 import { decisionAnswerLabel } from '@rocketpod/shared/ai/decisions'
@@ -19,19 +23,14 @@ import { withEvalScope } from '@/api/observability/context'
 import { listDecisions } from '@/api/services/agents/decisions'
 import { getAgent } from '@/api/services/agents/registry'
 import { enqueueRun, getRun } from '@/api/services/agents/runs'
-import {
-  claimStep,
-  EXECUTE_RETRIES,
-  type ExecuteOutcome,
-  executeRun,
-  finishStep,
-} from '@/api/services/agents/runtime'
-import { getPrompt } from '@/api/services/prompts'
+import { promptVersion } from '@/api/services/ai/prompt-version'
+import { getPrompt, type RegistryPromptKey } from '@/api/services/prompts'
 import { loggerFor } from '@/api/utils/core/logger'
 import { agentRunEvents } from '@/db/schema'
 import { caseWorld } from './fixtures'
+import { runAgentInProcess } from './run-agent'
 import type { RecordedDecisions } from './scoring'
-import { promptHash, tenantSpend } from './spend'
+import { tenantSpend } from './spend'
 import { transcriptFromRunEvents } from './transcript'
 
 export function agentHarness(agentKey: AgentKey): Harness<EvalCase, JsonValue | undefined> {
@@ -49,20 +48,7 @@ export function agentHarness(agentKey: AgentKey): Harness<EvalCase, JsonValue | 
           input: evalCase.input,
           userId: world.userId,
         })
-        const params = { runId: run.id, tenantId: world.tenantId }
-        let outcome: ExecuteOutcome | undefined
-        if (await claimStep(world.db, world.env, logger, params)) {
-          for (let attempt = 0; attempt <= EXECUTE_RETRIES && !outcome; attempt++) {
-            try {
-              outcome = await executeRun(world.db, world.cfg, world.env, logger, params, {
-                round: 0,
-              })
-            } catch (err) {
-              if (attempt === EXECUTE_RETRIES) throw err
-            }
-          }
-        }
-        await finishStep(world.db, world.env, logger, params, outcome, { cfg: world.cfg })
+        await runAgentInProcess(world, logger, run.id)
         return run.id
       })
       const totalMs = Date.now() - started
@@ -77,11 +63,10 @@ export function agentHarness(agentKey: AgentKey): Harness<EvalCase, JsonValue | 
         .orderBy(asc(agentRunEvents.seq))
       const output = (row.output ?? undefined) as JsonValue | undefined
       const transcript = transcriptFromRunEvents(events, row.input, output, row.error)
-      // The TEMPLATE (override or default), not the interpolated text: every case has its own
-      // tenant name, and "which prompt ran" must hash the same across cases.
       // D37: every `ctx.decide` answer, keyed for `DecisionJudge` — read from the table, not a model.
       const decisions: RecordedDecisions = {}
-      for (const d of await listDecisions(world.db, world.tenantId, runId)) {
+      const recorded = await listDecisions(world.db, world.tenantId, runId)
+      for (const d of recorded) {
         decisions[d.key] = Object.fromEntries(
           Object.entries(d.answers).map(([id, a]) => [
             id,
@@ -95,8 +80,16 @@ export function agentHarness(agentKey: AgentKey): Harness<EvalCase, JsonValue | 
           ])
         )
       }
-      const prompt = (await getPrompt(world.db, world.tenantId, agent.meta.promptKey as 'chat'))
-        .effectiveText
+      // The TEMPLATE (override or default), not the interpolated text: every case has its own
+      // tenant name, and "which prompt ran" must hash the same across cases.
+      const versionOf = async (key: RegistryPromptKey) =>
+        promptVersion(key, (await getPrompt(world.db, world.tenantId, key)).effectiveText)
+      const promptKey = agent.meta.promptKey as RegistryPromptKey
+      const version = await versionOf(promptKey)
+      const promptVersions: Record<string, string> = { [promptKey]: version }
+      if (recorded.some(d => d.method === 'llm_self_report')) {
+        promptVersions['agent-decide'] = await versionOf('agent-decide')
+      }
       return {
         output,
         events: transcript.events,
@@ -109,8 +102,9 @@ export function agentHarness(agentKey: AgentKey): Harness<EvalCase, JsonValue | 
           retrieved: transcript.retrieved,
           status: row.status,
           runId,
-          promptKey: agent.meta.promptKey,
-          promptHash: promptHash(prompt),
+          promptKey,
+          promptVersion: version,
+          promptVersions,
           decisions: decisions as unknown as JsonValue,
         },
       }

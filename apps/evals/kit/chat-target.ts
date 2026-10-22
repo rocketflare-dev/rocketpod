@@ -14,11 +14,12 @@ import { conversationSchema } from '@rocketpod/shared/ai/chat'
 import type { EvalCase } from '@rocketpod/shared/ai/evals'
 import { createHarness, type Harness } from 'vitest-evals'
 import { withEvalScope } from '@/api/observability/context'
+import { promptVersion } from '@/api/services/ai/prompt-version'
 import { getPrompt } from '@/api/services/prompts'
 import { aguiFrames } from '../../web/tests/helpers/ai'
 import { request } from '../../web/tests/helpers/request'
 import { caseWorld, seedHistory } from './fixtures'
-import { promptHash, tenantSpend } from './spend'
+import { tenantSpend } from './spend'
 import { transcriptFromAgui } from './transcript'
 
 export function chatHarness(): Harness<EvalCase, string> {
@@ -73,7 +74,7 @@ export function chatHarness(): Harness<EvalCase, string> {
         artifacts: {
           retrieved: transcript.retrieved,
           promptKey: 'chat',
-          promptHash: promptHash(prompt),
+          promptVersion: promptVersion('chat', prompt),
           conversationId,
         },
       }

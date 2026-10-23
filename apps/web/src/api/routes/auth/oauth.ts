@@ -185,7 +185,8 @@ oauthRouter.get('/:provider/callback', async c => {
       db,
       cfg,
       { email, name: profile.name, verified: true, avatarUrl: profile.avatarUrl },
-      logger
+      logger,
+      c.get('platform').jobs
     )
     if (!admitted.ok) return loginErrorRedirect(c, admitted.reason as LoginErrorCode)
     user = admitted.user

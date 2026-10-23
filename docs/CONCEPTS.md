@@ -39,7 +39,8 @@ suites on vitest 4, §9 — never part of the gate).
   admitted user auto-joins as `member`; multi-only surface is 404 `tenancy_mode_single`
   (`requireMultiTenant`) and hidden via `useTenancyMode()`. Switching to `multi` needs no migration.
 - **`SIGNUP_MODE = open | invite_only | approval` (D9)**, default `invite_only`. Uninvited logins
-  land on `/pending`; `approval` also files an `access_requests` row at *verify* time;
+  land on `/pending`; `approval` also files an `access_requests` row at *verify* time and
+  queues an email to every active global admin for a NEW row (never for a re-login);
   `open` gives a personal tenant through `onNoTenant`. Whatever the mode, the `BOOTSTRAP_ADMIN_EMAILS`
   admin's first login on an install with NO tenant yet creates the first one (named `APP_NAME`, as
   owner) — the only other way to it was SQL — and never again once any tenant exists. Invitations are handled first on every login

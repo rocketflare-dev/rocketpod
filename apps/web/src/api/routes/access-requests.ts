@@ -12,14 +12,18 @@ import { validate } from '../utils/routes/validate'
 export const accessRequestsRouter = createRouter()
 
 accessRequestsRouter.post('/', validate('json', createAccessRequestSchema), async c => {
-  const { db, user } = withAuth(c)
+  const { db, user, cfg, logger } = withAuth(c)
   const body = c.req.valid('json')
-  const row = await ensureAccessRequest(db, {
-    email: user.email,
-    userId: user.id,
-    message: body.message ?? null,
-    requestedTenantId: body.requestedTenantId ?? null,
-  })
+  const row = await ensureAccessRequest(
+    db,
+    {
+      email: user.email,
+      userId: user.id,
+      message: body.message ?? null,
+      requestedTenantId: body.requestedTenantId ?? null,
+    },
+    { cfg, logger, jobs: c.get('platform').jobs }
+  )
   return c.json(
     {
       id: row.id,

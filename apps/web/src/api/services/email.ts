@@ -172,3 +172,27 @@ ${button(cfg.APP_URL, `Open ${cfg.APP_NAME}`)}`
     link: input.approved ? cfg.APP_URL : undefined,
   }
 }
+
+/** To each global admin when someone new lands in the approval queue (`SIGNUP_MODE=approval`). */
+export function accessRequestReceivedEmail(
+  cfg: AppConfig,
+  to: string,
+  input: { requesterEmail: string; requesterName: string | null }
+): EmailMessage {
+  const url = `${cfg.APP_URL.replace(/\/$/, '')}/admin/access-requests`
+  const who = input.requesterName
+    ? `${input.requesterName} (${input.requesterEmail})`
+    : input.requesterEmail
+  const subject = `${who} is waiting for ${cfg.APP_NAME} access`
+  const body = `<h1 style="margin:0 0 16px;font-size:22px;">New access request</h1>
+<p><strong>${escapeHtml(who)}</strong> signed in to ${escapeHtml(cfg.APP_NAME)} and is waiting for approval. Approve them into an organisation, or reject the request.</p>
+${button(url, 'Review access requests')}
+<p style="font-size:13px;color:${palette.muted};">You get this email because you are a global admin.</p>`
+  return {
+    to,
+    subject,
+    html: emailShell(cfg, subject, body),
+    text: `${who} signed in to ${cfg.APP_NAME} and is waiting for approval.\n\nReview: ${url}`,
+    link: url,
+  }
+}

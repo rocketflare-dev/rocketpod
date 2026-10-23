@@ -27,7 +27,7 @@ import {
 } from '../helpers/auth'
 import { setupTestDatabase } from '../helpers/db'
 import { json, request } from '../helpers/request'
-import { createTestEnv, type TestEnv } from '../mocks/bindings'
+import { createTestEnv, stubs, type TestEnv } from '../mocks/bindings'
 
 const db = setupTestDatabase()
 
@@ -246,9 +246,24 @@ describe('sign-up gating (SIGNUP_MODE)', () => {
 
   it('approval: creates the user + a pending access request; session has no tenant', async () => {
     const env = createTestEnv({ SIGNUP_MODE: 'approval' })
+    const admin = await createTestUser(db, { isGlobalAdmin: true })
+    const blockedAdmin = await createTestUser(db, { isGlobalAdmin: true, blockedAt: new Date() })
     const email = `appr_${uniqueId().toLowerCase()}@example.test`
+    const adminEmails = () =>
+      stubs(env)
+        .queue.messages.map(m => m.body as { type: string; payload: Record<string, string> })
+        .filter(b => b.type === 'email.send' && b.payload.reason === 'access_request_received')
     const { verifyUrl } = await linkFor(email, env)
     const res = await signIn(verifyUrl, env)
+    // Every active global admin is emailed about the new request; a blocked one is not.
+    const sent = adminEmails()
+    const recipients = sent.map(b => b.payload.to)
+    expect(recipients).toContain(admin.email)
+    expect(recipients).not.toContain(blockedAdmin.email)
+    expect(sent.find(b => b.payload.to === admin.email)?.payload).toMatchObject({
+      subject: expect.stringContaining(email),
+      link: expect.stringMatching(/\/admin\/access-requests$/),
+    })
     const token = sessionCookieFrom(res) as string
     const body = await json<{ tenant: unknown; accessRequest: { status: string } | null }>(
       await request('/auth/session', { headers: sessionCookieHeader(token) }, { env })
@@ -263,6 +278,7 @@ describe('sign-up gating (SIGNUP_MODE)', () => {
     // A second login reuses the same pending request.
     const again = await linkFor(email, env)
     await signIn(again.verifyUrl, env)
+    expect(adminEmails()).toHaveLength(sent.length)
     expect(
       await db
         .select()

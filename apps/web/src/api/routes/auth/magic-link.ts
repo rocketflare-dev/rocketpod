@@ -71,7 +71,13 @@ magicLinkRouter.post('/verify', async c => {
   const consumed = await consumeMagicLinkToken(db, token)
   if (!consumed.ok) return loginErrorRedirect(c, consumed.reason)
 
-  const admitted = await admitUser(db, cfg, { email: consumed.email, verified: true }, logger)
+  const admitted = await admitUser(
+    db,
+    cfg,
+    { email: consumed.email, verified: true },
+    logger,
+    c.get('platform').jobs
+  )
   if (!admitted.ok) return loginErrorRedirect(c, admitted.reason)
 
   await completeLogin(c, db, cfg, admitted.user)

@@ -22,7 +22,9 @@ import type { AuthContext } from '../types'
 import type { Logger } from '../utils/core/logger'
 import { createTenantForUser, getSingleTenant } from '../utils/db/tenant-helpers'
 import { recordActivity } from './activity'
+import { accessRequestReceivedEmail } from './email'
 import { platformFeatures } from './features'
+import { enqueueJobs, type JobsQueue } from './jobs'
 
 export interface AdmitInput {
   email: string
@@ -104,7 +106,9 @@ export async function admitUser(
   db: Database,
   cfg: AppConfig,
   input: AdmitInput,
-  logger: AdmitLogger
+  logger: AdmitLogger,
+  /** Queues the global admins' "new access request" email in `approval` mode. */
+  jobs?: JobsQueue | null
 ): Promise<AdmitResult> {
   const email = input.email.toLowerCase()
   const bootstrap = input.verified && isBootstrapAdmin(cfg, email)
@@ -163,13 +167,23 @@ export async function admitUser(
     }
     case 'approval': {
       const user = await createUser(db, { ...input, email }, { isGlobalAdmin: false })
-      await ensureAccessRequest(db, { email, userId: user.id })
+      await ensureAccessRequest(db, { email, userId: user.id }, { cfg, logger, jobs })
       return { ok: true, user, created: true }
     }
   }
 }
 
-/** One pending request per email; re-login updates `userId` on the open row instead of duplicating. */
+/** What `ensureAccessRequest` needs to tell the global admins about a NEW request. */
+export interface AccessRequestNotify {
+  cfg: AppConfig
+  logger: AdmitLogger
+  jobs: JobsQueue | null | undefined
+}
+
+/**
+ * One pending request per email; re-login updates `userId` on the open row instead of duplicating.
+ * Only a NEW row emails the global admins (`notify`), so a re-login or an added message is silent.
+ */
 export async function ensureAccessRequest(
   db: Database,
   input: {
@@ -177,7 +191,8 @@ export async function ensureAccessRequest(
     userId: string | null
     message?: string | null
     requestedTenantId?: string | null
-  }
+  },
+  notify?: AccessRequestNotify
 ) {
   const email = input.email.toLowerCase()
   const pending = await db.query.accessRequests.findFirst({
@@ -205,7 +220,61 @@ export async function ensureAccessRequest(
     })
     .returning()
   if (!row) throw new Error('ensureAccessRequest: insert returned no row')
+  if (notify) await notifyAdminsOfAccessRequest(db, notify, row)
   return row
+}
+
+/**
+ * Queue one `email.send` per active global admin (D7: delivery can lag and retry). Best-effort: a
+ * sign-in never fails because the mail could not be queued — the request is already on the admin
+ * console's Access requests list either way.
+ */
+async function notifyAdminsOfAccessRequest(
+  db: Database,
+  { cfg, logger, jobs }: AccessRequestNotify,
+  request: { id: string; email: string; userId: string | null }
+): Promise<void> {
+  try {
+    const admins = await db
+      .select({ email: users.email })
+      .from(users)
+      .where(and(eq(users.isGlobalAdmin, true), isNull(users.blockedAt)))
+    if (admins.length === 0) {
+      logger.warn({ accessRequestId: request.id }, 'access request: no global admin to email')
+      return
+    }
+    const requester = request.userId
+      ? await db.query.users.findFirst({
+          columns: { name: true },
+          where: eq(users.id, request.userId),
+        })
+      : undefined
+    await enqueueJobs(
+      jobs,
+      admins.map(admin => {
+        const message = accessRequestReceivedEmail(cfg, admin.email, {
+          requesterEmail: request.email,
+          requesterName: requester?.name ?? null,
+        })
+        return {
+          type: 'email.send' as const,
+          payload: {
+            to: message.to,
+            subject: message.subject,
+            html: message.html,
+            text: message.text,
+            link: message.link,
+            reason: 'access_request_received',
+          },
+        }
+      })
+    )
+  } catch (err) {
+    logger.warn(
+      { err, accessRequestId: request.id },
+      "access request: could not queue the global admins' email"
+    )
+  }
 }
 
 /**

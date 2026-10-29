@@ -2,7 +2,7 @@ name: Kit
 
 # The KIT's own checks — true of this repository and of nothing made from it, so the file is
 # `kitOnly` (.rocketflare.json): the rename deletes it and `pnpm kit:upgrade` never ports it. A
-# copy's CI is ci.yml's one job; this file proves what only the kit can prove about itself:
+# copy's CI is ci.yml (its `Gate` check); this file proves what only the kit can prove about itself:
 #
 #   kit-checks  the published plugin API is current, the vendored plugin audits clean, a behaviour
 #               change carries its porting note, `defaultPlugins` is well formed — no database;

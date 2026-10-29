@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * `pnpm gate` — lint, typecheck, test, build: an app's checks, defined once. The pre-commit gate,
- * a copy's one CI job, and Launch's ship gate all run this. Steps and flags: `lib/gate-lib.mjs`.
+ * a copy's CI (in parallel parts, .github/workflows/ci.yml) and Launch's ship gate all run this.
+ * Steps and flags: `lib/gate-lib.mjs`.
  */
 import { spawnSync } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'

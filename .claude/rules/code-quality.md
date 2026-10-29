@@ -14,8 +14,9 @@ paths:
 pnpm gate
 ```
 
-Lint, typecheck, test, build — the same command a copy's CI runs as its one job and Launch's ship
-gate runs in a sandbox (`pnpm gate --list` for the steps, `pnpm gate test` for one of them,
+Lint, typecheck, test, build — the same commands a copy's CI runs as parallel parts (`pnpm gate
+lint typecheck build`, `pnpm test --only packages|api|rest [--shard i/N]`, behind one aggregate
+`Gate` check) and Launch's ship gate runs in a sandbox (`pnpm gate --list` for the steps, `pnpm gate test` for one of them,
 `--keep-going` to see every failure at once). Every run writes its verdict to `.gate/last.json`
 (`passed`, `full` — all four steps — `failed`, per-step seconds, HEAD's `sha`, `dirty`): read that,
 or the final `✔ pnpm gate passed` / `✖ pnpm gate failed` line, never an exit code that a pipe or a

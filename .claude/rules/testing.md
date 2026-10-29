@@ -28,7 +28,9 @@ run, not per project.
 test Postgres itself and runs every package's tests and the web suite (the `driver` conformance
 project included). On a **remote** target (`TEST_DATABASE_BRANCH` set — see below) it runs the
 same suite against that branch over TCP, with no Docker. One driver, postgres.js:
-`GATE_SUITE_DRIVER` is refused.
+`GATE_SUITE_DRIVER` is refused. `--only packages|api|rest` runs one part of the same plan and
+`--shard i/N` slices `rest` (vitest's own `--shard`) — what CI's parallel test jobs run
+(`.github/workflows/ci.yml`: packages, api, four rest shards). No flags is the whole run.
 
 **Kit-only tests** (`docs/CONCEPTS.md` §13) live in `apps/web/tests/kit-only/` and nowhere else: a
 test belongs there when it is true of the kit repository and of nothing made from it — the porting

@@ -14,7 +14,7 @@ import {
   parseGateArgs,
 } from '../../../../scripts/lib/gate-lib.mjs'
 import type { TestPlan } from '../../../../scripts/lib/test-plan.d.mts'
-import { planTests, resolveTarget } from '../../../../scripts/lib/test-plan.mjs'
+import { parseTestArgs, planTests, resolveTarget } from '../../../../scripts/lib/test-plan.mjs'
 
 const REPO = path.resolve(__dirname, '../../../..')
 const GATE_BRANCH = {
@@ -23,8 +23,14 @@ const GATE_BRANCH = {
   TEST_DATABASE_ENDPOINT: 'ep-cool-name-123456',
 }
 
-function plan(env: Record<string, string | undefined>, kitOnly = false): TestPlan {
-  const p = planTests(env, { kitOnly })
+function plan(
+  env: Record<string, string | undefined>,
+  kitOnly = false,
+  argv: string[] = []
+): TestPlan {
+  const args = parseTestArgs(argv)
+  if (!('only' in args)) throw new Error(`bad argv ${argv.join(' ')}`)
+  const p = planTests(env, { kitOnly }, args)
   if ('error' in p) throw new Error(p.error)
   return p
 }
@@ -124,6 +130,79 @@ describe('pnpm test: the plan', () => {
     expect(webRuns(plan({}, true))[1]).toBe('api-isolated+driver+ui+config+kit-only @ postgres')
     expect(webRuns(plan({}, false)).join('\n')).not.toMatch(/kit-only/)
     expect(existsSync(path.join(REPO, 'scripts/test.mjs'))).toBe(true)
+  })
+})
+
+describe('pnpm test: --only and --shard (CI runs the plan in parts)', () => {
+  /** A step with its `--shard` pair removed: what the unsharded run would execute. */
+  function unsharded(command: string[]): string[] {
+    const i = command.indexOf('--shard')
+    return i === -1 ? command : [...command.slice(0, i), ...command.slice(i + 2)]
+  }
+
+  it('the parts, in plan order, are exactly the whole plan', () => {
+    for (const env of [{}, GATE_BRANCH]) {
+      const whole = plan(env, true)
+      const parts = ['packages', 'api', 'rest'].flatMap(
+        part => plan(env, true, ['--only', part]).steps
+      )
+      expect(parts).toEqual(whole.steps)
+    }
+  })
+
+  it('N shards of rest are the unsharded rest run, each slice named once', () => {
+    const [rest] = plan({}, false, ['--only', 'rest']).steps
+    for (const count of [1, 3, 4]) {
+      const shards = Array.from({ length: count }, (_, i) =>
+        plan({}, false, ['--only', 'rest', '--shard', `${i + 1}/${count}`])
+      )
+      const slices = shards.map(p => {
+        expect(p.steps).toHaveLength(1)
+        const command = p.steps[0]?.command ?? []
+        // Same projects, env and cwd as the unsharded run: vitest's --shard partitions its files.
+        expect(unsharded(command)).toEqual(rest?.command)
+        expect(p.steps[0]?.env).toEqual(rest?.env)
+        return command[command.indexOf('--shard') + 1]
+      })
+      expect(new Set(slices)).toEqual(
+        new Set(Array.from({ length: count }, (_, i) => `${i + 1}/${count}`))
+      )
+    }
+  })
+
+  it('starts the database only for a part that needs one', () => {
+    expect(plan({}).compose).toBe(true)
+    expect(plan({}, false, ['--only', 'packages']).compose).toBe(false)
+    expect(plan({}, false, ['--only', 'api']).compose).toBe(true)
+    expect(plan({}, false, ['--only=rest', '--shard=1/3']).compose).toBe(true)
+    expect(plan(GATE_BRANCH, false, ['--only', 'api']).compose).toBe(false)
+  })
+
+  it('no flags is the whole plan; refuses what it cannot mean', () => {
+    expect(parseTestArgs([])).toEqual({ only: null, shard: null })
+    expect(parseTestArgs(['--only', 'rest', '--shard', '2/3'])).toEqual({
+      only: 'rest',
+      shard: { index: 2, count: 3 },
+    })
+    expect(parseTestArgs(['--help'])).toEqual({ help: true })
+    expect(parseTestArgs(['--only', 'ui'])).toMatchObject({
+      error: expect.stringMatching(/--only/),
+    })
+    expect(parseTestArgs(['--only', 'api', '--only', 'rest'])).toMatchObject({
+      error: expect.stringMatching(/one part/),
+    })
+    for (const bad of ['0/3', '4/3', '1/0', '3', 'a/b']) {
+      expect(parseTestArgs(['--only', 'rest', '--shard', bad])).toMatchObject({
+        error: expect.stringMatching(/--shard/),
+      })
+    }
+    expect(parseTestArgs(['--shard', '1/2'])).toMatchObject({
+      error: expect.stringMatching(/only to --only rest/),
+    })
+    expect(parseTestArgs(['--only', 'api', '--shard', '1/2'])).toMatchObject({
+      error: expect.stringMatching(/only to --only rest/),
+    })
+    expect(parseTestArgs(['api'])).toMatchObject({ error: expect.stringMatching(/unknown/) })
   })
 })
 

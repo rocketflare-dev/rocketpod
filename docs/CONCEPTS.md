@@ -197,8 +197,11 @@ per-PR previews; no public tunnel for OAuth callbacks in dev (use your own, e.g.
   branch); no test carries a budget of its own.
 - **The gate** (`pnpm gate`, `scripts/lib/gate-lib.mjs`): lint → typecheck → test → build,
   stopping at the first failure (`--keep-going` runs all; `pnpm gate <step…>` and `--skip` are for
-  iterating locally — no workflow passes `--skip`). It is the pre-commit gate, a copy's one CI job
-  and Launch's ship gate. `pnpm gate --list --json` is the contract a step-by-step runner reads:
+  iterating locally — no workflow passes `--skip`). It is the pre-commit gate and Launch's ship
+  gate; a copy's CI (`ci.yml`) runs the SAME commands in parallel parts — `static` (gitleaks, then
+  `pnpm gate lint typecheck build`), `pnpm test --only packages`, `--only api` and four
+  `--only rest --shard i/4` jobs — behind ONE aggregate `Gate` job that `needs:` them all and is the
+  required check. `pnpm gate --list --json` is the contract a step-by-step runner reads:
   `{ schema: 1, steps: [{ id, command, database }] }` in run order, validated by
   `packages/shared/src/gate.ts`; `schema` rises only when an existing field changes meaning, so a
   reader tolerates a new step or field. There is no generated-files step: the
@@ -207,18 +210,21 @@ per-PR previews; no public tunnel for OAuth callbacks in dev (use your own, e.g.
   tree fails it) and in `plugin-ci.yml`.
 - **Verified once (opt-in, for an app Launch ships).** After a green sandbox gate Launch's GitHub
   App posts a `launch/gate` check run keyed by the tree (`external_id: tree:<sha>`). With the
-  repository variable `LAUNCH_GATE_APP_ID` set to that App's id, the first step of `ci.yml`'s
-  `Gate` job (`scripts/gate-verified.mjs`, rules in `scripts/lib/gate-verified-lib.mjs`) looks for one from
+  repository variable `LAUNCH_GATE_APP_ID` set to that App's id, the first step of every `ci.yml`
+  job (`scripts/gate-verified.mjs`, rules in `scripts/lib/gate-verified-lib.mjs`) looks for one from
   THAT app, `success`, for the tree CI is about to test — on a pull request the merge commit's tree,
   found on the PR head (so it holds only while the branch contains main's tip); on a push to main
-  the pushed commit's tree, found on the commit or its PRs' heads. Found, `Gate` runs gitleaks and
-  `pnpm gate build` only; anything else — unset, another app, another tree, an API error — runs the
+  the pushed commit's tree, found on the commit or its PRs' heads. Found, `static` runs gitleaks and
+  `pnpm gate build` only and the test jobs stop after the lookup; anything else — unset, another app, another tree, an API error — runs the
   full gate. Unset, no lookup runs at all. Trust is the app id: anyone with `checks: write` can name
   a check `launch/gate`, only Launch's App can post one under its id.
 - **`pnpm test` picks its target from the environment** (`scripts/lib/test-plan.mjs`), never by
   probing, and prints it first. **Local** (the default): it starts the compose test Postgres itself
   (`docker compose … up -d --wait`; Docker down is a failure that names both fixes, never a skip),
-  then every package and the web suite. The narrow scripts (`pnpm web test:api|ui|config|driver`)
+  then every package and the web suite. `--only packages|api|rest` runs one part of that plan (a
+  packages-only run starts no database) and `--shard i/N` slices `rest` with vitest's own `--shard`
+  — CI's parallel jobs; `gate.test.ts` proves the parts are the whole plan and the shards the
+  unsharded run. The narrow scripts (`pnpm web test:api|ui|config|driver`)
   are the inner loop: no compose management. `GATE_SUITE_DRIVER` is refused (one driver).
 - **Remote target — an ephemeral test database** (`pnpm test` with `TEST_DATABASE_BRANCH` set): the
   whole gate's tests where there is no Docker — a coding sandbox, whose orchestrator creates a
@@ -714,10 +720,12 @@ writes one; `--compare` against a provisional baseline with no cases compares no
   produces, compose and the chart to valid modes and real config keys, and the chart's
   ConfigMap/Secret keys to exactly the vars and secrets `src/config.ts` declares.
 - **Releases**: the release is the tag, which must equal the root `package.json` version
-  (`release-check.mjs`); `image.yml` builds the image on every PR and push to main, pushes
-  `ghcr.io/rocketflare-dev/rocketpod` on a tag — only once CI has passed on the tagged commit (its
-  `ci` job) — and lints, renders and validates the chart.
-  `ci.yml` is ONE gate job — the secrets scan, then `pnpm gate` (§4). The kit's renamed-copy and
+  (`release-check.mjs`); `image.yml` builds the image on every PR and push to main (no push, its
+  layers cached to the GitHub Actions cache), and on a tag builds it WHILE its `ci` job waits for
+  CI on the tagged commit; only once CI passed does `publish` push
+  `ghcr.io/rocketflare-dev/rocketpod` from that warm cache. It also lints, renders and validates
+  the chart. `ci.yml` runs the gate in parallel parts behind one aggregate `Gate` check — the
+  secrets scan and `pnpm gate lint typecheck build`, then `pnpm test --only …` jobs (§4). The kit's renamed-copy and
   default-plugins gates, its porting-note and plugin-API checks live in `kit.yml` (`kitOnly`).
 
 **Known gaps:** no live `helm install` has been verified; no image signing or SBOM; no

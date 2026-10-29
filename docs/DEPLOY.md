@@ -145,12 +145,15 @@ there are. Size Postgres `max_connections` for roughly
 and lints, renders and schema-checks the chart (`helm lint`, `helm template`, kubeconform). A
 version tag pushes `ghcr.io/<owner>/rocketpod:<version>` and `:latest`, with `RELEASE_VERSION`
 baked in (it is what `/auth/session` reports as `releaseVersion`). The quality gate itself stays
-`ci.yml`'s one job, but a tag waits for it: image.yml's `ci` job holds the push until the CI
-workflow has passed on the tagged commit (30 minutes at most), and a failed or missing run stops
-the release — so push the commit to `main` first, then tag it.
+`ci.yml`'s (its `Gate` check, the aggregate of its parallel jobs), but a tag waits for it:
+image.yml's `ci` job holds the push until the CI workflow has passed on the tagged commit (30
+minutes at most), and a failed or missing run stops the release — so push the commit to `main`
+first, then tag it. The build overlaps that wait: `image` builds without pushing (layers cached to
+the GitHub Actions cache) while `ci` waits; only then does `publish` log in and re-run the build
+from the warm cache with `push: true`.
 
 **A tag is a release, and once a deploy job hangs off it, a production deploy.** A copy that adds
-one (`needs: [ci, chart, image]`) deploys every version tag it pushes; nothing asks again. Before
+one (`needs: [ci, chart, publish]`) deploys every version tag it pushes; nothing asks again. Before
 tagging, read the gate's own verdict (`✔ pnpm gate passed`, or `.gate/last.json`), never an exit
 code piped through `tail`.
 

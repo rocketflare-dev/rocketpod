@@ -269,7 +269,8 @@ pnpm gate
 ```
 Verify: exits 0. This is the pre-commit gate for the whole workspace — lint, typecheck, test,
 build, stopping at the first failure (`--keep-going` runs them all, `pnpm gate --list` shows them)
-— and the one job a copy's CI runs. `build` produces `apps/web/dist/ui`, the two server bundles
+— and what a copy's CI runs, split into parallel jobs (`pnpm gate lint typecheck build`, `pnpm test
+--only packages|api|rest [--shard i/N]`) behind one required `Gate` check. `build` produces `apps/web/dist/ui`, the two server bundles
 `apps/web/dist/{server,migrate}.js` and `apps/cli/dist/cli.js`.
 
 ### 1.10 Public URL via tunnel

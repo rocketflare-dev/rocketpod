@@ -14,6 +14,12 @@
  *
  * One driver: postgres.js (Rocketpod removed Rocketflare's Neon driver, so there is no second
  * conformance pass to run).
+ *
+ * The SELECTION (`pnpm test --only <part> [--shard i/N]`, `parseTestArgs`) runs one part of the
+ * same plan, so CI's parallel jobs (.github/workflows/ci.yml) run exactly the steps a laptop runs,
+ * split three ways: `packages` (every other package), `api` (the shared-registry web run) and
+ * `rest` (the other web projects), the last sliceable with vitest's own `--shard`. No flags is the
+ * whole plan, unchanged.
  */
 
 export const COMPOSE_FILE = 'apps/web/docker-compose.test.yml'
@@ -75,11 +81,60 @@ function vitest(projects, extra = []) {
   ]
 }
 
+/** The parts `--only` selects, in plan order. */
+export const TEST_PARTS = Object.freeze(['packages', 'api', 'rest'])
+
+export const TEST_USAGE = `usage: pnpm test [--only <part>] [--shard <i>/<n>]
+
+  pnpm test                       the whole plan: every package, then the web suite
+  pnpm test --only packages       every package but apps/web (no database)
+  pnpm test --only api            web: the api project (--no-isolate)
+  pnpm test --only rest           web: every other project (api-isolated, driver, ui, config…)
+  pnpm test --only rest --shard 2/3   the second third of those files (vitest --shard)
+
+parts: ${TEST_PARTS.join(', ')}`
+
+/**
+ * @param {string[]} argv
+ * @returns {{ only: string | null, shard: { index: number, count: number } | null } | { error: string } | { help: true }}
+ */
+export function parseTestArgs(argv) {
+  let only = null
+  let shard = null
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i]
+    if (arg === '--help' || arg === '-h') return { help: true }
+    if (arg === '--only' || arg.startsWith('--only=')) {
+      const value = arg === '--only' ? argv[++i] : arg.slice('--only='.length)
+      if (!value || !TEST_PARTS.includes(value)) {
+        return { error: `--only needs a part (${TEST_PARTS.join(', ')}), got '${value ?? ''}'` }
+      }
+      if (only) return { error: '--only takes one part' }
+      only = value
+    } else if (arg === '--shard' || arg.startsWith('--shard=')) {
+      const value = arg === '--shard' ? argv[++i] : arg.slice('--shard='.length)
+      const match = /^(\d+)\/(\d+)$/.exec(value ?? '')
+      const index = match ? Number(match[1]) : 0
+      const count = match ? Number(match[2]) : 0
+      if (!match || count < 1 || index < 1 || index > count) {
+        return { error: `--shard needs <i>/<n> with 1 ≤ i ≤ n, got '${value ?? ''}'` }
+      }
+      shard = { index, count }
+    } else return { error: `unknown argument '${arg}'` }
+  }
+  // Only the rest run is sharded: `api` shares one module registry across its files, and the
+  // packages are separate vitest runs a shard index cannot span.
+  if (shard && only !== 'rest') return { error: '--shard applies only to --only rest' }
+  return { only, shard }
+}
+
 /**
  * @param {Record<string, string | undefined>} env
  * @param {{ kitOnly: boolean }} tree what the checkout carries (`apps/web/tests/kit-only/` exists)
+ * @param {{ only?: string | null, shard?: { index: number, count: number } | null }} [select]
+ *   one part of the plan (`parseTestArgs`); omitted, the whole plan
  */
-export function planTests(env, tree) {
+export function planTests(env, tree, select = {}) {
   const resolved = resolveTarget(env)
   if ('error' in resolved) return resolved
   const { target } = resolved
@@ -93,8 +148,10 @@ export function planTests(env, tree) {
       ? `test target: remote database branch ${env.TEST_DATABASE_BRANCH} (no Docker)`
       : 'test target: local compose Postgres'
 
+  const shard = select.shard ?? null
   const steps = [
     {
+      part: 'packages',
       label: 'the other packages',
       cwd: '.',
       command: ['pnpm', '-r', '--filter', `!./${WEB_DIR}`, 'test'],
@@ -102,17 +159,21 @@ export function planTests(env, tree) {
     },
     // Two invocations because vitest 3 resolves `isolate` per run, not per project.
     {
+      part: 'api',
       label: 'web: api (shared registry)',
       cwd: WEB_DIR,
       command: vitest(['api'], ['--no-isolate']),
       env: webEnv,
     },
     {
-      label: `web: ${isolated.join(', ')}`,
+      part: 'rest',
+      label: `web: ${isolated.join(', ')}${shard ? ` (shard ${shard.index}/${shard.count})` : ''}`,
       cwd: WEB_DIR,
-      command: vitest(isolated),
+      command: vitest(isolated, shard ? ['--shard', `${shard.index}/${shard.count}`] : []),
       env: webEnv,
     },
-  ]
-  return { target, compose: target === 'local', banner, steps, notes: [] }
+  ].filter(step => !select.only || step.part === select.only)
+  // The packages need no database, so a packages-only run starts none.
+  const compose = target === 'local' && steps.some(step => step.part !== 'packages')
+  return { target, compose, banner, steps, notes: [] }
 }

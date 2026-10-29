@@ -12,7 +12,27 @@ export const TARGET_HINT: string
 
 export function resolveTarget(env: Env): { target: TestTarget } | { error: string }
 
+export type TestPart = 'packages' | 'api' | 'rest'
+export const TEST_PARTS: readonly TestPart[]
+export const TEST_USAGE: string
+
+export interface TestShard {
+  index: number
+  count: number
+}
+
+export interface TestSelection {
+  only?: TestPart | null
+  shard?: TestShard | null
+}
+
+export function parseTestArgs(
+  argv: string[]
+): { only: TestPart | null; shard: TestShard | null } | { error: string } | { help: true }
+
 export interface TestStep {
+  /** Which `--only` part the step belongs to. */
+  part: TestPart
   label: string
   /** Relative to the repository root. */
   cwd: string
@@ -29,4 +49,8 @@ export interface TestPlan {
   notes: string[]
 }
 
-export function planTests(env: Env, tree: { kitOnly: boolean }): TestPlan | { error: string }
+export function planTests(
+  env: Env,
+  tree: { kitOnly: boolean },
+  select?: TestSelection
+): TestPlan | { error: string }

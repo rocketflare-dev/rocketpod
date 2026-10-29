@@ -78,7 +78,7 @@ docker compose up -d --build  # the whole stack from the image: postgres, s3, mi
 helm upgrade --install rocketpod deploy/helm/rocketpod -f values.yaml  # Kubernetes; Postgres + S3 external
 pnpm dev:stop · pnpm dev:status · pnpm dev:db:status  # kill this repo's dev tree / port holders / every dev database
 pnpm cli login --server http://localhost:3001  # browser → ~/.rocketpod/config.json, then whoami
-pnpm gate [step…] · pnpm gate --list [--json]  # THE gate: lint → typecheck → test → build (CI's one job, Launch's ship gate)
+pnpm gate [step…] · pnpm gate --list [--json]  # THE gate: lint → typecheck → test → build (CI runs it in parallel parts behind one `Gate` check; Launch's ship gate)
 pnpm test  # every package; starts the test DB (:5533) + S3 gateway (:7433); the whole suite, driver conformance included
 TEST_DATABASE_BRANCH=gate-… pnpm test  # a sandbox gate: no Docker, the whole suite on a gate branch over TCP (CONCEPTS §4)
 pnpm eval [suite] [--model x] [--compare] · pnpm eval:baseline · pnpm eval:view  # real-model evals (D33, docs/EVALS.md)
@@ -186,7 +186,7 @@ code-quality.md · runtime.md. Runbooks: `docs/DEPLOY.md` · `docs/RLS.md`
 ## Non-Negotiables
 
 - **Gate**: `pnpm gate` (lint → typecheck → test → build) passes before every commit — the same
-  command a copy's CI job and Launch's ship gate run. Judge it by its own verdict — the
+  commands a copy's CI runs (in parallel parts behind one `Gate` check) and Launch's ship gate runs. Judge it by its own verdict — the
   `✔ pnpm gate passed` line, or `.gate/last.json` (`passed`, `full`, `sha`) — never by the exit
   code of `pnpm gate | tail` (that is tail's) or a background task's; a tag is a release, and where
   a deploy job hangs off it, a production deploy (`docs/DEPLOY.md`)

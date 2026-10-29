@@ -5,6 +5,9 @@
  * compose database when the target is local, and runs the steps in order, stopping at the first
  * that fails.
  *
+ * `--only packages|api|rest [--shard i/N]` runs one part of the same plan (CI's parallel jobs);
+ * no flags is the whole run.
+ *
  * The inner loop is the narrow scripts (`pnpm web test:api`, `test:ui`, `test:config`,
  * `test:driver`, or a vitest file path): postgres, no compose management.
  */
@@ -13,7 +16,14 @@ import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { readEvalWarnings, renderEvalWarnings } from './lib/eval-warnings.mjs'
-import { COMPOSE_FILE, planTests, TARGET_HINT, WEB_DIR } from './lib/test-plan.mjs'
+import {
+  COMPOSE_FILE,
+  parseTestArgs,
+  planTests,
+  TARGET_HINT,
+  TEST_USAGE,
+  WEB_DIR,
+} from './lib/test-plan.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -32,12 +42,26 @@ function fail(message) {
   process.exit(1)
 }
 
-const plan = planTests(process.env, {
-  kitOnly: existsSync(path.join(ROOT, WEB_DIR, 'tests/kit-only')),
-})
+const args = parseTestArgs(process.argv.slice(2))
+if ('help' in args) {
+  console.log(TEST_USAGE)
+  process.exit(0)
+}
+if ('error' in args) {
+  console.error(`pnpm test: ${args.error}\n\n${TEST_USAGE}`)
+  process.exit(2)
+}
+
+const plan = planTests(
+  process.env,
+  { kitOnly: existsSync(path.join(ROOT, WEB_DIR, 'tests/kit-only')) },
+  args
+)
 if ('error' in plan) fail(plan.error)
 
-console.log(plan.banner)
+// A part's banner names what it runs; a packages-only run touches no database.
+const target = plan.compose || plan.target === 'remote' ? plan.banner : 'test target: no database'
+console.log(args.only ? `${target} — only ${plan.steps.map(s => s.label).join(', ')}` : plan.banner)
 
 if (plan.compose) {
   if (run(['docker', 'info'], { quiet: true }) !== 0) {

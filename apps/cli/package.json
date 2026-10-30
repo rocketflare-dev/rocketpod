@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "license": "MIT",
-  "description": "Rocketpod kit command-line interface (login via browser → API key, whoami, tenant-scoped commands)",
+  "description": "Rocketpod command-line interface (login via browser → API key, whoami, tenant-scoped commands)",
   "type": "module",
   "bin": {
     "rocketpod": "./dist/cli.js"

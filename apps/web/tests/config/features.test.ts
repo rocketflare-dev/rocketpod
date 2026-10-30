@@ -1,5 +1,5 @@
 /**
- * Feature-flag evaluation (D30) — pure, no database, no app.
+ * Feature-flag evaluation — pure, no database, no app.
  *
  * The golden vectors below are the most important assertion in this file. `featureBucket` is a WIRE
  * FORMAT: changing the hash, the separator or the modulus silently reshuffles every live rollout, so
@@ -23,11 +23,11 @@ import type { FeatureName } from '@rocketpod/shared/permissions'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 /**
- * A flag this suite REGISTERS itself, rather than one it borrows (D31).
+ * A flag this suite REGISTERS itself, rather than one it borrows.
  *
- * The kit ships no feature of its own any more — its demonstration flag is the `example-feature`
- * plugin — so a suite keyed on a literal would test nothing in a bare kit and would break outright
- * in an app that removed the plugin. What is under test here is the pure evaluation order, which
+ * Core ships no feature of its own — its demonstration flag is the `example-feature` plugin — so
+ * a suite keyed on a literal would test nothing in a bare checkout and would break outright in an
+ * app that removed the plugin. What is under test here is the pure evaluation order, which
  * has nothing to do with which flags exist, so the fixture is registered in `beforeAll` and removed
  * in `afterAll`. The `config` project runs each file in its own process, so nothing leaks.
  *
@@ -232,7 +232,7 @@ describe('evaluateFeatures', () => {
   })
 })
 
-describe('a kit with no plugins (FeatureName = never)', () => {
+describe('a checkout with no plugins (FeatureName = never)', () => {
   /**
    * `FEATURES` is empty once the last plugin is removed (ADAPTING tells an app to remove
    * `example-feature`), so `FeatureName` is `never` and `FEATURE_FLAGS[key]` types as `never` —

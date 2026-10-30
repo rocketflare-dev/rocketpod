@@ -1,13 +1,14 @@
 // @vitest-isolate
 // Mocks both plugin barrels to register the test-only agents (tests/helpers/test-agents.ts).
 /**
- * `/api/agents` (D7): the enqueue handoff — 202 + a `queued` row + a Workflow instance recorded on
- * the stub binding (id = run id, params `{ runId, tenantId }`); exclusive dedupe (same run back with
+ * `/api/agents`: the enqueue handoff — 202 + a `queued` row + a run instance recorded on the stub
+ * run engine (id = run id, params `{ runId, tenantId }`); exclusive dedupe (same run back with
  * `deduplicated: true`, 409 `agent_run_active` only with `?strict=1`); input validated against the
  * agent's schema (400) BEFORE any row; members see only their own runs (others' are 404, admins see
  * all); cancel flips a queued run to `cancelled` and sets `cancelRequestedAt`; `GET /runs/:id`
- * reconciles a stale active row against the runtime (`not_found` → failed, `errored` → failed,
- * `complete` → succeeded); no binding → 503 `agent_runs_not_configured`; 401 anon; tenant isolation.
+ * reconciles a stale active row against the run engine (`not_found` → failed, `errored` → failed,
+ * `complete` → succeeded); no run engine → 503 `agent_runs_not_configured`; 401 anon; tenant
+ * isolation.
  */
 import {
   agentListResponseSchema,
@@ -100,7 +101,7 @@ describe('GET /api/agents', () => {
 })
 
 describe('POST /api/agents/runs', () => {
-  it('202 → queued row + Workflow instance with id = run id and params { runId, tenantId }; activity + nudge', async () => {
+  it('202 → queued row + run instance with id = run id and params { runId, tenantId }; activity + nudge', async () => {
     const a = await actor()
     const env = createTestEnv()
     const res = await start(a.cookie, env)
@@ -178,7 +179,7 @@ describe('POST /api/agents/runs', () => {
     expect(stubs(env).workflow?.created).toEqual([])
   })
 
-  it('503 agent_runs_not_configured without the Workflow binding, and no row is written', async () => {
+  it('503 agent_runs_not_configured without a run engine, and no row is written', async () => {
     const a = await actor()
     const res = await start(a.cookie, createTestEnv({ runs: null }))
     expect(res.status).toBe(503)
@@ -301,7 +302,7 @@ describe('POST /api/agents/runs/:id/cancel', () => {
     expect(stubs(env).workflow?.terminated).toContain(next.id)
   })
 
-  it('forces a cancel even when the Workflow instance is gone (an orphaned local run)', async () => {
+  it('forces a cancel even when the run instance is gone (an orphaned local run)', async () => {
     const a = await actor()
     const env = createTestEnv()
     const run = createAgentRunResponseSchema.parse(await json(await start(a.cookie, env)))
@@ -343,18 +344,18 @@ describe('POST /api/agents/runs/:id/cancel', () => {
 })
 
 describe('reconcile on read', () => {
-  it('an active row whose instance is not_found → failed; errored → failed with the message; complete → succeeded; running → untouched; no binding → untouched', async () => {
+  it('an active row whose instance is not_found → failed; errored → failed with the message; complete → succeeded; running → untouched; no run engine → untouched', async () => {
     const a = await actor()
     const env = createTestEnv()
     const run = createAgentRunResponseSchema.parse(await json(await start(a.cookie, env)))
 
-    // Same binding, instance still running: nothing changes.
+    // Same run engine, instance still running: nothing changes.
     let detail = agentRunWithEventsSchema.parse(
       await json(await request(`/api/agents/runs/${run.id}`, { headers: a.cookie }, { env }))
     )
     expect(detail.status).toBe('queued')
 
-    // No binding at all: a read never 503s and never settles.
+    // No run engine at all: a read never 503s and never settles.
     detail = agentRunWithEventsSchema.parse(
       await json(
         await request(
@@ -377,7 +378,7 @@ describe('reconcile on read', () => {
     expect(detail).toMatchObject({ status: 'failed', error: 'step exhausted retries' })
     expect(detail.finishedAt).toBeInstanceOf(Date)
 
-    // A fresh binding that never created the instance: `not_found` is an answer → failed.
+    // A fresh run engine that never created the instance: `not_found` is an answer → failed.
     const run2 = createAgentRunResponseSchema.parse(await json(await start(a.cookie, env)))
     detail = agentRunWithEventsSchema.parse(
       await json(
@@ -410,8 +411,8 @@ describe('reconcile on read', () => {
 
 /**
  * The liveness guard (`RECONCILE_LIVENESS_MS`): a run that has written a durable event inside the
- * window is alive by definition, so a read must ask the Workflow runtime NOTHING. Without this the
- * run page's stream-driven refetch turns one `instance.status()` subrequest every 3 s into several
+ * window is alive by definition, so a read must ask the run engine NOTHING. Without this the
+ * run page's stream-driven refetch turns one `instance.status()` call every 3 s into several
  * a second, per viewer — the poll it replaced, moved to the client.
  */
 describe('reconcile liveness guard', () => {

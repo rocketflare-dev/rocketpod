@@ -1,5 +1,5 @@
 /**
- * `projectRunToAgui` (D7) row by row, and `GET /api/agents/runs/:id/agui` end to end against a real
+ * `projectRunToAgui` row by row, and `GET /api/agents/runs/:id/agui` end to end against a real
  * run. The projection is pure — the event row ids ARE the AG-UI message and tool-call ids — so the
  * mapping is asserted directly and the route only has to prove the ownership rules and the shape.
  */
@@ -407,9 +407,9 @@ describe('GET /api/agents/runs/:id/agui', () => {
   })
 })
 
-describe('the human-in-the-loop rows (issue #17)', () => {
+describe('the human-in-the-loop rows', () => {
   it('delivers a parked run through the protocol’s OWN interrupt outcome, not a kit event', () => {
-    // This is the entire reason a third-party AG-UI client can answer a kit run with no kit code.
+    // This is the entire reason a third-party AG-UI client can answer a run with no code of ours.
     // The discriminator is `'interrupt'`: `'interrupted'` does not throw, it is silently dropped.
     const pending = interrupt()
     const out = projectRunToAgui(run({ status: 'awaiting_input', output: null }), [], {

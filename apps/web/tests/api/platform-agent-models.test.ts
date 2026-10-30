@@ -1,5 +1,5 @@
 // @vitest-isolate
-// Mocks `@rocketpod/shared/ai/default-models` (empty in the kit) with one entry, so this file needs its own module registry.
+// Mocks `@rocketpod/shared/ai/default-models` (empty by default) with one entry, so this file needs its own module registry.
 /**
  * The PLATFORM DEFAULT layer of `resolveChat`: a model id per prompt key — a `platform_agent_models`
  * row, else the committed `PROMPT_DEFAULT_MODELS` entry — that the platform tier runs when the

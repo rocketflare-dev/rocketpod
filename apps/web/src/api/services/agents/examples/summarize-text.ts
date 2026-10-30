@@ -1,14 +1,14 @@
 /**
- * `summarize-text` — the kit's ONE example agent (D7, D17, 09 (c)), shaped like the simplest real
+ * `summarize-text` — the single-call example agent, shaped like the simplest real
  * definition: exclusive per tenant, a precheck, ONE terminal tool (`submit_summary`) forced through
  * `callStructuredTool`, output persisted by the runtime, usage recorded under
  * `feature: 'agent:summarize-text'`. Emits `step` / `tool.start` / `tool.end` / `text` events and
  * polls for cancellation before and after the model call. With `input.index: true` it also stores
  * the summary as a searchable document through `ingestText` — the reason retrieval is never dead
- * code (00 §1.3) — wrapped in `ctx.once` so a retried attempt replays the recorded document instead
+ * code — wrapped in `ctx.once` so a retried attempt replays the recorded document instead
  * of indexing a second copy. Copy this file to start a real agent.
  *
- * It is also the kit's simplest **human-in-the-loop** example (issue #17), and deliberately uses
+ * It is also the simplest **human-in-the-loop** example, and deliberately uses
  * `ctx.interrupt` rather than a gated tool. This agent has no tool loop — it is one
  * `callStructuredTool`, and the write is straight-line code — so `Tool.requiresApproval` has
  * nothing to attach to. Bolting a loop onto the file every adopter copies, purely to demonstrate a
@@ -29,8 +29,8 @@ import {
 } from '@rocketpod/shared/ai/agents'
 import { approvalPayloadSchema } from '@rocketpod/shared/ai/interrupts'
 import { z } from 'zod'
+import { callStructuredTool } from '../../ai/agent-loop'
 import { ingestText } from '../../ai/ingest'
-import { callStructuredTool } from '../../ai/kit'
 import { recordUsage } from '../../ai/usage'
 import type { AgentDefinition } from '../registry'
 
@@ -131,9 +131,9 @@ export const summarizeTextAgent: AgentDefinition<SummarizeTextInput, SummarizeTe
       // 1. `key` is OURS and is stable across attempts. The resumed `execute` step re-enters
       //    `run()` from the top and reaches this line again; `UNIQUE (run_id, key)` is what makes
       //    the second call find the ANSWER instead of asking a second time, forever.
-      // 2. Everything after it is on the far side of a park that may last days and a Worker
-      //    deploy. That is why the write below is already behind `ctx.once` — the same rule as
-      //    any retry, for the same reason.
+      // 2. Everything after it is on the far side of a park that may last days and a deploy
+      //    or process restart. That is why the write below is already behind `ctx.once` — the
+      //    same rule as any retry, for the same reason.
       // 3. A declined `approval` does not return here at all: the default rejection is
       //    `cancel_run`, so `ctx.interrupt` throws `InterruptDeclinedError` and the runtime
       //    settles the run `cancelled` with `error` NULL. A refusal is a status, not a fault.

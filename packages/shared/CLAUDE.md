@@ -97,9 +97,9 @@ non-empty), `AgentMeta<Input, Output>`
 were conventional and are now contracts), `agentRunWithEventsSchema` (`+ interrupts[]`, `artifacts[]`),
 `ACTIVE_RUN_STATUSES` vs `CLAIMABLE_RUN_STATUSES` (a parked run holds the exclusive slot but is NOT
 claimable — the resolve route flips it back to `running` first), `AGENT_RESUME_EVENT` +
-`WORKFLOW_EVENT_TYPE_PATTERN` (event names are letters, digits, `-`, `_` only — a rule kept from
-Rocketflare's engine, where a `.` was `workflow.invalid_event_type`), `MAX_INTERRUPT_ROUNDS`, the
-`RUN_STREAM_*` cadence constants, the example's `summarizeTextInput/OutputSchema` ·
+`WORKFLOW_EVENT_TYPE_PATTERN` (event names are letters, digits, `-`, `_` only — portable across
+run engines, some of which reject a `.` as `workflow.invalid_event_type`), `MAX_INTERRUPT_ROUNDS`,
+the `RUN_STREAM_*` cadence constants, the example's `summarizeTextInput/OutputSchema` ·
 `interrupts.ts` — human-in-the-loop (issue #17): `AGENT_INTERRUPT_KINDS` (`approval · choice · input ·
 form`, closed), `agentInterruptSpecSchema` (the TYPED `spec` column — an untyped jsonb blob called
 `metadata` is where render bugs live), the four payload schemas + `interruptPayloadSchema(spec)` and

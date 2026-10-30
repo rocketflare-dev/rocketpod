@@ -7,7 +7,7 @@
  * when the loaded chunks carry vectors AND the platform embedder (`EMBEDDINGS_*` — never a
  * tenant's, so query and fixture match) is configured with the SAME model; otherwise the result is
  * keyword-only and carries `mode: 'lexical'` with the reason, which the route traces and the
- * answer event reports. Both halves are fused by RRF exactly as kit search is (`fuseByRank`). A
+ * answer event reports. Both halves are fused by RRF as knowledge search is (`fuseByRank`). A
  * chunk without a vector (an edited page the fixture has not caught up with) is still found by
  * the keyword half, so hybrid search over a partly embedded table never loses a page.
  *

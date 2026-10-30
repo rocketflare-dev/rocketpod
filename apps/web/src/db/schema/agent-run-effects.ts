@@ -1,5 +1,5 @@
 /**
- * `agent_run_effects` — the durable-effect ledger for one agent run (D7). An agent wraps work that
+ * `agent_run_effects` — the durable-effect ledger for one agent run. An agent wraps work that
  * must not repeat in `ctx.once(key, fn)`; the result is recorded here under `(run_id, key)`, and a
  * later attempt of the same run reads the recorded value instead of doing the work again. The
  * `agent_run_effects_run_key_idx` UNIQUE index IS the guarantee — like
@@ -9,7 +9,7 @@
  * `GET /api/agents/runs/:id` returns every row of it, whereas an effect result is internal runtime
  * state. No route reads this table.
  *
- * The contract is at-least-once WITH a recorded result, not exactly-once: an isolate that dies
+ * The contract is at-least-once WITH a recorded result, not exactly-once: a process that dies
  * between `fn()` returning and this insert committing repeats the effect. `result` is jsonb, so the
  * rule for callers is "return ids, not rows".
  */

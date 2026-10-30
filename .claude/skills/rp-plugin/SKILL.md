@@ -95,9 +95,10 @@ Nothing about the barrel lines, the crons or the route prefixes is here any more
 | **A `vars` entry marked `secret`** — the VALUE | **human** | add it to `apps/web/.env` locally and to each deployment's secret store | the key set wherever the server runs | Nothing you can derive: ask for the credential |
 | **The gate** | agent | `pnpm gate` | exit 0 | Nothing. A failure here is the install, not the kit — read it before committing |
 
-**`bindings` and `workerExports` are refused, not provisioned.** This kit has no Cloudflare
-runtime (D41); a Rocketflare plugin that declares either fails `pnpm plugin add` before anything is
-written.
+**`bindings` and `workerExports` are refused, not provisioned.** They are the Cloudflare
+declarations a plugin may carry for Rocketflare, the Workers kit that shares this plugin ecosystem;
+here every capability comes through `ctx.platform` (D41), so a plugin that declares either fails
+`pnpm plugin add` before anything is written.
 
 Then commit: one commit, message `Install plugin <id>@<version>`, so the next upgrade reads against it.
 
@@ -187,7 +188,8 @@ working copy into every clone made afterwards. Stage by path while authoring, an
 `git status --short` before every commit.
 
 Cutting a plugin release: there is **no `pnpm plugin:release`**. In the plugin's own repository run
-`node scripts/release.mjs X.Y.Z` — the same script the kit uses, which detects a
+`node scripts/release.mjs X.Y.Z` — the same script the kit uses (it is `kitOnly`, so an app made
+from the kit does not carry it: take it from a kit checkout), which detects a
 `rocketflare-plugin.json` with no `.rocketflare.json` and stamps that manifest's `version` (and a
 `package.json` if the repo has one) instead of the kit's. It takes `--repo-root <path>`, so a plugin
 repository can keep a thin shim that delegates to a kit checkout rather than its own drifting copy;

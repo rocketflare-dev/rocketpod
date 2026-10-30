@@ -103,9 +103,9 @@ Field notes, in the order they bite:
   one of them as `touches-plugin-registry` — the kit CAN move ground under a plugin.
 - **`dependencies`** are installed into the HOST's packages (`pnpm --dir apps/web add …`). A plugin
   ships no `package.json` of its own into a host.
-- **`bindings[]` and `workerExports`** are Rocketflare's Cloudflare declarations, and this kit
-  refuses any entry in either at INSTALL (`pluginPlatformProblems`): there is no Worker to bind
-  on. A plugin reaches jobs, storage, realtime and runs through `ctx.platform`.
+- **`bindings[]` and `workerExports`** are the Cloudflare declarations a plugin carries for
+  Rocketflare (the Workers kit that shares this ecosystem), and this kit refuses any entry in either
+  at INSTALL (`pluginPlatformProblems`): it has nothing to bind them to. A plugin reaches jobs, storage, realtime and runs through `ctx.platform`.
 - **`vars[]`** is `{ key, example?, secret? }`: an environment variable of the server, declared in
   `.env.example`; `secret: true` adds a human step to set its value wherever the server runs.
 - **`skills`** are the agent skills the plugin ships, one directory name each. The plugin keeps

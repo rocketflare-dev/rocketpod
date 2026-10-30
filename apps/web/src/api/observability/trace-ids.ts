@@ -1,11 +1,11 @@
 /**
- * OTLP identifiers (D32): a trace id is 16 bytes and a span id 8, both lowercase hex on the wire.
+ * OTLP identifiers: a trace id is 16 bytes and a span id 8, both lowercase hex on the wire.
  *
- * An agent run's steps execute as SEPARATE Worker invocations — `execute#0`, a retry, `execute#1`
- * after a park, `finish` — and nothing is carried between them but the run row. So the run's trace
- * id and its root span id are DERIVED from the run id rather than stored: every step computes the
- * same two values, every step's spans join one trace, and each `execute#N` is a child of a root
- * that `finishStep` records once the run has settled. The derivation is a wire format — change it
+ * An agent run's steps execute SEPARATELY, on any worker replica — `execute#0`, a retry,
+ * `execute#1` after a park, `finish` — and nothing is carried between them but the run row. So
+ * the run's trace id and its root span id are DERIVED from the run id rather than stored: every
+ * step computes the same two values, every step's spans join one trace, and each `execute#N` is a
+ * child of a root that `finishStep` records once the run has settled. The derivation is a wire format — change it
  * and every stored `agent_runs.trace_id` stops matching the spans a new step writes.
  */
 

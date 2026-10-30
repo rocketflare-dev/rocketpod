@@ -14,9 +14,9 @@
  *   dbuser   `postgresql://rocketpod:` → `<snake>`         the Postgres OWNER must stay a plain
  *            `POSTGRES_USER: rocketpod`, `-U rocketpod`  identifier (db-roles.ts refuses `my-app`)
  *   snake    `rocketpod_`              → `<snake>_`        db names, RLS role, password, key prefix
- *   kebab    `rocketpod-`              → `<slug>-`         worker, queue, workflow, bucket, themes
+ *   kebab    `rocketpod-`              → `<slug>-`         queues, containers, bucket, themes
  *   display  `Rocketpod`               → display name      APP_NAME, titles, prose
- *   bare     `rocketpod` (word)        → `<slug>`          bin, `cfld.name`, root package, containers
+ *   bare     `rocketpod` (word)        → `<slug>`          bin, root package, containers
  *
  * `domain` runs before `cfgdir` because `app.rocketpod.example.com` contains `.rocketpod`; `dbuser`
  * runs before `bare` for the identifier reason above. Case-sensitive throughout.
@@ -36,12 +36,14 @@ export const KIT = Object.freeze({
   ecosystem: 'rocketflare',
   /**
    * Upstream references restored after the pass: anything in the `rocketflare-dev` GitHub org —
-   * the org alone, or `rocketflare-dev/<repo>` (the kit, its plugins, the mirrored neon-proxy
-   * image, the reusable plugin CI). A renamed app still pulls those from upstream; rewritten, they
-   * pointed at `<slug>-dev/…`, an org that does not exist (#37). `rocketflare-dev-postgres` and
-   * friends are container names, not the org, and still move.
+   * the org alone, or `rocketflare-dev/<repo>` (the kit, its plugins, the reusable plugin CI).
+   * A renamed app still pulls those from upstream; rewritten, they pointed at `<slug>-dev/…`, an
+   * org that does not exist. A longer hyphenated name (`rocketflare-dev-postgres`) is not the org,
+   * so the pattern does not match it. A container image (`ghcr.io/rocketflare-dev/<repo>`) is NOT
+   * upstream: it is the app's own image, which `image.yml` publishes under the app's name, so it
+   * is renamed like any other token and the rename reports its registry owner as a careful row.
    */
-  preservedPattern: /\brocketflare-dev(?:\/[\w.-]+|(?![\w-]))/g,
+  preservedPattern: /(?<!ghcr\.io\/)\brocketflare-dev(?:\/[\w.-]+|(?![\w-]))/g,
   /**
    * Literal strings restored after the pass, longest first: the three filenames that keep the
    * KIT's name in a renamed app.
@@ -496,7 +498,7 @@ export function restartAppVersion(packageJson, kitVersion) {
 export const USAGE = `usage: node scripts/rename.mjs [--dry-run] [--force] [--skip-install]
                               [--domain <apex>] [--colour <#hex>] <slug> ["Display Name"]
 
-  <slug>            lowercase, digits, hyphens (my-app); becomes @<slug>/*, the worker, bin, themes
+  <slug>            lowercase, digits, hyphens (my-app); becomes @<slug>/*, containers, bin, themes
   "Display Name"    what people see (APP_NAME, titles); default: Title Case of the slug
   --domain <apex>   replaces rocketpod.example.com / rocketpod.local; default <slug>.example.com
   --colour <#hex>   the primary brand colour (light theme); then run: pnpm web test:ui

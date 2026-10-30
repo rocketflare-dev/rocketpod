@@ -1,6 +1,6 @@
 /**
- * The Node `Platform`: jobs (M3, pg-boss — `jobs.ts`), runs (M4, OpenWorkflow — `runs.ts`),
- * realtime (M5, `ws` + LISTEN/NOTIFY — `realtime.ts`), and from M6 object storage (S3 —
+ * The Node `Platform`: jobs (pg-boss — `jobs.ts`), runs (OpenWorkflow — `runs.ts`),
+ * realtime (`ws` + LISTEN/NOTIFY — `realtime.ts`), object storage (S3 —
  * `storage.ts`, null unless `STORAGE_DRIVER=s3` is fully configured), the rate limiter and
  * operation locks (Postgres — `limits.ts`), the document converter (`converter.ts`) and the Guide's
  * static content (`guide-content.ts`). A null

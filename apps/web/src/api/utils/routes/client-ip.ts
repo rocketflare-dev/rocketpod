@@ -1,6 +1,6 @@
 /**
  * The client's IP address, for rate-limit keys and the auth audit trail — one rule for every
- * caller (M2):
+ * caller:
  *
  * - **Node entry** (`src/node/server.ts` puts the socket's peer on the request's execution
  *   context, `executionCtx.props.clientAddress` — not on the env, which is one object per process

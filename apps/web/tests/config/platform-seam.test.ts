@@ -1,6 +1,6 @@
 /**
- * No Cloudflare anywhere (M6b): the kit runs on Node in a container, and nothing in it may depend on
- * the Workers runtime again — no `wrangler`/`miniflare`/`workerd`/`@cloudflare/*` package in any
+ * No Cloudflare anywhere: the app runs on Node in a container, and nothing in it may depend on the
+ * Workers runtime — no `wrangler`/`miniflare`/`workerd`/`@cloudflare/*` package in any
  * workspace manifest, no script that runs `wrangler`, no `cloudflare:*` import, no Workers global
  * type and no Worker binding read off an env, in `src/`, `tests/` or `scripts/`. Routes, services,
  * queue handlers, cron tasks and the agent-run body depend on the neutral interfaces of

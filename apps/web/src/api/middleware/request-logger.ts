@@ -1,10 +1,10 @@
 /**
- * Request id + hono-pino request logging (D16, 04 §4). Runs FIRST (before config) so every
+ * Request id + hono-pino request logging. Runs FIRST (before config) so every
  * later failure — including config validation — carries a `requestId`. Because it precedes
  * `configMiddleware` it calls `loadConfig(c.env)` itself; if that throws it falls back to a
  * plain `info` logger and lets `configMiddleware` raise the real error one step later.
  *
- * The root pino logger is memoised per env object (one per isolate in production).
+ * The root pino logger is memoised per env object (one per process in production).
  */
 
 import type { MiddlewareHandler } from 'hono'

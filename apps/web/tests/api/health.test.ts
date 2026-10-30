@@ -42,7 +42,7 @@ describe('not found', () => {
     expect(await json(res)).toMatchObject({ statusCode: status })
   })
 
-  it('non-API path falls through to the ASSETS binding', async () => {
+  it('non-API path falls through to the ASSETS handler', async () => {
     const res = await request('/some/spa/route')
     expect(res.status).toBe(404)
     expect(await res.text()).toContain('ASSETS stub')
@@ -105,7 +105,7 @@ describe('CORS', () => {
   })
 
   // DEV_UI_PORT / DEV_API_PORT (scripts/lib/dev-ports.mjs): only APP_URL follows the UI port, the
-  // Worker never sees the shell — so the allow-list is derived from APP_URL and the request.
+  // server never sees the shell — so the allow-list is derived from APP_URL and the request.
   it('allows a custom dev UI port from APP_URL, and its 127.0.0.1 twin', async () => {
     const env = createTestEnv({ APP_URL: 'http://localhost:5199' })
     for (const origin of ['http://localhost:5199', 'http://127.0.0.1:5199']) {

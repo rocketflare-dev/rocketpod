@@ -2,9 +2,9 @@
 /**
  * The local dev Postgres, addressed by ONE value: `DATABASE_URL` in `apps/web/.env`.
  *
- * `docker-compose.dev.yml` used to pin port 5432 and a fixed `container_name`, so a second
- * checkout of the kit on the same machine could not start its database at all — it either
- * collided on the port or silently attached to the other checkout's container (compose derives
+ * A fixed port 5432 and a fixed `container_name` in `docker-compose.dev.yml` would stop a second
+ * checkout of the app on the same machine from starting its database at all — it would either
+ * collide on the port or silently attach to the other checkout's container (compose derives
  * its project name from the directory, and every checkout's is `apps/web`). This script gives
  * each checkout its own project, container and port, and writes the port it chose into
  * `.env` so every other tool — `db:migrate`, `seed`, `drizzle-kit`, the Node server — follows
@@ -43,7 +43,7 @@ const COMPOSE_FILE = path.join(WEB_DIR, 'docker-compose.dev.yml')
 const DEV_VARS = path.join(WEB_DIR, '.env')
 const DEV_VARS_EXAMPLE = path.join(WEB_DIR, '.env.example')
 const SERVICE = 'postgres-dev'
-/** The S3 gateway beside it (M6) — uploads on the Node server. */
+/** The S3 gateway beside it — uploads on the Node server. */
 const S3_SERVICE = 's3-dev'
 
 /** This checkout's compose project — unique per path, so two checkouts never share containers. */
@@ -83,7 +83,7 @@ function oursPorts() {
 /**
  * `0.0.0.0`, not `127.0.0.1`: compose publishes on the wildcard address, and on macOS a
  * loopback bind SUCCEEDS while Docker holds the same port — which is exactly how a second
- * checkout used to sail past the check and then fail inside `docker compose up`.
+ * checkout would sail past the check and then fail inside `docker compose up`.
  */
 const portIsFree = port =>
   new Promise(resolve => {
@@ -165,7 +165,7 @@ function isLocalEndpoint(endpoint) {
 }
 
 /**
- * The S3 gateway's port (M6) — sticky like the database's: the one in STORAGE_ENDPOINT wins while it
+ * The S3 gateway's port — sticky like the database's: the one in STORAGE_ENDPOINT wins while it
  * is still ours or still free. `null` when storage is not ours to start (an off-box endpoint).
  */
 async function resolveS3Port() {
@@ -246,7 +246,7 @@ async function down(json) {
   process.exit(result.status ?? 0)
 }
 
-/** Every dev database of this kit on the machine, whichever checkout started it. */
+/** Every dev database of this app on the machine, whichever checkout started it. */
 function allDevDatabases() {
   const ps = sh('docker', [
     'ps',

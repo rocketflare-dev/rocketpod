@@ -1,9 +1,9 @@
 /**
- * Groups and resource visibility (D29). A tenant defines GROUP TYPES ("Department", "Region",
+ * Groups and resource visibility. A tenant defines GROUP TYPES ("Department", "Region",
  * "Client"), each holding GROUPS, each holding tenant members. Group membership is part of the
  * auth context and drives who can READ a document or a dashboard.
  *
- * Two rules the shapes here encode, both learned from the app this was ported from:
+ * Two rules the shapes here encode:
  *
  * - **Visibility is an explicit column, not the absence of grants.** `visibility: 'tenant'` means
  *   everyone in the organisation; `'groups'` means only the listed groups. Deleting the last group

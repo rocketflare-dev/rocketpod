@@ -2,8 +2,8 @@
 // Talks to the S3 gateway in docker-compose.test.yml and opens its own Postgres connections per
 // check (no process pool), so it runs in a fork of its own.
 /**
- * The Node platform's storage, rate limiter, locks, document converter and platform AI tiers
- * (M6). Storage runs against the S3 gateway `pnpm test` starts (`s3-test`, `.env.test`); the
+ * The Node platform's storage, rate limiter, locks, document converter and platform AI tiers.
+ * Storage runs against the S3 gateway `pnpm test` starts (`s3-test`, `.env.test`); the
  * limiter and locks against the test database; the converter on documents built in-test; the AI
  * tiers with a recording fetch — no network.
  */
@@ -128,7 +128,7 @@ describe('S3 storage (StorageService over the S3 API)', () => {
       const page = await storage().listPage(dir, { cursor, limit: 3 })
       expect(page.objects.length).toBeLessThanOrEqual(3)
       for (const obj of page.objects) {
-        // A listing carries no content type or metadata — exactly like R2's `list`.
+        // A listing carries no content type or metadata: S3's ListObjectsV2 returns neither.
         expect(obj).toMatchObject({ contentType: 'application/octet-stream', metadata: {} })
         expect(obj.etag).toMatch(/^"[0-9a-f-]+"$/)
         seen.push(obj.key)
@@ -279,7 +279,7 @@ describe('S3 storage (StorageService over the S3 API)', () => {
     expect(await storage().head(broken)).toBeNull()
   })
 
-  it('normalises an ETag to the quoted form R2 answers', () => {
+  it('normalises an ETag to the quoted, HTTP-ready form', () => {
     expect(quoteEtag('abc')).toBe('"abc"')
     expect(quoteEtag('"abc"')).toBe('"abc"')
     expect(quoteEtag('W/"abc"')).toBe('"abc"')
@@ -304,7 +304,7 @@ describe('rate limiter over rate_limits', () => {
       expect(d.retryAfterSeconds).toBeGreaterThanOrEqual(1)
       expect(d.retryAfterSeconds).toBeLessThanOrEqual(60)
     }
-    // The admitted ones counted down to zero, as the KV limiter's `remaining` does.
+    // The admitted ones counted down to zero: `remaining` is what is left after this hit.
     expect(
       decisions
         .filter(d => d.allowed)

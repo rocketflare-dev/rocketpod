@@ -1,5 +1,5 @@
 /**
- * Test harness for the UI (06 §12). Wraps `QueryClientProvider` → `AuthProvider` → `AbilityProvider`
+ * Test harness for the UI. Wraps `QueryClientProvider` → `AuthProvider` → `AbilityProvider`
  * → `MemoryRouter`, mirroring App.tsx. The `session` option seeds the query cache AND stubs `fetch`
  * for `/auth/session` (composing with whatever the test already stubbed) so a test never builds
  * the auth stack by hand. Fixtures are post-parse shapes (real `Date`s), built by `makeSession`.

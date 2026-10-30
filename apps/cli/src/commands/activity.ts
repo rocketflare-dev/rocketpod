@@ -1,4 +1,4 @@
-/** `rocketpod activity list [--page] [--page-size] [--type]` — `GET /api/activity` (admin+) (D26). */
+/** `rocketpod activity list [--page] [--page-size] [--type]` — `GET /api/activity` (admin+). */
 // EXAMPLE (surface `example-cli-commands` in .rocketflare.json): one of the three read-list
 // commands that document the pattern. Delete the ones you do not want — `docs/ADAPTING.md` §2.
 import { activityEventSchema } from '@rocketpod/shared/activity'

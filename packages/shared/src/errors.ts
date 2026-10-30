@@ -32,13 +32,13 @@ export const ERROR_CODES = {
   blocked: 'blocked',
   tenancyModeSingle: 'tenancy_mode_single',
   csrf: 'csrf_failed',
-  /** 503: no chat/embeddings provider resolves for the tenant (D17). */
+  /** 503: no chat/embeddings provider resolves for the tenant. */
   aiNotConfigured: 'ai_not_configured',
-  /** 503: the `AGENT_RUN_WORKFLOW` binding is missing, so a run cannot be started (D7). */
+  /** 503: no durable-run engine is configured, so a run cannot be started. */
   agentRunsNotConfigured: 'agent_runs_not_configured',
-  /** 503: the platform has no jobs queue, so work that must be enqueued cannot be (D7, M3). */
+  /** 503: the platform has no jobs queue, so work that must be enqueued cannot be. */
   jobsNotConfigured: 'jobs_not_configured',
-  /** 409: `?strict=1` and an active run already exists for an exclusive agent (D7). */
+  /** 409: `?strict=1` and an active run already exists for an exclusive agent. */
   agentRunActive: 'agent_run_active',
   /** 404: `POST /api/agui/run` was given a `threadId` that exists but is not this user's. */
   aguiThreadNotFound: 'agui_thread_not_found',
@@ -48,18 +48,18 @@ export const ERROR_CODES = {
   aguiClientToolsUnsupported: 'agui_client_tools_unsupported',
   /** 400: the user turn's content was not a usable string. */
   aguiUnsupportedContent: 'agui_unsupported_content',
-  /** 409: the document's text is not available yet — its conversion job has not landed (D18). */
+  /** 409: the document's text is not available yet — its conversion job has not landed. */
   documentNotConverted: 'document_not_converted',
   /** 409: the document's conversion failed, so it has no text and never will without a re-upload. */
   documentConversionFailed: 'document_conversion_failed',
   /**
-   * 404: the surface exists in the code but not in this deployment — a feature flag is off (D30).
+   * 404: the surface exists in the code but not in this deployment — a feature flag is off.
    * 404 rather than 403 on purpose: a 403 confirms the feature EXISTS, which is exactly what a
    * surface shipping dark must not reveal. Same class as `tenancy_mode_single`.
    */
   featureDisabled: 'feature_disabled',
   /**
-   * 409: the interrupt was already answered, declined or expired (issue #17). Two people opening
+   * 409: the interrupt was already answered, declined or expired. Two people opening
    * the same approval is normal, so one gets a 200 and the other this — and the UI renders it as
    * "somebody else answered", not as an error.
    */

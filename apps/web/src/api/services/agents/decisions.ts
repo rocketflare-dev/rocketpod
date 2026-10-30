@@ -1,5 +1,5 @@
 /**
- * `ctx.decide` (D37) — typed questions an agent asks about a state, answered with probabilities by
+ * `ctx.decide` — typed questions an agent asks about a state, answered with probabilities by
  * the tenant's decisions engine (TypeSafe's Jev, or the chat-model fallback) and recorded in
  * `agent_run_decisions`.
  *

@@ -3,14 +3,14 @@
  * issuer per deployment, configured by `OIDC_ISSUER` + `OIDC_CLIENT_ID` (+ optional
  * `OIDC_CLIENT_SECRET`). Everything else comes from the issuer's discovery document.
  *
- * - **Discovery** is fetched from `<issuer>/.well-known/openid-configuration`, cached per isolate for
+ * - **Discovery** is fetched from `<issuer>/.well-known/openid-configuration`, cached per process for
  *   `DISCOVERY_TTL_MS`, and refused unless its `issuer` equals `OIDC_ISSUER` exactly (OIDC
  *   Discovery §4.3 — the mix-up defence).
  * - **Authorization** is code + PKCE (S256) through arctic's `OAuth2Client`, plus a `nonce` the
  *   router binds to the flow cookie.
  * - **Identity** is the `id_token`, verified with `jose.jwtVerify` against the issuer's JWKS
  *   (`iss`, `aud`, `exp`, `nonce`, `azp` when there are several audiences). The JWKS JSON is cached
- *   per isolate through jose's `jwksCache` hook — plain data, never an in-flight promise shared
+ *   per process through jose's `jwksCache` hook — plain data, never an in-flight promise shared
  *   across requests — and an unknown `kid` refetches it (key rotation), at most once per 30 s.
  * - **The identity key** is `${iss}|${sub}`: a `sub` is only unique within its issuer, and packing
  *   both into `provider_user_id` needs no migration. Pointing `OIDC_ISSUER` somewhere new therefore
@@ -33,7 +33,7 @@ import { fetchJson, type OAuthProfile, type ProviderDefinition, toTokenSet } fro
 
 /** How long a discovery document is trusted before it is fetched again. */
 export const DISCOVERY_TTL_MS = 60 * 60 * 1000
-/** Clock skew tolerated on `exp` / `iat` / `nbf` between the issuer and the Worker. */
+/** Clock skew tolerated on `exp` / `iat` / `nbf` between the issuer and this server. */
 const CLOCK_TOLERANCE_S = 30
 
 const discoverySchema = z.object({
@@ -51,7 +51,10 @@ interface CachedDiscovery {
   fetchedAt: number
 }
 
-/** Per-isolate caches. Plain JSON only: a Worker must not share an in-flight promise across requests. */
+/**
+ * Per-process caches. Plain JSON only, never an in-flight promise: a fetch that fails must not be
+ * handed to every request that arrives while it is pending.
+ */
 const discoveryCache = new Map<string, CachedDiscovery>()
 const jwksCaches = new Map<string, JWKSCacheInput>()
 
@@ -232,7 +235,7 @@ export async function oidcProfile(
  * RP-initiated logout (OIDC RP-Initiated Logout 1.0): the issuer's `end_session_endpoint` with
  * `client_id` and `post_logout_redirect_uri=<APP_URL>/login?signedOut=1`, or null when the issuer
  * advertises none (or discovery fails — logging out locally must never depend on the issuer).
- * No `id_token_hint`: the kit does not keep id_tokens, so the issuer may ask for confirmation.
+ * No `id_token_hint`: the app does not keep id_tokens, so the issuer may ask for confirmation.
  */
 export async function oidcEndSessionUrl(cfg: AppConfig): Promise<string | null> {
   const doc = await discoverOidc(cfg)

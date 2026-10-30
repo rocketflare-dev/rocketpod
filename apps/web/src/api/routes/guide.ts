@@ -32,9 +32,9 @@ import {
 import { GUIDE_ADMIN_SCREEN_PAGES, GUIDE_SCREEN_PAGES } from '@rocketpod/shared/guide-screens'
 import { stream } from 'hono/streaming'
 import { traceChatClient, withAgentTrace } from '../observability/tracing'
+import { runStreamingChat } from '../services/ai/agent-loop'
 import { aguiTextSegmenter, createAguiEncoder } from '../services/ai/agui'
 import { AiError, describeAiError, normalizeAiError } from '../services/ai/errors'
-import { runStreamingChat } from '../services/ai/kit'
 import { resolveChat, resolvePlatformEmbeddings } from '../services/ai/resolve'
 import { recordUsage } from '../services/ai/usage'
 import {

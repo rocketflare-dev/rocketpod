@@ -1,6 +1,6 @@
 /**
  * Deterministic stand-in embedding — for the demo seed (`pnpm seed --demo`) and the test `RecordingAi`
- * stub ONLY. Nothing on the request path imports this file, so the Worker bundle never includes it;
+ * stub ONLY. Nothing on the request path imports this file, so the server bundle never includes it;
  * keep it that way (`grep -rn deterministic-embedding apps/web/src` must list only this file).
  *
  * Why it exists: `scripts/seed.ts` runs under `tsx` with no embeddings provider, and the test stub
@@ -14,10 +14,10 @@
  * The shape is a hashed bag of words (each lower-cased alphanumeric token hashed to a bucket and a
  * sign): passages sharing words with a query rank closest — but ONLY when the query is embedded
  * the same way, which is the case in tests. Under the dev server a search query is embedded by the
- * real provider (`@cf/baai/bge-m3`), so against seeded chunks the dense half of the hybrid search is
- * noise and the lexical half (any-term `to_tsquery`, `anyTermTsquery`) is what finds them. It is not a semantic
- * embedding and must never be mixed with real ones — a seeded document records
- * `embeddingModel: 'seed:deterministic'` for that reason.
+ * real embeddings provider (`EMBEDDINGS_MODEL`), so against seeded chunks the dense half of the
+ * hybrid search is noise and the lexical half (any-term `to_tsquery`, `anyTermTsquery`) is what
+ * finds them. It is not a semantic embedding and must never be mixed with real ones — a seeded
+ * document records `embeddingModel: 'seed:deterministic'` for that reason.
  */
 import { EMBEDDING_DIM } from '@rocketpod/shared/ai/config'
 

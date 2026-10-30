@@ -1,13 +1,14 @@
 /**
- * The platform seam (M1, `docs/DESIGN-SELFHOSTED.md` §4): every capability the app takes from its
+ * The platform seam: every capability the app takes from its
  * runtime, as a neutral interface. Routes, services, queue handlers, cron tasks and the agent-run
- * body depend on THESE — never on a Cloudflare binding type. The entry point builds one `Platform`
- * (`src/node/platform.ts` and its siblings — the Node adapters in `src/node/`) and the app
+ * body depend on THESE — never on a concrete client (pg-boss, OpenWorkflow, the S3 SDK). The entry
+ * point builds one `Platform` (`src/node/platform.ts` and its siblings — the adapters in
+ * `src/node/`) and the app
  * reads it with `c.get('platform')`; background contexts are handed the same object.
  *
  * Every member is nullable: a missing capability is a configuration state the callers already
  * handle (503 `storage_not_configured`, a no-op nudge, no rate limit), not a crash.
- * `tests/config/platform-seam.test.ts` keeps Cloudflare types out of the tree.
+ * `tests/config/platform-seam.test.ts` keeps the transports' imports inside `src/node/`.
  */
 import type { JobEnvelope } from '@rocketpod/shared/jobs'
 import type { RealtimeEvent } from '@rocketpod/shared/realtime'
@@ -242,8 +243,8 @@ export interface Step {
   /**
    * True for an error the ENGINE threw to steer the run — a park, a lease lost to another worker —
    * which a body's `try/catch` must rethrow untouched (`if (step.isControlFlow?.(err)) throw err`).
-   * OpenWorkflow (Node) parks a run by throwing out of `waitForEvent`; Cloudflare never does, so
-   * its adapter leaves this undefined.
+   * OpenWorkflow parks a run by throwing out of `waitForEvent`. Optional: an engine (or a test's
+   * fake step) that never throws to steer a run leaves it undefined.
    */
   isControlFlow?(err: unknown): boolean
 }
@@ -254,7 +255,7 @@ export interface WaitForEventOptions {
   /**
    * For an engine that does NOT buffer events (OpenWorkflow drops a signal nobody is waiting on):
    * asked once, checkpointed, before parking. `true` means the event's effect has already landed —
-   * the wait returns without parking. An engine that buffers (Cloudflare) ignores it.
+   * the wait returns without parking. An engine that buffers events may ignore it.
    */
   arrived?: () => Promise<boolean>
 }

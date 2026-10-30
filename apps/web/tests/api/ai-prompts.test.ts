@@ -1,5 +1,5 @@
 /**
- * `/api/ai/prompts` (D17): the registry lists with effective text; PUT overrides (admin+), DELETE
+ * `/api/ai/prompts`: the registry lists with effective text; PUT overrides (admin+), DELETE
  * reverts; `resolvePrompt` interpolates `{{vars}}` from override or default; unknown key → 404;
  * member 403 on writes; tenant isolation (an override in A is invisible in B).
  */

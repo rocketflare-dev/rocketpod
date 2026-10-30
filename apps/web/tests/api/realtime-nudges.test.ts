@@ -1,8 +1,9 @@
 /**
- * Realtime nudges (D7, D8): mutations reach `NOTIFICATIONS_HUB` through `services/realtime.ts`
- * as deferred RPC calls — asserted on the recording namespace (`stubs(env).hub.broadcasts`), the
- * way queue producers are asserted on `RecordingQueue`. The event names WHAT changed; the client
- * re-queries. Nudges are a no-op without the binding and never fail the request.
+ * Realtime nudges: mutations reach the realtime hub (`platform.realtime`) through
+ * `services/realtime.ts` as deferred broadcasts — asserted on the recording hub
+ * (`stubs(env).hub.broadcasts`), the way queue producers are asserted on `RecordingQueue`. The
+ * event names WHAT changed; the client re-queries. Nudges are a no-op without a hub and never fail
+ * the request.
  */
 import type { RealtimeEvent } from '@rocketpod/shared/realtime'
 import { describe, expect, it, vi } from 'vitest'
@@ -141,7 +142,7 @@ describe('realtime nudges', () => {
     expect(recorded(env, tenant.id)).toHaveLength(1)
   })
 
-  it('group membership changes nudge access.changed to the AFFECTED people only (D29)', async () => {
+  it('group membership changes nudge access.changed to the AFFECTED people only', async () => {
     const { owner, tenant, cookie } = await ownerWithCookie()
     const env = createTestEnv()
     const moved = await createTestUser(db)
@@ -198,7 +199,7 @@ describe('realtime nudges', () => {
     expect(recorded(env, tenant.id).filter(r => r.event.type === 'access.changed')).toHaveLength(2)
   })
 
-  it('nudges are a no-op without the binding and never throw', () => {
+  it('nudges are a no-op without a realtime hub and never throw', () => {
     const defer = vi.fn()
     const env = createTestEnv({ realtime: null })
     expect(() =>

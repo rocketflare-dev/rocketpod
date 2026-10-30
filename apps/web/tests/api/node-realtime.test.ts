@@ -1,12 +1,12 @@
 // @vitest-isolate
 // Boots the Node entry (`installProcessPool` is process-wide), LISTENs on the test database, and mocks the shared plugin barrel (test topic kinds).
 /**
- * Realtime on Node (M5, `src/node/realtime.ts`): `/ws` upgraded in-process after the route's own
+ * Realtime on Node (`src/node/realtime.ts`): `/ws` upgraded in-process after the route's own
  * auth and membership check, events fanned out through Postgres `LISTEN/NOTIFY` — so a second
- * hub (another pod) reaches this server's sockets — with the DO's wire protocol, per-user and
+ * hub (another pod) reaches this server's sockets — with the `/ws` wire protocol, per-user and
  * per-tenant targeting, the NOTIFY size limit, a listener that comes back after its connection is
  * killed, 1001 on shutdown, and TOPICS — subscribed by name, granted by the registry and the
- * member's role (the barrel is mocked to add `test-topics`' kinds: the kit ships none).
+ * member's role (the barrel is mocked to add `test-topics`' kinds: core ships none).
  */
 import { randomUUID } from 'node:crypto'
 import { platformTopic, tenantTopic } from '@rocketpod/shared/realtime'

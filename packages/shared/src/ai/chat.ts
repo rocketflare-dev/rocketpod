@@ -1,5 +1,5 @@
 /**
- * Chat contracts (D17): the persisted `conversations` / `messages` rows and the request bodies.
+ * Chat contracts: the persisted `conversations` / `messages` rows and the request bodies.
  * The wire protocol the streaming route speaks is AG-UI and lives in `agui.ts`; this file is the
  * DB-shaped half — `tokenUsageSchema` and `toolCallRecordSchema` are jsonb column types as well as
  * response fields.
@@ -84,14 +84,14 @@ export const CONVERSATION_TITLE_LENGTH = 60
 
 /**
  * Model turns a chat reply may spend calling tools. Deliberately far below `AGENT_MAX_TURNS` (30):
- * that is a budget for a Workflow step with a ten-minute timeout, while a chat turn is interactive
- * and shares the Worker's CPU and subrequest budget with the request that opened it.
+ * that is a budget for a durable-run step with a ten-minute timeout, while a chat turn is
+ * interactive and runs inside the HTTP request that opened it, with somebody waiting on it.
  */
 export const CHAT_MAX_TOOL_TURNS = 6
 
 /**
  * Hard backstop on how many stored messages a turn may replay. The REAL budget is a character one
- * (`CHAT_HISTORY_MAX_CHARS`, a `[vars]` knob, because the right value tracks the model's context
+ * (`CHAT_HISTORY_MAX_CHARS`, an env-var knob, because the right value tracks the model's context
  * window and the tenant chooses the model): 40 messages of pasted documents is 1.28M characters at
  * the per-message cap, which no model accepts. This count only stops an absurd number of tiny
  * messages; it is not what keeps a thread inside its window.
@@ -166,7 +166,7 @@ export const conversationContextStatsSchema = z.object({
   }),
   /** Everything the next turn sends, summary and tool schemas included — not just the transcript. */
   totalChars: z.number().int().nonnegative(),
-  /** Characters per token the kit assumes everywhere — the estimate's denominator, stated. */
+  /** Characters per token assumed everywhere — the estimate's denominator, stated. */
   charsPerToken: z.number().int().positive(),
 })
 export type ConversationContextStats = z.infer<typeof conversationContextStatsSchema>

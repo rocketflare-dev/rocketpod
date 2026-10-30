@@ -1,10 +1,10 @@
 /**
- * Feature flags (D30) — the registry, the contracts, and the ONE implementation of "is this
+ * Feature flags — the registry, the contracts, and the ONE implementation of "is this
  * feature on for this request".
  *
  * Two layers, in this order, because they answer two different questions:
  *
- *   1. ENVIRONMENT — does this surface exist in this deployment at all? A `[vars]` decision
+ *   1. ENVIRONMENT — does this surface exist in this deployment at all? An env-var decision
  *      (`FEATURES_ENABLED`), fail-closed, no database. This is what lets half-built code be
  *      released to production dark, and it is settled before any row is read.
  *   2. ROLLOUT — among deployments where it exists, which tenants (or users) have it yet? A
@@ -42,10 +42,10 @@ export const featureRolloutUnitSchema = z.enum(FEATURE_ROLLOUT_UNITS)
 export type FeatureRolloutUnit = z.infer<typeof featureRolloutUnitSchema>
 
 /**
- * A key the running deployment actually has (D30, D31).
+ * A key the running deployment actually has.
  *
  * **Not `z.enum(FEATURES)`**, and not for style: `FEATURES` is `[...CORE_FEATURES, ...plugins]`,
- * `CORE_FEATURES` is now empty (the kit's own demonstration flag ships as the `example-feature`
+ * `CORE_FEATURES` is empty (the demonstration flag ships as the `example-feature`
  * PLUGIN), and a `z.enum` needs a non-empty TUPLE — an array of strings is a type error there.
  * A refined `z.string()` is the same runtime check and the same output type, and it keeps
  * validating against whatever is installed rather than against what was compiled in.
@@ -67,25 +67,25 @@ export interface FeatureDefinition {
    * The surface ships DARK unless this deployment lists the key in `FEATURES_ENABLED`. Set it for
    * anything half-built: the failure mode of forgetting the var is then an absent surface, not an
    * unreleased one in production. Leave it false for an ordinary rollout flag, which then needs no
-   * toml edit at all.
+   * deployment config change at all.
    */
   environmentGated: boolean
 }
 
 /**
- * Every flag the KIT itself ships — none, deliberately. Keys come from `CORE_FEATURES` in
+ * Every built-in flag — none, deliberately. Keys come from `CORE_FEATURES` in
  * `permissions.ts`, so a typo anywhere that gates on one is a type error rather than a route that
  * 404s for ever.
  *
- * The kit's demonstration flag moved into the `example-feature` PLUGIN (D31), which is where both
- * halves of a flag now arrive together: the key, its metadata, the nav item it gates, the mount it
+ * The demonstration flag lives in the `example-feature` PLUGIN, which is where both
+ * halves of a flag arrive together: the key, its metadata, the nav item it gates, the mount it
  * gates and the page behind it. An app that wants a flag of its own adds it here and to
  * `CORE_FEATURES` — or, better, ships the whole feature as a plugin.
  */
 export const CORE_FEATURE_FLAGS = {} satisfies Record<string, FeatureDefinition>
 
 /**
- * Core flags plus every installed plugin's (D31). `SharedPlugin.features` is typed against the
+ * Core flags plus every installed plugin's. `SharedPlugin.features` is typed against the
  * `FeatureDefinition` above — `plugins/**` may not import this module at RUNTIME, but a
  * whole-declaration `import type` is erased and so is fine — which means there is ONE definition of
  * a flag's shape, and a plugin that gets it wrong fails in its own file rather than here.
@@ -99,8 +99,8 @@ export const FEATURE_FLAGS = {
 } as Record<FeatureName, FeatureDefinition>
 
 /**
- * One flag's definition. **Index through this, never `FEATURE_FLAGS[key]` directly**: in a bare
- * kit `FeatureName` is `never` (see `FEATURES`), and `T[never]` is `never`, so every
+ * One flag's definition. **Index through this, never `FEATURE_FLAGS[key]` directly**: with no
+ * plugins `FeatureName` is `never` (see `FEATURES`), and `T[never]` is `never`, so every
  * `FEATURE_FLAGS[key].label` stops typechecking the moment the last plugin is removed. Reading the
  * same object through a string index keeps the declared return type whatever is installed.
  */

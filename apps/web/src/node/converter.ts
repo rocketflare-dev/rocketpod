@@ -1,5 +1,5 @@
 /**
- * The Node platform's `DocumentConverter` (M6) — the upload types the server reads with plain
+ * The Node platform's `DocumentConverter` — the upload types the server reads with plain
  * libraries:
  *
  * | Type | How | Answers |

@@ -28,7 +28,7 @@ filesystem, so a read-only root filesystem works (`/tmp` is mounted for librarie
   `LISTEN/NOTIFY` on one dedicated connection per `web`/`all` process. PgBouncer in
   **transaction** mode breaks `LISTEN`: point `DATABASE_LISTEN_URL` straight at Postgres (or at a
   session-mode pool). Unset, it is `DATABASE_URL`.
-- **An S3-compatible bucket** (`STORAGE_*`): AWS S3, Cloudflare R2, GCS (interoperability mode),
+- **An S3-compatible bucket** (`STORAGE_*`): AWS S3, GCS (interoperability mode),
   MinIO, Versity, Ceph… — only the endpoint and path style differ. Unset, uploads answer 503. The
   store must honour `Range` on `GetObject` (a ranged download from one that ignores it is an error,
   not a wrong body) and multipart uploads (`putStream`); every store named here does.
@@ -151,6 +151,18 @@ minutes at most), and a failed or missing run stops the release — so push the 
 first, then tag it. The build overlaps that wait: `image` builds without pushing (layers cached to
 the GitHub Actions cache) while `ci` waits; only then does `publish` log in and re-run the build
 from the warm cache with `push: true`.
+
+**Version rule.** The tag is `X.Y.Z` (or `vX.Y.Z`) and must equal `version` in the **root**
+`package.json`; one tag ships the image and the CLI, and the `apps/*` and `packages/*` versions are
+informational. In an app that is the whole release: bump the root version, add its section to your
+own `CHANGELOG.md`, commit, push to `main`, tag. *Kit repository only:* `pnpm kit:release X.Y.Z`
+does the bump instead — it folds `docs/upgrades/unreleased.md` into `docs/upgrades/X.Y.Z.md`,
+stamps `.rocketflare.json` `kit.version`, prepends the `CHANGELOG.md` section, and refuses a
+version whose `defaultPlugins` no longer resolve at their pinned ref — and `kit.yml` fails a PR
+touching `apps/**` or `packages/**` with no porting note, because that note is how every copy
+absorbs the release; a released kit tag is never force-pushed, because every copy pins a kit
+commit. An app has neither the command nor the check (the rename removes both), and writes no
+porting note.
 
 **A tag is a release, and once a deploy job hangs off it, a production deploy.** A copy that adds
 one (`needs: [ci, chart, publish]`) deploys every version tag it pushes; nothing asks again. Before

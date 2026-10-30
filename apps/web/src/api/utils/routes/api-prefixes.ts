@@ -7,8 +7,8 @@
  *    app, never to a file or the SPA shell — so an `<object>`/`<iframe>` embed or an `<a download>`
  *    of an API route is never silently answered with the app shell.
  *
- * `/ws` is the realtime upgrade (Phase 2). The analytics plugin adds `/cubejs-api` and `/mcp`.
- * A plugin (D31) may own a prefix OUTSIDE `/api` — a protocol endpoint, say — and those are
+ * `/ws` is the realtime upgrade. The analytics plugin adds `/cubejs-api` and `/mcp`.
+ * A plugin may own a prefix OUTSIDE `/api` — a protocol endpoint, say — and those are
  * unioned in from the server barrel, so both readers follow an install with no edit.
  */
 import { serverPlugins } from '../../../plugins/server'

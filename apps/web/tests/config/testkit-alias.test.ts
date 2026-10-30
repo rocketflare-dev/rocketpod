@@ -1,5 +1,5 @@
 /**
- * `@testkit` is registered in exactly two places, and the third absence is the point (D31).
+ * `@testkit` is registered in exactly two places, and the third absence is the point.
  *
  * `tsconfig.json` makes it typecheck; `vitest.config.ts` makes it resolve when tests run;
  * `vite.config.ts` deliberately does NOT.
@@ -9,11 +9,11 @@
  *
  *   - `src/ui/**` — Rollup resolves no `@testkit`, so `build:ui` FAILS. The harness
  *     (`@testing-library/react`, the seed fixtures, a Postgres client) cannot reach a browser.
- *   - `src/api/**` — wrangler resolves `tsconfig.json` paths, where `@testkit` IS registered. So
- *     `build:api` SUCCEEDS and the harness is bundled: +866 KB on a 1.98 MB Worker, silently.
+ *   - `src/api/**` — `build:server`'s esbuild reads `tsconfig.json` paths, where `@testkit` IS
+ *     registered. So `build:server` SUCCEEDS and the harness lands in `dist/server.js`, silently.
  *
  * So on the API side the build is not a backstop at all, and the scan below is the ONLY thing
- * between a stray import and 866 KB of test fixtures in production. Weakening it — narrowing the
+ * between a stray import and the test fixtures in production. Weakening it — narrowing the
  * file glob, exempting a directory — removes the sole protection for that half. The scan also
  * gives the better diagnostic on both halves: a failed Rollup resolve says only that SOMETHING was
  * missing, while the scan names the file and the line, which is what an agent installing a plugin

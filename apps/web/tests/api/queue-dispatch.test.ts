@@ -1,7 +1,7 @@
 /**
- * The Worker's `queue()` export (D7): routes every environment's jobs queue by prefix
- * (`rocketpod-jobs`, `rocketpod-jobs-staging`) to the jobs consumer, and acks a batch from
- * any queue it does not know so a stray binding cannot retry forever.
+ * `queue()`, the dispatcher the pg-boss worker hands each batch to: routes every environment's
+ * jobs queue by prefix (`rocketpod-jobs`, `rocketpod-jobs-staging`) to the jobs consumer, and
+ * acks a batch from any queue it does not know so a stray queue cannot retry forever.
  */
 import { describe, expect, it, vi } from 'vitest'
 import { queue } from '@/api/queue'

@@ -3,7 +3,7 @@
  * when nothing of the tenant's chose a model AND no `platform_agent_models` row exists (a row always
  * wins over this table — it is the newer decision).
  *
- * **Empty in the kit**: the kit has measured nothing worth committing. An app fills it from its own
+ * **Empty by default**: nothing has been measured worth committing. An app fills it from its own
  * evals — an agent whose prompt scored clearly better on a bigger model gets that model here, with
  * the measurement in `evidence`. Change an entry only with a new measurement.
  *

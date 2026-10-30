@@ -1,7 +1,7 @@
 /**
- * Sliding-window rate limiting + per-tenant operation lock (D14), over the platform's
- * `rateLimiter` and `locks` (`src/platform/types.ts`; the Worker's are KV-backed and approximate —
- * right for login throttling, not for billing). Keyed by client IP (`clientIpOf`,
+ * Sliding-window rate limiting + per-tenant operation lock, over the platform's
+ * `rateLimiter` and `locks` (`src/platform/types.ts`; on Node the `rate_limits` / `operation_locks`
+ * tables, `src/node/limits.ts`). Keyed by client IP (`clientIpOf`,
  * `utils/routes/client-ip.ts`) and route name; a no-op when the platform has no rate limiter.
  * Applied PER MOUNT in `index.ts` / `routes/auth/index.ts`, never inside a handler.
  */
@@ -42,8 +42,8 @@ export const authRateLimit = rateLimit({ name: 'auth', max: 10, windowSeconds: 6
 
 /**
  * Per-tenant mutex: `operationLock(locks, 'tenant:delete:<id>', fn)`. A second caller while `fn`
- * runs gets 409 `operation_in_progress`; the TTL is the crash safety net. With no locks (local dev
- * without the binding) `fn` simply runs.
+ * runs gets 409 `operation_in_progress`; the TTL is the crash safety net. With no locks (a bare
+ * env, as in a unit test) `fn` simply runs.
  */
 export async function operationLock<T>(
   locks: Locks | null | undefined,

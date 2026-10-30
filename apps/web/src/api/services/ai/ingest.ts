@@ -1,5 +1,5 @@
 /**
- * The ingest paths (D18, 00 §1.3 — retrieval must ship with a way to put text in). Two entry
+ * The ingest paths (retrieval must ship with a way to put text in). Two entry
  * points, one insertion + indexing path:
  *
  * - `ingestText` — pasted text: write a `documents` row (`pending`, raw `content`), chunk it, then
@@ -59,14 +59,14 @@ export interface IngestTextInput {
   source?: string | null
   contentType?: string
   /**
-   * D29 — who may read it. Defaults to `tenant`: a document an AGENT writes, or an ingest that
+   * Who may read it. Defaults to `tenant`: a document an AGENT writes, or an ingest that
    * says nothing, belongs to the organisation rather than inheriting anything. `groupIds` must
    * already have been validated against the tenant (`resolveRequestedVisibility` at the route).
    */
   visibility?: ResourceVisibility
   groupIds?: readonly string[]
   /**
-   * D34: the item's id in `source`. With one, an existing row for `(tenantId, source, externalId)`
+   * The item's id in `source`. With one, an existing row for `(tenantId, source, externalId)`
    * is UPDATED and re-indexed rather than a second row added — how a connector re-syncs an edited
    * message or file. Requires `source`.
    */
@@ -76,11 +76,11 @@ export interface IngestTextInput {
 export interface IngestDeps {
   /** The platform's `jobs` — required only when the text exceeds the inline limit. */
   jobs?: JobsQueue | null
-  /** R2 — only to remove an original that an external-id re-ingest replaced (D34). */
+  /** Object storage — only to remove an original that an external-id re-ingest replaced. */
   storage?: StorageService | null
 }
 
-/** Thrown by `ingestFile` for a binary upload on a Worker whose `AI` binding cannot convert. */
+/** Thrown by `ingestFile` for a binary upload when the platform has no document converter. */
 export class ConversionNotConfiguredError extends Error {
   constructor() {
     super(
@@ -182,7 +182,7 @@ export async function indexDocument(
   try {
     const embeddings = options.embeddings ?? (await resolveEmbeddings(db, cfg, env, tenantId))
     const vectors = await embedInBatches(
-      // D32: one `embeddings <model>` span per batch, under the active span (an agent run, the
+      // One `embeddings <model>` span per batch, under the active span (an agent run, the
       // `document.index` job) — untraced where nothing is active.
       texts => traceEmbed(embeddings, texts, () => embeddings.client.embed(texts)),
       pieces.map(p => p.text)
@@ -332,7 +332,7 @@ export async function ingestText(
   return indexOrEnqueue(db, cfg, env, row, pieces, embeddings, deps)
 }
 
-// ---- External ids (D34) ----------------------------------------------------------------------
+// ---- External ids ----------------------------------------------------------------------------
 
 interface ExternalKey {
   source: string
@@ -429,7 +429,7 @@ export interface IngestFileInput {
   tenantId: string
   /** Required: a `files` row always has an owner (it cascades from the user). */
   userId: string
-  /** The multipart part (a Blob carries the length R2 needs). */
+  /** The multipart part (a Blob carries the length the store needs). */
   file: Blob
   /** The client's filename — the storage key, the default title and the default source derive from it. */
   filename: string
@@ -437,10 +437,10 @@ export interface IngestFileInput {
   type: DocumentUploadType
   title?: string | null
   source?: string | null
-  /** D29 — as `IngestTextInput`: validated at the route, defaults to tenant-wide. */
+  /** As `IngestTextInput`: validated at the route, defaults to tenant-wide. */
   visibility?: ResourceVisibility
   groupIds?: readonly string[]
-  /** D34 — as `IngestTextInput`; the replaced original is removed from storage. */
+  /** As `IngestTextInput`; the replaced original is removed from storage. */
   externalId?: string | null
 }
 
@@ -550,10 +550,10 @@ export async function ingestFile(
 }
 
 /**
- * The `document.convert` job body: read the original from R2, convert it to text, store the text
- * on the row and run `indexDocument`. `ConversionFailedError` (permanent: the platform refused the
- * file, the text is over the cap, the original is gone) marks the row `failed` and is rethrown for
- * the handler to ACK; anything else (binding outage, provider error) marks it `failed` and is
+ * The `document.convert` job body: read the original from storage, convert it to text, store the
+ * text on the row and run `indexDocument`. `ConversionFailedError` (permanent: the platform refused
+ * the file, the text is over the cap, the original is gone) marks the row `failed` and is rethrown
+ * for the handler to ACK; anything else (storage outage, converter error) marks it `failed` and is
  * rethrown for a retry.
  */
 export async function convertAndIndexDocument(

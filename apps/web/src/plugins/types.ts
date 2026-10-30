@@ -1,5 +1,5 @@
 /**
- * The Worker half of a plugin (D31): what a plugin contributes to the server and to the UI.
+ * The server half of a plugin: what a plugin contributes to the server and to the UI.
  *
  * Both interfaces are generic over the plugin's `SharedPlugin` so that `jobHandlers`, `agents` and
  * `prompts` are checked for exhaustiveness against the keys that same plugin declared — one
@@ -10,7 +10,7 @@
  * **This file names the agent runtime, which is a deletable surface.** `AnyAgentDefinition`,
  * `AgentToolContext` and `AgentForm` all live inside `feature-agents`, so this file is listed in
  * that surface's `registries[]` in `.rocketflare.json`: an adopter who deletes the agent runtime
- * deletes the four fields below too, exactly as they already delete lines from `worker.ts`,
+ * deletes the four fields below too, exactly as they already delete lines from `node/runs.ts`,
  * `api/index.ts` and `App.tsx`. The alternative — restating a structural agent type here so the
  * seam survives on its own — was rejected because it buys nothing: the real types are what makes
  * `agents: Record<AgentKeyOf<S>, …>` an exhaustiveness check rather than a shape a plugin can get
@@ -28,7 +28,7 @@ import type { ScheduledTask } from '../api/scheduled'
 import type { VisibilityResource } from '../api/services/access'
 import type { AnyAgentDefinition } from '../api/services/agents/registry'
 import type { AgentToolContext } from '../api/services/agents/tools'
-import type { Tool } from '../api/services/ai/kit'
+import type { Tool } from '../api/services/ai/agent-loop'
 import type { AppBindings, AppEnv } from '../api/types'
 import type { Database } from '../db/client'
 import type { Tenant } from '../db/schema'
@@ -43,7 +43,7 @@ import type { QuickLink } from '../ui/pages/Home'
 export type PluginMount = readonly [string, Hono<AppEnv>, MiddlewareHandler?]
 
 /**
- * One UNAUTHENTICATED mount (D34): prefix and router, no gate — a feature gate reads
+ * One UNAUTHENTICATED mount: prefix and router, no gate — a feature gate reads
  * `auth.features`, and there is no auth here. The prefix must be `/api/hooks/<plugin id>` or
  * beneath it; handlers build `publicCtx(c)` and prove who is calling before they touch a row.
  */
@@ -78,21 +78,21 @@ export interface ServerPlugin<S extends SharedPlugin = SharedPlugin> {
   mounts?: readonly PluginMount[]
   /**
    * Routes a third party calls with no session or key — an admin-consent callback, a webhook
-   * (D34). Mounted BEFORE the authed mounts and without `authMiddleware`, under
+   * Mounted BEFORE the authed mounts and without `authMiddleware`, under
    * `/api/hooks/<id>` only (`tests/config/plugins.test.ts` enforces it), so the unauthenticated
-   * surface stays enumerable. Already under `/api`, so no `apiPrefixes` or toml edit is needed.
+   * surface stays enumerable. Already under `/api`, so no `apiPrefixes` entry is needed.
    */
   publicMounts?: readonly PluginPublicMount[]
   /**
-   * Extra path prefixes the Worker owns, unioned into `API_PREFIXES` — so an unmatched path under
-   * one is a JSON 404 rather than `index.html`. Adding one ALSO means adding it to
-   * `run_worker_first` in both tomls by hand; the parity test is what catches a forgotten one.
+   * Extra path prefixes the app owns, unioned into `API_PREFIXES` — so an unmatched path under
+   * one is a JSON 404 rather than `index.html`, and the static handler (`node/assets.ts`, which
+   * reads `isApiPath`) never serves a file for it.
    */
   apiPrefixes?: readonly string[]
   /**
    * `type` → handler, covering EXACTLY the job variants `shared.jobs` declares. Merged into the
    * consumer's dispatch table; each handler gets its own DB client and awaits everything, like the
-   * kit's own (there is no `waitUntil` in a queue consumer).
+   * core ones (there is no `waitUntil` in a queue consumer).
    */
   // A job type that is not one literal — `AnyServerPlugin`'s `string` — takes any handler. Mapped
   // through `Extract`, it became `JobHandler<never>`, and under zod 4 TypeScript's variance shortcut
@@ -106,7 +106,7 @@ export interface ServerPlugin<S extends SharedPlugin = SharedPlugin> {
   /** Prompt registry entries, one per key in `shared.promptKeys`. */
   prompts?: { [K in PromptKeyOf<S> & string]: PromptDefinition }
   /**
-   * Tools added to every agent run, beside the kit's three knowledge tools. Bound to the run's
+   * Tools added to every agent run, beside the three built-in knowledge tools. Bound to the run's
    * access scope, so a plugin tool reads what its REQUESTER may read and nothing more. May be
    * async, and may return `[]` — that is how a tool is offered only to the tenants that turned it
    * on (read the plugin's own settings row for `ctx.scope.tenantId`). A builder that throws is
@@ -114,12 +114,12 @@ export interface ServerPlugin<S extends SharedPlugin = SharedPlugin> {
    */
   agentTools?: (ctx: AgentToolContext) => Tool[] | Promise<Tool[]>
   /**
-   * Cron expression → tasks, merged into `SCHEDULED_TASKS` (tasks on a cron the kit already runs
-   * are appended after the kit's). A cron the kit does NOT run must also be added to `[triggers]`
-   * in BOTH tomls by hand — the parity test is what catches a forgotten one.
+   * Cron expression → tasks, merged into `SCHEDULED_TASKS` (tasks on a cron core already runs
+   * are appended after the core ones). A new expression needs no other edit: the worker process
+   * registers every `SCHEDULED_TASKS` expression as a pg-boss schedule at start (`node/jobs.ts`).
    */
   scheduledTasks?: Readonly<Record<string, ScheduledTask[]>>
-  /** Per-role CASL rules, applied after the kit's own matrix — additive, never a replacement. */
+  /** Per-role CASL rules, applied after the core matrix — additive, never a replacement. */
   grants?: Partial<Record<EffectiveRole, RoleGrant>>
   /** Plugin tables with no `tenant_id`, unioned into `RLS_EXCLUDED_TABLES` with a reason each. */
   rlsExcludedTables?: readonly string[]
@@ -128,13 +128,13 @@ export interface ServerPlugin<S extends SharedPlugin = SharedPlugin> {
    * a path relative to `apps/web/` (`src/plugins/<id>/…`) mapped to the REASON it is correct.
    */
   unscopedAllowlist?: Readonly<Record<string, string>>
-  /** D29: rows of this plugin that a group may restrict. Read by `services/access.ts`. */
+  /** Rows of this plugin that a group may restrict. Read by `services/access.ts`. */
   visibilityResources?: readonly VisibilityResource[]
   hooks?: {
     /**
-     * Post-commit, best-effort, per plugin try/caught — exactly like the kit's own hooks were.
+     * Post-commit, best-effort, per plugin try/caught — exactly like the core hooks.
      *
-     * `features` is the set this DEPLOYMENT ships (D30), passed because a plugin that seeds rows
+     * `features` is the set this DEPLOYMENT ships, passed because a plugin that seeds rows
      * for a gated surface must not seed them where the surface does not exist: a hook that CREATES
      * rows is the sharpest feature door there is, and it has no nav entry to hide behind.
      */
@@ -146,12 +146,12 @@ export interface ServerPlugin<S extends SharedPlugin = SharedPlugin> {
     ) => Promise<void>
     /**
      * A tenant has been deleted: drop whatever of its state lives OUTSIDE Postgres. Run from the
-     * `tenant.purge` job (D7), per plugin, each in its own try/catch — post-commit, idempotent and
+     * `tenant.purge` job, per plugin, each in its own try/catch — post-commit, idempotent and
      * best-effort, exactly like `onTenantCreated`. There is no `Tenant` to hand over: the row and
      * everything `tenantRef()` cascades from it are already gone, which is why this takes the id.
      *
      * A plugin's TABLES need nothing here — the cascade took them. What needs this is stored
-     * objects (the kit purges its own `tenants/<id>/` prefix) and any state keyed outside Postgres.
+     * objects (core purges its own `tenants/<id>/` prefix) and any state keyed outside Postgres.
      *
      * **External state is purgeable only where its keys are derivable.** Derive every key from the
      * tenant id, keep the set FINITE, and visit the keys this plugin DECLARES rather than trying to
@@ -160,17 +160,17 @@ export interface ServerPlugin<S extends SharedPlugin = SharedPlugin> {
      * `user_sessions.selected_tenant_id` are the precedent for a tenant reference that outlives the
      * tenant). It is **deferred until somebody needs it** and deliberately not built.
      *
-     * `env` is here for exactly those bindings; a plugin reaches its own KV or DO namespace
-     * through it, never through a module-level global.
+     * `env` is here for exactly that state; a plugin reaches its own external store's
+     * credentials and endpoints through it, never through a module-level global.
      */
     onTenantDeleted?: (db: Database, tenantId: string, env: AppBindings) => Promise<void>
-    /** `pnpm seed --demo`, after the kit's own block. Fixed ids + `onConflictDoNothing`. */
+    /** `pnpm seed --demo`, after the core block. Fixed ids + `onConflictDoNothing`. */
     seedDemo?: (db: Database, ctx: PluginSeedContext) => Promise<void>
   }
   /**
-   * Cross-plugin registries (D31 decision 6): the analytics plugin reads `extensions.cubes` and
+   * Cross-plugin registries: the analytics plugin reads `extensions.cubes` and
    * friends from every installed plugin and narrows them with zod, failing loudly on anything it
-   * cannot parse. `unknown[]` at the core boundary is the point — the kit stays ignorant of what
+   * cannot parse. `unknown[]` at the core boundary is the point — the host stays ignorant of what
    * any plugin means by a "cube".
    */
   extensions?: Readonly<Record<string, readonly unknown[]>>
@@ -204,10 +204,10 @@ export interface UiPlugin<S extends SharedPlugin = SharedPlugin> {
   shared: S
   routes: readonly PluginRoute[]
   nav?: readonly PluginNavGroup[]
-  /** Extra `/settings?tab=` tabs, appended after the kit's. `can` is the caller's ability. */
+  /** Extra `/settings?tab=` tabs, appended after the core ones. `can` is the caller's ability. */
   settingsTabs?: (ctx: { can: (action: string, subject: string) => boolean }) => TabConfig[]
   /**
-   * Quick links for the Home page, merged AHEAD of the kit's own (D31). A feature somebody reaches
+   * Quick links for the Home page, merged AHEAD of the core ones. A feature somebody reaches
    * from Home is one they were told about; a plugin that only adds a nav item is one they have to
    * find. Each link carries the SAME guard object as its route, so Home can never offer a door the
    * page refuses — `useNavGuard` filters these exactly as it filters the nav.

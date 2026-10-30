@@ -122,7 +122,7 @@ Tests run under Node against the real Hono app and a **real Postgres** on port 5
 | `api-isolated` | yes | files marked `// @vitest-isolate` (they mock modules or globals) and the Node adapters — server, pg-boss, OpenWorkflow, realtime, S3, limits |
 | `driver` | yes | the driver seam's conformance suite |
 | `ui` | no (jsdom) | components, hooks, providers, streaming and websocket clients |
-| `config` | no | packaging parity, the no-Cloudflare guard, env schema, permissions matrix, pure helpers |
+| `config` | no | packaging parity, the platform-seam guard, env schema, permissions matrix, pure helpers |
 | `kit-only` | no | the kit's own release, rename and manifest machinery (deleted in a copy) |
 
 ```bash

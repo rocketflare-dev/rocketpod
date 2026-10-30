@@ -80,7 +80,7 @@ pnpm gate
 
 `pnpm gate` runs lint, typecheck, test and build, and starts the test database itself (Docker must
 be running). Expect every step green, including
-`tests/config/platform-seam.test.ts` (no Cloudflare); no test checks contrast, so re-check it by
+`tests/config/platform-seam.test.ts` (the platform-seam guard); no test checks contrast, so re-check it by
 hand if the colour changed. A failing `typecheck` almost always means an `@<old-scope>/shared` import the
 pass could not see — `grep -rn "@rocketpod/" apps packages --include=*.ts --include=*.tsx`
 should be empty.

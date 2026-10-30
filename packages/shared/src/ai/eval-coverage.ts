@@ -1,5 +1,5 @@
 /**
- * The eval COVERAGE CONTRACT (D33, `docs/EVALS.md` § "The coverage contract"): every prompt in the
+ * The eval COVERAGE CONTRACT (`docs/EVALS.md` § "The coverage contract"): every prompt in the
  * registry and every registered agent says how its quality is measured — the suite that runs it,
  * the dataset(s) it runs over and the committed baseline a run is compared with — or says, with a
  * reason, why it has none.

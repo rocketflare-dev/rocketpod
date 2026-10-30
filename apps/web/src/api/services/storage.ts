@@ -1,5 +1,5 @@
 /**
- * Object storage helpers (D23) over the neutral `StorageService` (`src/platform/types.ts`; the
+ * Object storage helpers over the neutral `StorageService` (`src/platform/types.ts`; the
  * S3 adapter is `src/node/storage.ts`). Routes read it as
  * `c.get('platform').storage`, so a test can pass an in-memory bucket and an app can swap the
  * backend without touching callers. Keys are tenant-prefixed
@@ -78,7 +78,7 @@ export function tenantStoragePrefix(tenantId: string, scope?: FileScope): string
 }
 
 /**
- * Delete every object of a tenant, a page at a time, and answer how many went (D31 tenant purge).
+ * Delete every object of a tenant, a page at a time, and answer how many went (the tenant purge).
  *
  * This is the other half of what the FK cascade does in Postgres: `tenants/<tenantId>/` is the one
  * prefix that scopes an organisation's bytes, which is exactly why keys carry it. It is
@@ -86,8 +86,8 @@ export function tenantStoragePrefix(tenantId: string, scope?: FileScope): string
  * `tenant.purge` job may be retried, and a run that dies halfway resumes from what is left rather
  * than from the beginning.
  *
- * Paged rather than `list()`-then-delete: a large tenant's whole key set must not be held in a
- * 128 MiB isolate, and one `deleteMany` per page keeps the subrequest count to two per page
+ * Paged rather than `list()`-then-delete: a large tenant's whole key set must not be held in
+ * memory at once, and one `deleteMany` per page keeps the store round trips to two per page
  * instead of one per object.
  */
 export async function purgeTenantObjects(

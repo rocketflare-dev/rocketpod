@@ -1,4 +1,4 @@
-# Rocketpod, self-contained (M7, docs/DEPLOY.md § Docker Compose): Postgres + pgvector, an
+# Rocketpod, self-contained (docs/DEPLOY.md § Docker Compose): Postgres + pgvector, an
 # S3-compatible store, the migrate one-shot, the web process and the worker — one image for all
 # three app services. Values come from a root `.env` (copy `deploy/compose.env.example`); every
 # one has a default below, so `docker compose up -d --build` works on a laptop as-is.

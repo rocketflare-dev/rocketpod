@@ -1,5 +1,5 @@
 /**
- * `rocketpod example-feature …` — the reference plugin's CLI half (D31).
+ * `rocketpod example-feature …` — the reference plugin's CLI half.
  *
  * Two commands, one per pattern an app usually needs:
  *
@@ -8,7 +8,7 @@
  *
  * **The CLI never owns a second copy of the contract.** It builds no job envelope of its own — the
  * ping command calls the route that enqueues, so producer validation, the envelope stamp and the
- * `JOBS_QUEUE` binding all stay on the server — and it parses every response with the same
+ * jobs queue all stay on the server — and it parses every response with the same
  * `@rocketpod/shared` schema the server validated with. It throws `CliError` and never prints an
  * error or calls `process.exit`: it registers with the host's own `action()` wrapper, so it
  * inherits one context, one error printer and one exit-code mapping (0 · 1 · 2 · 3).
@@ -23,7 +23,7 @@ import {
   exampleNoteSchema,
   examplePingResponseSchema,
 } from '@rocketpod/shared/plugins/example-feature/index'
-// The CLI plugin API (D31) — one declared entry, rather than three reaches into the kit's internals.
+// The CLI plugin API — one declared entry, rather than three reaches into the CLI's internals.
 import type { CliPlugin, CommandContext } from '../api'
 import { formatDate, formatPagination, renderTable, requireClient } from '../api'
 

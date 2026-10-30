@@ -1,11 +1,12 @@
 /**
- * `/api/ai/documents` (D18): the tenant knowledge base — ingest text, upload files, list/read/
+ * `/api/ai/documents`: the tenant knowledge base — ingest text, upload files, list/read/
  * delete documents, hybrid search. Documents are tenant-wide by default and can be restricted to
- * GROUPS (D29): every read path here ANDs `visibleDocuments(scope)` with the tenant predicate, and
- * a document the caller may not see answers **404**, the same body as one that does not exist. Two ways in, one path (00 §1.3): `POST /ingest` (JSON text) and
- * `POST /upload` (multipart — the original goes to R2 as a `files` row, scope `documents`). Small
- * texts index inline (201 `indexed`); large texts and every binary upload return `pending` and a
- * `document.index` / `document.convert` job finishes them. Deleting someone else's document needs
+ * GROUPS: every read path here ANDs `visibleDocuments(scope)` with the tenant predicate, and
+ * a document the caller may not see answers **404**, the same body as one that does not exist.
+ * Two ways in, one path: `POST /ingest` (JSON text) and `POST /upload` (multipart — the original
+ * goes to object storage as a `files` row, scope `documents`). Small texts index inline (201
+ * `indexed`); large texts and every binary upload return `pending` and a `document.index` /
+ * `document.convert` job finishes them. Deleting someone else's document needs
  * `delete Document` (admin+) — own-document delete is the `ownerUserId` check here. Deleting a
  * document deletes its original. The raw text and the vectors never leave the server.
  */
@@ -360,7 +361,7 @@ aiDocumentsRouter.get('/:id/passages', validate('query', paginationQuerySchema),
 
 // ---- GET /api/ai/documents/:id/card ---------------------------------------------------------------
 
-/** The compact citation form: metadata plus an EXCERPT of the text — never a summary (D18). */
+/** The compact citation form: metadata plus an EXCERPT of the text — never a summary. */
 aiDocumentsRouter.get('/:id/card', async c => {
   const { db, auth } = withAuthAndDb(c)
   guardPermission(c, 'read', 'Document')
@@ -387,7 +388,9 @@ aiDocumentsRouter.delete('/:id', async c => {
     })
     if (file) {
       const storage = optionalStorage(c)
-      if (!storage) logger.warn({ key: file.key }, 'documents: FILES not bound, object left behind')
+      if (!storage) {
+        logger.warn({ key: file.key }, 'documents: no object storage, object left behind')
+      }
       await deleteStoredFile(db, storage, file)
     }
   }

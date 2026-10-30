@@ -1,6 +1,5 @@
 /**
- * Drizzle over postgres.js — the one driver (D35, narrowed in Rocketpod; Rocketflare's Neon
- * serverless driver is gone, `docs/FORK.md`). Two ways to hold a connection:
+ * Drizzle over postgres.js — the one driver. Two ways to hold a connection:
  *
  * - **Per request** (`openDatabase` with no process pool installed): a client per request or
  *   invocation, closed with the handle (middleware/database.ts) — tests and scripts. `max: 1` and
@@ -60,7 +59,7 @@ export function databaseDriver(env: Pick<DatabaseEnv, 'DATABASE_DRIVER'>): Datab
   if (!value || value === 'postgres') return 'postgres'
   if (value === 'neon') {
     throw new Error(
-      'DATABASE_DRIVER=neon was removed in Rocketpod: postgres.js reaches any Postgres (Neon included) over TCP — set DATABASE_DRIVER=postgres or unset it'
+      'DATABASE_DRIVER=neon was removed: postgres.js reaches any Postgres (Neon included) over TCP — set DATABASE_DRIVER=postgres or unset it'
     )
   }
   throw new Error(`DATABASE_DRIVER must be postgres, got "${value}"`)
@@ -138,7 +137,7 @@ export function createDatabase(url: string, options: CreateDatabaseOptions = {})
     // Transaction-mode poolers (PgBouncer < 1.21) do not support named prepared
     // statements across queries; unnamed (per-query) is the safe default.
     prepare: options.prepare ?? false,
-    // Skips the startup round-trip that lists custom types; the kit only uses builtins
+    // Skips the startup round-trip that lists custom types; the app only uses builtins
     // (pgvector's `vector` is sent/received as text by drizzle).
     fetch_types: false,
     onnotice: () => {},
@@ -311,8 +310,8 @@ const scriptHandles = new Map<string, DatabaseHandle>()
 /**
  * A pooled handle for scripts and tests (max 5), memoised per driver and URL. `env` carries the
  * driver vars — a script passes `process.env`, where `.env` / `.env.test` put them; this file
- * never reads `process` itself. Not for the Worker — the request path must go through
- * `openDatabase` so the client is ended per request.
+ * never reads `process` itself. Not for the server — the request path goes through
+ * `openDatabase`, a view of the process pool whose `close()` the request's deferred work runs.
  */
 export function getScriptDatabase(
   url: string,

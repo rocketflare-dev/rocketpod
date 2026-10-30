@@ -1,5 +1,5 @@
 /**
- * A nudge from somewhere with no `waitUntil` — a queue handler, a cron task, a Workflow step.
+ * A nudge from somewhere with no `waitUntil` — a queue handler, a cron task, a durable-run step.
  *
  * `services/realtime.ts` sends through a `Realtime`'s `defer`, which is `waitUntil` on the request
  * path. A background context has no such thing: the invocation ends when the handler returns, so
@@ -7,8 +7,8 @@
  * anything handed to one that drops it is lost.
  *
  * So this builds a `Realtime` whose `defer` collects, and awaits the collection. That keeps
- * `services/realtime.ts` the only module that sends to the platform's hub — the kit's own runtime
- * does the same thing for Workflow steps (`createStepRealtime`), and this is the plugin-facing
+ * `services/realtime.ts` the only module that sends to the platform's hub — the core runtime
+ * does the same thing for agent-run steps (`createStepRealtime`), and this is the plugin-facing
  * spelling of it, kept here rather than imported because the runtime's version lives inside the
  * deletable `feature-agents` surface.
  */
@@ -25,7 +25,7 @@ import {
 import type { Broadcaster } from '../../platform/types'
 
 export interface StepRealtime {
-  /** The `Realtime` a kit-shaped service takes as its trailing optional argument. */
+  /** The `Realtime` a core-shaped service takes as its trailing optional argument. */
   realtime: Realtime
   /** Await every send collected so far. Failures are swallowed — a nudge is never load-bearing. */
   settle(): Promise<void>

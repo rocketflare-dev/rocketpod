@@ -1,5 +1,5 @@
 /**
- * The CONFORMANCE suite for the driver seam (D35, tests/driver/CLAUDE.md): every test states one
+ * The CONFORMANCE suite for the driver seam (tests/driver/CLAUDE.md): every test states one
  * fact about what app code sees through `src/db/client.ts` — a raw result's shape, a raw array's
  * value, a driver error's code — and the seam must keep it true whatever the driver underneath.
  * A failure is a hole in `client.ts` or the guard (`tests/config/driver-results.test.ts`): fix it

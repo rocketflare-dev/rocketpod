@@ -1,5 +1,5 @@
 /**
- * `@testkit/integration` — the host's test harness, as a DECLARED entry (D31).
+ * `@testkit/integration` — the host's test harness, as a DECLARED entry.
  *
  * Before this existed, both installed plugins reached the harness through six-level relative climbs
  * (`../../../../../tests/helpers/auth`): five modules and twenty-one symbols, none of them declared,
@@ -10,8 +10,8 @@
  * **Two entries, split by what a test needs rather than by which project it runs in.** This one is
  * the harness: a real database, the real Hono app, the in-memory platform fakes, and the UI's provider
  * tree. `@testkit/unit` is the other — builders for the plugin context family, for tests that never
- * touch data. The names below are re-exports, so the kit's own helpers stay the single
- * implementation and a plugin and a kit test are running the same code.
+ * touch data. The names below are re-exports, so the core helpers stay the single
+ * implementation and a plugin and a core test are running the same code.
  *
  * **It is registered in `tsconfig.json` and `vitest.config.ts` and DELIBERATELY NOT in
  * `vite.config.ts`.** A `src/` file that imports `@testkit` therefore fails the build rather than
@@ -63,14 +63,14 @@ export {
  * worker schedules every expression in the merged registry with pg-boss (`src/node/jobs.ts`), so
  * the registry IS the schedule.
  *
- * `SCHEDULED_TASKS` is the merged registry — the kit's tasks plus every installed plugin's — and
+ * `SCHEDULED_TASKS` is the merged registry — the core tasks plus every installed plugin's — and
  * `dispatchScheduled(cron, env, ctx)` runs the ones registered for that expression and returns a
  * report per task. So the assertion a plugin wants is one line: dispatch the expression the
  * manifest declares, and find your task's name in the report with `status: 'ok'`.
  *
  * Note what the report gives you that a direct call does not: a task that THREW is `'failed'`
  * rather than a rejected promise, because the dispatcher try/catches each task individually so one
- * plugin's failure cannot stop the kit's nightly prune. Asserting `'ok'` is therefore a real
+ * plugin's failure cannot stop the nightly prune. Asserting `'ok'` is therefore a real
  * assertion, not a formality.
  */
 export {
@@ -106,12 +106,12 @@ export {
 
 /**
  * `renderWithProviders` mounts the same provider tree `App.tsx` does — QueryClient → Auth → Ability
- * → Router — so a plugin's page and nav item are exercised through the kit's REAL guards.
+ * → Router — so a plugin's page and nav item are exercised through the app's REAL guards.
  *
- * That is the point of re-exporting it rather than letting a plugin build its own: an app on this
- * kit once wrote a nav test against a re-implementation of the guard, and the re-implementation is
- * what hid the bug it was meant to catch (a server gate reading the CASL ability, where a global
- * admin's `manage all` satisfies every `Feature:` subject). Anything that re-derives what the real
+ * That is the point of re-exporting it rather than letting a plugin build its own: a nav test
+ * written against a re-implementation of the guard is how the re-implementation hides the bug it
+ * was meant to catch (a server gate reading the CASL ability, where a global admin's `manage all`
+ * satisfies every `Feature:` subject). Anything that re-derives what the real
  * hook does is worthless.
  */
 export {

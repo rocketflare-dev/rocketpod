@@ -1,12 +1,12 @@
 /**
- * Apply drizzle migrations (03 §4, D17). Node-only script — run via `pnpm db:migrate` (loads
+ * Apply drizzle migrations. Node-only script — run via `pnpm db:migrate` (loads
  * .env) or `pnpm db:migrate:ci` (DATABASE_URL from the environment); tests import
  * `runMigrations` directly so they exercise the same path.
  *
- * Ported from the Workers reference app's `scripts/migrate.ts`: Neon `-pooler` host rewritten to
- * the direct host (DDL must never go through a transaction pooler — session state such as a stuck
- * `default_transaction_read_only` on a pooled backend once blocked a production deploy), one
- * connection, wait-for-database retry. postgres.js over TCP (`scripts/lib/sql.ts`).
+ * A Neon `-pooler` host is rewritten to the direct host (DDL must never go through a transaction
+ * pooler — session state such as a stuck `default_transaction_read_only` on a pooled backend once
+ * blocked a production deploy); one connection; wait-for-database retry. postgres.js over TCP
+ * (`scripts/lib/sql.ts`).
  */
 import { fileURLToPath } from 'node:url'
 import { drizzle as drizzlePostgres } from 'drizzle-orm/postgres-js'
@@ -27,9 +27,9 @@ export interface RunMigrationsOptions {
   maxAttempts?: number
   /** Where `DATABASE_DRIVER` is read from (it must be `postgres` or unset). Default `process.env`. */
   env?: { readonly [key: string]: string | undefined }
-  /** Also install pg-boss's `pgboss` schema and the queues (M3, `src/node/jobs-schema.ts`). Default true. */
+  /** Also install pg-boss's `pgboss` schema and queues (`src/node/jobs-schema.ts`). Default true. */
   jobs?: boolean
-  /** Also install OpenWorkflow's `openworkflow` schema (M4, `src/node/runs-schema.ts`). Default true. */
+  /** Also install OpenWorkflow's `openworkflow` schema (`src/node/runs-schema.ts`). Default true. */
   runs?: boolean
 }
 
@@ -54,7 +54,7 @@ export async function runMigrations(
 
   await waitForDatabase(url, env, options.maxAttempts ?? 30, log)
 
-  // pgvector (D17) is required by the Phase 3 `documents`/`chunks` tables and must exist
+  // pgvector is required by the `documents`/`chunks` tables and must exist
   // before the first migration that references the `vector` type. Idempotent, and valid on
   // any hosted Postgres that offers it and the pgvector/pgvector:pg17 compose image.
   // It lives here rather than in a hand-written 0000 SQL file so the migrations folder stays
@@ -70,13 +70,13 @@ export async function runMigrations(
   } finally {
     await sql.end({ timeout: 5 })
   }
-  // The jobs transport's own schema (pg-boss, M3): created/migrated here, by the migrate one-shot,
+  // The jobs transport's own schema (pg-boss): created/migrated here, by the migrate one-shot,
   // never by a `web` process at boot.
   if (options.jobs !== false) {
     await installJobsSchema({ DATABASE_URL: url })
     log('Jobs schema (pgboss) and queues applied')
   }
-  // The durable-runs engine's own schema (OpenWorkflow, M4): the same rule.
+  // The durable-runs engine's own schema (OpenWorkflow): the same rule.
   if (options.runs !== false) {
     await installRunsSchema({ DATABASE_URL: url })
     log('Runs schema (openworkflow) applied')
@@ -103,7 +103,7 @@ async function main() {
 
 // Only run as a CLI — tests/helpers/db.ts imports runMigrations directly.
 const invokedPath = process.argv[1]
-// `.ts` only: bundled into `dist/migrate.js` (M7) every module shares the bundle's
+// `.ts` only: bundled into `dist/migrate.js` every module shares the bundle's
 // `import.meta.url`, which would otherwise start this CLI too.
 if (invokedPath?.endsWith('.ts') && fileURLToPath(import.meta.url) === invokedPath) {
   main()

@@ -1,8 +1,7 @@
 /**
- * `waitUntil` on Node (M2): post-response work — the request's DB-handle close, the tracer flush,
+ * `waitUntil` on Node: post-response work — the request's DB-handle close, the tracer flush,
  * activity writes, realtime nudges — runs after the response is sent, and is TRACKED, so shutdown
- * can wait for it instead of cutting it off. The Worker's runtime keeps an isolate alive for the
- * same promises; this set is what stands in for that.
+ * can wait for it instead of cutting it off.
  *
  * A rejected promise is logged, never rethrown: post-response work has no caller left to tell.
  */

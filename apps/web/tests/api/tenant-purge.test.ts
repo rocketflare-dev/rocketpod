@@ -1,8 +1,8 @@
 /**
- * `tenant.purge` (D7): the out-of-database half of deleting an organisation. The FK cascade is
+ * `tenant.purge`: the out-of-database half of deleting an organisation. The FK cascade is
  * complete inside Postgres and reaches nothing else, so this covers the seam that closes the gap —
  * the route ENQUEUES, the handler deletes the tenant's stored objects and nobody else's, a second
- * delivery is a clean no-op, a Worker with no `FILES` binding acks rather than retrying for ever,
+ * delivery is a clean no-op, a server with no object storage acks rather than retrying for ever,
  * and a plugin's `onTenantDeleted` runs without one bad hook costing the next its turn.
  */
 import { eq } from 'drizzle-orm'

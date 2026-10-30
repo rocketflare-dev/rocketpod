@@ -1,16 +1,15 @@
 /**
- * `StorageService` over any S3-compatible object store (M6, `docs/DESIGN-SELFHOSTED.md` §5.5):
- * AWS S3, MinIO, Cloudflare R2's S3 endpoint, Ceph/RGW, GCS in interoperability mode. They differ
+ * `StorageService` over any S3-compatible object store:
+ * AWS S3, MinIO, Ceph/RGW, GCS in interoperability mode, any other S3 endpoint. They differ
  * only by endpoint and path style, so ONE adapter covers them; `STORAGE_DRIVER=s3` and the
  * `STORAGE_*` vars configure it (`storageConfigOf`), and a missing piece leaves the platform's
  * `storage` null — the 503 `storage_not_configured` every caller already answers.
  *
- * It reproduces the R2 adapter (`src/platform/cloudflare/storage.ts`) exactly where the app can
- * see it:
+ * What the app can see is fixed, whatever the store:
  * - keys are used verbatim (the tenant prefix is the caller's — `buildStorageKey`);
- * - the ETag is R2's quoted, HTTP-ready form;
- * - a listing carries no content type or custom metadata (R2's `list` without `include` does not
- *   either), so `contentType` is the default and `metadata` is `{}` on a listed object;
+ * - the ETag is always quoted and HTTP-ready;
+ * - a listing carries no content type or custom metadata (`ListObjectsV2` returns neither), so
+ *   `contentType` is the default and `metadata` is `{}` on a listed object;
  * - downloads stream through the server (no presigned URLs);
  * - a ranged `get` is a `Range` header on `GetObject`, its `Content-Range` parsed back into
  *   `range`, and S3's 416 (`InvalidRange`) is `StorageRangeNotSatisfiableError`; a store that
@@ -18,9 +17,9 @@
  * - `putStream` is `@aws-sdk/lib-storage`'s `Upload`: a multipart upload of a body whose length is
  *   unknown, `PART_SIZE` at a time (one plain PutObject when the whole body fits in one part).
  *
- * S3 lower-cases user-metadata keys (they are HTTP headers); R2 preserves them. The original keys
- * ride in one extra header, `x-amz-meta-rp-keys`, so a `get`/`head` hands back `tenantId`, not
- * `tenantid`. Values travel as headers: printable ASCII only, which every value the kit writes
+ * S3 lower-cases user-metadata keys (they are HTTP headers); the app's keys are camel-case. The
+ * original keys ride in one extra header, `x-amz-meta-rp-keys`, so a `get`/`head` hands back
+ * `tenantId`, not `tenantid`. Values travel as headers: printable ASCII only, which every value the app writes
  * (ids, scopes) is.
  */
 import {
@@ -48,7 +47,7 @@ import {
 const DEFAULT_CONTENT_TYPE = 'application/octet-stream'
 /** The header that carries the original (case-preserved) metadata keys. */
 const KEYS_HEADER = 'rp-keys'
-/** S3's `DeleteObjects` and R2's `delete([...])` both stop at 1 000 keys per call. */
+/** S3's `DeleteObjects` stops at 1 000 keys per call. */
 const DELETE_BATCH = 1000
 /** A multipart part: S3's 5 MiB minimum for every part but the last. */
 const PART_SIZE = 5 * 1024 * 1024
@@ -56,7 +55,10 @@ const PART_SIZE = 5 * 1024 * 1024
 const UPLOAD_QUEUE = 2
 
 export interface S3StorageConfig {
-  /** `https://s3.eu-west-1.amazonaws.com`, `http://localhost:9000`, `https://<acct>.r2.cloudflarestorage.com`. Unset = AWS's default endpoint for the region. */
+  /**
+   * `https://s3.eu-west-1.amazonaws.com`, `http://localhost:9000` (MinIO). Unset = AWS's default
+   * endpoint for the region.
+   */
   endpoint?: string
   region: string
   bucket: string
@@ -95,7 +97,7 @@ export function createS3Client(cfg: S3StorageConfig): S3Client {
   })
 }
 
-/** R2's form: the hex digest in double quotes, whatever the store returned. */
+/** The hex digest in double quotes (weak prefix dropped), whatever the store returned. */
 export function quoteEtag(etag: string | undefined): string {
   const bare = (etag ?? '').replace(/^W\//, '').replace(/^"+|"+$/g, '')
   return `"${bare}"`

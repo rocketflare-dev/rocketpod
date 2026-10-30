@@ -1,5 +1,5 @@
 /**
- * The packaging stays honest (M7, docs/DEPLOY.md): the image runs the files the build produces,
+ * The packaging stays honest (docs/DEPLOY.md): the image runs the files the build produces,
  * compose and the Helm chart start the modes the server accepts, and the chart's ConfigMap/Secret
  * keys are exactly the settings `src/config.ts` reads — a new var with no place in the chart fails
  * here, not at somebody's first deploy. Text checks (there is no YAML parser in the workspace, the

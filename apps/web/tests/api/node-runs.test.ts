@@ -3,7 +3,7 @@
 // test database in schemas of its own, so no other file's worker can claim these runs.
 // Also mocks both plugin barrels to register the test-only agents (tests/helpers/test-agents.ts).
 /**
- * Durable agent runs on Node (M4, `src/node/runs.ts`): OpenWorkflow under the neutral `Step`.
+ * Durable agent runs on Node (`src/node/runs.ts`): OpenWorkflow under the neutral `Step`.
  *
  * The engine, through a workflow written for the test: a completed step is not re-executed when a
  * second worker takes over a run whose lease lapsed (crash replay); a step retries in-process and
@@ -128,7 +128,7 @@ afterAll(async () => {
 })
 
 describe('the adapter’s pure parts', () => {
-  it('parses durations and computes Cloudflare-style backoff', () => {
+  it('parses durations and computes constant, linear and exponential backoff', () => {
     expect(durationMs(250)).toBe(250)
     expect(durationMs('10 seconds')).toBe(10_000)
     expect(durationMs('1 minute')).toBe(60_000)

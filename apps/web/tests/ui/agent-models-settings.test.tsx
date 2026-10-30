@@ -1,5 +1,5 @@
 /**
- * Settings → Agent models (D17): the table shows each prompt key with its effective provider/model
+ * Settings → Agent models: the table shows each prompt key with its effective provider/model
  * and source badge; Override validates with the shared schema (at least one of config/model) and
  * PUTs exactly what is set; "Use default" DELETEs; a member sees the table read-only.
  */

@@ -88,7 +88,7 @@ with the applied migration count and no `role "rocketpod_app" does not exist` er
 **Object storage.** `dev:db:up` also starts the S3 gateway beside Postgres (Versity S3 Gateway,
 bucket `rocketpod-dev`, first free port from :7070, sticky like the database's) and writes the
 `STORAGE_*` lines into `apps/web/.env`. Point `STORAGE_ENDPOINT` at any other S3-compatible store
-(AWS S3, Cloudflare R2's S3 endpoint, MinIO) and `dev:db:up` leaves it alone (a `STORAGE_ENDPOINT`
+(AWS S3, MinIO, Ceph) and `dev:db:up` leaves it alone (a `STORAGE_ENDPOINT`
 on localhost is treated as its own gateway and rewritten); blank `STORAGE_DRIVER` turns uploads off (503).
 
 **The port is chosen, not fixed.** `dev:db:up` runs `apps/web/scripts/dev-db.mjs`, which gives this
@@ -103,8 +103,8 @@ Everything downstream reads that one value: `db:migrate`, `seed` and `drizzle-ki
 and the Node server from `.env` too (`pnpm dev` points it at this checkout's database).
 `pnpm dev:db:down` stops this checkout's database and never another's.
 
-**One driver: `postgres`.** postgres.js over TCP, locally and deployed (D35; Rocketflare's `neon`
-driver was removed, and `DATABASE_DRIVER=neon` is refused). The bootstrap writes
+**One driver: `postgres`.** postgres.js over TCP, locally and deployed (D35;
+`DATABASE_DRIVER=neon` is refused). The bootstrap writes
 `DATABASE_DRIVER=postgres` to `.env`. Verify: `pnpm db:check` prints `Connected to …
 (postgres driver)`.
 
@@ -260,7 +260,7 @@ pnpm test             # starts Postgres on :5533 (apps/web/docker-compose.test.y
 Verify: all projects green — including every installed plugin's own tests, which run in the host's
 projects (`src/plugins/*/tests/{api,ui,config}`). The analytics plugin's `cube-isolation.test.ts`
 is the one to watch, once installed: two tenants, every cube, disjoint rows.
-`apps/web/tests/config/platform-seam.test.ts` proves no Cloudflare dependency came back.
+`apps/web/tests/config/platform-seam.test.ts` keeps edge-runtime imports and binding reads out of the tree.
 Single web projects: `pnpm web test:api`, `pnpm web test:ui`, `pnpm web test:config`.
 
 ### 1.9 The gate

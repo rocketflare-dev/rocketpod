@@ -15,7 +15,7 @@ import { describe, expect, it } from 'vitest'
 /**
  * The source-level half, which runs whether or not there is a build: `components/shared` is the
  * barrel `App.tsx` imports EAGERLY, so one markdown import anywhere under it puts `react-markdown`
- * in the main chunk. `DocumentCard` (D18) is the reason this is worth pinning — it is rendered
+ * in the main chunk. `DocumentCard` is the reason this is worth pinning — it is rendered
  * from Search, from a citation and from inside `Markdown` itself, and the temptation to let it
  * render its own excerpt as markdown is exactly the mistake.
  */

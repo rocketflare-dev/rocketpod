@@ -1,5 +1,5 @@
 /**
- * `/api/ai/agent-models` (D17): per-agent model assignment. `GET /` lists EVERY registry prompt
+ * `/api/ai/agent-models`: per-agent model assignment. `GET /` lists EVERY registry prompt
  * key with its assignment (if any) and what `resolveChat` would pick for it — computed by the same
  * `planChat` the resolver uses (the platform default included), so the page can never disagree
  * with the runtime. `PUT /:promptKey`

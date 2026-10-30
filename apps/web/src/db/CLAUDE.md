@@ -6,9 +6,8 @@ CLAUDE.md). Rules for queries: `.claude/rules/database.md`.
 
 ## The driver seam
 
-The app runs on postgres.js (D35, narrowed in Rocketpod — Rocketflare's Neon serverless driver was
-removed). A request's handle is a view of the Node entry's ONE process pool
-(`installProcessPool`, `src/node/server.ts`; its `close()` is a no-op); tests and scripts open
+The app runs on one driver, postgres.js. A request's handle is a view of the Node entry's ONE
+process pool (`installProcessPool`, `src/node/server.ts`; its `close()` is a no-op); tests and scripts open
 clients of their own. **App code knows neither.** `client.ts` is the ONLY place the driver
 is named, and three things hold that:
 
@@ -37,7 +36,7 @@ When you find a new divergence:
 2. Normalise it in `client.ts`. If it cannot be normalised, add a rule to
    `driver-results.test.ts` that bans the pattern, with the replacement in its message and a row
    in the table above.
-3. Add a porting note, because a copy's own code may already contain the pattern.
+3. Search the rest of the app for the pattern, because existing code may already contain it.
 
 Raw date/time values are Postgres's text: drizzle keeps them unparsed so its column mappers can.
 Code reading a timestamp from raw SQL parses it itself (`new Date(value)`). The query builder

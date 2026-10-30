@@ -2,7 +2,7 @@
 // Runs pg-boss workers against the test database in a pg-boss schema of its own, so no other file's
 // worker can take these jobs (and the `node-server` worker cannot take them either).
 /**
- * Jobs and cron on Node (M3, `src/node/jobs.ts`): pg-boss as the transport under the unchanged
+ * Jobs and cron on Node (`src/node/jobs.ts`): pg-boss as the transport under the unchanged
  * consumer. A job sent through the producer reaches `processJobsBatch` and writes its row;
  * `delaySeconds` becomes `startAfter`; a retried job comes back on the queue's backoff curve and,
  * after `max_retries`, lands in the dead-letter queue; an acked, unsettled or poison message

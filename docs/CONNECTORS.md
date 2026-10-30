@@ -151,11 +151,11 @@ This is done **once per Rocketpod deployment**, by whoever runs the deployment.
 2. **Redirect URI** (Web): `<APP_URL>/api/hooks/connectors/m365/callback`, one per environment.
    For local development add `http://localhost:3001/api/hooks/connectors/m365/callback`.
 3. **Credential.**
-   - *Phase 1:* a client secret (at most 24 months) in `M365_CLIENT_ID` / `M365_CLIENT_SECRET` via
-     `pnpm provision secrets <env>`. Diary the expiry.
+   - *Phase 1:* a client secret (at most 24 months) in `M365_CLIENT_ID` / `M365_CLIENT_SECRET`, as
+     deployment secrets (`.env`, or the chart's `secrets`). Diary the expiry.
    - *Follow-up:* a certificate. The JWT client assertion (current docs: PS256 with an `x5t#S256`
      header; RS256 with `x5t` is the legacy form) is signed in WebCrypto
-     (`importKey('pkcs8', …, RSA-PSS)`), with the PEM kept as a Worker secret. There's nothing to
+     (`importKey('pkcs8', …, RSA-PSS)`), with the PEM kept as a deployment secret. There's nothing to
      rotate every two years.
 4. **API permissions (Application)**, added in phases. Customers re-consent when the set grows:
 
@@ -184,11 +184,11 @@ This is also done **once per deployment**. Create the project now: Google's quot
 2. **A service account.** One serves every customer domain; no project is needed per customer.
    Note its **numeric client id**, because customers paste that id into their Admin console.
 3. **Credential**, choose one:
-   - **A JSON key** as a Worker secret (`GOOGLE_WORKSPACE_SA_KEY`). The RS256 JWT is signed with
+   - **A JSON key** as a deployment secret (`GOOGLE_WORKSPACE_SA_KEY`). The RS256 JWT is signed with
      WebCrypto `importKey('pkcs8', …, RSASSA-PKCS1-v1_5/SHA-256)`. Your own org policy
      `iam.disableServiceAccountKeyCreation` may forbid this. The customer's policy is irrelevant,
      because the service account lives in your project.
-   - **Keyless (Workload Identity Federation).** The Worker signs its own OIDC JWT, and a WIF
+   - **Keyless (Workload Identity Federation).** The server signs its own OIDC JWT, and a WIF
      provider trusts that JWT's uploaded JWKS (up to 8 keys, so no public issuer is needed). Then
      `sts.googleapis.com` exchange → `iamcredentials…:signJwt` for the service account with the
      `sub` and `scope` claims → `oauth2.googleapis.com/token`. That's three round-trips, so cache
@@ -282,7 +282,7 @@ channel creation, renewal and Gmail `users.watch`.
 
   A resync clears the cursor, re-lists everything, and marks rows not seen as deleted.
 - **Throttling:**
-  - Honour `Retry-After` by re-enqueuing with `delaySeconds`, never by sleeping in the Worker.
+  - Honour `Retry-After` by re-enqueuing with `delaySeconds`, never by sleeping in a job handler.
   - Graph: send `x-ms-throttle-priority: low` on background calls. Outlook allows 4 concurrent
     requests and 10,000 per 10 minutes per app per mailbox, so claims serialise per mailbox.
   - Google: per-user quotas apply; with domain-wide delegation, set `quotaUser` to the subject.
@@ -358,7 +358,7 @@ Checked September 2026:
 | **Work IQ / Agent 365 MCP** (Microsoft) | remote, streamable HTTP, per-workload servers under `agent365.svc.cloud.microsoft` | Entra **delegated only**, admin consent, protected-resource metadata, no DCR | 10 generic verbs (`fetch`, `create_entity`, `ask`, `search_paths`, …) over mail, calendar, Teams, SharePoint, OneDrive | **Microsoft 365 Copilot licence per user**, Copilot Studio billing, Global Admin enablement | preview |
 | **Microsoft MCP Server for Enterprise** | remote HTTP, `mcp.svc.cloud.microsoft/enterprise` | delegated | read-only Graph queries over **Entra directory data only** | none; 100 requests/min/user | preview |
 | **Google Workspace MCP** (Gmail, Drive, Calendar, Chat, People) | remote, streamable HTTP, e.g. `gmailmcp.googleapis.com/mcp/v1` | per-user OAuth with **your own** pre-registered client, bearer token, no DCR; domain-wide delegation tokens undocumented | 6–10 per product: search, read, draft, list, free/busy | a GCP project in the Workspace Developer Preview | developer preview since 1 May 2026 |
-| Community: `Softeria/ms-365-mcp-server` | Node, stdio or HTTP | delegated, OAuth 2.1 + DCR | broad M365 | a Node host (a Container, not a Worker) | active, MIT |
+| Community: `Softeria/ms-365-mcp-server` | Node, stdio or HTTP | delegated, OAuth 2.1 + DCR | broad M365 | a separate Node process (stdio or HTTP) | active, MIT |
 | Community: `taylorwilsdon/google_workspace_mcp` | Python, HTTP | delegated, multi-user OAuth 2.1 | broad Workspace | a Python host | active |
 
 **Verdict: not a data plane.** Every server is delegated and interactive-shaped. None offers
@@ -387,10 +387,10 @@ Copilot. **The kit has no MCP *client* today.** It only *serves* MCP (the analyt
    https://learn.microsoft.com/en-us/exchange/permissions-exo/application-rbac
 4. **Is the Google webhook domain-verification requirement gone?** It's absent from the current
    docs. https://developers.google.com/workspace/calendar/api/guides/push
-5. **Does Workload Identity Federation → `signJwt` → domain-wide delegation work end to end from a
-   Worker?** Each step is documented, but there's no combined sample.
+5. **Does Workload Identity Federation → `signJwt` → domain-wide delegation work end to end from the
+   server?** Each step is documented, but there's no combined sample.
    https://docs.cloud.google.com/iam/docs/workload-identity-federation-with-other-providers
-6. **Do Entra federated identity credentials (the Worker as the OIDC issuer) work for cross-tenant
+6. **Do Entra federated identity credentials (the server as the OIDC issuer) work for cross-tenant
    client credentials in a multi-tenant app?** If so, the certificate goes away. Unverified.
 7. **What is the Admin SDK Reports latency for Drive activity, and how are the Admin SDK scopes
    classified?** https://developers.google.com/workspace/admin/directory/v1/guides/push

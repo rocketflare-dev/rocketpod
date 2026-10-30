@@ -1,8 +1,8 @@
 /**
- * `document.convert` job (D7, D18) through the real consumer: a `pending` upload → the original is
+ * `document.convert` job through the real consumer: a `pending` upload → the original is
  * read from object storage, handed to the converter with its name and type, the text stored on the row,
  * chunks + embeddings written, `indexed`, `ack()`; a `format: 'error'` answer → `failed` with the
- * reason and `ack()` (permanent — no retry); a thrown binding error → `failed` and
+ * reason and `ack()` (permanent — no retry); a thrown converter error → `failed` and
  * `retry({ delaySeconds })`; converted text over the cap → `failed` + ack; a vanished row → warn +
  * ack; a vanished object → `failed` + ack.
  */
@@ -158,7 +158,7 @@ describe('document.convert', () => {
     expect(await db.select().from(chunks).where(eq(chunks.documentId, doc.id))).toEqual([])
   })
 
-  it('a thrown binding error → failed (redacted) and retry with backoff', async () => {
+  it('a thrown converter error → failed (redacted) and retry with backoff', async () => {
     const { tenant, user } = await createTestTenantWithUser(db, 'owner')
     const env = createTestEnv()
     const ai = stubs(env).ai

@@ -1,4 +1,4 @@
-# Rocketpod Helm values (M7, docs/DEPLOY.md § Kubernetes). Postgres (17 + pgvector) and the S3
+# Rocketpod Helm values (docs/DEPLOY.md § Kubernetes). Postgres (17 + pgvector) and the S3
 # bucket are EXTERNAL — point `secrets.DATABASE_URL` and `config.STORAGE_*` at them.
 
 image:
@@ -33,7 +33,7 @@ config:
   JOBS_POLL_INTERVAL_SECONDS: "2"
   RUNS_CONCURRENCY: "4"
   STORAGE_DRIVER: s3
-  # Empty = AWS S3 for STORAGE_REGION; set for R2, GCS, MinIO, Versity…
+  # Empty = AWS S3 for STORAGE_REGION; set for GCS, MinIO, Ceph, Versity…
   STORAGE_ENDPOINT: ""
   STORAGE_REGION: us-east-1
   STORAGE_BUCKET: ""

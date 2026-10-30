@@ -45,7 +45,8 @@ without `--dry-run`, performs the mechanical rows below in one pass and reports 
 `.claude/skills/rp-adapt/checklist.md` walks those eight, lettered (a)–(h) as in the **Script** column.
 The script walks every text file git knows about (tracked and untracked, `.gitignore` honoured;
 `pnpm-lock.yaml`, `LICENSE`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, the two svgs,
-the tool itself, its test and the adapt skill are skipped; the `rocketflare-dev` org and every
+the tool itself, its test and the adapt skill are skipped (`CONTRIBUTING.md` and
+`CODE_OF_CONDUCT.md` are then deleted as `kitOnly`, and `SECURITY.md` rewritten as the app's own); the `rocketflare-dev` org and every
 `rocketflare-dev/<repo>` — the kit's origin, its plugins, the reusable plugin CI — is preserved as upstream) plus `apps/web/.env` when it exists (git-ignored, but its
 `DATABASE_URL` must follow the compose file), applies nine ordered token classes — `@rocketpod/`
 → `@<slug>/`, `ROCKETPOD` → `<UPPER>`, `rocketpod.example.com|.local` → `<domain>` (default
@@ -57,7 +58,12 @@ the tool itself, its test and the adapt skill are skipped; the `rocketflare-dev`
 `.env` is the only git-ignored file it opts in: a root `.env` you made for Compose, or a
 `deploy/values.local.yaml`, keeps the old names until you edit it. The rename also restarts the root
 `package.json` version at `0.1.0` and empties `CHANGELOG.md`: the app numbers its own releases, and
-the kit version it came from stays in `.rocketflare.json`. The table stays the reference — the first block
+the kit version it came from stays in `.rocketflare.json`. Before any of that it deletes everything
+`kitOnly` (the kit's own tests, workflows, release and maintainer-hook scripts, `install.sh`,
+`CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`) with the package.json scripts (`kit:release`) and
+`.claude/settings.json` hooks that call them, and drops `retiredSurfaces`. From then on the app
+releases by bumping its root version and tagging, keeps its own `CHANGELOG.md`, and writes no kit
+porting note (`docs/upgrades/` is the kit's record, ported in by `kit:upgrade`). The table stays the reference — the first block
 renames the packages themselves; by hand, do it first and run `pnpm install` before anything else,
 or nothing resolves.
 
@@ -95,6 +101,15 @@ an `@rocketpod/shared` import was missed. Keep `packages/shared` **private** (`"
 Each bullet below is a **surface** in `.rocketflare.json`, with an anchor file. Delete the anchor and
 `pnpm kit:upgrade` stops offering you that surface's changes forever — no bookkeeping, nothing to
 tell it. That is what makes deleting safe.
+
+Removing an **example** is deleting every path its surface lists in `.rocketflare.json` (`paths` is
+complete: the agent, its form and output views, its own tests, eval suites, datasets and baselines)
+plus its registry lines — and the gate stays green with no other test edit, because no core test
+leans on an example. A surface that `requires` another goes with it: `triage-research` requires
+`research-topic`, so deleting `research-topic` takes `triage-research` with it unless you edit
+its `escalate`. One known exception: `demo-seed`'s deterministic embedder is also what the test AI stub
+(`apps/web/tests/mocks/bindings.ts`) embeds with, so deleting that surface needs the stub given an
+embedder of its own.
 
 - The example agents `apps/web/src/api/services/agents/examples/{summarize-text,research-topic,triage-research}.ts` —
   `summarize-text` is the one-forced-call shape, `research-topic` the tool-loop-over-the-knowledge-base

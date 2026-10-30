@@ -1,5 +1,5 @@
 /**
- * Realtime nudges, notifications and activity (D8, D31).
+ * Realtime nudges, notifications and activity.
  *
  * **"DB is the truth, WebSocket is a nudge."** Everything here sends an id and a family root, never
  * a payload: the client re-queries. A nudge carrying the row would broadcast one member's data to

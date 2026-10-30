@@ -1,5 +1,5 @@
 /**
- * The migrate one-shot (M7): exactly what `pnpm db:migrate` runs, as one entry point —
+ * The migrate one-shot: exactly what `pnpm db:migrate` runs, as one entry point —
  * `db-roles --phase=role` → `migrate.ts` (drizzle migrations, then the `pgboss` and
  * `openworkflow` schemas) → `db-roles --phase=grants`. `scripts/build-server.mjs` bundles it into
  * `dist/migrate.js`, so the image's compose `migrate` service and the Helm pre-install/pre-upgrade

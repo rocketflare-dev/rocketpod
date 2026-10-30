@@ -1,17 +1,17 @@
 /**
- * `agent_runs` lifecycle service (D7 — the pg-boss → Workflows handoff, 09 §4.5 / 05 §1.3):
+ * `agent_runs` lifecycle service:
  *   enqueueRun  — validate input → insert `queued` (the partial unique index rejects a second
  *                 active run in the same exclusive SLOT — the tenant for an `exclusive` agent, or
  *                 the caller's `concurrencyKey` — → return the existing one, `deduplicated`) →
- *                 `AGENT_RUN_WORKFLOW.create({ id: runId })` → store `instanceId`. No binding →
+ *                 `platform.runs.create({ id: runId })` → store `instanceId`. No run engine →
  *                 `AgentRunsNotConfiguredError` (503) BEFORE any write.
  *   claimRun    — `UPDATE … SET running, attempt+1 WHERE status IN (queued,running) RETURNING`:
  *                 the row is the idempotency gate; a retried step re-claims, a settled row is a no-op.
  *   requestCancel — queued → `cancelled` outright; running → `cancelRequestedAt` (the run polls).
  *   reconcileRun — on read: an active row whose instance is `not_found|errored|terminated|complete`
- *                 is stale → settle it. `not_found` is an ANSWER, not an error; no binding → no-op.
+ *                 is stale → settle it. `not_found` is an ANSWER, not an error; no engine: no-op.
  *                 A caller with the run's log in hand passes `lastEventAt` and a recent row skips
- *                 the subrequest entirely — see RECONCILE_LIVENESS_MS.
+ *                 the engine query entirely — see RECONCILE_LIVENESS_MS.
  *   appendEvent — durable progress row + `entity.changed { entity: 'agent-run' }` nudge (D8).
  *   loadCheckpoint / saveCheckpoint — the tool loop's resume point on `agent_runs.checkpoint`, so a
  *                 retried `execute` continues the conversation instead of replaying it. Cleared by
@@ -44,7 +44,7 @@ import {
 import type { RunEngine, RunStatus } from '../../../platform/types'
 import { traceIdForRun } from '../../observability/trace-ids'
 import { ServiceUnavailableError, ValidationError } from '../../utils/core/errors'
-import { parseToolLoopCheckpoint, type ToolLoopCheckpoint } from '../ai/kit'
+import { parseToolLoopCheckpoint, type ToolLoopCheckpoint } from '../ai/agent-loop'
 import { nudge, type Realtime, realtimeEvent } from '../realtime'
 import { expireInterrupts, listInterrupts } from './interrupts'
 import { getAgent } from './registry'
@@ -106,7 +106,7 @@ export function toAgentRunEvent(row: AgentRunEventRow): AgentRunEvent {
 }
 
 /**
- * The three status lists diverge on purpose (decision 1), and collapsing them back into one is how
+ * The three status lists diverge on purpose, and collapsing them back into one is how
  * a parked run gets claimed by nobody or failed by the backstop:
  *
  * - `ACTIVE` ({@link ACTIVE_RUN_STATUSES}, incl. `awaiting_input`) — "still owes an answer": the
@@ -171,7 +171,7 @@ export interface EnqueueRunResult {
 }
 
 /**
- * Validate → insert `queued` → create the Workflow instance (id = run id) → store `instanceId`.
+ * Validate → insert `queued` → create the run instance (id = run id) → store `instanceId`.
  * A `create()` failure marks the row `failed` (visible, releases the exclusive slot) and rethrows.
  */
 export async function enqueueRun(
@@ -192,7 +192,7 @@ export async function enqueueRun(
     ;[row] = await db
       .insert(agentRuns)
       .values({
-        // Minted here rather than by the column default so the trace id (D32) — derived from it —
+        // Minted here rather than by the column default so the trace id — derived from it —
         // is on the row from the first write.
         id: runId,
         traceId: traceIdForRun(runId),
@@ -261,8 +261,8 @@ export async function claimRun(
 
 /**
  * Terminal transitions only ever apply to an ACTIVE row — a settled run is never rewritten. Every
- * lifecycle timestamp is the DATABASE clock (`now()`), like `startedAt` in `claimRun`: a Workflow
- * isolate's `Date` can sit behind Postgres, and `finishedAt < startedAt` is not a row we want.
+ * lifecycle timestamp is the DATABASE clock (`now()`), like `startedAt` in `claimRun`: a worker
+ * process's `Date` can sit behind Postgres, and `finishedAt < startedAt` is not a row we want.
  */
 async function settle(
   db: Database,
@@ -299,7 +299,7 @@ export function cancelRun(db: Database, tenantId: string, runId: string) {
 }
 
 /**
- * Park a run on a human decision: `running → awaiting_input` (issue #17).
+ * Park a run on a human decision: `running → awaiting_input`.
  *
  * **This is deliberately NOT `settle()`** — `finishedAt` stays NULL and, above all, **the
  * checkpoint survives**, which is the entire reason a resume is cheap: the resumed `execute` step
@@ -329,8 +329,8 @@ export async function parkRun(
 }
 
 /**
- * Un-park a run: `awaiting_input → running`, compare-and-set. **The answer IS the transition**
- * (decision 2): the resolve route calls this BEFORE it nudges or restarts the instance, which is
+ * Un-park a run: `awaiting_input → running`, compare-and-set. **The answer IS the transition**:
+ * the resolve route calls this BEFORE it nudges or restarts the instance, which is
  * what lets `claimRun` keep its narrow `queued|running` predicate — a restarted instance's `claim`
  * step finds a `running` row because somebody answered, and finds nothing when nobody did.
  *
@@ -366,11 +366,11 @@ export async function resumeRun(
  * - `queued` → `cancelled` outright (nothing is executing yet).
  * - `running`, first ask → set `cancelRequestedAt`; the run polls it between turns and settles
  *   itself, which is the graceful path (the transcript and events stay coherent).
- * - `running`, asked AGAIN → **force**: terminate the Workflow instance and settle the row here.
+ * - `running`, asked AGAIN → **force**: terminate the run instance and settle the row here.
  *   Cooperative cancellation only works while something is still polling, and a run whose model
- *   call hangs, whose instance was orphaned (a the dev server restart) or whose step died between
+ *   call hangs, whose instance was orphaned (a reset dev database) or whose step died between
  *   polls would otherwise sit in `running` with "Cancelling…" forever, with no way out short of
- *   SQL. The second click is the way out; a terminate failure (already gone, no binding) does not
+ *   SQL. The second click is the way out; a terminate failure (already gone, no engine) does not
  *   stop the row being settled — the row is the truth.
  */
 export async function requestCancel(
@@ -425,7 +425,7 @@ export async function requestCancel(
   return settled
 }
 
-/** Best-effort kill of the run's Workflow instance. Every failure is ignored on purpose. */
+/** Best-effort kill of the run's engine instance. Every failure is ignored on purpose. */
 async function terminateInstance(env: AgentRunsEnv | undefined, run: AgentRunRow): Promise<void> {
   if (!env?.runs || !run.instanceId) return
   try {
@@ -435,7 +435,7 @@ async function terminateInstance(env: AgentRunsEnv | undefined, run: AgentRunRow
   }
 }
 
-// ---- Suspend / resume (issue #17) -----------------------------------------------------------
+// ---- Suspend / resume -----------------------------------------------------------------------
 
 /** Best-effort wake of a parked instance. Returns false when it could not be delivered. */
 async function sendResumeEvent(
@@ -456,7 +456,7 @@ async function sendResumeEvent(
 /**
  * The instance id a restart should take: `<runId>` → `<runId>-r1` → `<runId>-r2`.
  *
- * Hyphen, not colon (T5): a colon is not a documented-legal instance-id character, while a uuid
+ * Hyphen, not colon: a colon is not a documented-legal instance-id character, while a uuid
  * already proves hyphens are, and 36 + 3 is comfortably inside the 64-character limit.
  */
 export function nextInstanceId(runId: string, current: string | null): string {
@@ -466,17 +466,17 @@ export function nextInstanceId(runId: string, current: string | null): string {
 }
 
 /**
- * Wake the parked run, and **create a new instance when the old one is gone** (T4/T5).
+ * Wake the parked run, and **create a new instance when the old one is gone**.
  *
  * `instance.not_found` is an ANSWER, not an error — the same reading `reconcileRun` already takes.
- * An instance disappears for ordinary reasons: a the dev server restart, or retention expiring
- * (30 days on Workers Paid, **3 days on Free**). Without this branch such a park could never be
+ * An instance can disappear from under its row: the `openworkflow` schema was reset (a fresh dev
+ * database) or its rows were deleted. Without this branch such a park could never be
  * resumed, which is the worst outcome this feature has: an answered question, a run that never
  * hears it, and the exclusive slot held forever.
  *
  * **The coupling to hold in your head:** the new instance's first step is `claim`, and `claimRun`
  * only takes `queued|running`. It succeeds solely because the caller already flipped the row with
- * {@link resumeRun} — *the answer is the transition* (decision 2). Call this AFTER that, never
+ * {@link resumeRun} — *the answer is the transition*. Call this AFTER that, never
  * before.
  *
  * `agent_runs.instanceId` therefore becomes *the latest* instance rather than "the run id"; it
@@ -517,7 +517,7 @@ export async function nudgeOrRestartInstance(
 }
 
 /**
- * The read-path safety net for a park whose instance no longer exists (T6). Lives here, beside
+ * The read-path safety net for a park whose instance no longer exists. Lives here, beside
  * {@link reconcileRun}, because it settles a run — and is called from the same place, on read.
  *
  * A parked run whose asks have **all passed their deadline** settles `cancelled` with `error` NULL:
@@ -570,7 +570,7 @@ export function isMissingInstanceError(error: unknown): boolean {
  *
  * 30 s is chosen from both ends. It is far longer than the gap between rows in a healthy run — a
  * tool call, a step boundary and a model turn all land inside a few seconds — so a run that is
- * genuinely working never pays for a subrequest. And it is far shorter than any stall a person
+ * genuinely working never pays for an engine query. And it is far shorter than any stall a person
  * would notice, so a crashed instance is still detected on the read after the window lapses.
  *
  * The one case that legitimately emits nothing for minutes — a single long `execute` step — falls
@@ -580,19 +580,19 @@ export function isMissingInstanceError(error: unknown): boolean {
 export const RECONCILE_LIVENESS_MS = 30_000
 
 /**
- * Reconcile an ACTIVE row against the Workflow runtime on read. The row is truth for anything the
+ * Reconcile an ACTIVE row against the run engine on read. The row is truth for anything the
  * runtime still owns; when the runtime says the instance is gone or finished while the row says
  * active, the row is stale (a crash between steps, a terminated instance) and is settled here.
- * No binding, no instance id, or an unreachable runtime → the row is returned untouched.
+ * No engine, no instance id, or an unreachable engine → the row is returned untouched.
  *
  * **`lastEventAt` is the liveness proof, and it is opt-in per call site.** This function costs a
- * Workflow `instance.status()` subrequest every time, and the run page re-reads a run on *every*
- * new `seq` the stream reports — so on a bursty run that is a subrequest several times a second
- * per viewer, to ask whether a run that wrote a durable event two seconds ago is still alive. It
- * manifestly is. A caller that already has the run's events to hand passes the newest one's
- * timestamp and the binding is not touched; a caller that has none passes nothing and behaves
- * exactly as it always did. The whole cost of the guard is that a genuinely dead instance is
- * detected up to {@link RECONCILE_LIVENESS_MS} later than it would have been.
+ * run-engine `instance.status()` query every time, and the run page re-reads a run on *every*
+ * new `seq` the stream reports — so on a bursty run that is an engine query several times a
+ * second per viewer, to ask whether a run that wrote a durable event two seconds ago is still
+ * alive. It manifestly is. A caller that already has the run's events to hand passes the newest
+ * one's timestamp and the engine is not touched; a caller that has none passes nothing and
+ * behaves exactly as it always did. The whole cost of the guard is that a genuinely dead
+ * instance is detected up to {@link RECONCILE_LIVENESS_MS} later than it would have been.
  */
 export async function reconcileRun(
   db: Database,
@@ -640,7 +640,7 @@ export function nudgeRun(realtime: Realtime | undefined, tenantId: string, runId
 }
 
 /**
- * The nudge for the ASKS of a run, distinct from the run's own (issue #17). It exists so a screen
+ * The nudge for the ASKS of a run, distinct from the run's own. It exists so a screen
  * that only watches the inbox — the "3 waiting" badge — refreshes on an answer without subscribing
  * to every progress row the runtime writes, which is most of them.
  */
@@ -693,7 +693,7 @@ export async function appendEvent(
 /**
  * Append an event whose `seq` is computed **in SQL**, retrying once on the unique violation.
  *
- * `createEmitter` keeps an in-memory counter, which is correct while a Workflow step is the only
+ * `createEmitter` keeps an in-memory counter, which is correct while a run step is the only
  * writer — and stops being correct the moment a steering route writes to the same run while a step
  * is emitting. `agent_run_events_run_seq_idx` rejects the loser, so either the note or a progress
  * row would be silently dropped. Here the number comes from `max(seq) + 1` inside the INSERT, and
@@ -791,9 +791,9 @@ export async function saveCheckpoint(
 /**
  * Run `fn` at most once per `(run, key)` across every attempt of this run, replaying the recorded
  * result afterwards — the durable-effect key. `agent_run_effects_run_key_idx` IS the guarantee, so
- * two isolates racing the same key cannot both record: the loser re-reads the winner's value.
+ * two processes racing the same key cannot both record: the loser re-reads the winner's value.
  *
- * The contract is at-least-once WITH a recorded result, not exactly-once — an isolate that dies
+ * The contract is at-least-once WITH a recorded result, not exactly-once — a process that dies
  * between `fn()` returning and the insert committing repeats the work. `result` is stored as jsonb,
  * so return ids and scalars, never rows with dates in them.
  */
@@ -819,7 +819,7 @@ export async function runOnce<T>(
 
 /**
  * "Am I the first to do this?" over the same `(run_id, key)` index {@link runOnce} uses — true
- * exactly once per run and key, across every attempt and every isolate.
+ * exactly once per run and key, across every attempt and every process.
  *
  * The difference from `runOnce` is what is replayed. `runOnce` replays a recorded **result**, which
  * is what an ingest or a ledger write needs. `claimEffect` replays a **decision**, which is what

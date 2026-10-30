@@ -1,8 +1,8 @@
 /**
- * The test `Platform` (D15, M6b): native in-memory implementations of every capability — a rate
- * limiter and operation locks over an in-memory KV-style store, a recording jobs queue, an
+ * The test `Platform`: native in-memory implementations of every capability — a rate
+ * limiter and operation locks over an in-memory key/value store, a recording jobs queue, an
  * in-memory object store, a recording realtime hub, a recording OpenAI-compatible model endpoint
- * (reached through `fetch`, see `RecordingAi`) with its converter for D18 uploads, and a recording
+ * (reached through `fetch`, see `RecordingAi`) with its converter for uploads, and a recording
  * run engine — plus vars from `process.env` (loaded from .env.test by dotenv-cli). Tests may read
  * `process.env`; `src/` may not.
  *
@@ -33,7 +33,7 @@ import type {
 } from '@/platform/types'
 import { StorageRangeNotSatisfiableError } from '@/platform/types'
 
-// ---- KV -----------------------------------------------------------------------------------
+// ---- Key/value store ----------------------------------------------------------------------
 
 interface KvEntry {
   value: string
@@ -113,7 +113,7 @@ export class MemoryKV {
   }
 }
 
-/** Minimal KV surface the limiter and locks below use — `MemoryKV` satisfies it. */
+/** Minimal key/value surface the limiter and locks below use — `MemoryKV` satisfies it. */
 export interface RateLimitKv {
   get(key: string, type: 'json'): Promise<unknown>
   put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void>
@@ -174,7 +174,7 @@ export interface RecordedMessage<T = unknown> {
   options?: unknown
 }
 
-/** Records `send`/`sendBatch` calls so tests can assert what routes enqueued (Phase 2). */
+/** Records `send`/`sendBatch` calls so tests can assert what routes enqueued. */
 export class RecordingQueue<T = unknown> {
   readonly messages: RecordedMessage<T>[] = []
   async send(body: T, options?: unknown): Promise<void> {
@@ -208,7 +208,7 @@ async function toBytes(body: StorageBody): Promise<Uint8Array> {
 }
 
 /**
- * An in-memory `StorageService` (D23). Paging honours `cursor` and `limit` the way an object store
+ * An in-memory `StorageService`. Paging honours `cursor` and `limit` the way an object store
  * does — the cursor is the LAST key of the page, and a cursor comes back only while another page
  * follows. Faithful here because a bulk delete pages through a prefix, and a fake that always
  * answered one page would make a broken paging loop look correct.
@@ -402,7 +402,7 @@ export const FAKE_EMBEDDINGS_MODEL = 'fake-embeddings'
 const FAKE_MODELS = new Map<string, RecordingAi>()
 
 /**
- * A recording OpenAI-compatible model endpoint (D17/D18) — what the platform `AI_*` and
+ * A recording OpenAI-compatible model endpoint — what the platform `AI_*` and
  * `EMBEDDINGS_*` vars of every test env point at. The real `openai_compatible` adapters call it
  * through `fetch`, which this module routes in-process for `FAKE_MODELS_BASE_URL`, so the code under
  * test is the production client and nothing touches the network.
@@ -413,7 +413,7 @@ const FAKE_MODELS = new Map<string, RecordingAi>()
  *   deterministic 1024-dim vectors), `{ response, usage, tool_calls? }` for chat (default `'ok'`),
  *   or a `ReadableStream` of OpenAI SSE bytes to drive streaming. A throw with a `status` becomes
  *   that HTTP status, so a test can stage an outage the adapter must classify.
- * - `toMarkdown()` (D18 uploads) records `{ name, type, size }` in `conversions` and answers markdown
+ * - `toMarkdown()` (uploads) records `{ name, type, size }` in `conversions` and answers markdown
  *   made of the blob's bytes decoded as text — so a fixture "PDF" is just text typed
  *   `application/pdf`; override `convert` for `format: 'error'` or a thrown outage. The test env's
  *   converter declares every `convert` type in `DOCUMENT_UPLOAD_TYPES`.
@@ -550,7 +550,7 @@ const TEST_CONVERTER_TYPES: ReadonlySet<string> = new Set(
     .map(([type]) => type)
 )
 
-// ---- Workflow --------------------------------------------------------------------------------
+// ---- Run engine -----------------------------------------------------------------------------
 
 export interface RecordedWorkflowInstance {
   id: string
@@ -573,7 +573,7 @@ export interface FakeInstanceStatus {
   output?: unknown
 }
 
-/** What `instance.sendEvent()` was called with — the resume nudge of a parked run (issue #17). */
+/** What `instance.sendEvent()` was called with — the resume nudge of a parked run. */
 export interface RecordedWorkflowEvent {
   instanceId: string
   type: string
@@ -678,7 +678,8 @@ const STUBS = new WeakMap<object, TestStubs>()
  * `app.request`, `queue()` and `dispatchScheduled()`, which read the prebuilt `PLATFORM` from it —
  * and that same `Platform`, as getters, so a service that takes a `Platform` takes `env` too.
  * Override a member (`createTestEnv({ storage: null })`) to model a missing capability. Reach the
- * fakes' inspection surface (recorded messages, stored objects, the KV store) through `stubs(env)`.
+ * fakes' inspection surface (recorded messages, stored objects, the key/value store) through
+ * `stubs(env)`.
  */
 export type TestEnv = AppBindings &
   Platform & {

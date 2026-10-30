@@ -1,4 +1,4 @@
-# Durable agent runs (D5, D7, D41)
+# Durable agent runs
 
 `agent-run-body.ts` — `runAgentRun(params, step, { env, platform })`, the agent run's durable body
 against the neutral `Step` (`src/platform/types.ts`). OpenWorkflow drives it on Node
@@ -10,7 +10,7 @@ Shape: `step.do('claim')` → a LOOP of `step.do('execute#N', { retries: { limit
 cfg.AGENT_INTERRUPT_TIMEOUT })` → `step.do('finish')`. The bodies are plain functions in
 `../services/agents/runtime.ts` (`claimStep` / `executeRun` / `finishStep`, called with a `db` and the
 `Platform`); `runAgentRun` only wires steps and opens/closes ONE DB client per step (`withStepDatabase`, awaited `close()` in `finally`). Step return
-values are small serialisable objects (ids + status), never rows. Tracing (D32): `execute#N`
+values are small serialisable objects (ids + status), never rows. Tracing: `execute#N`
 passes `{ round }` so the attempt's span is named for its step, and only `finish` passes `{ cfg }`
 to `finishStep`, which records the run's root span — one root per run, so the `expire#N` call
 must not.
@@ -25,10 +25,10 @@ Three more things the loop holds:
 
 - **The resume payload is ignored on purpose.** The answer is already an `agent_run_interrupts` row,
   written by the resolve route, which also flips `awaiting_input → running` BEFORE it wakes the
-  instance (decision 2). `execute#N+1` re-enters `run()` from the top and reads it. That is what
+  instance. `execute#N+1` re-enters `run()` from the top and reads it. That is what
   lets `nudgeOrRestartInstance` create a fresh instance when the old one is gone — a new instance
   has no event to replay and needs none. `AGENT_RESUME_EVENT` (`'agent-resume'`) is a constant, with no `.`,
-  a rule inherited from Rocketflare's engine (`workflow.invalid_event_type`, T8).
+  which some run engines reject (`workflow.invalid_event_type`).
 - **The `try/catch` around `execute` lives inside the loop and clears `outcome`** — a previous
   round's `awaiting_input` falling through to `finish` would say the run is parked when it is not.
 - **`MAX_INTERRUPT_ROUNDS` (32)** ends a runaway agent `failed`. A correctness guard, not a capacity
@@ -51,7 +51,7 @@ queueEvent }` out. `onWait` is the test's stand-in for the resolve route (write 
 row, return a payload); an empty queue with no `onWait` rejects the way the platform's timeout does,
 which is how the expiry path is driven. `names` is every step name in call order.
 
-## On Node: OpenWorkflow (D41)
+## On Node: OpenWorkflow
 
 `src/node/runs.ts` runs `runAgentRun` (`agent-run-body.ts`) on OpenWorkflow, through
 `openWorkflowStep`. The body must stay engine-neutral (only the `Step` interface), and two rules

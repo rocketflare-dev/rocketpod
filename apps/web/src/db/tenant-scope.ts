@@ -1,12 +1,12 @@
 /**
- * Tenant scoping (D1). `off` (default): predicates-only, `fn` gets the handle it was given.
+ * Tenant scoping. `off` (default): predicates-only, `fn` gets the handle it was given.
  * `enforce`: run `fn` inside a transaction that first sets the transaction-local GUC
  * `app.tenant_id`, so RLS policies (schema/rls.ts) apply on a connection that is NOT the
  * table owner. Transaction-local because every path is pooled (the Node process pool, a hosted
- * pooler) — session state would leak into the next request on that connection (03 §3.6).
+ * pooler) — session state would leak into the next request on that connection.
  *
- * Ported from the Node reference app's `src/db/tenant-scope.ts` without the AsyncLocalStorage-pinned
- * connection: there is no connection to pin here, the transaction IS the scope.
+ * No AsyncLocalStorage-pinned connection: there is no connection to pin here, the transaction IS
+ * the scope.
  */
 import { sql } from 'drizzle-orm'
 import type { Database } from './client'
@@ -68,7 +68,7 @@ export async function withTenantScope<T>(
   return db.transaction(async tx => {
     scopedHandles.set(tx, tenantId)
     await tx.execute(sql`select set_config('app.tenant_id', ${tenantId}, true)`)
-    // drizzle's transaction handle extends the `PgDatabase` base `Database` is (D35), so every
+    // drizzle's transaction handle extends the `PgDatabase` base `Database` is, so every
     // service signature stays `(db: Database)` without a second type or a cast.
     return fn(tx)
   })

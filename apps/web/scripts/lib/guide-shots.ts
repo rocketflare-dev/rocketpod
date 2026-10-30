@@ -68,7 +68,7 @@ export function routePlaceholders(entries: readonly ShotEntry[]): string[] {
 
 /**
  * Fill a route's `{name}` placeholders from `values` (what the script looked up on the dev server
- * — the kit defines none; an app adds its own lookups to `routeValues` in `scripts/guide-shots.ts`).
+ * — core defines none; an app adds its own lookups to `routeValues` in `scripts/guide-shots.ts`).
  * An unknown placeholder, or one the workspace cannot fill (`null`), throws rather than shooting a
  * 404.
  */

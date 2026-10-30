@@ -21,9 +21,9 @@
  *      `--reject` so one stale file cannot block the rest.
  *
  * It never applies a kit migration (port the schema, then `pnpm db:generate` — the kit's snapshot
- * chain would tell drizzle your own tables do not exist), never writes a resource id into a
- * wrangler toml, and never deletes a file without `--apply-deletes`. Resolving rejects and making
- * the judgement calls is the agent's job: `.claude/skills/rp-upgrade/`.
+ * chain would tell drizzle your own tables do not exist) and never deletes a file without
+ * `--apply-deletes`. Resolving rejects and making the judgement calls is the agent's job:
+ * `.claude/skills/rp-upgrade/`.
  *
  * Installed plugins (D31) are reported but never touched: `classifyPath` drops every file a
  * `kind: 'plugin'` surface owns as `skipped-plugin-owned`, because the plugin has its own

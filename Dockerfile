@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 #
-# Rocketpod's one image (M7, docs/DEPLOY.md): the Hono API + React UI + background worker, and the
+# Rocketpod's one image (docs/DEPLOY.md): the Hono API + React UI + background worker, and the
 # migrate one-shot. `pnpm build` bundles the Node entry into `dist/server.js` and the migrate entry
 # into `dist/migrate.js` (apps/web/scripts/build-server.mjs) — every dependency is inside the
 # bundle, so the runtime stage carries no node_modules at all: Node, the two bundles, the built UI,

@@ -29,6 +29,8 @@ import {
   hasChangelogSection,
   isDeployable,
   isKitManifest,
+  kitOnlyGlobs,
+  stripKitOnlyHooks,
   stripKitOnlyWiring,
 } from '../../../../scripts/lib/upgrade-lib.mjs'
 
@@ -173,6 +175,66 @@ describe('kit-only wiring, as the rename strips it', () => {
   it('returns the text untouched when there is nothing to unwire', () => {
     const pkg = '{\n  "scripts": { "test": "vitest run" }\n}\n'
     expect(stripKitOnlyWiring(pkg)).toEqual({ text: pkg, removed: [], edited: [] })
+  })
+
+  it('removes a script that runs a kit-only file, and keeps its look-alike', () => {
+    const pkg = `${JSON.stringify(
+      {
+        scripts: {
+          'kit:release': 'node scripts/release.mjs',
+          'release:check': 'node scripts/release-check.mjs --deployable',
+          'kit:upgrade': 'node scripts/upgrade.mjs',
+        },
+      },
+      null,
+      2
+    )}\n`
+    const { text, removed } = stripKitOnlyWiring(pkg, ['scripts/release.mjs'])
+    expect(removed).toEqual(['kit:release'])
+    expect(Object.keys(JSON.parse(text).scripts)).toEqual(['release:check', 'kit:upgrade'])
+  })
+})
+
+describe('stripKitOnlyHooks', () => {
+  const hook = (script: string) => ({
+    type: 'command',
+    command: `node "$CLAUDE_PROJECT_DIR/scripts/${script}"`,
+    timeout: 10,
+  })
+  const settings = `${JSON.stringify(
+    {
+      hooks: {
+        PreToolUse: [{ matcher: 'Bash', hooks: [hook('changelog-nudge.mjs')] }],
+        SessionStart: [{ hooks: [hook('kit-update-check.mjs')] }],
+      },
+    },
+    null,
+    2
+  )}\n`
+  const globs = ['scripts/changelog-nudge.mjs']
+
+  it('drops the maintainer nudge, the emptied group and the emptied event', () => {
+    const { text, removed } = stripKitOnlyHooks(settings, globs)
+    expect(removed).toHaveLength(1)
+    expect(JSON.parse(text).hooks).toEqual({
+      SessionStart: [{ hooks: [hook('kit-update-check.mjs')] }],
+    })
+  })
+
+  it('returns the text untouched when no hook names a kit-only file', () => {
+    expect(stripKitOnlyHooks(settings, ['scripts/release.mjs'])).toEqual({
+      text: settings,
+      removed: [],
+    })
+  })
+
+  it("strips exactly what the kit's own settings and manifest name", () => {
+    const own = readFileSync(path.join(REPO_ROOT, '.claude/settings.json'), 'utf8')
+    const { text } = stripKitOnlyHooks(own, kitOnlyGlobs(committed))
+    const commands = JSON.stringify(JSON.parse(text))
+    expect(commands).not.toMatch(/nudge/)
+    expect(commands).toContain('kit-update-check.mjs')
+    expect(commands).toContain('docs:stale')
   })
 })
 

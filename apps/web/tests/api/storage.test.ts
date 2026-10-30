@@ -1,5 +1,5 @@
 /**
- * Storage seam (D23): key building and filename sanitising are pure; the in-memory `StorageService`
+ * Storage seam: key building and filename sanitising are pure; the in-memory `StorageService`
  * the whole api suite uses is held to the interface's contract here (the S3 adapter's own contract
  * test is `node-platform-adapters.test.ts`).
  */

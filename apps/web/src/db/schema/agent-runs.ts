@@ -1,6 +1,7 @@
 /**
- * `agent_runs` — one row per agent run (D7): the durable claim record behind `AGENT_RUN_WORKFLOW`.
- * A row is inserted `queued` BEFORE the Workflow instance is created (id = run id); the `claim`
+ * `agent_runs` — one row per agent run: the durable claim record behind the run engine
+ * (`Platform.runs`, OpenWorkflow). A row is inserted `queued` BEFORE the engine's run is created
+ * (idempotency key = run id); the `claim`
  * step flips it to `running` with `UPDATE … WHERE status IN ('queued','running') RETURNING` — the
  * row IS the idempotency gate, so a retried step re-claims and a settled row is a no-op.
  * `agent_runs_active_exclusive_idx` (partial unique on `(tenant_id, agent_key, concurrency_key)`
@@ -62,9 +63,12 @@ export const agentRuns = pgTable(
     requestedByUserId: uuid('requested_by_user_id').references(() => users.id, {
       onDelete: 'set null',
     }),
-    /** The Workflow instance id (deterministic = the run id). Unique so a probe maps back 1:1. */
+    /**
+     * The run engine's id for the run's LATEST instance (OpenWorkflow's run id). Unique so a probe
+     * maps back 1:1.
+     */
     instanceId: text('instance_id').unique(),
-    /** Execute attempts started; the Workflow step retry re-claims and increments it. */
+    /** Execute attempts started; a retried run step re-claims and increments it. */
     attempt: integer('attempt').notNull().default(0),
     startedAt: timestamp('started_at', { withTimezone: true }),
     finishedAt: timestamp('finished_at', { withTimezone: true }),
@@ -79,7 +83,7 @@ export const agentRuns = pgTable(
      */
     checkpoint: jsonb('checkpoint'),
     /**
-     * The run's OTLP trace id (D32) — derived from the run id (`traceIdForRun`), so every Workflow
+     * The run's OTLP trace id — derived from the run id (`traceIdForRun`), so every run
      * step lands in one trace without carrying anything; stored so a reader need not know the rule.
      */
     traceId: text('trace_id'),
@@ -93,7 +97,7 @@ export const agentRuns = pgTable(
   table => [
     index('agent_runs_tenant_agent_status_idx').on(table.tenantId, table.agentKey, table.status),
     index('agent_runs_tenant_created_idx').on(table.tenantId, table.createdAt.desc()),
-    // The EXCLUSIVE guarantee (D7): at most one active run per (tenant, agent, slot), by the
+    // The EXCLUSIVE guarantee: at most one active run per (tenant, agent, slot), by the
     // database. A row with no slot (NULL `concurrency_key`, a non-exclusive agent) is outside it.
     // The predicate is `ACTIVE_RUN_STATUSES`, which INCLUDES `awaiting_input`: a run parked on a
     // human is still *the* active run for that agent, and a narrower predicate would let a second

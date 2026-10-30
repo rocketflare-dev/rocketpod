@@ -1,5 +1,5 @@
 /**
- * Sign-up gating and login plumbing (D9, D25). `admitUser` is the ONE function every login path
+ * Sign-up gating and login plumbing. `admitUser` is the ONE function every login path
  * (magic link, OAuth, invite accept, dev-login bypasses it) runs to turn a verified email into a
  * user row — or a refusal. `onNoTenant` is the one hook that decides what a member-less user
  * gets: the single tenant, a personal workspace, or nothing (→ /pending or /select-tenant).
@@ -278,7 +278,7 @@ async function notifyAdminsOfAccessRequest(
 }
 
 /**
- * What a member-less user gets (D9/D25):
+ * What a member-less user gets:
  *   single           → join the one tenant as `member` (a bootstrap admin creates it if missing)
  *   multi, the bootstrap admin on an install with no tenant yet
  *                    → the first workspace, named `APP_NAME`, as `owner` (whatever SIGNUP_MODE)

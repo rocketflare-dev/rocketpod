@@ -1,5 +1,5 @@
 /**
- * The "well-formed plugin" suite (D31, decisions 8 and 9).
+ * The "well-formed plugin" suite.
  *
  * The division of labour: **a plugin tests its behaviour; the host tests that it is a well-formed
  * plugin.** A plugin's own tests live inside its directory and run in this same suite once it is
@@ -17,7 +17,7 @@
  *
  * Every check is a pure function over strings, exercised here with fixtures AND run over whatever
  * is installed. With no plugins installed the second half is vacuous — which is why the fixtures
- * are not optional: they are what keeps this suite meaningful in the kit itself.
+ * are not optional: they are what keeps this suite meaningful in a checkout with none.
  */
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
@@ -196,7 +196,7 @@ describe('the plugin import rule', () => {
   })
 
   it('leaves third-party packages and the plugin’s own files alone', () => {
-    // The rule is about coupling to kit INTERNALS, not about dependencies.
+    // The rule is about coupling to core INTERNALS, not about dependencies.
     expect(pluginImportIssue(ROUTE, 'zod')).toBeNull()
     expect(pluginImportIssue(ROUTE, 'drizzle-orm')).toBeNull()
     expect(pluginImportIssue(ROUTE, 'react')).toBeNull()
@@ -209,7 +209,7 @@ describe('the plugin import rule', () => {
     expect(pluginImportIssue('apps/web/src/api/index.ts', '@/api/services/jobs')).toBeNull()
   })
 
-  it('refuses a kit internal, and the message carries the EDIT', () => {
+  it('refuses a core internal, and the message carries the EDIT', () => {
     // The whole point: an install is performed by an agent, and a diagnostic that says only what
     // is wrong gives one nothing to do.
     expect(pluginImportIssue(TABLE, '../../../../db/schema/rls', 4)).toBe(
@@ -340,11 +340,9 @@ describe('installed plugins', () => {
 
   it('reaches the host only through a declared entry', () => {
     /**
-     * **One group, and every installed plugin is in it.** The rule used to have two tiers, keyed
-     * on a plugin declaring `requires.pluginApi`, because the gate's second pass installed
-     * `defaultPlugins` at refs older than the surface. That field is gone — compatibility is
-     * measured from a plugin's `uses` against the kit's ledger — and with it the tier, so there is
-     * nothing here a released plugin cannot satisfy by being re-exported.
+     * **One group, and every installed plugin is in it.** There is no tier keyed on a plugin's
+     * declaration: compatibility is measured from a plugin's `uses` against the host's ledger, so
+     * there is nothing here a released plugin cannot satisfy by being re-exported.
      */
     const issues: string[] = []
     for (const file of tracked.filter(isPluginFile)) {
@@ -367,7 +365,7 @@ describe('installed plugins', () => {
     expect(
       issues,
       'A plugin imports only from declared entries and receives everything else as injected ' +
-        'context (D31). Each line below carries its replacement.'
+        'context. Each line below carries its replacement.'
     ).toEqual([])
   })
 })
@@ -389,7 +387,7 @@ describe('installed plugins', () => {
  * reach `JobTypeOf` / `AgentKeyOf` / `FeatureKeyOf` without anything being installed for it.
  */
 describe('the closed sets a plugin opens', () => {
-  it('name the kit exactly, and widen for what is installed', () => {
+  it('name the core set exactly, and widen for what is installed', () => {
     expectTypeOf<CoreJobType>().toEqualTypeOf<
       | 'email.send'
       | 'activity.record'
@@ -398,15 +396,15 @@ describe('the closed sets a plugin opens', () => {
       | 'chat.compact'
       | 'tenant.purge'
     >()
-    // A plugin may only WIDEN the kit's set — the property the whole "variants are data" change
-    // bought. Which types a particular plugin adds is that plugin's own test to make.
+    // A plugin may only WIDEN the core set — the property that keeps variants as data. Which types
+    // a particular plugin adds is that plugin's own test to make.
     expectTypeOf<CoreJobType>().toMatchTypeOf<JobType>()
     // The envelope narrows per type — what a handler is handed, and the reason `runHandler`'s
     // switch could go: this is the property that switch existed to provide.
     expectTypeOf<JobOf<'chat.compact'>['payload']['conversationId']>().toEqualTypeOf<string>()
-    // The kit's own agent keys; the installed union may only be wider.
+    // The core agent keys; the installed union may only be wider.
     expectTypeOf<(typeof CORE_AGENT_KEYS)[number]>().toMatchTypeOf<AgentKey>()
-    // A plugin's subjects union in beside the kit's; naming one is that plugin's own test.
+    // A plugin's subjects union in beside the core ones; naming one is that plugin's own test.
     expectTypeOf<'Document'>().toMatchTypeOf<Subjects>()
     expectTypeOf(queryKeys.members.all).toEqualTypeOf<readonly ['members']>()
   })

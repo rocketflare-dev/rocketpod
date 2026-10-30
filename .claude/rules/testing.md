@@ -15,7 +15,7 @@ Vitest in `apps/web` (all commands below are root scripts that delegate there, o
 `driver` (D35: `tests/driver/**` — the CONFORMANCE suite for the driver seam, through
 `openDatabase`, against the real database — a per-request client and the process pool;
 `tests/driver/CLAUDE.md`),
-`ui` (jsdom + Testing Library), `config` (Node, no database: the no-Cloudflare guard, env schema, pure
+`ui` (jsdom + Testing Library), `config` (Node, no database: the platform-seam guard, env schema, pure
 helpers, the driver guards `driver-results.test.ts` and `driver-conformance.test.ts`, and every
 installed plugin's own `src/plugins/*/tests/config/**`), and `kit-only` (Node, no database:
 `tests/kit-only/**`, the KIT's own tests — see below). The web suite is two `vitest run`
@@ -36,13 +36,18 @@ same suite against that branch over TCP, with no Docker. One driver, postgres.js
 test belongs there when it is true of the kit repository and of nothing made from it — the porting
 notes and the root version being the kit's (`upgrade-notes`), the release and rename machinery
 (`release-lib`, `release-root`, `rename-lib`, `rename-safe-identifiers`), the maintainer nudge hooks,
-the plugin CI that plugin repositories call from the kit, and the manifest's kit-state claims
-(`kit-only/kit-manifest.test.ts`), and every tooling case that reads this checkout AS the kit or covers
-a branch only the kit runs — release floors, changelog sections, `isDeployable`, the rename's
-unwiring, the Launch kit check and its parsers (`kit-tooling`, `kit-check`, `kit-check-parsers`,
-`launch-kit-manifest{,-shape}`). `scripts/rename.mjs` deletes the directory when a copy is born
-and unwires `--project kit-only`; the project is registered only while the directory exists;
-`kit:upgrade` never ports one; `tests/config/kit-manifest.test.ts` fails a copy that carries one.
+the plugin CI that plugin repositories call from the kit, the manifest's kit-state claims
+(`kit-only/kit-manifest.test.ts`, which also owns the "classifies every tracked file" coverage
+check — an app's own new paths never reach a kit diff, so a copy owes the manifest nothing for
+them), the example surfaces' removability (`example-surfaces`, below), and every tooling case that
+reads this checkout AS the kit or covers a branch only the kit runs — release floors, changelog
+sections, `isDeployable`, the rename's unwiring, the Launch kit check and its parsers
+(`kit-tooling`, `kit-check`, `kit-check-parsers`, `launch-kit-manifest{,-shape}`).
+`scripts/rename.mjs` deletes the directory — and every other `kitOnly` path: the maintainer
+scripts, their package.json scripts (`kit:release`) and `.claude/settings.json` hooks — when a copy
+is born and unwires `--project kit-only`; the project is registered only while the directory exists;
+`kit:upgrade` never ports one; `tests/config/kit-manifest.test.ts` fails a copy that carries one,
+or whose scripts or hooks still call one.
 A test of tooling a copy RUNS (upgrade, plugin, bootstrap, the update-check hook, the manifest
 reader) or of anything the app ships stays in `config` — the copy's gate is where it earns its keep.
 Such a test never judges the checkout's own state — its `launch.kit.json`, version or names —
@@ -92,8 +97,8 @@ reintroduce them:
   on data), not the wording — unless the mapping IS the behaviour (error code → message).
 - **Code a copy never runs, outside `kit-only`.** Kit-maintainer branches (`app === null`, the
   rename, release floors, changelog sections, `launch.kit.json`) go in `tests/kit-only/` so the
-  rename takes them away; Cloudflare leftovers (Workflows event-type rules, Durable Object names,
-  per-environment queue names) go nowhere.
+  rename takes them away; a test of a constraint the runtime does not impose (a naming rule no
+  engine here enforces, per-environment queue names) goes nowhere.
 - **Leftovers.** No `console.log` debugging in a committed test; a `describe` with no `it` fails
   vitest, so delete it with its last case.
 
@@ -233,9 +238,8 @@ a fake `WebSocket` factory left set) is on you.
   resolver branches use `createTestEnv({ ANTHROPIC_API_KEY, EMBEDDINGS_API_KEY })` overrides
 - **Human-in-the-loop (issue #17)** spreads over five files and each owns one seam:
   `tests/config/agent-interrupts.test.ts` (the pure contracts — payload schemas, `INTERRUPT_REJECTION`,
-  and the golden assertion that `AGENT_RESUME_EVENT` matches `/^[A-Za-z0-9_-]{1,100}$/` — a rule
-  inherited from Cloudflare Workflows' event types and kept, because it also keeps OpenWorkflow
-  signal names (`agent-run:<instance>:<name>`) unambiguous);
+  and the golden assertion that `AGENT_RESUME_EVENT` matches `/^[A-Za-z0-9_-]{1,100}$/` — it keeps
+  OpenWorkflow signal names (`agent-run:<instance>:<name>`) unambiguous);
   `agent-interrupts.test.ts` (the service: create-or-read on `(run_id, key)`, compare-and-set,
   expiry); `agent-interrupt-routes.test.ts` (403 under `approvers: 'admin'`, 409 on a double answer,
   404 across tenants, `editedInput` without `allowEdits` → 400); `agent-tool-loop-interrupt.test.ts`
@@ -253,7 +257,12 @@ a fake `WebSocket` factory left set) is on you.
   (`api-setup.ts` imports `@/db/client` lazily so the mock lands first). A UI test only needs the shared
   one (responses are parsed with `agentKeySchema`); a row inserted directly needs neither. An
   example's own behaviour stays in its own file (`agent-research`, `agent-triage-research`,
-  `ui/agent-examples`)
+  `ui/agent-examples`), and that file is listed in its surface's `paths` (`kind: "example"` in
+  `.rocketflare.json`) so deleting the example deletes its tests. `tests/kit-only/example-surfaces.test.ts`
+  fails a test OUTSIDE a surface that names its agent key or imports one of its files (a surface
+  that `requires` another — `triage-research` → `research-topic` — counts both); the one recorded
+  exception is `demo-seed`'s deterministic embedder, which the test AI stub (`tests/mocks/bindings.ts`)
+  also embeds with, so deleting that surface still breaks the harness
 - Agent runs (`agent-runs.test.ts`): `POST /api/agents/runs` → 202 + a `queued` row + one entry in
   `stubs(env).workflow.created` with `id === run.id`; the exclusive dedupe (same run back with
   `deduplicated: true`; 409 with `?strict=1`); `createTestEnv({ runs: null })` → 503; reconcile-on-read by `workflow.setStatus(id, { status: 'errored' })` then `GET /runs/:id`
@@ -397,7 +406,8 @@ the whole rule, and it is why neither half duplicates the other.
 - **A structural check must read comment-free code, or it validates prose.** The rule is for anyone
   writing one, because the failure mode is invisible — a green check that proves nothing. Three in
   `scripts/lib/plugin-lib.mjs` were silently substring-matching: `workerExports` over raw source,
-  satisfied by a class named only in a comment (that check left with the Cloudflare runtime); `onTenantDeleted` through `.includes(...)`, which
+  satisfied by a class named only in a comment (that check is gone: `workerExports` is now refused
+  outright); `onTenantDeleted` through `.includes(...)`, which
   passed on a fixture that plainly broke the rule; `isolationEvidence` through regexes a header
   paragraph or a commented-out `createTestTenant(db)` satisfied. `stripComments` runs first in the
   survivors now, and each requires a real DECLARATION (`declaresProperty`) rather than a mention

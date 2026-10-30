@@ -1,5 +1,5 @@
 /**
- * `@testkit/unit` — builders for the plugin context family (D31).
+ * `@testkit/unit` — builders for the plugin context family.
  *
  * Every execution context a plugin is handed (`RequestCtx`, `JobCtx`, `CronCtx`, `WorkflowCtx`,
  * `ToolCtx`) is built here from plain options, so a test can exercise a handler's BRANCHING without
@@ -15,10 +15,10 @@
  *
  * The accepted cost, stated rather than discovered later: **there is no fast, database-free test of
  * a data-touching handler.** A slower suite is the price of an isolation case that cannot be faked
- * into passing, and a plugin's isolation case is the one thing the kit treats as non-negotiable —
+ * into passing, and a plugin's isolation case is the one thing the host treats as non-negotiable —
  * it drives the real mount through `request(...)` from `@testkit/integration` as a second tenant.
  *
- * These are the kit's own adapters (`requestCtx`, `jobCtx`, `cronCtx`, `workflowCtx`, `toolCtx`)
+ * These are the host's own adapters (`requestCtx`, `jobCtx`, `cronCtx`, `workflowCtx`, `toolCtx`)
  * wherever one can be reached without a Hono context, so a builder cannot drift from the thing it
  * builds. `makeRequestCtx` is the exception and says so on itself.
  */
@@ -89,9 +89,9 @@ export interface RequestCtxOptions extends BaseOptions {
   user?: User
   role?: MembershipRole | null
   isGlobalAdmin?: boolean
-  /** Flags ON for this organisation — what `ctx.hasFeature` reads, never the ability (D30). */
+  /** Flags ON for this organisation — what `ctx.hasFeature` reads, never the ability. */
   features?: readonly string[]
-  /** Group memberships, for a visibility predicate (D29). */
+  /** Group memberships, for a visibility predicate. */
   groupIds?: string[]
   /**
    * The same memberships WITH their type names — what `ctx.groups` answers, and what anything
@@ -147,8 +147,8 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  * A `RequestCtx` with no request behind it.
  *
  * This one is assembled rather than adapted, because `requestCtx(c)` reads a Hono context and there
- * is not one — and a half-built `AppContext` would be a fake of the kit's internals, which is worse
- * than a fake of its published surface. The consequence is stated plainly: **this is the one builder
+ * is not one — and a half-built `AppContext` would be a fake of the host's internals, which is
+ * worse than a fake of its published surface. The consequence is stated plainly: **this is the one builder
  * that can drift from what it models**, so behaviour that depends on the real middleware chain
  * (CSRF, the body limit, `validate()`'s own 400, the feature-gate middleware on the MOUNT) is only
  * ever proven by `request(...)` from `@testkit/integration`.
@@ -202,7 +202,7 @@ export function makeRequestCtx(options: RequestCtxOptions): FakeRequestCtx {
 
     // Lazily imported for the same reason the real adapter does it: `services/access` composes the
     // visibility registry by reading the plugin barrel. These are the REAL helpers over the real
-    // handle, so a test of a plugin's visibility rules is testing the kit's, not a restatement.
+    // handle, so a test of a plugin's visibility rules is testing the host's, not a restatement.
     visibility: {
       resolve: async input => {
         const { resolveRequestedVisibility } = await import('@/api/services/access')
@@ -312,7 +312,7 @@ export function makeRequestCtx(options: RequestCtxOptions): FakeRequestCtx {
 // ---- JobCtx and CronCtx ------------------------------------------------------------------------
 
 /**
- * One queue message's context, through the kit's own `jobCtx` adapter.
+ * One queue message's context, through the host's own `jobCtx` adapter.
  *
  * Neither background context carries a `tenantId`, deliberately: a job's tenant comes from its
  * PAYLOAD. If a handler under test reaches for one on the context, that is the bug the missing
@@ -363,7 +363,7 @@ export interface WorkflowCtxOptions extends BaseOptions {
  * A `WorkflowCtx` over a recording step.
  *
  * **`db` is required here but is not the handle the steps use**, and that is worth reading rather
- * than working out from a surprise. The kit's rule is one client per STEP, opened when the step body
+ * than working out from a surprise. The rule is one client per STEP, opened when the step body
  * starts and closed when it ends whatever happens — so `workflowCtx` opens its own through
  * `openDatabase`, which `createTestEnv()` already points at the test database. What `db` proves is
  * that the integration harness is RUNNING: a workflow step hits real Postgres the instant it
@@ -393,14 +393,14 @@ export interface ToolCtxOptions extends BaseOptions {
   /** Who the run is FOR. A tool reads what its requester may read, never a tenant it chose itself. */
   userId?: string | null
   groupIds?: string[]
-  /** Admin-level requesters are not narrowed by visibility (D29). Defaults to `true`, as a system run. */
+  /** Admin-level requesters are not narrowed by visibility. Defaults to `true`, as a system run. */
   bypass?: boolean
   /** The CALLER's budget for one document window — an agent run's is far larger than a chat turn's. */
   maxDocumentChars?: number
 }
 
 /**
- * What `ServerPlugin.agentTools(ctx)` is handed, through the kit's own `toolCtx` adapter.
+ * What `ServerPlugin.agentTools(ctx)` is handed, through the host's own `toolCtx` adapter.
  *
  * The tenant arrives as part of a `scope`, not as a bare id, and that is the whole safety property:
  * a tool bound to a scope answers what the person who STARTED the run may read. A `tenantId` on a

@@ -12,8 +12,7 @@
  *   Docker. tests/helpers/db-safety.ts still refuses unless the branch name and the endpoint id
  *   match.
  *
- * One driver: postgres.js (Rocketpod removed Rocketflare's Neon driver, so there is no second
- * conformance pass to run).
+ * One driver: postgres.js, so there is no second conformance pass to run.
  *
  * The SELECTION (`pnpm test --only <part> [--shard i/N]`, `parseTestArgs`) runs one part of the
  * same plan, so CI's parallel jobs (.github/workflows/ci.yml) run exactly the steps a laptop runs,

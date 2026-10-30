@@ -1,5 +1,5 @@
 /**
- * `rocketpod features list` (D30) — `GET /api/features`, any member.
+ * `rocketpod features list` — `GET /api/features`, any member.
  *
  * The EFFECTIVE flags for the key's organisation, not the platform rollout state. Administering a
  * flag is a global-admin act and `/api/admin/*` resolves the session cookie only, so a tenant API

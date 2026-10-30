@@ -81,8 +81,8 @@ Take a fresh clone to a running, signed-in dev stack in one command. Re-runnable
 
   --yes         never prompt
   --offline, --online
-                accepted and ignored (Rocketflare's Workers AI toggle; Rocketpod has none —
-                set an AI provider key in apps/web/.env, see step 8)
+                accepted and ignored, for callers that still pass them (there is no
+                offline AI mode — set an AI provider key in apps/web/.env, see step 8)
   --no-dev      stop after step 8 and print the commands to run next
   --no-demo     seed without the demo data (plain \`pnpm seed\`)
   --no-plugins  skip the plugins step (do not install .rocketflare.json's defaultPlugins)
@@ -98,7 +98,7 @@ Take a fresh clone to a running, signed-in dev stack in one command. Re-runnable
                 not with --check
   --driver postgres
                 the LOCAL database driver, written to apps/web/.env (D35). postgres is the
-                only one (Rocketpod removed neon); accepted for Launch's bootstrap command
+                only one; accepted for Launch's bootstrap command
   --check      read-only preflight (= pnpm preflight): toolchain, secrets, database, AI
                 providers, dev status; exit 3 when anything is missing
   --verbose     stream every child's output (also DEV_VERBOSE=1)

@@ -1,5 +1,5 @@
 /**
- * The plugin API — the ONE module a plugin's server half imports from the host (D31).
+ * The plugin API — the ONE module a plugin's server half imports from the host.
  *
  * `import { requestCtx, createRouter, validate } from '@/plugins/api'` and that is the whole of it.
  * Everything a plugin needs at RUNTIME arrives through an injected context; everything it needs to
@@ -19,7 +19,7 @@
  *   common path is acyclic; importing it is then a deliberate act with its own file to explain
  *   itself.
  * - `./ui` and `./ui-wiring` — React. A plugin's server half must never pull the browser half into
- *   the Worker bundle, and the two UI halves are separately importable for a reason of their own
+ *   the server bundle, and the two UI halves are separately importable for a reason of their own
  *   (one ships in the main bundle, one must not).
  * - Schema helpers. `tenantRef`, `timestamps` and `tenantIsolation` are needed at MODULE scope by a
  *   table file, so they can come neither from a context nor from a module that reads the plugin

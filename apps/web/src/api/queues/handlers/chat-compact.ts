@@ -1,5 +1,5 @@
 /**
- * `chat.compact` (D17) — fold the messages that no longer fit a conversation's context budget into
+ * `chat.compact` — fold the messages that no longer fit a conversation's context budget into
  * its rolling summary, so a long thread forgets gracefully instead of either overflowing the model
  * or silently losing its beginning.
  *

@@ -6,7 +6,7 @@ import path from 'node:path'
  * whether a test file gets a fresh module registry (`isolate`). Sharing the registry across
  * files in a worker removes ~1s of app-graph import per file; a file that mocks a module or
  * a global (`vi.mock`, `vi.stubGlobal`, spying on `globalThis.fetch`) would leak that fake
- * into every later file in the worker, so it must opt OUT by carrying this marker on its
+ * into every later file in that vitest worker, so it must opt OUT by carrying this marker on its
  * FIRST line:
  *
  *     // @vitest-isolate

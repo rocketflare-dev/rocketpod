@@ -279,7 +279,7 @@ function svgLines(lines: string[]): Set<number> {
 
 /**
  * A page → retrievable chunks: split at H2 (ids from {@link scanGuideHeadings}, the reader's own),
- * each section packed by the kit's chunker, each chunk led by `Title › Section` so a passage read
+ * each section packed by the chunker, each chunk led by `Title › Section` so a passage read
  * on its own says where it is from. Image-only lines and inline `<svg>` diagrams are dropped: they
  * are viewed in the reader (a diagram's prose equivalent stays).
  */

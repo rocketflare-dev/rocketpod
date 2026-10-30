@@ -1,9 +1,8 @@
 /**
- * Groups (D29) — `group_types`, `groups` and `group_members`.
+ * Groups — `group_types`, `groups` and `group_members`.
  *
  * A tenant declares group TYPES ("Department", "Region", "Client"); each type holds groups; each
- * group holds tenant members. Two decisions worth stating, because both are places the app this
- * was ported from lost data:
+ * group holds tenant members. Two decisions worth stating, because both prevent lost data:
  *
  * - `group_members` has a composite PK `(group_id, user_id)`, so adding someone twice is
  *   `onConflictDoNothing` rather than a check-then-insert race.

@@ -1,9 +1,9 @@
 /**
- * `triage-research` — the decisions example (D37), and the shape the kit recommends for a job an
+ * `triage-research` — the decisions example, and the recommended shape for a job an
  * agent does over and over: **a question decides what a thing IS; code decides what follows; an
  * agent runs only where something must be found, or where no question could settle it.**
  *
- *   search      one `search_knowledge` call (the kit tool, not a model turn)
+ *   search      one `search_knowledge` call (the built-in tool, not a model turn)
  *   screen      `ctx.decide.sift` — ONE request, the same yes/no of every passage: does it help
  *               answer the question? Code keeps the ones at or above `RELEVANCE_THRESHOLD`.
  *   triage      `ctx.decide` — taken together, do the kept passages answer it?
@@ -30,7 +30,7 @@ import {
 } from '@rocketpod/shared/ai/agents'
 import { KNOWLEDGE_TOOLS } from '@rocketpod/shared/ai/embeddings'
 import { z } from 'zod'
-import { callStructuredTool } from '../../ai/kit'
+import { callStructuredTool } from '../../ai/agent-loop'
 import { recordUsage } from '../../ai/usage'
 import type { AgentContext, AgentDefinition } from '../registry'
 import type { SearchKnowledgeResult } from '../tools/search-knowledge'

@@ -2,9 +2,9 @@
 
 Multi-tenant SaaS starter for internal tools and B2B products, a **pnpm workspace**: Hono API + React UI in one
 Node server built to run in a container (`apps/web`), a CLI (`apps/cli`), private zod contracts
-(`packages/shared`). A hard fork of Rocketflare 0.19.0 (0.20.0 ported since) with no Cloudflare
-dependency (D41, `docs/FORK.md`): Postgres for everything stateful, an S3-compatible store for
-files. `AGENTS.md` symlinks here.
+(`packages/shared`). Postgres for everything stateful (jobs, cron, durable runs, realtime fan-out,
+limits), an S3-compatible store for files (D41, `docs/DESIGN-SELFHOSTED.md`). `AGENTS.md` symlinks
+here.
 
 > **How it works**: `docs/CONCEPTS.md` — one section per subsystem with its known gaps. **Check it
 > before assuming a capability exists; update it when you change one.**
@@ -25,9 +25,11 @@ files. `AGENTS.md` symlinks here.
 > (bootstrap step `6/10 plugins`).
 > **Copies of the kit upgrade.** `.rocketflare.json` records the kit version, the app's names and the
 > manifest of replaceable surfaces; `/rp-upgrade` ports later releases into a copy and never
-> recreates a surface whose anchor file is gone. **A behaviour change here needs an entry in
-> `docs/upgrades/unreleased.md` in the same commit** — CI fails without one, and the tag gate refuses
-> a release with no note. `pnpm kit:release <version>` writes the release assets.
+> recreates a surface whose anchor file is gone. **In the kit repository only** (`.rocketflare.json`
+> `app` is null): a behaviour change needs an entry in `docs/upgrades/unreleased.md` in the same
+> commit — `kit.yml` fails without one — and `pnpm kit:release <version>` cuts the release. **In an
+> app** neither exists (the rename removes them): never write a kit porting note; release by bumping
+> the root `package.json` version and tagging it, and keep your own `CHANGELOG.md`.
 
 ## Stack
 
@@ -58,7 +60,7 @@ files. `AGENTS.md` symlinks here.
   prompt and agent to a suite or a stated exemption, `@rocketpod/shared/ai/eval-coverage`) + thumbs
   feedback → `rocketpod evals promote`
 - **Analytics**: not core — the `analytics` PLUGIN (D31), not installed by default until a
-  Rocketpod-compatible release exists (`defaultPlugins` is empty, `docs/ROADMAP.md` → Next)
+  Rocketpod-compatible release exists (`defaultPlugins` is empty)
 - **UI**: React 18 + Vite, DaisyUI 5 / Tailwind v4, React Router 6, TanStack Query 5; served by the Node server from `dist/ui`
 - **CLI**: commander + chalk + open; `tsx` in dev, esbuild → `dist/cli.js` (bin `rocketpod`)
 - **Tests**: vitest projects `api` · `api-isolated` · `driver` · `ui` · `config` · `kit-only` (the kit's own
@@ -86,7 +88,7 @@ pnpm lint · pnpm typecheck · pnpm build  # workspace-wide
 pnpm web <script>  # any apps/web script (test:api, db:check…)
 pnpm web docs:stale · pnpm web guide:index [--dry-run] · pnpm web guide:shots [--stale]  # the Guide: stale pages / re-embed (needs EMBEDDINGS_API_KEY, costs) / screenshots (Playwright, on demand)
 pnpm db:generate · pnpm db:studio
-pnpm kit:upgrade [--to X.Y.Z] [--apply] · pnpm kit:release X.Y.Z  # port a kit release into a copy / cut one
+pnpm kit:upgrade [--to X.Y.Z] [--apply]  # port a later kit release into this app (the kit repo also has kit:release)
 ```
 
 Local env lives in `apps/web/.env` (`.env.example` is the template). No
@@ -120,19 +122,21 @@ apps/evals/        @rocketpod/evals — vitest-evals suites over apps/web in-pro
                    suites/, datasets/*.jsonl, baselines/; `pnpm eval` only, never the gate (docs/EVALS.md)
 packages/shared/   @rocketpod/shared — src/*.ts zod contracts, errors, pagination, permissions,
                    plugins/ (SharedPlugin + the SHARED_PLUGINS barrel + each plugin's contracts) (CLAUDE.md)
-scripts/           bootstrap.sh → bootstrap.mjs (10 steps), install.sh (curl one-liner), rename.mjs,
-                   upgrade.mjs (port a kit release into a copy), release{,-check}.mjs, changelog-nudge.mjs
-                   (PreToolUse on a commit: missing porting note),
+scripts/           bootstrap.sh → bootstrap.mjs (10 steps), rename.mjs, upgrade.mjs (port a kit
+                   release into a copy), release-check.mjs,
                    kit-update-check.mjs (SessionStart: tells a copy about a newer kit release),
                    kit-check.mjs (the Launch kit conformance check, shared with the meta-kit — this
-                   kit is not conformant: launch.kit.json `$runtime`), lib/
+                   kit is not conformant: launch.kit.json `$runtime`), lib/;
+                   kit repo only (`kitOnly`, deleted by the rename): install.sh (curl one-liner),
+                   release.mjs, default-plugins.mjs, changelog-nudge.mjs + lib/nudge-lib.mjs
+                   (maintainer PreToolUse hook: missing porting note)
 Dockerfile         ONE image: dist/server.js (web|worker|all) + dist/migrate.js + dist/ui, no node_modules
 docker-compose.yml the self-contained stack; deploy/ holds compose.single.yml, compose.env.example and
                    helm/rocketpod (web/worker Deployments, migrate hook Job, ConfigMap/Secret ≡ config.ts)
 .rocketflare.json  kit version + commit, the app's names, the replaceable-surface manifest
 launch.kit.json    the Launch kit contract (D36), Cloudflare-shaped; kept schema-valid, its `worker` and
                    `release` blocks describe nothing here (`$runtime`)
-docs/upgrades/     one porting note per kit release (+ unreleased.md) — CHANGELOG.md is the index
+docs/upgrades/     one porting note per kit release (+ unreleased.md, kit repo only) — CHANGELOG.md is the index
 .claude/skills/    rp-setup · rp-preflight · rp-adapt (+ checklist.md) ·
                    rp-how-do-i (+ example-orders.md) · rp-upgrade (+ porting.md — port later kit releases) ·
                    rp-plugin (+ reference.md — install/upgrade/remove a plugin, D31) ·
@@ -205,8 +209,9 @@ code-quality.md · runtime.md. Runbooks: `docs/DEPLOY.md` · `docs/RLS.md`
 - **shared is private** — never publish it; never import `apps/web` from `packages/shared` or `apps/cli`
 - **Routes enqueue, never run**: long work → `platform.jobs` or `platform.runs`; side effects in
   `waitUntil`; concurrency is a DB claim row, never a `Map`; SSE routes use `streamDatabase(c)`
-- **No Cloudflare**: no wrangler/miniflare/workerd/`@cloudflare/*` package, no `cloudflare:*`
-  import, no Workers type, no binding read off an env — `platform-seam.test.ts` fails any
+- **Capabilities through the platform seam**: `c.get('platform')` / `ctx.platform`, never a binding
+  read off an env; no `@cloudflare/*` package, `cloudflare:*` import or edge-runtime type —
+  `platform-seam.test.ts` fails any
 - **Config, compose and chart agree**: a var or secret added to `src/config.ts` goes into
   `.env.example` and the chart's `config`/`secrets` (compose when it needs it) in the same change —
   `packaging.test.ts` fails otherwise; the Dockerfile ships exactly what `build-server.mjs` emits
@@ -216,9 +221,10 @@ code-quality.md · runtime.md. Runbooks: `docs/DEPLOY.md` · `docs/RLS.md`
   `@hono/node-server`…), and nothing else imports `src/node/` — `platform-seam.test.ts` fails it;
   `process.env` is read only there (`server.ts` hands it to `loadConfig`). Never add `pg` to app code
 - **Release = root version**: git tag == root `package.json` `version` (ships the image + cli)
-- **Docs in sync**: a behaviour change updates CONCEPTS / SETUP / DEPLOY / rules in the same PR,
-  **and adds an entry to `docs/upgrades/unreleased.md`** — copies of the kit absorb changes by
-  reading those notes, so a change with no note never reaches them (CI and the tag gate enforce it)
+- **Docs in sync**: a behaviour change updates CONCEPTS / SETUP / DEPLOY / rules in the same PR;
+  **in the kit repository** it also adds an entry to `docs/upgrades/unreleased.md` — copies absorb
+  changes by reading those notes, so a change with no note never reaches them (`kit.yml` enforces
+  it). An app writes no porting note
 - **A plugin composes, it never redefines** (D31): it namespaces everything with its id (tables
   prefixed from it — `example-feature` → `example_*`, and `plugin check` fails a collision — job
   types `<id>.x`, query-key roots `<id>:…`, `/api/<id>`, CUSTOM events `<id>.` — **never `kit.`**),

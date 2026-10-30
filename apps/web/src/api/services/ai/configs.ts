@@ -1,5 +1,5 @@
 /**
- * A tenant's AI provider rows (D17) — the ONE write path for `ai_configs`, behind `/api/ai/config`
+ * A tenant's AI provider rows — the ONE write path for `ai_configs`, behind `/api/ai/config`
  * and anything else that manages a tenant's providers (an admin screen for another tenant, a seed).
  * One implementation, so no two callers can disagree on what a valid row is or on how a credential
  * is kept:

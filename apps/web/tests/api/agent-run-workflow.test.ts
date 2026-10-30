@@ -8,9 +8,9 @@
  * `cancelled`; a non-retryable provider error → `failed` with a redacted sentence; a retryable one
  * rethrows on attempt 1 (the platform retries) and the finish backstop settles the row; a run
  * cancelled while queued is skipped at claim; `index: true` stores the summary through `ingestText`
- * and `searchChunks` finds it (retrieval is exercised, 00 §1.3); each step closes its DB client.
+ * and `searchChunks` finds it (retrieval is exercised); each step closes its DB client.
  *
- * Plus the suspend/resume loop (issue #17): `execute#N` / `resume#N` / `expire#N`, whose step names
+ * Plus the suspend/resume loop: `execute#N` / `resume#N` / `expire#N`, whose step names
  * must be DISTINCT per round — the platform treats a step name as its identity and replays a
  * repeated one's earlier result, which would read as "the agent ignored my approval".
  */
@@ -255,7 +255,7 @@ describe('the agent run (runAgentRun)', () => {
         payload: { entity: 'agent-run', id: run.id },
       })
 
-    // D32: one trace per run, derived from its id — `execute#0` (written on the step's own client,
+    // One trace per run, derived from its id — `execute#0` (written on the step's own client,
     // hence still three clients above) under the root that `finish` recorded once the run settled.
     expect(row?.traceId).toBe(traceIdForRun(run.id))
     const spans = await db
@@ -533,7 +533,7 @@ describe('the agent run (runAgentRun)', () => {
   })
 })
 
-describe('the suspend/resume loop (issue #17)', () => {
+describe('the suspend/resume loop', () => {
   it('parks, resumes and completes — with a distinct step name per round', async () => {
     const env = createTestEnv()
     script([])
@@ -547,7 +547,7 @@ describe('the suspend/resume loop (issue #17)', () => {
 
     const { outcome, names, waits } = await drive(env, run.id, tenant.id, {
       // The resolve route's two halves, in the order that matters: the answer is written, and the
-      // row is flipped `awaiting_input → running`, BEFORE the instance is woken (decision 2).
+      // row is flipped `awaiting_input → running`, BEFORE the instance is woken.
       onWait: async () => {
         await answerAndResume(tenant.id, run.id, user.id)
         return { interruptId: null }
@@ -566,7 +566,7 @@ describe('the suspend/resume loop (issue #17)', () => {
         timeout: loadConfig(env).AGENT_INTERRUPT_TIMEOUT,
       },
     ])
-    // T8: a `.` in the event type is `workflow.invalid_event_type` — no fake step would catch it.
+    // T8: the event type keeps to `[A-Za-z0-9_-]` — no fake step would catch a `.` in it.
     expect(waits[0]?.type).toBe('agent-resume')
 
     const row = await getRun(db, tenant.id, run.id)

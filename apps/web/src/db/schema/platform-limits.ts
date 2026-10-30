@@ -1,10 +1,10 @@
 /**
- * `rate_limits` and `operation_locks` — the Node platform's rate limiter and operation locks
- * (M6, `src/node/limits.ts`), which the Worker keeps in its `RATE_LIMIT_KV` namespace instead.
+ * `rate_limits` and `operation_locks` — the platform's rate limiter and operation locks
+ * (`src/node/limits.ts`).
  *
  * `rate_limits` holds one row per limited key (`rl:<route>:<ip>`): the sliding window's hit times
- * in epoch milliseconds, the same log KV kept as a JSON array. A check takes the row lock, so
- * concurrent requests from one key are counted exactly (KV's read-modify-write was approximate).
+ * in epoch milliseconds. A check takes the row lock, so concurrent requests from one key are
+ * counted exactly.
  * `expires_at` is when the newest hit leaves the window; the nightly prune drops rows past it.
  *
  * `operation_locks` holds one row per held lock (`tenant:delete:<id>`): acquiring is one

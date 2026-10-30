@@ -1,5 +1,5 @@
 /**
- * The jobs consumer (D7): a plain `(batch, deps)` function over the neutral `JobBatch`
+ * The jobs consumer: a plain `(batch, deps)` function over the neutral `JobBatch`
  * (`src/platform/types.ts`), so tests call it with a hand-built batch and no runtime. Per message: parse the envelope (invalid → log + `ack()`, a poison
  * message must never retry), dispatch on `type` to `handlers/*`, `ack()` on success, `retry({
  * delaySeconds })` with exponential backoff on failure (the queue stops after its
@@ -32,13 +32,13 @@ import { handleTenantPurge } from './handlers/tenant-purge'
 /** What every handler receives: the env, the platform, validated config, a job-scoped logger and a DB. */
 export interface JobContext {
   env: AppBindings
-  /** The runtime's capabilities (storage, jobs, realtime, AI…) — never a binding off `env`. */
+  /** The runtime's capabilities (storage, jobs, realtime, AI…) — never read off `env`. */
   platform: Platform
   config: AppConfig
   logger: Logger
   db: DatabaseHandle['db']
   /**
-   * D32: this message's tracer — the `ai_spans` store on `db` plus the OTLP export when configured,
+   * This message's tracer — the `ai_spans` store on `db` plus the OTLP export when configured,
    * flushed by the consumer after the handler, before `db` closes. Optional so a hand-built context
    * (a test, a plugin's own harness) need not supply one; AI handlers use `ctx.tracer ?? noopTracer`.
    */
@@ -81,8 +81,8 @@ const coreHandlers: { [T in CoreJobType]: JobHandler<T> } = {
 }
 
 /**
- * Core handlers plus every installed plugin's (D31). The two halves are checked where each is
- * DECLARED — the kit's against `CoreJobType` above, a plugin's against the job types that same
+ * Core handlers plus every installed plugin's. The two halves are checked where each is
+ * DECLARED — core's against `CoreJobType` above, a plugin's against the job types that same
  * plugin declared (`ServerPlugin.jobHandlers` is `{ [T in JobTypeOf<S>]: JobHandler<T> }`) — so the
  * merge is the one place neither half can prove the other, and the cast says exactly that.
  */

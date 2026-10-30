@@ -1,9 +1,9 @@
 /**
- * `POST /api/ai/documents/upload` (D18) end to end over the in-memory object store and the AI stub:
+ * `POST /api/ai/documents/upload` end to end over the in-memory object store and the AI stub:
  * a Markdown file (declared type empty, as browsers send `.md`) is decoded and indexed inline —
  * object under `tenants/<t>/documents/`, `files` row scope `documents`, `fileId` on the document,
  * chunks present; a PDF returns `pending` with a `document.convert` job on the queue and no
- * conversion from the route; a PDF on a Worker without the `AI` binding → 503
+ * conversion from the route; a PDF with no document converter configured → 503
  * `conversion_not_configured` and NOTHING written; no embeddings provider → 503, nothing written;
  * 415 / 413 / 400 envelopes; title defaults to the filename; deleting the document removes chunks,
  * the object and the `files` row; `DELETE /api/files/:id` on the original → 409 `owned_by_document`;

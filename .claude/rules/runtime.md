@@ -15,9 +15,9 @@ paths:
 One image, one Node 24 process per container, in one of three modes (`src/node/server.ts`):
 `web` (Hono on `@hono/node-server`, the UI from `dist/ui`, `/ws`, `/healthz` + `/readyz`),
 `worker` (pg-boss jobs and cron, OpenWorkflow agent runs) or `all` (both — dev and small installs).
-There is **no Cloudflare dependency** (D41): no wrangler, no Workers types, no tomls, no bindings,
-and `tests/config/platform-seam.test.ts` fails any that come back. Design:
-`docs/DESIGN-SELFHOSTED.md`; milestones: `docs/ROADMAP.md`.
+Every runtime capability comes through the `Platform` (D41) — never a binding read off an env or an
+edge-runtime package or type; `tests/config/platform-seam.test.ts` fails any. Design:
+`docs/DESIGN-SELFHOSTED.md`.
 
 ## Configuration
 

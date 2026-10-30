@@ -1,17 +1,17 @@
 /**
- * Artifacts an agent run produces (issue #17): the things a person opens, not the prose the model
+ * Artifacts an agent run produces: the things a person opens, not the prose the model
  * wrote. A draft email, a table of the rows it is about to change, the document it wrote.
  *
  * **An artifact is a TABLE row, not an event row**, and the asymmetry with a steering note is the
- * point (decision 4). An artifact is MUTABLE — a redrafted artifact must replace itself under
+ * point. An artifact is MUTABLE — a redrafted artifact must replace itself under
  * `(run_id, key)` — it is QUERIED ACROSS RUNS ("everything this agent has produced"), and it
  * OUTLIVES the run with an id a card can link to. An append-only positional log expresses none of
  * those. What goes in the log is a *thin* `artifact` event row carrying
  * {@link agentArtifactEventDataSchema} — position in the timeline without making the log the store.
  *
  * **Size caps live here, in the contract, not in the table.** An artifact bigger than these belongs
- * in R2 as a `file` artifact; a `json` blob that wants a megabyte is a design mistake the schema
- * should catch at the write, not a jsonb column that quietly grows.
+ * in object storage as a `file` artifact; a `json` blob that wants a megabyte is a design mistake
+ * the schema should catch at the write, not a jsonb column that quietly grows.
  *
  * Imports zod and siblings only (see `ai/interrupts.ts` for why the direction matters).
  */
@@ -22,7 +22,7 @@ export const AGENT_ARTIFACT_KINDS = ['document', 'file', 'markdown', 'table', 'j
 export const agentArtifactKindSchema = z.enum(AGENT_ARTIFACT_KINDS)
 export type AgentArtifactKind = z.infer<typeof agentArtifactKindSchema>
 
-/** Longest markdown body an artifact may carry inline. Bigger belongs in R2 as a `file`. */
+/** Longest markdown body an artifact may carry inline. Bigger belongs in storage as a `file`. */
 export const ARTIFACT_MARKDOWN_MAX_CHARS = 100_000
 /** Most rows a `table` artifact may carry — a table nobody will read is a `file`. */
 export const ARTIFACT_TABLE_MAX_ROWS = 1_000
@@ -38,8 +38,8 @@ export type ArtifactTableColumn = z.infer<typeof artifactTableColumnSchema>
 
 /**
  * The typed `data` jsonb. `document` and `file` carry **ids, never content**: the bytes already
- * live in `documents` / R2 behind routes that enforce tenancy and, for a document, group
- * visibility (D29). Copying them here would be a second, unscoped copy of the same bytes.
+ * live in `documents` / object storage behind routes that enforce tenancy and, for a document,
+ * group visibility. Copying them here would be a second, unscoped copy of the same bytes.
  */
 export const agentArtifactDataSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('document'), documentId: z.string().uuid() }),
@@ -110,7 +110,7 @@ export type AgentArtifact = z.infer<typeof agentArtifactSchema>
 
 /**
  * The `data` of an `artifact` event row: where in the timeline it appeared, and enough to draw a
- * link. Deliberately NOT the artifact — the table is the store (decision 4).
+ * link. Deliberately NOT the artifact — the table is the store.
  */
 export const agentArtifactEventDataSchema = z.object({
   artifactId: z.string().uuid(),

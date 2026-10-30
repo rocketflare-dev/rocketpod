@@ -1,6 +1,6 @@
 # @rocketpod/cli
 
-Command-line interface for the Rocketpod kit server. Signs in through the browser (D26 handoff), stores
+Command-line interface for the Rocketpod server. Signs in through the browser (a loopback handoff), stores
 an API key under `~/.rocketpod/`, and exposes a few tenant-scoped commands as the pattern to copy.
 
 ```bash

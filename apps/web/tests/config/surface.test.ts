@@ -1,12 +1,12 @@
 /**
- * The primitive an OBSERVED compatibility check is built on (D31): the kit emits a ledger of what
+ * The primitive an OBSERVED compatibility check is built on: the host emits a ledger of what
  * it provides, a plugin's use is derived from its own imports, and the answer is the set difference
  * between them.
  *
  * Why this suite exists in the shape it does: every function here is exercised against FIXTURES as
  * well as against the real repository. An assertion that only runs over what happens to be
- * installed passes trivially the day nothing is — and "the kit with no plugins" is the kit's own
- * default state, so a suite written only against reality would quietly stop meaning anything. The
+ * installed passes trivially the day nothing is — and "no plugins" is the default
+ * state, so a suite written only against reality would quietly stop meaning anything. The
  * fixtures are what keep it honest; the real-repo cases are what keep it true.
  *
  * The `config` project: no database, no network.

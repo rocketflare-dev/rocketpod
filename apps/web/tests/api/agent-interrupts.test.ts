@@ -3,10 +3,10 @@
 // needs its own module registry.
 // Also mocks both plugin barrels to register the test-only agents (tests/helpers/test-agents.ts).
 /**
- * The runtime half of human-in-the-loop (issue #17), against the real database: `ctx.interrupt`,
+ * The runtime half of human-in-the-loop, against the real database: `ctx.interrupt`,
  * `executeRun`'s park and decline arms, steering delivery, artifacts, and the two lifecycle
  * transitions a park needs — `parkRun` / `resumeRun` — plus the restart fallback for a park whose
- * Workflow instance is gone.
+ * run instance is gone.
  *
  * The properties these exist to protect, in the order they would hurt:
  *
@@ -50,8 +50,8 @@ import {
   resumeRun,
 } from '@/api/services/agents/runs'
 import { executeRun, isRetryableRunError } from '@/api/services/agents/runtime'
+import { InterruptDeclinedError, InterruptRequested, type Tool } from '@/api/services/ai/agent-loop'
 import { AiError } from '@/api/services/ai/errors'
-import { InterruptDeclinedError, InterruptRequested, type Tool } from '@/api/services/ai/kit'
 import type { ChatClient } from '@/api/services/ai/types'
 import type { Logger } from '@/api/utils/core/logger'
 import { loadConfig } from '@/config'
@@ -87,7 +87,7 @@ vi.mock('@/api/services/ai/resolve', async importOriginal => {
 
 const db = setupTestDatabase()
 
-/** `stubs(env).workflow` is optional (a test may drop the binding); here it is always present. */
+/** `stubs(env).workflow` is optional (a test may drop the run engine); here it is always set. */
 function workflowStub(env: TestEnv) {
   const workflow = stubs(env).workflow
   if (!workflow) throw new Error('expected the AGENT_RUN_WORKFLOW stub')
@@ -258,7 +258,7 @@ describe('ctx.interrupt parks the run', () => {
       })
     ).toBeNull()
 
-    // The answer IS the transition (decision 2) — the route flips the row before it nudges.
+    // The answer IS the transition — the route flips the row before it nudges.
     expect((await resumeRun(db, tenant.id, run.id))?.status).toBe('running')
     const outcome = await execute(env, run.id, tenant.id)
 
@@ -358,7 +358,7 @@ describe('T3: an interrupt raised inside a tool handler parks the run', () => {
           return 'answered'
         },
       }
-      const { runToolLoop } = await import('@/api/services/ai/kit')
+      const { runToolLoop } = await import('@/api/services/ai/agent-loop')
       await runToolLoop(ctx.chat.client, {
         model: ctx.chat.model,
         system: 'pick one',
@@ -681,7 +681,7 @@ describe('the plumbing underneath', () => {
     expect(isRetryableRunError(new AiError('unavailable', 'anthropic', 'down'))).toBe(true)
   })
 
-  it('reads a Workflows duration, and treats one it cannot read as "no deadline"', () => {
+  it('reads a run-engine duration, and treats one it cannot read as "no deadline"', () => {
     expect(parseDurationMs('168 hours')).toBe(604_800_000)
     expect(parseDurationMs('1 hour')).toBe(3_600_000)
     expect(parseDurationMs('30 minutes')).toBe(1_800_000)

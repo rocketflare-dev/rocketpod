@@ -3,7 +3,7 @@
 This directory proves the driver seam (`src/db/CLAUDE.md`): what app code sees through
 `src/db/client.ts` — a raw result's shape, a raw array's value, a driver error's code, transaction
 semantics — holds, whichever way the connection is held (a per-request client, or a view of the
-Node entry's process pool). There is one driver now (postgres.js, D35 narrowed); `pnpm test` runs
+Node entry's process pool). There is one driver (postgres.js); `pnpm test` runs
 the suite in every gate as the vitest project `driver`. It ships to every copy.
 
 - **Each test states ONE fact** about the seam: the same input, the same expected value.

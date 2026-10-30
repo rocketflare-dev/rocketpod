@@ -1,5 +1,5 @@
 /**
- * `GET /api/agents/runs/:id/agui/stream` (issue #7) — the live tail of a run's timeline.
+ * `GET /api/agents/runs/:id/agui/stream` — the live tail of a run's timeline.
  *
  * Split in two on purpose. The ROUTE is driven through the real Hono app for everything that
  * happens before the first frame (403 / 404 / 400) and for runs that close at once (settled,
@@ -66,7 +66,7 @@ async function makeRun(
       input: { question: 'why' },
       requestedByUserId: userId,
       // No instance id: `reconcileRun` then has nothing to ask, which keeps the route tests off the
-      // Workflow binding except where the spy is the point.
+      // run engine except where the spy is the point.
       instanceId: null,
     })
     .returning()
@@ -406,9 +406,9 @@ describe('the loop', () => {
     expect(rec.text).not.toContain('RUN_ERROR')
   })
 
-  it('emits NO RUN_ERROR when the body itself fails — decision 6', async () => {
-    // A read-stream failure is not a run failure: the run is a durable Workflow in another isolate
-    // and is almost certainly fine. Closing with no terminal event already means "reconnect".
+  it('emits NO RUN_ERROR when the body itself fails', async () => {
+    // A read-stream failure is not a run failure: the run is durable, executes in a run-engine
+    // worker apart from this request, and is almost certainly fine. Closing with no terminal event already means "reconnect".
     const a = await actor()
     const run = await makeRun(db, a.tenant.id, a.user.id, 'running')
     const rec = recorder()

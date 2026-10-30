@@ -1,4 +1,4 @@
-# Small installs (M7, docs/DEPLOY.md): ONE process serves the API/UI and runs jobs, cron and agent
+# Small installs (docs/DEPLOY.md): ONE process serves the API/UI and runs jobs, cron and agent
 # runs. Layer it over the main file:
 #
 #   docker compose -f docker-compose.yml -f deploy/compose.single.yml up -d --build

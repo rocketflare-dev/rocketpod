@@ -1,11 +1,11 @@
 /**
- * Thumbs feedback and the eval-case export (D33):
+ * Thumbs feedback and the eval-case export:
  *
  * - a member rates their OWN assistant message; voting again replaces the vote; the same thumb
  *   withdrawn is a DELETE; `GET /mine` draws the thumbs' state;
  * - **tenant isolation**: another tenant's message or run is a 404 exactly like an unknown id, the
  *   admin list only ever returns the caller tenant's rows, and another MEMBER's thread is a 404 too
- *   (D17 — admins included);
+ *   (admins included);
  * - a run is rateable by its requester and by admin-level members, nobody else;
  * - the vote lands in the answer's trace as a `feedback` span under the recorded root;
  * - `GET /api/evals/export` builds a valid `EvalCase` from a message (question, history, retrieved

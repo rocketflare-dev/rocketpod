@@ -1,6 +1,6 @@
 /**
  * ONE implementation of a streamed chat turn, in AG-UI. Both entry points call it —
- * `POST /api/chat/conversations/:id/messages` (the kit's own UI) and `POST /api/agui/run` (the
+ * `POST /api/chat/conversations/:id/messages` (the app's own UI) and `POST /api/agui/run` (the
  * protocol endpoint) — so there is exactly one place the sequence below can drift.
  *
  * ```
@@ -56,10 +56,10 @@ import { accessScopeOf } from '../access'
 import { buildAgentTools, CHAT_GET_DOCUMENT_MAX_CHARS } from '../agents/tools'
 import { enqueueJob } from '../jobs'
 import { resolvePrompt } from '../prompts'
+import { runStreamingChat, type Tool } from './agent-loop'
 import { aguiTextSegmenter, createAguiEncoder, kitCustom } from './agui'
 import { pendingCompaction, selectHistoryWindow, withSummary } from './chat-history'
 import { AiError, describeAiError, normalizeAiError } from './errors'
-import { runStreamingChat, type Tool } from './kit'
 import { type ResolvedChat, resolveChat } from './resolve'
 import type { ChatMessage, SystemPrompt } from './types'
 import { recordUsage } from './usage'
@@ -79,7 +79,7 @@ export interface ChatTurnParams {
    * intermittently, only where `waitUntil` really runs.
    */
   buildTools: (db: Database) => Promise<Tool[]>
-  /** Hard cap on model turns for THIS run (interactive, so lower than a Workflow's). */
+  /** Hard cap on model turns for THIS run (interactive, so lower than an agent run's). */
   maxTurns: number
   /** Set the thread's title from the user turn when it is the first one. */
   isFirstUserTurn: boolean
@@ -140,9 +140,9 @@ export function streamChatTurn(c: AppContext, params: ChatTurnParams): Response 
           provider: resolved.provider,
           model: resolved.model,
           tools: tools.map(t => t.name),
-          // Chat has no human-in-the-loop path yet (agent RUNS do — issue #17). Declaring it
+          // Chat has no human-in-the-loop path yet (agent RUNS do). Declaring it
           // honestly is the point: a client that reads `supported: true` renders an approve button,
-          // and here that button would do nothing at all. `feedback` (D33) is real: a thumbs on the
+          // and here that button would do nothing at all. `feedback` is real: a thumbs on the
           // answer is `POST /api/feedback` with the `assistantMessageId` from `kit.chat.ids`.
           capabilities: { humanInTheLoop: { supported: false, feedback: true } },
         },
@@ -190,7 +190,7 @@ export function streamChatTurn(c: AppContext, params: ChatTurnParams): Response 
                 toolCallName: call.name,
                 parentMessageId: text.parentMessageId(),
               })
-              // The kit's adapters surface a tool input whole, so the args are one chunk.
+              // The provider adapters surface a tool input whole, so the args are one chunk.
               await emit({
                 type: AguiEventType.TOOL_CALL_ARGS,
                 toolCallId: call.toolUseId,
@@ -209,7 +209,7 @@ export function streamChatTurn(c: AppContext, params: ChatTurnParams): Response 
                 content: call.result,
                 role: 'tool',
               })
-              // …then the documents it named, as cards (D18). A kit CUSTOM event rather than
+              // …then the documents it named, as cards. A `kit.` CUSTOM event rather than
               // "let the UI parse the result": that JSON is the knowledge tool's internal shape,
               // retuned whenever its context budget changes, and a React component must not be
               // coupled to it. The mapper is pure and never queries, so it cannot widen scope.
@@ -235,7 +235,7 @@ export function streamChatTurn(c: AppContext, params: ChatTurnParams): Response 
         // without it a thread whose provider changed cannot be priced or explained after the fact.
         provider: resolved.provider,
         model: resolved.model,
-        // D32: `rocketpod traces show <this message id>` resolves through this column.
+        // `rocketpod traces show <this message id>` resolves through this column.
         traceId,
       })
       await sdb
@@ -420,15 +420,15 @@ export async function prepareChatTurn(
     // The trimmed prefix comes back as the system prompt's volatile half, not as messages.
     system: withSummary(system, conversation.summary),
     resolved,
-    // `AGENT_MAX_TURNS` (30) is a budget for a Workflow step with a ten-minute timeout; an
-    // interactive reply shares the Worker's CPU and subrequest budget, so it gets the lower cap.
+    // `AGENT_MAX_TURNS` (30) is a budget for a run step with a ten-minute timeout; an
+    // interactive reply holds an open request on a web replica, so it gets the lower cap.
     buildTools: cfg.CHAT_KNOWLEDGE_TOOLS
       ? sdb =>
           buildAgentTools({
             db: sdb,
             cfg,
             env: c.get('platform'),
-            // D29: the chatting person's own visibility — chat cannot surface a document its
+            // The chatting person's own visibility — chat cannot surface a document its
             // reader could not open on the Knowledge page.
             scope,
             // An agent run may read 50 000 characters of a document because that is the job; a chat

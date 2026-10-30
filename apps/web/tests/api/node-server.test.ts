@@ -2,7 +2,7 @@
 // Installs the process-wide Postgres pool (`installProcessPool`), which a shared registry would
 // leak into every later file in the fork.
 /**
- * The Node entry (M2, `src/node/server.ts`) booted in-process on a free port against the test
+ * The Node entry (`src/node/server.ts`) booted in-process on a free port against the test
  * database: the probes, the SPA's files and its fallback, the app behind them, and a graceful stop
  * that waits for post-response work.
  */
@@ -127,7 +127,7 @@ describe('the Node entry, shutdown', () => {
     expect(worker.port).toBe(0)
     await worker.stop()
 
-    // With a probe port (what `node dist/server.js worker` passes, M7): probes only, no app.
+    // With a probe port (what `node dist/server.js worker` passes): probes only, no app.
     const probed = await startServer({
       env: testEnv(),
       mode: 'worker',

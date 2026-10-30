@@ -1,6 +1,6 @@
 # apps/cli — @rocketpod/cli
 
-CLI for the kit server (D26). commander + chalk + open + zod; `tsx` in dev, **esbuild** bundle to
+CLI for the Rocketpod server. commander + chalk + open + zod; `tsx` in dev, **esbuild** bundle to
 `dist/cli.js` (bundles `@rocketpod/shared` — Node can't load its `.ts` exports from `tsc` output).
 
 ```bash
@@ -16,7 +16,7 @@ pnpm --filter @rocketpod/cli typecheck · test · build   # vitest node env, no 
 - `src/api.ts` — `createApiClient` → `request/get/post/del`, envelope → `CliApiError { status, code, body }`
 - `src/auth.ts` — loopback `127.0.0.1:8765–8770/callback`, `/auth/cli?redirect_uri=`, 5-min timeout, `/api/me`
 - `src/commands/*.ts` — thin `run<X>(ctx, opts)`; `src/utils/{brand,logger,output}.ts`
-- `src/plugins/{index.ts,types.ts}` + `src/plugins/<id>/index.ts` (D31) — the `CLI_PLUGINS` barrel
+- `src/plugins/{index.ts,types.ts}` + `src/plugins/<id>/index.ts` — the `CLI_PLUGINS` barrel
   and the `CliPlugin` type; `src/plugins/api.ts` is the only kit surface a plugin's commands import. `cli.ts` calls each `register(program, action)` LAST, so a plugin's
   commands sit under its id and can never shadow a kit one
 
@@ -28,4 +28,4 @@ pnpm --filter @rocketpod/cli typecheck · test · build   # vitest node env, no 
 - `open`/`fetch`/config dir are injected (`ContextOptions`, `ROCKETPOD_CONFIG_DIR`) — tests use them, so keep them injectable
 - A plugin's commands live in `src/plugins/<id>/`, never `src/commands/` — same rules (thin, inject
   everything, throw `CliError`, parse with the plugin's own `@rocketpod/shared/plugins/<id>` schema)
-- Header comment per file referencing D26; Biome style; `import type`
+- A header comment per file saying what it is for (no design-decision numbers); Biome style; `import type`

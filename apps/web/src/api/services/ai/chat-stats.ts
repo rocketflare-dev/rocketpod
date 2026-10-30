@@ -1,5 +1,5 @@
 /**
- * What is actually going on behind a chat thread (D17) — the data the chat inspector renders.
+ * What is actually going on behind a chat thread — the data the chat inspector renders.
  *
  * Everything here is DERIVED: from the stored rows, the live config and the shared price table.
  * Nothing is cached and nothing is written, so there is no second source of truth to drift from the
@@ -28,9 +28,9 @@ import type { Platform } from '../../../platform/types'
 import { fullAccessScope } from '../access'
 import { buildAgentTools } from '../agents/tools'
 import { resolvePrompt } from '../prompts'
+import { toToolDefinition } from './agent-loop'
 import { pendingCompaction, selectHistoryWindow, withSummary } from './chat-history'
 import { CHARS_PER_TOKEN } from './chunking'
-import { toToolDefinition } from './kit'
 import { readiness } from './resolve'
 import type { SystemPrompt } from './types'
 
@@ -162,7 +162,7 @@ export async function buildConversationStats(
       source: chat.source === 'fallback' ? 'none' : chat.source,
       maxOutputTokens: cfg.AGENT_MAX_OUTPUT_TOKENS,
       knowledgeTools,
-      // The same cap the turn applies: the interactive ceiling, not the Workflow one.
+      // The same cap the turn applies: the interactive ceiling, not the agent run's.
       maxToolTurns:
         knowledgeTools.length > 0 ? Math.min(cfg.AGENT_MAX_TURNS, CHAT_MAX_TOOL_TURNS) : 0,
     },

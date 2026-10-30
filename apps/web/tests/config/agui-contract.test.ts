@@ -1,7 +1,7 @@
 /**
  * The AG-UI version pin is a wire-protocol pin: `@ag-ui/core`'s schemas ARE the format the server
  * emits, so a bump can rename a field and silently change what every adopted copy puts on the wire.
- * This file is what turns the pin into a gate — one sample of every event the kit emits, and every
+ * This file is what turns the pin into a gate — one sample of every event the app emits, and every
  * kit CUSTOM payload, parsed with the installed schemas. If a bump breaks one of these, the
  * protocol changed and the upgrade note has to say so.
  */
@@ -37,7 +37,7 @@ const TENANT = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 const AT = new Date('2026-09-16T09:00:00.000Z')
 const EXPIRES = new Date('2026-09-23T09:00:00.000Z')
 
-/** A pending approval, as `agent_run_interrupts` holds it (issue #17). */
+/** A pending approval, as `agent_run_interrupts` holds it. */
 const INTERRUPT_ROW: AgentRunInterrupt = {
   id: INTERRUPT,
   tenantId: TENANT,
@@ -232,10 +232,10 @@ describe('AG-UI contract', () => {
 
 describe('a parked run’s interrupt outcome', () => {
   // `RUN_FINISHED { outcome: { type: 'interrupt', interrupts } }` is the ENTIRE reason a
-  // third-party AG-UI client can answer a kit run with zero kit-specific code. If protobuf could
-  // not carry it, `PROTO_UNSUPPORTED_EVENTS` (which drops by event TYPE) would have to drop every
-  // RUN_FINISHED on that wire, and phases 5–6 of the HITL work would need a `kit.` CUSTOM fallback
-  // instead. So it is proven on BOTH transports, here, before anything is built on it.
+  // third-party AG-UI client can answer one of our runs with zero app-specific code. If protobuf
+  // could not carry it, `PROTO_UNSUPPORTED_EVENTS` (which drops by event TYPE) would have to drop
+  // every RUN_FINISHED on that wire, and the human-in-the-loop answer would need a `kit.` CUSTOM
+  // fallback instead. So it is proven on BOTH transports, here.
   //
   // And it is asserted on the DECODED value, never on "encode did not throw": the discriminator is
   // `'interrupt'`, not `'interrupted'`, and getting it wrong makes `@ag-ui/proto` log
@@ -249,7 +249,7 @@ describe('a parked run’s interrupt outcome', () => {
     outcome: { type: 'interrupt', interrupts: [interrupt] },
   }
 
-  it('maps a kit row onto the protocol’s own Interrupt', () => {
+  it('maps an interrupt row onto the protocol’s own Interrupt', () => {
     expect(interrupt).toEqual({
       id: INTERRUPT,
       reason: 'tool_call',
@@ -295,7 +295,7 @@ describe('the protobuf transport', () => {
   it('round-trips every emitted event except the ones declared unsupported', () => {
     // A round trip, not "does `encode` throw": `@ag-ui/proto@0.0.59` had no message for
     // TOOL_CALL_RESULT and answered an EMPTY frame for it rather than failing — which no client can
-    // decode. A proto narrower than the kit's events must show up here, and in the drop list.
+    // decode. A proto narrower than the app's events must show up here, and in the drop list.
     const unsupported = Object.entries(SAMPLES)
       .filter(([, sample]) => {
         try {
@@ -355,7 +355,7 @@ describe('RunAgentInput', () => {
 
   it('carries `resume[]`, so a client answers an interrupt in AG-UI’s own vocabulary', () => {
     // The pause and the answer need NO new kit event: `RunAgentInputSchema` already models the
-    // answer, which is what lets a third-party client drive a parked kit run.
+    // answer, which is what lets a third-party client drive a parked run.
     const parsed = kitRunAgentInputSchema.parse(
       input({ resume: [{ interruptId: INTERRUPT, status: 'resolved', payload: { note: 'go' } }] })
     )

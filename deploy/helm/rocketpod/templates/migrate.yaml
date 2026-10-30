@@ -1,6 +1,6 @@
 {{- if .Values.migrate.enabled }}
 {{- /*
-  The migrate one-shot as a pre-install/pre-upgrade hook (M7). Hooks run BEFORE the release's
+  The migrate one-shot as a pre-install/pre-upgrade hook. Hooks run BEFORE the release's
   ConfigMap and Secret exist on a first install, so the Job reads its two connection strings from
   `existingSecret` when one is named, else from a hook-scoped Secret rendered here.
 */ -}}

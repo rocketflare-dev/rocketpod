@@ -1,6 +1,6 @@
 name: Image
 
-# The container image and the Helm chart (M7, docs/DEPLOY.md). Pull requests and main BUILD the
+# The container image and the Helm chart (docs/DEPLOY.md). Pull requests and main BUILD the
 # image (no push) and lint + render the chart, so a broken Dockerfile or template fails before a
 # release; a version tag (`v*` or a bare `X.Y.Z`) pushes ghcr.io/<owner>/rocketpod:<version> and
 # `:latest`. The quality gate stays ci.yml's (its `Gate` check) — nothing here re-runs it, but a TAG

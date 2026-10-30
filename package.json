@@ -1,6 +1,6 @@
 {
   "name": "rocketpod",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "license": "MIT",
   "description": "Rocketpod \u2014 multi-tenant SaaS for internal tools and B2B products \u2014 pnpm workspace: apps/web (Hono API + React UI on Node, in a container), apps/cli, packages/shared",

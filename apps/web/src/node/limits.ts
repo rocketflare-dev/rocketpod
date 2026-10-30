@@ -1,18 +1,16 @@
 /**
- * The Node platform's `RateLimiter` and `Locks` (M6), over `rate_limits` / `operation_locks`
- * (`src/db/schema/platform-limits.ts`). They keep the Worker's KV semantics
- * (`src/platform/cloudflare/kv.ts`) exactly where a caller can see them, and tighten them where KV
- * could not:
+ * The platform's `RateLimiter` and `Locks`, over `rate_limits` / `operation_locks`
+ * (`src/db/schema/platform-limits.ts`):
  *
  * - **Rate limit**: a sliding window over a log of hit times. A refused request records nothing,
  *   and `retryAfterSeconds` is when the oldest hit in the window leaves it (at least 1) — what
- *   `checkRateLimit` answers. Unlike KV, the check holds the row lock, so N concurrent requests
- *   from one key admit exactly `max`. Time is the DATABASE's, so replicas with skewed clocks agree.
+ *   `checkRateLimit` answers. The check holds the row lock, so N concurrent requests from one key
+ *   admit exactly `max`. Time is the DATABASE's, so replicas with skewed clocks agree.
  * - **Locks**: `acquire` is one statement that inserts the lock, or takes over one whose TTL has
- *   passed (the crash safety net), and answers whether it won; `release` deletes it. KV's
- *   get-then-put could let two callers in; this cannot.
+ *   passed (the crash safety net), and answers whether it won; `release` deletes it. Two callers
+ *   can never both win.
  *
- * Both open the database per call through `openDatabase`, which on the Node entry is a view of the
+ * Both open the database per call through `openDatabase`, which on the server is a view of the
  * process pool, so a check costs one pooled round trip (the rate limit: one short transaction).
  */
 import { sql } from 'drizzle-orm'

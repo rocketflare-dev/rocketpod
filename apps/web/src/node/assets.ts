@@ -1,9 +1,9 @@
 /**
- * The SPA's static assets on Node (M2) — what Workers Static Assets does in front of the Worker:
+ * The server's static handler for the SPA's build, in two halves:
  *
  * - **Files first.** A GET/HEAD for a path outside the app's own prefixes (`isApiPath`: `/api`,
- *   `/auth`, `/ws` and any plugin prefix — the toml's `run_worker_first`) that names a file under
- *   the UI build is served straight from disk, before the app runs.
+ *   `/auth`, `/ws` and any plugin prefix) that names a file under the UI build is served
+ *   straight from disk, before the app runs.
  * - **SPA fallback.** The app's catch-all (`api/index.ts`) asks `ASSETS.fetch` for anything else
  *   that is not an API path; a GET/HEAD gets `index.html` with 200 (client-side routes), anything
  *   else 404. API-shaped paths never reach it — they are a JSON 404 in the app.
@@ -17,7 +17,7 @@ import { isApiPath } from '../api/utils/routes/api-prefixes'
 export interface NodeAssets {
   /** Middleware: serve an existing file for a non-API GET/HEAD, else fall through. */
   files: MiddlewareHandler
-  /** The `ASSETS` binding the app's catch-all calls: `index.html` for a navigation. */
+  /** The `ASSETS` handler the app's catch-all calls: `index.html` for a navigation. */
   binding: { fetch(request: Request): Promise<Response> }
 }
 

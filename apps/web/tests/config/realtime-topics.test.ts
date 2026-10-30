@@ -1,6 +1,6 @@
 /**
  * The realtime TOPIC registry (`@rocketpod/shared/realtime` § Topics) as pure functions over
- * FIXTURE plugins — the kit ships no topic kind and no installed plugin need declare one, so a
+ * FIXTURE plugins — core ships no topic kind and no installed plugin need declare one, so a
  * check that only ran over the installed set would prove nothing. What the hub does with the
  * answers is `tests/api/node-realtime.test.ts`.
  */

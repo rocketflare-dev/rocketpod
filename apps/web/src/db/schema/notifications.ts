@@ -1,7 +1,7 @@
 /**
- * `notifications` — in-app notifications addressed to ONE user within a tenant (D1, D10). Every
+ * `notifications` — in-app notifications addressed to ONE user within a tenant. Every
  * role may `manage` its own (`Notification` in the ability matrix); routes scope by
- * `(tenant_id, user_id)` from the auth context. Realtime is a nudge over the DO hub; this table is
+ * `(tenant_id, user_id)` from the auth context. Realtime is a nudge over the ws hub; this table is
  * the truth. `data` jsonb carries the type-specific payload (`notificationDataSchema`).
  */
 import type { NotificationData } from '@rocketpod/shared/notifications'

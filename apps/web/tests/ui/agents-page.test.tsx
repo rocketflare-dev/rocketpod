@@ -23,7 +23,7 @@ import {
 } from './helpers/renderWithProviders'
 
 // The test-only agents' keys (`tests/helpers/test-agents-shared.ts`), so the page is tested apart
-// from the kit's example agents; the responses below are parsed with the real `agentKeySchema`.
+// from the example agents; the responses below are parsed with the real `agentKeySchema`.
 vi.mock('@rocketpod/shared/plugins', async importOriginal =>
   (await import('../helpers/test-agents-shared')).withTestAgents(await importOriginal())
 )

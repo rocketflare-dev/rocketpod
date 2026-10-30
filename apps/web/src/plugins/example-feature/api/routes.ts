@@ -1,23 +1,23 @@
 /**
- * `/api/example-feature` (D31) — the reference plugin's CRUD surface.
+ * `/api/example-feature` — the reference plugin's CRUD surface.
  *
  *   POST   /ping                    read ExampleNote   — enqueue the smoke job, 202
- *   POST   /ping-link               read ExampleNote   — a signed link to the PUBLIC ping (D34)
+ *   POST   /ping-link               read ExampleNote   — a signed link to the PUBLIC ping
  *   GET    /notes                   read ExampleNote
  *   POST   /notes                   create ExampleNote
  *   GET    /notes/:id               read ExampleNote
  *   PATCH  /notes/:id               own row, else update ExampleNote (admin+)
  *   DELETE /notes/:id               own row, else delete ExampleNote (admin+)
  *
- * Nothing here is plugin-specific except the names. A plugin route is a kit route in every respect —
+ * Nothing here is plugin-specific except the names. A plugin route is a core route in every respect —
  * `createRouter()`, `validate()` with the contract from the plugin's own shared entry, an
  * authorisation check, a tenant predicate on every query, typed errors rather than hand-rolled JSON.
- * What differs is only where it is REGISTERED (`ServerPlugin.mounts`) and how it reaches the kit:
- * through `requestCtx(c)` rather than through nine imports of kit internals.
+ * What differs is only where it is REGISTERED (`ServerPlugin.mounts`) and how it reaches the host:
+ * through `requestCtx(c)` rather than through nine imports of core internals.
  *
  * **Two authorisation facts, kept apart.** `ctx.guard` answers "may this ROLE do this KIND of
  * thing"; "is this row yours" is the route's own `ownerUserId` check, exactly as `routes/files.ts`
- * and `routes/ai-documents.ts` do it. CASL conditions are used nowhere in this kit, and a plugin
+ * and `routes/ai-documents.ts` do it. CASL conditions are used nowhere in this app, and a plugin
  * inventing them would be the only place they appear.
  *
  * The error helpers THROW and return `never`, which is why `if (!row) ctx.notFound(...)` leaves
@@ -61,11 +61,11 @@ export const exampleFeatureRouter = createRouter()
 // ---- The smoke job --------------------------------------------------------------------------
 
 /**
- * Prove the producer → Queues → consumer path end to end without leaving the app: this route is all
+ * Prove the producer → pg-boss → consumer path end to end without leaving the app: this route is all
  * the CLI's `rocketpod example-feature ping` does, which is what keeps the CLI a thin client over
  * the same contract rather than a second place that knows how to build an envelope.
  *
- * **A route never runs long work; it enqueues.** `ctx.enqueue` already has the binding, and a
+ * **A route never runs long work; it enqueues.** `ctx.enqueue` already has the queue, and a
  * missing one throws rather than running the job inline — which is how a 30-second route ships.
  */
 exampleFeatureRouter.post('/ping', async c => {
@@ -79,7 +79,7 @@ exampleFeatureRouter.post('/ping', async c => {
 })
 
 /**
- * Mint the link `./public.ts` answers (D34). The signed state carries the TENANT, because the
+ * Mint the link `./public.ts` answers. The signed state carries the TENANT, because the
  * public route has no session to read one from — this is the half of a consent round-trip that
  * runs while somebody IS signed in, and the token is the only thing that crosses to the other half.
  */
@@ -117,7 +117,7 @@ exampleFeatureRouter.post('/notes', validate('json', createExampleNoteRequestSch
     ctx.valid<CreateExampleNoteRequest>('json')
   )
   // The entity string IS this plugin's query-key family root, so everyone in the tenant re-queries
-  // and the socket wiring costs no hook-side code (D8).
+  // and the socket wiring costs no hook-side code.
   ctx.nudge(EXAMPLE_NOTES_ENTITY, row.id)
   return c.json(row, 201)
 })

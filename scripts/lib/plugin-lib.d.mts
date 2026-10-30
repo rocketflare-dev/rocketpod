@@ -83,7 +83,7 @@ export function undeclaredSkillDirs(
 
 /**
  * A Cloudflare-only declaration (`bindings`, `workerExports`) as a refusal sentence each; empty
- * means installable. This kit has no Cloudflare runtime (M6b).
+ * means installable. This kit has no Cloudflare runtime to bind them on.
  */
 export function pluginPlatformProblems(manifest: PluginManifest): string[]
 

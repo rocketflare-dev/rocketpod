@@ -1,5 +1,5 @@
 /**
- * Tenant AI configuration contracts (D17): the provider enum, the sanitised `ai_configs` row the
+ * Tenant AI configuration contracts: the provider enum, the sanitised `ai_configs` row the
  * API returns (`hasCredential`, never the key), the write-only upsert body, the connection test
  * and the readiness summary the Home checklist / settings page render. `PROVIDER_PRESETS` and
  * `DEFAULT_MODELS` are data both the settings form and `services/ai/providers.ts` read, so the
@@ -10,7 +10,7 @@ import { z } from 'zod'
 /**
  * v1 provider set. `anthropic_compatible` = Anthropic wire format behind a bearer token
  * (Fireworks, Moonshot presets); `openai_compatible` = `/v1/chat/completions` + `/v1/embeddings`
- * behind a bearer token (any vLLM/Ollama/proxy). `typesafe` is TypeSafe's Jev (D37): typed
+ * behind a bearer token (any vLLM/Ollama/proxy). `typesafe` is TypeSafe's Jev: typed
  * judgments with probabilities, never text — it serves the `decisions` scope and nothing else.
  * Append values LAST — a Postgres enum cannot use a value in the migration that adds it.
  */
@@ -26,9 +26,9 @@ export type AiProvider = z.infer<typeof aiProviderSchema>
 
 /**
  * Providers a RECORD may name: every configurable provider plus the ones Rocketpod dropped.
- * `workers_ai` was Rocketflare's zero-key Cloudflare binding; Rocketpod has no Cloudflare, so it
- * cannot be configured, but `ai_usage`, `conversations` and `messages` rows written before the fork
- * still name it and must stay readable. Contracts that describe history parse with this schema;
+ * `workers_ai` was a zero-key provider earlier versions offered; it can no longer be configured,
+ * but `ai_usage`, `conversations` and `messages` rows written back then still name it and must
+ * stay readable. Contracts that describe history parse with this schema;
  * contracts that describe what can be configured or called parse with `aiProviderSchema`.
  */
 export const RECORDED_AI_PROVIDERS = [...AI_PROVIDERS, 'workers_ai'] as const
@@ -37,7 +37,7 @@ export type RecordedAiProvider = z.infer<typeof recordedAiProviderSchema>
 
 /**
  * Which client a config feeds: the chat/completion client, the embeddings client, or the
- * decisions client behind `ctx.decide` (D37 — typed questions answered with probabilities).
+ * decisions client behind `ctx.decide` (typed questions answered with probabilities).
  */
 export const AI_SCOPES = ['chat', 'embeddings', 'decisions'] as const
 export const aiScopeSchema = z.enum(AI_SCOPES)
@@ -190,11 +190,11 @@ export const DEFAULT_CHAT_MODELS: Partial<Record<AiProvider, string>> = {
 export const defaultModelFor = (provider: AiProvider, scope: AiScope): string =>
   (scope === 'chat' ? DEFAULT_CHAT_MODELS[provider] : undefined) ?? DEFAULT_MODELS[provider]
 
-/** Embedding dimension every provider is reduced to (D18): `dimensions: 1024` is sent on every call. */
+/** Embedding dimension every provider is reduced to: `dimensions: 1024` is sent on every call. */
 export const EMBEDDING_DIM = 1024
 
 /**
- * The Postgres text-search configuration of the lexical half (D18): `chunks.search_vector` is
+ * The Postgres text-search configuration of the lexical half: `chunks.search_vector` is
  * GENERATED with it and `retrieval.ts` queries with it — one constant, so the GIN index and the
  * query cannot disagree (they would match nothing). Changing it is a migration (`pnpm db:generate`
  * rewrites the generated column).

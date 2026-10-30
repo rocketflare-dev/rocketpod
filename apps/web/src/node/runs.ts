@@ -1,7 +1,7 @@
 /**
- * Durable agent runs on OpenWorkflow (M4, `docs/ROADMAP.md`; the spike is in
- * `docs/DESIGN-SELFHOSTED.md`). The run BODY is `runAgentRun` (`api/workflows/agent-run-body.ts`),
- * written against the neutral `Step`; this file is the engine under it on Node:
+ * Durable agent runs on OpenWorkflow. The run BODY is `runAgentRun`
+ * (`api/workflows/agent-run-body.ts`), written against the neutral `Step`; this file is the
+ * engine under it on Node:
  *
  * - `RunEngine` — `create` starts an OpenWorkflow run (the requested id becomes its idempotency
  *   key; the engine's own id is what the caller stores as `agent_runs.instanceId`), `get` reads
@@ -10,7 +10,7 @@
  *   absorbed here rather than in the body:
  *   1. **Retries happen INSIDE one step.** OpenWorkflow retries a failed step by rescheduling the
  *      whole run; a body that catches the failure (ours does, to settle the row) would see the
- *      first one and never retry. So `do` runs `fn` with the Cloudflare-style policy in-process,
+ *      first one and never retry. So `do` runs `fn` with the step's own retry policy in-process,
  *      and records a FINAL failure as the step's result — a replay then throws the same error
  *      instead of running a step that already gave up.
  *   2. **A park is a throw.** OpenWorkflow suspends a run by throwing out of `waitForSignal`;
@@ -21,8 +21,9 @@
  *   reports receiving it, stops if the run is over, and gives up quietly if the run moved on.
  *
  * The worker runs in `worker`/`all` modes (`RUNS_CONCURRENCY`). The `openworkflow` schema is
- * installed by `pnpm db:migrate` (`installRunsSchema`, `runs-schema.ts`), never at boot. OpenWorkflow gets its own
- * small postgres.js pool — it reserves a connection per transaction and must not starve the app's.
+ * installed by `pnpm db:migrate` (`installRunsSchema`, `runs-schema.ts`), never at boot.
+ * OpenWorkflow gets its own small postgres.js pool — it reserves a connection per transaction and
+ * must not starve the app's.
  */
 import { OpenWorkflow, type Worker } from 'openworkflow'
 import { BackendPostgres } from 'openworkflow/postgres'
@@ -54,7 +55,7 @@ const CONTROL_FLOW_ERRORS = new Set([
   'StepLimitExceededError',
 ])
 
-/** Cloudflare Workflows' defaults for a `step.do` with no config — the body was written for them. */
+/** The policy of a `step.do` with no options: 5 retries, 10 s doubling; a 10-minute timeout. */
 const DEFAULT_RETRIES = { limit: 5, delay: '10 seconds', backoff: 'exponential' } as const
 const DEFAULT_TIMEOUT: Duration = '10 minutes'
 /** How long `sendEvent` keeps re-sending a signal nobody has received yet. */
@@ -82,7 +83,7 @@ export function durationMs(value: Duration | string): number {
   return Number(match[1]) * ms
 }
 
-/** The delay before retry `n` (1-based) under a Cloudflare-style backoff. */
+/** The delay before retry `n` (1-based) under the policy's backoff (constant, linear, doubling). */
 export function retryDelayMs(policy: NonNullable<StepOptions['retries']>, n: number): number {
   const base = durationMs(policy.delay)
   if (policy.backoff === 'constant') return base
@@ -201,7 +202,7 @@ interface WorkflowRunLike {
   error: { name?: string; message?: string } | null
 }
 
-/** OpenWorkflow status → the Cloudflare vocabulary `reconcileRun` reads. */
+/** OpenWorkflow status → the `RunStatus` vocabulary `reconcileRun` reads. */
 export function mapRunStatus(run: WorkflowRunLike, now = Date.now()): RunStatus {
   switch (run.status) {
     case 'pending':
@@ -315,7 +316,7 @@ export function createNodeRuns(options: NodeRunsOptions): NodeRuns {
   let deps: { env: AppBindings; platform: Platform } | undefined
 
   const workflow = ow.defineWorkflow<{ runId: string; tenantId: string }, unknown>(
-    // A throw OUTSIDE a step fails the run, as on Cloudflare — the body settles its own row.
+    // A throw OUTSIDE a step fails the run, never retries it — the body settles its own row.
     { name: AGENT_RUN_WORKFLOW_NAME, retryPolicy: { maximumAttempts: 1 } },
     async ({ input, step, run }) => {
       if (!deps) throw new Error('agent-run: the runs worker started without a platform')

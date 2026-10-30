@@ -3,7 +3,7 @@
 // interrupts) and mocks `@/api/services/ai/resolve`, so this file needs its own module registry.
 // Also mocks both plugin barrels to register the test-only agents (tests/helpers/test-agents.ts).
 /**
- * The human-in-the-loop routes (issue #17, phase 5):
+ * The human-in-the-loop routes:
  *
  *   POST /api/agents/runs/:id/interrupts/:interruptId   — the eight-step answer
  *   POST /api/agents/runs/:id/steering                  — a note to a run in flight
@@ -190,7 +190,7 @@ describe('POST /api/agents/runs/:id/interrupts/:interruptId', () => {
       resolvedByUserId: a.user.id,
     })
 
-    // The answer IS the transition, and it happens BEFORE the wake (decision 2).
+    // The answer IS the transition, and it happens BEFORE the wake.
     expect((await getRun(db, a.tenant.id, run.id))?.status).toBe('running')
     expect(stubs(env).workflow?.events).toEqual([
       { instanceId: run.id, type: 'agent-resume', payload: { interruptId: ask.id } },

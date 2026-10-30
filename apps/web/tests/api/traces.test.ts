@@ -1,5 +1,5 @@
 /**
- * The local trace store read back (D32): spans flushed through `databaseSpanStore` land in
+ * The local trace store read back: spans flushed through `databaseSpanStore` land in
  * `ai_spans`; `GET /api/traces` lists one row per trace for the caller's tenant only, with the
  * filters the CLI uses; `GET /api/traces/:id` returns a trace's spans by trace id, run id or message
  * id, and another tenant's id is a 404 exactly like an unknown one; anonymous 401, members 403.

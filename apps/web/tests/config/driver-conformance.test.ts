@@ -1,5 +1,5 @@
 /**
- * The conformance suite stays a conformance suite (D35, tests/driver/CLAUDE.md).
+ * The conformance suite stays a conformance suite (tests/driver/CLAUDE.md).
  *
  * `tests/driver/` proves the driver seam: each test states one fact about what app code sees
  * through `src/db/client.ts`. The easy wrong fix for a failing one is to skip it, or to branch its

@@ -1,10 +1,10 @@
 /**
- * Tracing seam (D32, superseding D16): a thin `Tracer` interface every AI call site talks to, with
+ * Tracing seam: a thin `Tracer` interface every AI call site talks to, with
  * a no-op default so code paths are identical with and without a backend. The one implementation
  * is the span recorder in `recorder.ts`, which `tracing.ts` builds with two sinks: the OTLP/HTTP
  * exporter (`otlp-fetch.ts`, when a backend is configured) and the local `ai_spans` store
  * (`span-store.ts`, always, when a database is reachable). No OpenTelemetry dependency —
- * `@opentelemetry/sdk-node` cannot run in Workers, and the wire format is small enough to own.
+ * the wire format is small enough to own.
  *
  * Handles NEST: `handle.span()` opens a child and returns its handle, so a tool call can parent the
  * retrieval it runs. Every handle carries a stable OTLP `traceId` (32 hex) and `spanId` (16 hex).
@@ -34,11 +34,11 @@ export interface TraceParams {
   input?: unknown
   /** An evaluation run (`rocketpod.eval=true`), so a backend can filter it out of production views. */
   eval?: boolean
-  /** Join an existing trace instead of starting one — how every Workflow step lands in ONE trace. */
+  /** Join an existing trace instead of starting one — how every run step lands in ONE trace. */
   traceId?: string
   /** A fixed span id for this span (the run's deterministic root); random otherwise. */
   spanId?: string
-  /** Make this span a child of one recorded elsewhere (another Worker invocation). */
+  /** Make this span a child of one recorded elsewhere (another step execution). */
   parentSpanId?: string
   /** Override the span name (`execute#0`); defaults to `invoke_agent <name>`. */
   spanName?: string

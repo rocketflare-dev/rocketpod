@@ -47,7 +47,7 @@ Ask (one `AskUserQuestion`, unless the argument already says) between:
 
 Then confirm where Postgres and the bucket come from: the bundled `postgres` / `s3` services
 (Compose only — fine on one host, not HA) or managed ones (RDS/Cloud SQL/Neon/Supabase with
-pgvector; S3, R2, GCS, MinIO…). The chart bundles neither.
+pgvector; S3, GCS, MinIO, Ceph…). The chart bundles neither.
 
 ## 1. Docker Compose
 

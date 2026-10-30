@@ -1,27 +1,40 @@
 name: CI
 
-# The quality gate, in ONE job: the secrets scan, then `pnpm gate` — lint, typecheck, test, build,
-# the same command a person runs before committing and Launch's ship gate runs in a sandbox
-# (docs/CONCEPTS.md §4). The workflow adds no check of its own beyond gitleaks, so what passes
-# here is exactly what passes on a laptop.
+# The quality gate, run as PARALLEL jobs that each run one part of the same commands a person runs
+# before committing (and Launch's ship gate runs in a sandbox, docs/CONCEPTS.md §4): `pnpm gate
+# <step>` and the gate's test runner `pnpm test --only <part> [--shard i/N]`
+# (scripts/lib/test-plan.mjs). The parts together are exactly `pnpm gate` — `gate.test.ts` proves
+# the `--only` parts are the whole plan and the shards are the unsharded run — and the workflow adds
+# no check of its own beyond gitleaks, so what passes here is what passes on a laptop.
 #
-# `pnpm test` (the gate's `test` step) starts the test Postgres from
-# `apps/web/docker-compose.test.yml` itself and runs every suite, the `driver` conformance project
-# included (apps/web/src/db/CLAUDE.md). No `services:` block, no restart hack: the compose file is
-# the one definition of the test database.
+#   static          gitleaks, then `pnpm gate lint typecheck build`
+#   test (packages) `pnpm test --only packages` — no database
+#   test (api)      `pnpm test --only api` — the --no-isolate web run
+#   test (rest i/4) `pnpm test --only rest --shard i/4` — the other web projects (api-isolated,
+#                   driver, ui, config, and kit-only in the kit), split by vitest's own --shard
+#   Gate            needs every job above; fails unless all of them succeeded
+#
+# `Gate` is the one required check, and the workflow's conclusion (what image.yml's tag wait reads)
+# is a failure whenever any job failed. Four rest shards because that run is the long one: most of
+# it is per-file collect/environment cost, which a shard divides.
+#
+# `pnpm test` starts the test Postgres from `apps/web/docker-compose.test.yml` itself (a packages
+# run starts none) and the `driver` conformance project runs in a rest shard
+# (apps/web/src/db/CLAUDE.md). No `services:` block, no restart hack: the compose file is the one
+# definition of the test database.
 #
 # A release workflow may call this same file (`workflow_call`) before publishing a tag whose commit
-# has no green CI run yet, so a commit is gated once and the gate never drifts. The kit's OWN checks (a renamed copy, the default plugins, the porting note) are kit.yml, which a
-# copy never carries.
+# has no green CI run yet, so a commit is gated once and the gate never drifts. The kit's OWN checks
+# (a renamed copy, the default plugins, the porting note) are kit.yml, which a copy never carries.
 #
 # Verified once (opt-in, for an app shipped by Launch): with the repository variable
-# LAUNCH_GATE_APP_ID set to Launch's GitHub App id, `Gate`'s FIRST step asks whether Launch already
-# gated the exact tree under test — a `launch/gate` check run from THAT app, `success`, whose
+# LAUNCH_GATE_APP_ID set to Launch's GitHub App id, EVERY job's first step asks whether Launch
+# already gated the exact tree under test — a `launch/gate` check run from THAT app, `success`, whose
 # `external_id` is `tree:<tree sha>` (scripts/gate-verified.mjs, rules in
-# scripts/lib/gate-verified-lib.mjs). If so `Gate` runs only what the sandbox does not: gitleaks and
-# `pnpm gate build`. Variable unset: the step is skipped (no API call) and `Gate` runs the full
-# `pnpm gate` exactly as before. One job, so one runner: the lookup used to be a job of its own,
-# and every run queued for two runners in sequence. `Gate` stays the one required check either way.
+# scripts/lib/gate-verified-lib.mjs). If so `static` runs only what the sandbox does not — gitleaks
+# and `pnpm gate build` — and every test job stops after the lookup (green, nothing run). Variable
+# unset: the step is skipped (no API call) and every job runs its part. The lookup is repeated per
+# job rather than made a job of its own, so no job queues behind another runner.
 on:
   pull_request:
   push:
@@ -34,11 +47,12 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  gate:
-    name: Gate
+  static:
+    name: Static (gitleaks, lint, typecheck, build)
     runs-on: ubuntu-24.04
-    # The lookup reads check runs and a commit's pull requests; nothing in this job writes. A caller
-    # must grant the same three: a called workflow may not ask for more than its caller grants.
+    timeout-minutes: 20
+    # The lookup reads check runs and a commit's pull requests; nothing in this workflow writes. A
+    # caller must grant the same three: a called workflow may not ask for more than its caller grants.
     permissions:
       contents: read
       checks: read
@@ -64,13 +78,6 @@ jobs:
           LAUNCH_GATE_APP_ID: ${{ vars.LAUNCH_GATE_APP_ID }}
           GITHUB_TOKEN: ${{ github.token }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-      # The test image, pulled in the background while pnpm installs (~15-20 s a run). If it has
-      # not arrived by the time `pnpm test` runs `docker compose up`, that pulls it itself.
-      - name: Pre-pull the test database images
-        if: steps.verified.outputs.verified != 'true'
-        run: |
-          nohup docker compose -f apps/web/docker-compose.test.yml pull --quiet \
-            > "$RUNNER_TEMP/pull.log" 2>&1 &
       # pnpm version comes from `packageManager` in the root package.json. Must precede setup-node
       # so `cache: pnpm` can find the store.
       - uses: pnpm/action-setup@v6
@@ -95,5 +102,91 @@ jobs:
         if: steps.verified.outputs.verified == 'true'
         run: pnpm gate build
 
+      # Every gate step but `test`, which the test jobs below run in parts.
+      - name: pnpm gate lint typecheck build
+        if: steps.verified.outputs.verified != 'true'
+        run: pnpm gate lint typecheck build
+
+  test:
+    name: Test (${{ matrix.part }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      checks: read
+      pull-requests: read
+    strategy:
+      # Every part reports, like `pnpm gate --keep-going`: one red shard does not hide another.
+      fail-fast: false
+      matrix:
+        include:
+          - part: packages
+            args: --only packages
+            database: false
+          - part: api
+            args: --only api
+            database: true
+          - part: rest 1/4
+            args: --only rest --shard 1/4
+            database: true
+          - part: rest 2/4
+            args: --only rest --shard 2/4
+            database: true
+          - part: rest 3/4
+            args: --only rest --shard 3/4
+            database: true
+          - part: rest 4/4
+            args: --only rest --shard 4/4
+            database: true
+    steps:
+      - uses: actions/checkout@v7
+      # The same lookup as `static` (see there). Verified: this part passed in Launch on this tree.
+      - name: Verified by Launch?
+        id: verified
+        if: vars.LAUNCH_GATE_APP_ID != ''
+        run: node scripts/gate-verified.mjs
+        env:
+          LAUNCH_GATE_APP_ID: ${{ vars.LAUNCH_GATE_APP_ID }}
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      # The test image, pulled in the background while pnpm installs (~15-20 s a run). If it has
+      # not arrived by the time `pnpm test` runs `docker compose up`, that pulls it itself.
+      - name: Pre-pull the test database images
+        if: matrix.database && steps.verified.outputs.verified != 'true'
+        run: |
+          nohup docker compose -f apps/web/docker-compose.test.yml pull --quiet \
+            > "$RUNNER_TEMP/pull.log" 2>&1 &
+      - uses: pnpm/action-setup@v6
+        if: steps.verified.outputs.verified != 'true'
+      - uses: actions/setup-node@v7
+        if: steps.verified.outputs.verified != 'true'
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
       - if: steps.verified.outputs.verified != 'true'
-        run: pnpm gate
+        run: pnpm install --frozen-lockfile
+
+      - name: pnpm test ${{ matrix.args }}
+        if: steps.verified.outputs.verified != 'true'
+        run: pnpm test ${{ matrix.args }}
+
+  # The one required check. `always()` so it reports (red) when a job it needs failed or was
+  # cancelled, instead of being skipped — a skipped required check would let a merge through.
+  gate:
+    name: Gate
+    needs: [static, test]
+    if: always()
+    runs-on: ubuntu-24.04
+    permissions: {}
+    steps:
+      - name: Every part of the gate passed
+        env:
+          STATIC: ${{ needs.static.result }}
+          TEST: ${{ needs.test.result }}
+        run: |
+          echo "static: $STATIC · test: $TEST"
+          if [ "$STATIC" != success ] || [ "$TEST" != success ]; then
+            echo "::error::the gate failed (static: $STATIC, test: $TEST)"
+            exit 1
+          fi
+          echo "✔ every part of pnpm gate passed"

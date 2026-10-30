@@ -161,10 +161,10 @@ describe('applyReplacements', () => {
   })
 
   /**
-   * #37: anything in the `rocketflare-dev` org is upstream — the kit, its plugin repositories, the
-   * mirrored neon-proxy image, the reusable plugin CI — and a renamed app still pulls it from
-   * there. Only `github.com/rocketflare-dev/rocketflare` used to be preserved, so the rest became
-   * `acme-dev/…`, an org that does not exist, and the neon test run could not pull its image.
+   * Anything in the `rocketflare-dev` org is upstream — the kit, its plugin repositories, the
+   * reusable plugin CI — and a renamed app still pulls it from there; rewritten, it became
+   * `acme-dev/…`, an org that does not exist. A container image under `ghcr.io/` is the exception:
+   * it is the app's own, so it follows the rename (the next test).
    */
   it('never rewrites the rocketflare-dev org or its repositories, but still moves container names', () => {
     const input = [
@@ -182,7 +182,17 @@ describe('applyReplacements', () => {
         .replace('rocketpod-dev-postgres', 'acme-dev-postgres')
         .replace('rocketpod-dev-data', 'acme-dev-data')
     )
-    expect(preserved).toBe(6)
+    expect(preserved).toBe(4)
+  })
+
+  it("renames the app's own image, which is not upstream", () => {
+    const { text } = applyReplacements(
+      'repository: ghcr.io/rocketflare-dev/rocketpod\nhome: https://github.com/rocketflare-dev/rocketpod',
+      deriveNames('acme')
+    )
+    expect(text).toBe(
+      'repository: ghcr.io/rocketflare-dev/acme\nhome: https://github.com/rocketflare-dev/rocketpod'
+    )
   })
 
   it('leaves no <slug>-dev/ reference anywhere in the renamed tree', () => {

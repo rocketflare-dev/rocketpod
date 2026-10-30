@@ -1,5 +1,5 @@
 /**
- * `/api/ai/agent-models` (D17) + the `resolveChat(..., { promptKey })` branch: the list covers every
+ * `/api/ai/agent-models` + the `resolveChat(..., { promptKey })` branch: the list covers every
  * registry prompt key with what the resolver WILL pick; an assignment to a second config and/or a
  * model changes `resolveChat`'s answer for THAT key only (`source: 'agent'`); a model-only
  * assignment keeps the default config; DELETE reverts (idempotent); deleting the assigned config

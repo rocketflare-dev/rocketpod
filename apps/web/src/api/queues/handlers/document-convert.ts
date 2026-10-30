@@ -1,10 +1,10 @@
 /**
- * `document.convert` (D7, D18): an uploaded original in object storage → text (the platform
- * `DocumentConverter`, or a UTF-8 decode for text types) → the same `indexDocument` every other path uses. The message
- * carries only ids; the row and the `files` row say where the bytes are. A permanent conversion
- * refusal (`ConversionFailedError`) marks the row `failed` and is ACKED — retrying a corrupt PDF
- * cannot help; a thrown binding or provider error marks it `failed` and throws so the consumer
- * retries with backoff. A vanished row is logged and acked. A missing `FILES` binding throws —
+ * `document.convert`: an uploaded original in object storage → text (the platform
+ * `DocumentConverter`, or a UTF-8 decode for text types) → the same `indexDocument` every other
+ * path uses. The message carries only ids; the row and the `files` row say where the bytes are.
+ * A permanent conversion refusal (`ConversionFailedError`) marks the row `failed` and is ACKED —
+ * retrying a corrupt PDF cannot help; a thrown storage or provider error marks it `failed` and throws so the consumer
+ * retries with backoff. A vanished row is logged and acked. A missing `Platform.storage` throws —
  * the consumer must not silently drop uploads.
  */
 import type { JobOf } from '@rocketpod/shared/jobs'
@@ -36,7 +36,7 @@ export async function handleDocumentConvert(
     )
   }
   try {
-    // D32: a `job document.convert` span, so each embeddings batch nests under something.
+    // A `job document.convert` span, so each embeddings batch nests under something.
     const indexed = await withAgentTrace(
       'document.convert',
       {

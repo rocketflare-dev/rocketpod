@@ -1,5 +1,5 @@
 /**
- * Agent runtime contracts (D7, D17): the agent roster, the run lifecycle, the `agent_runs` row the
+ * Agent runtime contracts: the agent roster, the run lifecycle, the `agent_runs` row the
  * API returns, the request/list/event shapes, and the one example agent's input/output schemas.
  * The server's registry (`apps/web/src/api/services/agents/registry.ts`) attaches a `run()` to
  * each `AgentMeta`; the UI only ever needs what is here. "DB is the truth": progress is durable in
@@ -20,14 +20,14 @@ import {
 } from './interrupts'
 import { promptKeySchema } from './prompts'
 
-/** Stable identifier for each agent the KIT ships. Append LAST; an app extends this list. */
+/** Stable identifier for each built-in agent. Append LAST; an app extends this list. */
 export const CORE_AGENT_KEYS = ['summarize-text', 'research-topic', 'triage-research'] as const
 
 type PluginAgentKey = NonNullable<DeclaredBy<(typeof SHARED_PLUGINS)[number], 'agentKeys'>>[number]
 
 /**
- * Core keys plus every installed plugin's (D31). `z.enum` needs a non-empty tuple and gets one
- * because the kit's own keys lead the list; iterate the widened barrel to build the tail (an EMPTY
+ * Core keys plus every installed plugin's. `z.enum` needs a non-empty tuple and gets one
+ * because the core keys lead the list; iterate the widened barrel to build the tail (an EMPTY
  * tuple indexes to `never`, and `never.agentKeys` is a type error), then restore what the tuple
  * says those elements are.
  */
@@ -64,7 +64,7 @@ export interface AgentMeta<Input = unknown, Output = unknown> {
    */
   startable?: boolean
   /**
-   * Who may answer this agent's interrupts (issue #17). `'requester'` (the default) is "whoever
+   * Who may answer this agent's interrupts. `'requester'` (the default) is "whoever
    * may cancel this run may answer it" — the SAME rule `visible()` already implements, so there is
    * one mental model rather than two. `'admin'` is the opt-in for agents that touch money,
    * customers or deletion. It is not a new CASL subject: an app wanting approvals on its own axis
@@ -85,7 +85,7 @@ export const agentInfoSchema = z.object({
   approvers: agentApproversSchema.default('requester'),
   /**
    * The agent's `inputSchema` as JSON Schema, produced server-side by `toolInputSchema()`
-   * (`services/ai/kit.ts`). Three reasons it is this and not zod: the conversion already exists;
+   * (`services/ai/agent-loop.ts`). Three reasons it is this and not zod: the conversion already exists;
    * it keeps zod off the client, which is what holds the zod-3/zod-4 boundary; and it is the SAME
    * shape `Interrupt.responseSchema` carries, so ONE renderer serves both the run form and the
    * `form` interrupt kind — which is why that kind costs almost nothing.
@@ -100,10 +100,10 @@ export type AgentListResponse = z.infer<typeof agentListResponseSchema>
 // ---- Run lifecycle -------------------------------------------------------------------------------
 
 /**
- * `queued` = row exists, Workflow instance created, not yet claimed; `running` = claimed by the
- * execute step; `awaiting_input` = parked on a human decision (issue #17), which is a real
+ * `queued` = row exists, run instance created, not yet claimed; `running` = claimed by the
+ * execute step; `awaiting_input` = parked on a human decision, which is a real
  * lifecycle state and not a terminal one. Terminal: `succeeded` / `failed` / `cancelled` (a
- * status, never a message — see 09 §4.1 on why a cancel must not be a `failed` row with prose).
+ * status, never a message — a cancel must not be a `failed` row with prose).
  *
  * Appended LAST because it is a `z.enum` mirrored by a text column.
  */
@@ -147,9 +147,9 @@ export const agentRunSchema = z.object({
   output: z.unknown().nullable(),
   error: z.string().nullable(),
   requestedByUserId: z.string().uuid().nullable(),
-  /** The Workflow instance id (= run id). Null only for a row created outside the runtime. */
+  /** The run-engine instance id (= run id). Null only for a row created outside the runtime. */
   instanceId: z.string().nullable(),
-  /** Execute attempts started (1 on the first try; a Workflow step retry re-claims and bumps it). */
+  /** Execute attempts started (1 on the first try; a step retry re-claims and bumps it). */
   attempt: z.number().int().nonnegative(),
   startedAt: z.coerce.date().nullable(),
   finishedAt: z.coerce.date().nullable(),
@@ -302,7 +302,7 @@ export const agentRunWithEventsSchema = agentRunSchema.extend({
   interrupts: z.array(agentRunInterruptSchema).default([]),
   /** What the run produced that a person opens, keyed by `key` and upserted as it is redrafted. */
   artifacts: z.array(agentArtifactSchema).default([]),
-  /** Every typed question the run asked (D37) — answers, probabilities, the engine that gave them. */
+  /** Every typed question the run asked — answers, probabilities, the engine that gave them. */
   decisions: z.array(agentRunDecisionSchema).default([]),
 })
 export type AgentRunWithEvents = z.infer<typeof agentRunWithEventsSchema>
@@ -310,18 +310,16 @@ export type AgentRunWithEvents = z.infer<typeof agentRunWithEventsSchema>
 // ---- Suspend / resume ----------------------------------------------------------------------------
 
 /**
- * Cloudflare Workflows event type names allow **only letters, digits, `-` and `_`**. A `.` is
- * rejected with `workflow.invalid_event_type`
- * (https://developers.cloudflare.com/workflows/build/events-and-parameters/).
+ * Event type names use **only letters, digits, `-` and `_`** — a portable rule: some durable-run
+ * engines reject a `.` (`workflow.invalid_event_type`); a name that fits works on any of them.
  *
- * This is here rather than only in a test because nothing else would catch a bad name: the Node
- * suite's `createFakeWorkflowStep` never validates it, so a `.` would first surface as *a parked
- * run that can never be resumed*, in production, on the first approval anyone ever gives.
+ * This is a constant rather than only a test because nothing at runtime checks it: OpenWorkflow
+ * accepts any signal name and the suite's `createFakeWorkflowStep` never validates it either.
  */
 export const WORKFLOW_EVENT_TYPE_PATTERN = /^[A-Za-z0-9_-]{1,100}$/
 
 /**
- * The Workflow event a resolved interrupt sends to wake a parked run.
+ * The event a resolved interrupt sends to wake a parked run.
  *
  * **It is a nudge, not the answer.** The payload carries `{ interruptId }` only and the step
  * re-reads the row: an answer travelling in the event would be a second source of truth that can
@@ -336,7 +334,7 @@ export const MAX_INTERRUPT_ROUNDS = 32
 
 /**
  * `GET /api/agents/runs/:id/agui/stream` tails `agent_run_events` on an open connection. These are
- * PROTOCOL numbers the client agrees with, not `[vars]`: making them configurable would add parity
+ * PROTOCOL numbers the client agrees with, not env vars: making them configurable would add parity
  * surface and buy nothing, because both ends ship from one tag.
  *
  * The cadence is adaptive because an agent's output is bursty — fast matters just after a row, not
@@ -360,10 +358,9 @@ export const RUN_STREAM_HEARTBEAT_MS = 15_000
  */
 export const RUN_STREAM_IDLE_CAP_MS = 300_000
 /**
- * Ten minutes, whatever is happening. It keeps the tick count provably under the 1 000-subrequest
- * ceiling, bounds mid-stream session expiry, matches the `execute` step timeout, and — the real
- * reason — **makes a redeploy indistinguishable from the normal path**, so the reconnect is
- * exercised on every stream rather than only during an incident.
+ * Ten minutes, whatever is happening. It bounds mid-stream session expiry, matches the `execute`
+ * step timeout, and — the real reason — **makes a redeploy indistinguishable from the normal
+ * path**, so the reconnect is exercised on every stream rather than only during an incident.
  */
 export const RUN_STREAM_MAX_MS = 600_000
 /**
@@ -424,7 +421,7 @@ export const researchTopicOutputSchema = z.object({
 })
 export type ResearchTopicOutput = z.infer<typeof researchTopicOutputSchema>
 
-// ---- The decisions example agent (D37) ----------------------------------------------------------
+// ---- The decisions example agent ----------------------------------------------------------
 
 /** Longest question `triage-research` accepts (characters). */
 export const TRIAGE_RESEARCH_MAX_CHARS = 2_000

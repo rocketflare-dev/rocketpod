@@ -1,12 +1,18 @@
 name: Image
 
-# The container image and the Helm chart (M7, docs/DEPLOY.md). Pull requests and main BUILD the
+# The container image and the Helm chart (docs/DEPLOY.md). Pull requests and main BUILD the
 # image (no push) and lint + render the chart, so a broken Dockerfile or template fails before a
 # release; a version tag (`v*` or a bare `X.Y.Z`) pushes ghcr.io/<owner>/rocketpod:<version> and
-# `:latest`. The quality gate stays ci.yml's one job — nothing here re-runs it, but a TAG waits for
-# it: the `ci` job blocks the push until the CI workflow has passed on the tagged commit (a failed
-# or missing run stops the release). A copy that adds a deploy job hangs it off `needs: [ci, chart,
-# image]`, so a tag is never deployed past a red gate.
+# `:latest`. The quality gate stays ci.yml's (its `Gate` check) — nothing here re-runs it, but a TAG
+# waits for it: the `ci` job polls until the CI workflow has passed on the tagged commit (a failed
+# or missing run stops the release).
+#
+# On a tag the slow part overlaps that wait: `image` BUILDS (never pushes) while `ci` waits, writing
+# every layer to the GitHub Actions cache; `publish` needs BOTH, and only then logs in to ghcr.io
+# and re-runs the same build from the warm cache with `push: true` — a cache hit for every layer,
+# so it costs the push. Nothing is pushed unless CI passed on that commit: `publish` sits behind
+# `ci` by `needs:`, and `image` holds no registry credentials. A copy that adds a deploy job hangs
+# it off `needs: [ci, chart, publish]`, so a tag is never deployed past a red gate.
 on:
   pull_request:
   push:
@@ -70,11 +76,42 @@ jobs:
           docker run --rm -v "$RUNNER_TEMP":/work ghcr.io/yannh/kubeconform:v0.6.7 \
             -strict -summary -kubernetes-version 1.30.0 /work/rendered.yaml
 
+  # Every event: the build (no push), its layers cached to gha. On a tag it runs WHILE `ci` waits.
   image:
     name: Image
-    needs: [ci]
-    # `ci` is skipped off a tag; run then, and on a tag only once it passed.
-    if: ${{ !cancelled() && (needs.ci.result == 'success' || needs.ci.result == 'skipped') }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - name: Tags
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/rocketpod
+          tags: |
+            type=semver,pattern={{version}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/') }}
+            type=sha
+      - name: Build (never pushed here)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: false
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: RELEASE_VERSION=${{ github.ref_name }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # A tag only, after CI passed AND the build above succeeded: the same build (same context and
+  # args) from the warm gha cache, pushed. Any input that differed would rebuild that layer here
+  # rather than push something CI did not see.
+  publish:
+    name: Push the image
+    needs: [ci, image]
+    if: ${{ startsWith(github.ref, 'refs/tags/') && needs.ci.result == 'success' && needs.image.result == 'success' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -89,23 +126,20 @@ jobs:
           images: ghcr.io/${{ github.repository_owner }}/rocketpod
           tags: |
             type=semver,pattern={{version}}
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/') }}
+            type=raw,value=latest
             type=sha
       - name: Log in to ghcr.io
-        if: startsWith(github.ref, 'refs/tags/')
         uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build (and push on a tag)
+      - name: Push (from the cache the build job wrote)
         uses: docker/build-push-action@v7
         with:
           context: .
-          push: ${{ startsWith(github.ref, 'refs/tags/') }}
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: RELEASE_VERSION=${{ github.ref_name }}
           cache-from: type=gha
-          cache-to: type=gha,mode=max
-

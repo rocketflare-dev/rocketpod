@@ -1,10 +1,10 @@
 /**
- * The shared half of a plugin (D31).
+ * The shared half of a plugin.
  *
  * A plugin is a separate git repository COPIED into an app — never installed from npm, exactly
- * like the kit itself — that contributes contracts, routes, schema, UI and CLI commands through
+ * like the app itself — that contributes contracts, routes, schema, UI and CLI commands through
  * five barrels. `SharedPlugin` is the part all three consumers see: the zod contracts, the keys it
- * owns, and the `[vars]` it needs.
+ * owns, and the env vars it needs.
  *
  * **This module never imports one of the five composers AT RUNTIME, and nor does a plugin's own
  * `index.ts`.** The five — `ai/agents.ts`, `jobs.ts`, `permissions.ts`, `features.ts`,
@@ -32,9 +32,8 @@ import type { PluginEvalCoverage } from '../ai/eval-coverage'
 import type { FeatureDefinition } from '../features'
 
 /**
- * `^[a-z][a-z0-9-]*$` and never containing `rocketpod`: a plugin is written in the kit's
- * vocabulary so `scripts/rename.mjs` can translate it into a renamed app on the way in, and an id
- * carrying the kit's name would be rewritten with everything else.
+ * `^[a-z][a-z0-9-]*$` and never containing `rocketpod`: an id carrying the app's
+ * original name would be rewritten with everything else when the app is renamed.
  */
 export const PLUGIN_ID_RE = /^[a-z][a-z0-9-]*$/
 
@@ -71,8 +70,8 @@ export interface SharedPlugin {
   /** Prompt registry keys this plugin owns; `ServerPlugin.prompts` must cover exactly these. */
   readonly promptKeys?: readonly string[]
   /**
-   * The eval coverage contract for this plugin's own `promptKeys` and `agentKeys` (D33,
-   * `@rocketpod/shared/ai/eval-coverage`): per key, the `apps/evals` suite, datasets and baseline
+   * The eval coverage contract for this plugin's own `promptKeys` and `agentKeys`
+   * (`@rocketpod/shared/ai/eval-coverage`): per key, the `apps/evals` suite, datasets and baseline
    * that measure it, or `{ exempt: '<why>' }`. A plugin cannot write under `apps/evals`, so it
    * usually declares an exemption; a host that writes a suite for it overrides the entry in the
    * core map. Every key the plugin registers needs one, or the host's gate fails.
@@ -81,7 +80,7 @@ export interface SharedPlugin {
   /**
    * Job envelope variants as DATA: `jobInputSchema` is a discriminated union over
    * `[...CORE_JOB_VARIANTS, ...plugin variants]`. Namespace every `type` with the plugin's id
-   * (`orders.sync`), and remember the kit's own rule — the `type` string is the version seam, so a
+   * (`orders.sync`), and remember the core rule — the `type` string is the version seam, so a
    * breaking payload change is a new variant, never an edited one.
    */
   readonly jobs?: readonly JobVariant[]
@@ -91,17 +90,17 @@ export interface SharedPlugin {
    */
   readonly subjects?: readonly string[]
   /**
-   * Feature-flag definitions keyed by flag key (D30), merged into `FEATURE_FLAGS`. A flag is
+   * Feature-flag definitions keyed by flag key, merged into `FEATURE_FLAGS`. A flag is
    * configuration, not a permission: gate with `hasFeature(auth.features, …)`, never with CASL.
    */
   readonly features?: Readonly<Record<string, FeatureDefinition>>
   /**
-   * Extra `[vars]` / secrets, merged into the Worker's config schema (`apps/web/src/config.ts`).
-   * A zod raw shape rather than a whole object so the kit's schema stays one schema.
+   * Extra env vars / secrets, merged into the server's config schema (`apps/web/src/config.ts`).
+   * A zod raw shape rather than a whole object so the core schema stays one schema.
    */
   readonly config?: ZodRawShape
   /**
-   * Query-key roots that `access.changed` should invalidate (D29): a plugin whose rows carry
+   * Query-key roots that `access.changed` should invalidate: a plugin whose rows carry
    * `visibility` has to be re-fetched when somebody's group membership moves under them.
    */
   readonly realtimeRoots?: readonly string[]

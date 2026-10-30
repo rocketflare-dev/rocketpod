@@ -1,9 +1,9 @@
 /**
- * OTLP/HTTP over plain `fetch` (D32, replacing the Langfuse ingestion client of D16): a span sink
+ * OTLP/HTTP over plain `fetch`: a span sink
  * that serialises a batch to ONE `ExportTraceServiceRequest` and POSTs it to
- * `<endpoint>/v1/traces`. JSON by default (`http/json`, what Langfuse and Cloudflare's own export
- * speak); protobuf (`http/protobuf`, `otlp-protobuf.ts`) for backends that accept nothing else, such
- * as Phoenix. No dependencies, no Node APIs, errors swallowed and logged — tracing must never break
+ * `<endpoint>/v1/traces`. JSON by default (`http/json`, what Langfuse speaks);
+ * protobuf (`http/protobuf`, `otlp-protobuf.ts`) for backends that accept nothing else, such as
+ * Phoenix. No dependencies, no Node APIs, errors swallowed and logged — tracing must never break
  * the app, and the recorder already runs it in `waitUntil`.
  */
 import type { Logger } from '../utils/core/logger'

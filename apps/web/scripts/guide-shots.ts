@@ -13,7 +13,7 @@
  * `--stale` shoots only entries whose `sources` changed since their image was last committed.
  * Images are plain PNGs (no Git LFS). Exit 1 if any entry failed.
  *
- * **Playwright is not a dependency of the kit** — the gate never needs a browser. This script
+ * **Playwright is not a dependency of the app** — the gate never needs a browser. This script
  * loads it on demand and says how to install it when it is missing.
  */
 import { execFileSync } from 'node:child_process'
@@ -98,7 +98,7 @@ async function devSession(): Promise<Session> {
 
 /**
  * The values of the route placeholders the selected entries use, looked up on the dev server as
- * the signed-in owner. The kit's pages need none; an app whose screens live under an id
+ * the signed-in owner. The built-in pages need none; an app whose screens live under an id
  * (`/projects/{project}`) adds a lookup here — an API read, or a seed of its own that it deletes
  * again in `main`'s `finally`.
  */
@@ -138,7 +138,7 @@ function selectEntries(all: ShotEntry[], only: string[] | null, stale: boolean):
   return entries
 }
 
-/** The slice of Playwright this script drives — typed here so the kit compiles without it. */
+/** The slice of Playwright this script drives — typed here so the app compiles without it. */
 interface Locator {
   first(): Locator
   click(): Promise<void>
@@ -166,7 +166,7 @@ interface Browser {
 }
 
 async function launchChromium(): Promise<Browser> {
-  // A variable specifier: the kit typechecks and bundles without the package present.
+  // A variable specifier: the app typechecks and bundles without the package present.
   const specifier = 'playwright'
   let mod: { chromium: { launch(): Promise<Browser> } }
   try {

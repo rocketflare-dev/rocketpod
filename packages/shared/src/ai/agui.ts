@@ -6,8 +6,8 @@
  *
  * Two rules hold the contract together:
  *
- * - **The kit emits a SUBSET.** {@link kitAguiEventSchema} is a discriminated union over exactly the
- *   events the kit produces, not `@ag-ui/core`'s full set. It documents the subset, keeps the
+ * - **The server emits a SUBSET.** {@link kitAguiEventSchema} is a discriminated union over exactly the
+ *   events the server produces, not `@ag-ui/core`'s full set. It documents the subset, keeps the
  *   browser's parse cost to what it needs, and leaves room for the server to lead — the UI drops a
  *   frame it cannot parse rather than failing the reply.
  * - **Every kit-specific semantic is a CUSTOM event** under the `kit.` namespace
@@ -55,14 +55,14 @@ import {
 export { EventType as AguiEventType }
 
 /**
- * `TOOL_CALL_RESULT` as the kit sends it: `content` is the tool's JSON, always a STRING. AG-UI 1.0
- * widened it to string-or-content-parts (a tool may return an image); the kit's tools never do, so
+ * `TOOL_CALL_RESULT` as the server sends it: `content` is the tool's JSON, always a STRING. AG-UI 1.0
+ * widened it to string-or-content-parts (a tool may return an image); the server's tools never do, so
  * the subset says so and every reader keeps `JSON.parse(event.content)`.
  */
 const kitToolCallResultEventSchema = ToolCallResultEventSchema.extend({ content: z.string() })
 
 /**
- * Exactly the AG-UI events the kit emits, across the chat stream and the agent-run projection.
+ * Exactly the AG-UI events the server emits, across the chat stream and the agent-run projection.
  * Never widen this to `@ag-ui/core`'s full union: the point is a documented, testable subset.
  */
 export const kitAguiEventSchema = z.discriminatedUnion('type', [
@@ -84,7 +84,7 @@ export const kitAguiEventSchema = z.discriminatedUnion('type', [
 ])
 export type KitAguiEvent = z.infer<typeof kitAguiEventSchema>
 
-/** The AG-UI event types the kit emits — the union's discriminants, as a checkable list. */
+/** The AG-UI event types the server emits — the union's discriminants, as a checkable list. */
 export const KIT_AGUI_EVENT_TYPES = [
   EventType.RUN_STARTED,
   EventType.RUN_FINISHED,
@@ -103,10 +103,10 @@ export const KIT_AGUI_EVENT_TYPES = [
   EventType.CUSTOM,
 ] as const
 
-// ---- The kit's CUSTOM namespace ---------------------------------------------------------------
+// ---- The `kit.` CUSTOM namespace --------------------------------------------------------------
 
 /**
- * Every kit semantic AG-UI has no event for. The name is the contract; the payload is validated by
+ * Every app semantic AG-UI has no event for. The name is the contract; the payload is validated by
  * {@link kitCustomPayloadSchema}. An app adding its own events picks its own prefix.
  */
 export const KIT_CUSTOM_EVENTS = {
@@ -120,12 +120,12 @@ export const KIT_CUSTOM_EVENTS = {
   usage: 'kit.usage',
   /** An agent-run step's label/detail, which `STEP_STARTED.stepName` alone cannot carry. */
   agentStep: 'kit.agent.step',
-  /** An agent-run attempt failed and the Workflow will retry it; the run is NOT terminal. */
+  /** An agent-run attempt failed and the run engine will retry it; the run is NOT terminal. */
   agentRetry: 'kit.agent.retry',
   /** Something the reader should know about this run that is not an error (see `KIT_NOTICE_CODES`). */
   notice: 'kit.notice',
   /**
-   * A knowledge document a tool call in this run touched, as a card (D18). Emitted after the
+   * A knowledge document a tool call in this run touched, as a card. Emitted after the
    * `TOOL_CALL_RESULT` it was derived from, one event per document.
    *
    * It is a kit CUSTOM event rather than "let the UI parse `TOOL_CALL_RESULT`" on purpose: that
@@ -135,10 +135,10 @@ export const KIT_CUSTOM_EVENTS = {
    */
   document: 'kit.document',
   /**
-   * An agent run asked a person something (issue #17). This is the ONE new kit CUSTOM event the
+   * An agent run asked a person something. This is the ONE new kit CUSTOM event the
    * HITL work needs, and it is not the *pending* ask — `RUN_FINISHED.outcome` carries those, in
-   * the spec's own vocabulary, which is what lets a third-party client answer a kit run with zero
-   * kit-specific code. It exists because `outcome` can only ever carry what is pending NOW, so a
+   * the spec's own vocabulary, which is what lets a third-party client answer a run with zero
+   * app-specific code. It exists because `outcome` can only ever carry what is pending NOW, so a
    * settled run's HISTORICAL asks would otherwise vanish from the timeline.
    */
   agentInterrupt: 'kit.agent.interrupt',
@@ -149,7 +149,7 @@ export const KIT_CUSTOM_EVENTS = {
   /** The run produced something a person opens. */
   agentArtifact: 'kit.agent.artifact',
   /**
-   * The run answered typed questions through `ctx.decide` (D37): each answer, its confidence and
+   * The run answered typed questions through `ctx.decide`: each answer, its confidence and
    * the engine (`method` says whether the probabilities are calibrated). The thin event payload,
    * not the row — the full request and distribution are on `GET /runs/:id` `decisions[]`.
    */
@@ -165,7 +165,7 @@ export const KIT_CUSTOM_EVENTS = {
 export type KitCustomEventName = (typeof KIT_CUSTOM_EVENTS)[keyof typeof KIT_CUSTOM_EVENTS]
 
 /**
- * Notices the kit raises — things a reader should know that are NOT failures.
+ * Notices the server raises — things a reader should know that are NOT failures.
  *
  * - `history_summarised`: the thread outgrew its context budget; the trimmed prefix is present as a
  *   summary.
@@ -263,13 +263,13 @@ export type ChatRunResult = z.infer<typeof chatRunResultSchema>
 // ---- Interrupts on the wire -------------------------------------------------------------------
 
 /**
- * A kit interrupt row as AG-UI's own `Interrupt`, for `RUN_FINISHED.outcome`.
+ * An interrupt row as AG-UI's own `Interrupt`, for `RUN_FINISHED.outcome`.
  *
  * This mapper lives HERE and not in `ai/interrupts.ts` because `@ag-ui/core` is confined to this
- * file (`tests/config/shared-imports.test.ts`). The direction is deliberate: the kit's row is the
+ * file (`tests/config/shared-imports.test.ts`). The direction is deliberate: the row is the
  * truth and the protocol shape is a projection of it, never the other way round.
  *
- * `metadata` carries the kit's `kind` and `key` so a client that wants a richer panel can have
+ * `metadata` carries the row's `kind` and `key` so a client that wants a richer panel can have
  * one; a client that does not read `responseSchema` and renders a generic form.
  */
 export function toAguiInterrupt(row: AgentRunInterrupt): Interrupt {

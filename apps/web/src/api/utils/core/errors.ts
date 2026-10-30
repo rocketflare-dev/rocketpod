@@ -1,14 +1,13 @@
 /**
- * Typed error tree (D13). Every `ApiError` serialises to the shared envelope
+ * Typed error tree. Every `ApiError` serialises to the shared envelope
  * `{ error, statusCode, code?, details? }` from `src/shared/errors.ts`; `middleware/error-handler.ts`
- * is the only place that turns errors into responses. Ported from the Node reference app
- * `src/api/utils/core/errors.ts`, trimmed to the generic classes and with `code` promoted to a
- * first-class field instead of ad-hoc `context.code`.
+ * is the only place that turns errors into responses. Only the generic classes, with `code` a
+ * first-class field rather than ad-hoc `context.code`.
  */
 import { type ApiErrorBody, ERROR_CODES, type ErrorCode } from '@rocketpod/shared/errors'
 import { TenantScopeConflictError } from '../../../db/tenant-scope'
 
-/** A unique / primary-key violation under either driver — read at the driver seam (D35). */
+/** A unique / primary-key violation under either driver — read at the driver seam. */
 export { isUniqueViolation } from '../../../db/client'
 
 export class ApiError extends Error {

@@ -1,4 +1,4 @@
-/** Every committed dataset parses with the shared `EvalCase` schema, and bad lines say where (D33). */
+/** Every committed dataset parses with the shared `EvalCase` schema, and bad lines say where. */
 import { readdirSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { DATASETS_DIR, loadDataset, parseDataset } from '../kit/dataset'

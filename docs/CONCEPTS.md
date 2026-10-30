@@ -1,9 +1,9 @@
 # CONCEPTS — what is built, and why
 
 > **Rocketpod (D41).** A Node 24 server in containers: Postgres (+ pgvector) for everything stateful,
-> an S3-compatible store for files, a model provider key for AI. It is a hard fork of Rocketflare
-> 0.19.0 (`docs/FORK.md`); D-numbers below D41 are Rocketflare's and keep their meaning. Why and how
-> the Cloudflare pieces were replaced: `docs/DESIGN-SELFHOSTED.md`.
+> an S3-compatible store for files, a model provider key for AI. Jobs and cron run on pg-boss,
+> durable agent runs on OpenWorkflow, realtime on `ws` + LISTEN/NOTIFY — all in Postgres. Why it
+> runs this way: `docs/DESIGN-SELFHOSTED.md`.
 
 One section per subsystem: what it does, the invariant it protects, the decision behind it
 (D-numbers), and its **Known gaps**. Check here before assuming a capability exists; update it when
@@ -145,7 +145,7 @@ is sent as `client_secret_basic` only (no `private_key_jwt`).
   `storage_not_configured`), the rate limiter and operation locks (Postgres tables) and the
   document converter (`unpdf`/`mammoth`). Tests' `createTestEnv()` carries in-memory
   implementations (`tests/mocks/bindings.ts`). `tests/config/platform-seam.test.ts` also fails on
-  any Cloudflare dependency, import or type, so the fork cannot drift back.
+  any Cloudflare dependency, import or type, so the tree stays free of edge-runtime APIs.
 - **Middleware order is deliberate** (error envelope → logger → config → platform → security headers → body
   limit → CORS → CSRF → DB → tracing → mounts). Auth is per mount. The static-file catch-all 404s
   every API prefix as JSON, so a missing route never returns `index.html`. Order and exceptions:
@@ -166,9 +166,8 @@ per-PR previews; no public tunnel for OAuth callbacks in dev (use your own, e.g.
 
 ## 4. Database
 
-- **One driver, postgres.js (D35, narrowed in Rocketpod — `docs/FORK.md`)**. Rocketflare's Neon
-  serverless driver (neon-http + a WebSocket pool) is gone: postgres.js reaches any Postgres, Neon
-  included, over TCP. `DATABASE_DRIVER` remains, accepting only `postgres` (missing means it), and
+- **One driver, postgres.js (D35)**. postgres.js reaches any Postgres, Neon included, over TCP.
+  `DATABASE_DRIVER` remains, accepting only `postgres` (missing means it), and
   `neon` fails config validation naming the fix. `openDatabase(env)` (`db/client.ts`) is the one
   resolver — URL `PREVIEW_DATABASE_URL ?? DATABASE_URL`. The Node entry installs ONE pool per
   process (`installProcessPool`, `DATABASE_POOL_MAX`, default 10, named prepared statements on)
@@ -197,8 +196,11 @@ per-PR previews; no public tunnel for OAuth callbacks in dev (use your own, e.g.
   branch); no test carries a budget of its own.
 - **The gate** (`pnpm gate`, `scripts/lib/gate-lib.mjs`): lint → typecheck → test → build,
   stopping at the first failure (`--keep-going` runs all; `pnpm gate <step…>` and `--skip` are for
-  iterating locally — no workflow passes `--skip`). It is the pre-commit gate, a copy's one CI job
-  and Launch's ship gate. `pnpm gate --list --json` is the contract a step-by-step runner reads:
+  iterating locally — no workflow passes `--skip`). It is the pre-commit gate and Launch's ship
+  gate; a copy's CI (`ci.yml`) runs the SAME commands in parallel parts — `static` (gitleaks, then
+  `pnpm gate lint typecheck build`), `pnpm test --only packages`, `--only api` and four
+  `--only rest --shard i/4` jobs — behind ONE aggregate `Gate` job that `needs:` them all and is the
+  required check. `pnpm gate --list --json` is the contract a step-by-step runner reads:
   `{ schema: 1, steps: [{ id, command, database }] }` in run order, validated by
   `packages/shared/src/gate.ts`; `schema` rises only when an existing field changes meaning, so a
   reader tolerates a new step or field. There is no generated-files step: the
@@ -207,18 +209,21 @@ per-PR previews; no public tunnel for OAuth callbacks in dev (use your own, e.g.
   tree fails it) and in `plugin-ci.yml`.
 - **Verified once (opt-in, for an app Launch ships).** After a green sandbox gate Launch's GitHub
   App posts a `launch/gate` check run keyed by the tree (`external_id: tree:<sha>`). With the
-  repository variable `LAUNCH_GATE_APP_ID` set to that App's id, the first step of `ci.yml`'s
-  `Gate` job (`scripts/gate-verified.mjs`, rules in `scripts/lib/gate-verified-lib.mjs`) looks for one from
+  repository variable `LAUNCH_GATE_APP_ID` set to that App's id, the first step of every `ci.yml`
+  job (`scripts/gate-verified.mjs`, rules in `scripts/lib/gate-verified-lib.mjs`) looks for one from
   THAT app, `success`, for the tree CI is about to test — on a pull request the merge commit's tree,
   found on the PR head (so it holds only while the branch contains main's tip); on a push to main
-  the pushed commit's tree, found on the commit or its PRs' heads. Found, `Gate` runs gitleaks and
-  `pnpm gate build` only; anything else — unset, another app, another tree, an API error — runs the
+  the pushed commit's tree, found on the commit or its PRs' heads. Found, `static` runs gitleaks and
+  `pnpm gate build` only and the test jobs stop after the lookup; anything else — unset, another app, another tree, an API error — runs the
   full gate. Unset, no lookup runs at all. Trust is the app id: anyone with `checks: write` can name
   a check `launch/gate`, only Launch's App can post one under its id.
 - **`pnpm test` picks its target from the environment** (`scripts/lib/test-plan.mjs`), never by
   probing, and prints it first. **Local** (the default): it starts the compose test Postgres itself
   (`docker compose … up -d --wait`; Docker down is a failure that names both fixes, never a skip),
-  then every package and the web suite. The narrow scripts (`pnpm web test:api|ui|config|driver`)
+  then every package and the web suite. `--only packages|api|rest` runs one part of that plan (a
+  packages-only run starts no database) and `--shard i/N` slices `rest` with vitest's own `--shard`
+  — CI's parallel jobs; `gate.test.ts` proves the parts are the whole plan and the shards the
+  unsharded run. The narrow scripts (`pnpm web test:api|ui|config|driver`)
   are the inner loop: no compose management. `GATE_SUITE_DRIVER` is refused (one driver).
 - **Remote target — an ephemeral test database** (`pnpm test` with `TEST_DATABASE_BRANCH` set): the
   whole gate's tests where there is no Docker — a coding sandbox, whose orchestrator creates a
@@ -300,7 +305,7 @@ dispatches. All three run in a `worker` (or `all`) process; a `web` process only
   re-executes from the top and completed steps are memoised; retries happen in-process inside one
   step; a park is a thrown engine error the body rethrows (`Step.isControlFlow`). **Signals are not
   buffered**, so `waitForEvent` records an `arrived()` check before parking and `sendEvent`
-  re-sends for up to 5 s while the run is alive (`docs/DESIGN-SELFHOSTED.md` §5.3a). The kit's run
+  re-sends for up to 5 s while the run is alive (`docs/DESIGN-SELFHOSTED.md` §3.3). The kit's run
   id is OpenWorkflow's `idempotencyKey`; `agent_runs.instanceId` holds the engine's id.
   **Concurrency is a DB claim row, never a `Map`**: the exclusive index is per (tenant, agent,
   `concurrency_key`) — `''` for an exclusive agent, a caller's key to narrow it (one run per
@@ -387,12 +392,13 @@ downtime is pg-boss's default, untested.
 - **Framing is opt-in per response**: only a route that proved the type (`isEmbeddableMimeType`, PDF)
   sets `embeddable`, which relaxes `DENY` to `SAMEORIGIN` for that one response. It is set before
   the 304 early return. Never use a path allowlist for this.
-- A missing `FILES` binding is 503 `storage_not_configured`. `tenant.purge` pages through the
+- No storage (`STORAGE_*` not fully configured, so `platform.storage` is null) is 503
+  `storage_not_configured`. `tenant.purge` pages through the
   tenant prefix and is idempotent.
 - **The S3 adapter (D41)**: `STORAGE_DRIVER=s3` + `STORAGE_ENDPOINT` / `STORAGE_REGION` /
   `STORAGE_BUCKET` / `STORAGE_ACCESS_KEY_ID` / `STORAGE_SECRET_ACCESS_KEY` /
-  `STORAGE_FORCE_PATH_STYLE` (`src/node/storage.ts`, `@aws-sdk/client-s3`): AWS S3, Cloudflare R2's
-  S3 endpoint, MinIO, Ceph, GCS interop — one adapter, the endpoint decides. It answers the quoted
+  `STORAGE_FORCE_PATH_STYLE` (`src/node/storage.ts`, `@aws-sdk/client-s3`): AWS S3, MinIO,
+  Ceph, GCS interop — one adapter, the endpoint decides. It answers the quoted
   ETag, a listing with no content type or metadata, `deleteMany` in calls of ≤ 1000, a streamed
   body, a `Range` header parsed back from `Content-Range` (a malformed range is a `RangeError`
   before the request — S3 ignores one and answers the whole object — and a store that ignored a
@@ -432,7 +438,7 @@ is hard-coded.
 
 ## 8. Analytics
 
-**The `analytics` PLUGIN (D31, since Rocketflare 0.6.0) — not installed by default in Rocketpod (see gaps).** Repository
+**The `analytics` PLUGIN (D31) — not installed by default (see gaps).** Repository
 `rocketflare-dev/rocketflare-plugin-analytics`. Once installed, its docs are its own `CLAUDE.md`
 files. drizzle-cube cubes scope every `sql()` by tenant, dashboards are jsonb `DashboardConfig`s
 restrictable to groups, fact tables rebuild on the `:15` cron, and its cube-isolation test is
@@ -477,7 +483,7 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   that manages a tenant's providers cannot drift from Settings → AI.
 - **Providers**: `anthropic`, `anthropic_compatible`, `openai`, `openai_compatible`. There is no
   Vercel AI SDK and no Bedrock (a SigV4 adapter behind `ChatClient` is the extension). History rows
-  written by Rocketflare's `workers_ai` provider still parse (`RECORDED_AI_PROVIDERS`) and show as
+  written by the retired `workers_ai` provider still parse (`RECORDED_AI_PROVIDERS`) and show as
   unpriced. Defaults: `claude-haiku-5-5`, `gpt-6-luna`.
 - **The request body is per MODEL, not per provider** (`shared/src/ai/models.ts`). Claude 4.5 and
   earlier take a thinking budget. 4.6+ take `adaptive`. "Off" is `disabled`, Sonnet 5.5's
@@ -498,7 +504,7 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   URL (in a user message after the turn's tool results — a `tool` message is text-only) or a
   Responses `input_image`, and kept in tool-loop checkpoints. A tool result stays text, so a caller
   that wants the model to SEE a file a tool opened lifts it into the next user turn.
-- **Kit** (`services/ai/kit.ts`): `runStreamingChat`, `runToolLoop`, `callStructuredTool`, prompt
+- **Agent loop** (`services/ai/agent-loop.ts`): `runStreamingChat`, `runToolLoop`, `callStructuredTool`, prompt
   caching helpers. `callStructuredTool`'s optional `tool.jsonSchema` is what the model is shown
   when it differs from the `schema` that validates: a caller that salvages the valid parts of an
   answer validates leniently and still asks for the strict shape. Prompts are code (`PROMPT_REGISTRY`) with per-tenant override rows.
@@ -593,7 +599,7 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   § Tracing.
 
   **D32 decisions** (design grilling, 2026-09-25): our own OTLP exporter behind the existing seam —
-  not Cloudflare's native tracing, not the Langfuse SDK · the backend is platform-wide only ·
+  not a vendor-native tracer, not the Langfuse SDK · the backend is platform-wide only ·
   content capture is on by default, with a flag to disable · agent context comes from the CLI
   reading our own Postgres, not a backend REST adapter.
 - **Evals (D33)**: `apps/evals`, its own workspace package because vitest-evals needs vitest 4 and
@@ -653,9 +659,9 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   with a `--judge-model` override · in core, not a plugin · the `rp-evals` skill is a first-class
   deliverable. The prompt key is `evals-judge` (keys are kebab-case); the ledger feature is
   `evals.judge`.
-- **Rejected**: Cloudflare's Agents SDK. Per-instance SQLite sits outside RLS, the tenant FK cascade
-  and cross-tenant indexes, and the inbox would need Postgres anyway. One `step.do` per model turn
-  was also rejected: steps are unlimited in wall-clock time, and splitting would force every side
+- **Rejected**: per-instance agent state outside Postgres — it would sit outside RLS, the tenant FK
+  cascade and cross-tenant indexes, and the inbox needs Postgres anyway. One `step.do` per model
+  turn was also rejected: steps are unlimited in wall-clock time, and splitting would force every side
   effect outside a step to replay.
 
 **Known gaps:** model traits are parsed from the id and hand-kept (`MODEL_TRAITS_CHECKED`), not read
@@ -714,11 +720,15 @@ writes one; `--compare` against a provisional baseline with no cases compares no
   produces, compose and the chart to valid modes and real config keys, and the chart's
   ConfigMap/Secret keys to exactly the vars and secrets `src/config.ts` declares.
 - **Releases**: the release is the tag, which must equal the root `package.json` version
-  (`release-check.mjs`); `image.yml` builds the image on every PR and push to main, pushes
-  `ghcr.io/rocketflare-dev/rocketpod` on a tag — only once CI has passed on the tagged commit (its
-  `ci` job) — and lints, renders and validates the chart.
-  `ci.yml` is ONE gate job — the secrets scan, then `pnpm gate` (§4). The kit's renamed-copy and
-  default-plugins gates, its porting-note and plugin-API checks live in `kit.yml` (`kitOnly`).
+  (`release-check.mjs`); `image.yml` builds the image on every PR and push to main (no push, its
+  layers cached to the GitHub Actions cache), and on a tag builds it WHILE its `ci` job waits for
+  CI on the tagged commit; only once CI passed does `publish` push
+  `ghcr.io/rocketflare-dev/rocketpod` from that warm cache. It also lints, renders and validates
+  the chart. `ci.yml` runs the gate in parallel parts behind one aggregate `Gate` check — the
+  secrets scan and `pnpm gate lint typecheck build`, then `pnpm test --only …` jobs (§4). The kit's renamed-copy and
+  default-plugins gates, its porting-note and plugin-API checks live in `kit.yml` (`kitOnly`). An
+  app releases by bumping the root version, adding its own `CHANGELOG.md` section and tagging;
+  `pnpm kit:release` and porting notes are the kit repository's only (§13).
 
 **Known gaps:** no live `helm install` has been verified; no image signing or SBOM; no
 autoscaling defaults; the `web` preStop `sleep` needs Kubernetes ≥ 1.30; Launch cannot ship this
@@ -755,27 +765,37 @@ cycle). Detail: `packages/shared/CLAUDE.md`.
 
 ## 13. Upgrading a copy
 
-**A renamed copy with deleted examples still absorbs later kit releases (D27).** Rocketpod is a kit
-in its own right: its copies upgrade from Rocketpod releases (`kit.repo` is
-`rocketflare-dev/rocketpod`), and Rocketpod itself takes Rocketflare's releases by hand
-(`docs/FORK.md`), never through this machinery. `.rocketflare.json` and `rocketflare-plugin.json`
+**A renamed copy with deleted examples still absorbs later kit releases (D27).** A copy upgrades
+from Rocketpod releases (`kit.repo` is `rocketflare-dev/rocketpod`). `.rocketflare.json` and `rocketflare-plugin.json`
 keep their names on purpose — they are the plugin ecosystem's fixed filenames (`KIT.ecosystem`).
 
 - **`.rocketflare.json`**: kit `{id, repo, version, commit}`, the app's names (`app === null` means
   "this is the kit", asked only through `readManifest()`), `history[]`, `retiredSurfaces`
-  (never deleted), and the **surface manifest**. Surfaces are `example`, `optional-feature` and
+  (the kit's own, never deleted there; the rename drops it from a copy), and the **surface manifest**. Surfaces are `example`, `optional-feature` and
   `plugin`, each with an anchor file whose existence is its presence (delete the anchor to opt
-  out). Every other path is `neverPort`, `kitOnly`, `manual` or `core`; `kit-manifest.test.ts`
-  requires 100% coverage.
-- **Kit-only tests** (`kitOnly`, `apps/web/tests/kit-only/**`, vitest project `kit-only`): the tests
-  true of the kit repository and of nothing made from it — porting notes and the root version being
-  the kit's, the release/rename machinery, the maintainer hooks, plugin CI, the manifest's kit-state
-  claims. The kit's gate runs them (`pnpm test` names the project only while its directory
-  exists); `scripts/rename.mjs` deletes them when a copy is born, together with the kit's own
-  workflows, also `kitOnly` — `kit.yml`, `plugin-ci.yml`, `notify-plugins.yml`; `classifyPath` never ports one (the TARGET kit's list too, and `KIT_ONLY_PATHS` is the
-  floor for a pre-0.15.8 manifest); `tests/config/kit-manifest.test.ts` fails a copy that carries
-  one, and `kit.yml`'s renamed-copy gate asserts none survive and passes at an app version
-  (`1.2.3`).
+  out). An example surface's `paths` are complete — its agent, output views, tests, eval suites,
+  datasets and baselines — and a surface can `require` another (`triage-research` runs
+  `research-topic`'s body), so removing one is deleting its `paths` and its registry lines; the
+  kit's own `tests/kit-only/example-surfaces.test.ts` fails a test outside a surface that names its
+  agent key or imports one of its files. Every other path is `neverPort`, `kitOnly`, `manual` or
+  `core`; the kit's own `tests/kit-only/kit-manifest.test.ts` requires 100% coverage — an app's new
+  paths never appear in a kit diff, so a copy owes the manifest nothing for them.
+- **Kit-only files** (`kitOnly`): what is true of the kit repository and of nothing made from it.
+  Its tests (`apps/web/tests/kit-only/**`, vitest project `kit-only`) — porting notes and the root
+  version being the kit's, the release/rename machinery, the maintainer hook, plugin CI, the
+  manifest's kit-state claims and coverage, the example surfaces' removability — which the kit's
+  gate runs (`pnpm test` names the project only while its directory exists); its workflows
+  (`kit.yml`, `plugin-ci.yml`, `notify-plugins.yml`); its maintainer scripts (`release.mjs`,
+  `changelog-nudge.mjs` and `lib/nudge-lib.mjs`, `default-plugins.mjs`, `install.sh`); and its
+  project files (`CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, the maintainers' ledger `docs/FORK.md`,
+  the kit roadmap `docs/ROADMAP.md`, the pending porting notes `docs/upgrades/unreleased.md`).
+  `scripts/rename.mjs` deletes them when a
+  copy is born, and with them every package.json script (`kit:release`) and `.claude/settings.json`
+  hook that names one (`stripKitOnlyWiring`, `stripKitOnlyHooks`); it also writes the app its own
+  `SECURITY.md` and drops `retiredSurfaces`. `classifyPath` never ports one (the TARGET kit's list
+  too, and `KIT_ONLY_PATHS` is the floor for a pre-0.15.8 manifest); `tests/config/kit-manifest.test.ts`
+  fails a copy that carries one or a script or hook that calls one, and `kit.yml`'s renamed-copy
+  gate asserts none survive and passes at an app version (`1.2.3`).
 - **The Launch kit contract** (`launch.kit.json`, D36): what the kit calls things and how Launch
   drives an app made from it — the scaffold (`rename.mjs`, `kitOnly`, `postInit`, the app manifest
   `.rocketflare.json` whose `kit.id` Launch reads), the vars and secrets Launch provides, the database roles and migrate command, the health routes, the gate (`Gate`,
@@ -787,7 +807,7 @@ keep their names on purpose — they are the plugin ecosystem's fixed filenames 
   its sessions, gate and releases, so the rename rewrites it through the token map EXCEPT its `kit`
   block (`renameKitManifest`), and `kit:upgrade` treats it as `manual`. `scripts/kit-check.mjs`
   (`--exec` also runs the gate list) is the static conformance check Launch applies before a kit
-  can be picked — shared byte for byte with Rocketflare's meta-kit `rocketflare-dev/launch-kit`.
+  can be picked — shared byte for byte with Launch's meta-kit `rocketflare-dev/launch-kit`.
   **Rocketpod does not conform**: Launch's schema-1 contract needs a Worker toml pair and a deployer
   workflow, so `worker` and `release` are kept only to stay schema-valid (`$runtime` says so),
   `kit.yml` does not run the check, and its tests run on the fixture kit
@@ -799,9 +819,12 @@ keep their names on purpose — they are the plugin ecosystem's fixed filenames 
   so an app's releases never read as kit releases. Which kit it came from lives in one place,
   `.rocketflare.json` `kit.version`; the upgrade never ports the root version or `CHANGELOG.md`
   (`manual` / `neverPort`), so the two numbers never meet again.
-- **Porting notes**: one `docs/upgrades/X.Y.Z.md` per release (frontmatter + four headings), with
-  `unreleased.md` accumulating. CI fails a PR touching `apps/**`/`packages/**` without an entry,
-  and the tag gate refuses a release without one. `pnpm kit:release` writes everything.
+- **Porting notes** (kit repository only): one `docs/upgrades/X.Y.Z.md` per release (frontmatter +
+  four headings), with `unreleased.md` accumulating. `kit.yml` fails a PR touching
+  `apps/**`/`packages/**` without an entry. `pnpm kit:release` writes everything. An app writes
+  none: `kit:upgrade` reads the notes from the kit's mirror, not from the copy's `docs/upgrades/`,
+  and the copy releases by bumping its root version, tagging, and adding its own `CHANGELOG.md`
+  section.
 - **`scripts/upgrade.mjs`**: a blobless mirror in `.upgrade/`. It classifies paths, drops absent
   surfaces and plugin-owned files, translates through the same `applyReplacements()` as the rename,
   then patches with `--reject` as a fallback. It **never** applies kit migrations (snapshots are
@@ -814,10 +837,11 @@ keep their names on purpose — they are the plugin ecosystem's fixed filenames 
   once per session, with the CHANGELOG summaries and a pointer to `/rp-upgrade`. Copies only, a
   fresh `startup` only, never in CI, `ROCKETPOD_UPDATE_CHECK=0` to silence; any failure is
   silence.
-- **The kit reminds its own maintainers too**: a `PreToolUse` hook on `git commit` —
+- **The kit reminds its own maintainers too** (kit repository only — the script and its hook entry
+  are `kitOnly`, so a copy never runs them): a `PreToolUse` hook on `git commit` —
   `changelog-nudge.mjs` (source changed, no `unreleased.md` entry). It answers with
   `hookSpecificOutput.additionalContext`, because a `PreToolUse` hook's plain stdout reaches only
-  the debug log. Silent in a copy.
+  the debug log.
 - **Released history is never rewritten** — every copy pins a commit.
 
 **Known gaps:** a copy pinned before 0.10.1 has no update hook until it upgrades (and
@@ -825,8 +849,13 @@ keep their names on purpose — they are the plugin ecosystem's fixed filenames 
 only for a GitHub-hosted kit; `.env.example`, the chart's `Chart.yaml`/`values.yaml` are diffed, not merged; the reject rate is not
 predicted; pre-manifest copies need `--adopt`; no partial upgrades; nothing checks the adopter ran
 migrations; lockstep plugin releases bump every plugin in a monorepo; a copy on 0.15.7 or older deletes
-its kit-only tests by hand once (its upgrader predates `kitOnly`); the release and rename SCRIPTS
-still ship to copies (they refuse to run in an app), only their tests are kit-only; `kit:upgrade` shows
+its kit-only tests by hand once (its upgrader predates `kitOnly`); a copy renamed before the
+maintainer scripts became `kitOnly` keeps them, `CONTRIBUTING.md`/`CODE_OF_CONDUCT.md` and the
+changelog-nudge hook until it deletes them by hand (`kit:upgrade` stops porting a `kitOnly` file but
+never deletes one — that release's note lists them); the rename script itself and `rp-adapt` stay
+in a copy (`neverPort`), idle once it is renamed; `demo-seed` is not cleanly
+removable — its deterministic embedder is also the test AI stub's (`tests/mocks/bindings.ts`), a
+coupling `example-surfaces.test.ts` records rather than hides; `kit:upgrade` shows
 `launch.kit.json` as a `manual` diff translated through the token map, so a hunk touching its `kit`
 block reads as renamed (keep the kit's id and name); a copy that predates the contract gets
 `kit.id` only by following that release's porting note; `plugins.add` cannot express an entry
@@ -834,7 +863,7 @@ without a `subdir` (`--subdir` refuses an empty value), which no default plugin 
 
 ## 14. Definition of done for the kit
 
-A fresh agent can clone and run `bash scripts/bootstrap.sh` with zero credentials and land signed in
+Kit repository only — the bar the kit itself is held to before a release. A fresh agent can clone and run `bash scripts/bootstrap.sh` with zero credentials and land signed in
 on a populated demo workspace. From there it must be able to:
 
 - rename the copy (`/rp-adapt`)
@@ -847,10 +876,10 @@ on a populated demo workspace. From there it must be able to:
   indexed exactly once
 - ingest, upload a PDF and search it
 - restrict content by group and watch it disappear and reappear live
-- see analytics installed by default, removable cleanly with `--no-plugins` or `plugin remove`
+- install a plugin and remove it cleanly (`plugin add` / `plugin remove`)
 - port a later kit release skipping deleted examples
 - toggle the `example-feature` plugin's flag
-- provision and deploy to staging
+- render and deploy the image with Compose or Helm (`/rp-deploy`)
 
 The full gate stays green at every step. `SETUP.md` is the walkthrough.
 
@@ -873,9 +902,6 @@ The full gate stays green at every step. `SETUP.md` is the walkthrough.
   `feature_disabled`, not 403), plugin registries, **hooks that create rows**, and nav/routes.
 - Admin UI at `/admin/feature-flags`; a tenant override nudges that tenant.
   `GET /api/features` / `rocketpod features list` show effective state.
-- **Rejected**: Cloudflare Flagship. It has no notion of your tenants, whole-object `PUT` loses
-  updates, it has no local store, and the browser SDK needs a token. It fits the kit's own
-  cross-deployment rollouts, not per-tenant entitlements.
 
 **Known gaps:** gated code still ships in the bundle (the server is the protection); no per-user
 forcing or scheduling; platform flips reach open tabs only on their next session fetch; no cache on
@@ -951,8 +977,9 @@ Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
   plugin does not declare; a host that writes a suite for a plugin's prompt overrides the entry in
   the core map (§9).
 - **Agent tools**: `agentTools(ctx)` may be async and may return `[]`. That is how a tool reaches
-  only the tenants that turned it on: the plugin reads its own settings row for `ctx.scope.tenantId`.
-  A builder that throws is logged and skipped. `buildAgentTools` is therefore async.
+  only the tenants that turned it on: the plugin reads its own settings row for `ctx.scope.tenantId`,
+  or its flag through `ToolCtx.features()` (`example-feature` does, and its welcome note follows the
+  same flag — a dark feature then costs no prompt tokens). A builder that throws is logged and skipped. `buildAgentTools` is therefore async.
 - **Credentials**: a plugin stores a tenant's key with `sealSecret` / `openSecret` from
   `@/plugins/api`. That is the kit's AES-GCM under `OAUTH_ENCRYPTION_KEY`, with a 503 when the key
   is unset. Store the sealed value in a `*_enc` column and answer `hasCredential`.
@@ -991,7 +1018,7 @@ Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
 - **`example-feature`** is the vendored reference that exercises every slot. It exists to be
   deleted.
 
-**D31 decisions** (cited by number in code comments):
+**D31 decisions**:
 
 | # | Choice |
 |---|---|
@@ -1008,12 +1035,12 @@ Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
 | 9 | Four published entries; deep imports fail in either direction |
 | 10 | Phase A shipped as four PRs, one release |
 | 11 | Uninstall drops tables by default, `--archive` on request |
-| 12 | *(Rocketflare)* Provisioning wrote plugin bindings into both tomls — in Rocketpod a binding is refused as cloudflare-only |
+| 12 | A plugin declares no platform bindings: one that does is refused as `<id>:cloudflare-only` |
 | 13 | Every manifest has a required `repo` |
 | 14 | The inbound surface is injected context (the `*Ctx` family), not imported symbols |
 | 15 | What cannot be injected is a declared entry (`@/db/schema/kit`, split UI kit, `@testkit/*`) |
 | 16 | A printed instruction is not a mechanism — hence the barrels |
-| 17 | *(Rocketflare)* DO migration tags are append-only and host-owned — no DOs in Rocketpod |
+| 17 | A plugin exports no runtime classes: `workerExports` is refused as `<id>:cloudflare-only` |
 | 18 | Out-of-Postgres tenant state is purged via `onTenantDeleted` over derived names |
 | 19 | Test builders refuse a fake database |
 | 20 | Every plan step is declarative, agent or human (`kind` in `--json`) |

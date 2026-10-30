@@ -19,7 +19,7 @@ import {
 } from '@rocketpod/shared/guide'
 import { z } from 'zod'
 import type { Database } from '../../db/client'
-import type { Tool } from './ai/kit'
+import type { Tool } from './ai/agent-loop'
 import {
   type GuideEmbedder,
   type GuideRetrieval,

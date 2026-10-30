@@ -1,9 +1,9 @@
 /**
- * Cron dispatcher (D7): tasks are registered per cron EXPRESSION and looked up by `event.cron`,
+ * Cron dispatcher: tasks are registered per cron EXPRESSION and looked up by `event.cron`,
  * so adding a schedule is one entry here — the worker process schedules every expression in the
  * registry with pg-boss, once across replicas (`src/node/jobs.ts`). Every task is try/caught and
  * logged individually; one failing task never blocks the others. Config is validated the same way
- * `fetch` does (D3). To run one expression now, call `dispatchScheduled` (the tests do).
+ * `fetch` does. To run one expression now, call `dispatchScheduled` (the tests do).
  */
 import { lt, sql } from 'drizzle-orm'
 import { type AppConfig, loadConfig } from '../config'
@@ -19,7 +19,7 @@ import { type Logger, loggerFor } from './utils/core/logger'
 
 export interface TaskContext {
   env: AppBindings
-  /** The runtime's capabilities (storage, jobs, realtime, AI…) — never a binding off `env`. */
+  /** The runtime's capabilities (storage, jobs, realtime, AI…) — never read off `env`. */
   platform: Platform
   config: AppConfig
   db: Database
@@ -54,7 +54,7 @@ export async function runPruneExpired(db: Database) {
   ).length
   const magicLinks = await pruneMagicLinkTokens(db)
   const invitations = await pruneInvitations(db)
-  // The platform's limiter and locks (M6): a key whose newest hit left its window, a lock whose
+  // The platform's limiter and locks: a key whose newest hit left its window, a lock whose
   // holder never released it.
   const rateLimitKeys = affected(
     await db.delete(rateLimits).where(lt(rateLimits.expiresAt, sql`now()`))
@@ -65,7 +65,7 @@ export async function runPruneExpired(db: Database) {
   return { sessions, magicLinks, invitations, rateLimitKeys, operationLockKeys }
 }
 
-/** Nightly prune of expired rows (D12): counts are logged so the run is auditable. */
+/** Nightly prune of expired rows: counts are logged so the run is auditable. */
 export const pruneExpired: ScheduledTask = {
   name: 'pruneExpired',
   async run({ db, logger }) {
@@ -78,7 +78,7 @@ export const pruneExpired: ScheduledTask = {
 }
 
 /**
- * Drop `ai_spans` older than `OBSERVABILITY_SPAN_RETENTION_DAYS` (D32). The local trace store is
+ * Drop `ai_spans` older than `OBSERVABILITY_SPAN_RETENTION_DAYS`. The local trace store is
  * written on every traced request whether or not a backend is configured, so without this it grows
  * for ever.
  *
@@ -97,7 +97,7 @@ export async function runPruneAiSpans(db: Database, retentionDays: number, now =
   return { spans, cutoff: cutoff.toISOString() }
 }
 
-/** Nightly retention for the local trace store (D32). */
+/** Nightly retention for the local trace store. */
 export const pruneAiSpans: ScheduledTask = {
   name: 'pruneAiSpans',
   async run({ db, config, logger }) {
@@ -112,8 +112,8 @@ const CORE_SCHEDULED_TASKS: Record<string, ScheduledTask[]> = {
 }
 
 /**
- * Core tasks plus every installed plugin's (D31). A plugin naming a cron the kit already runs
- * APPENDS to it — each task is try/caught on its own, so a plugin's failure cannot stop the kit's
+ * Core tasks plus every installed plugin's. A plugin naming a cron core already runs
+ * APPENDS to it — each task is try/caught on its own, so a plugin's failure cannot stop core's
  * prune — and a plugin naming a new cron expression gets its own pg-boss schedule.
  */
 export const SCHEDULED_TASKS: Record<string, ScheduledTask[]> = Object.entries(

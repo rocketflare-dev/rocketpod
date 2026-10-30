@@ -1,5 +1,5 @@
 /**
- * The single read seam for "which AI client does this tenant get" (D17). Resolution order:
+ * The single read seam for "which AI client does this tenant get". Resolution order:
  *   chat:       tenant default `ai_configs(scope='chat')` → platform `ANTHROPIC_API_KEY` →
  *               platform `AI_API_KEY` (OpenAI-compatible at `AI_BASE_URL`, else OpenAI; model
  *               `AI_MODEL`) → 503
@@ -8,22 +8,22 @@
  *               `EMBEDDINGS_MODEL`) → 503; `resolvePlatformEmbeddings` is the platform tier
  *               alone (the Guide's global corpus)
  *   decisions:  tenant default `ai_configs(scope='decisions')` (TypeSafe) → platform
- *               `TYPESAFE_API_KEY` → the chat model on prompt key `agent-decide` (D37, the
+ *               `TYPESAFE_API_KEY` → the chat model on prompt key `agent-decide` (the
  *               uncalibrated `llm_self_report` fallback) → 503 from `resolveChat`
  * Credentials are decrypted here and nowhere else. `readiness()` mirrors both orders WITHOUT
  * building a client or throwing (the Home checklist must not turn a page load into a 503).
- * Feature code never queries `ai_configs`; the chat route, connection test and Phase 3b agents
+ * Feature code never queries `ai_configs`; the chat route, connection test and agents
  * all come through here — and tests mock this module (`vi.mock('@/api/services/ai/resolve')`).
  *
- * `promptKey` (D17, Phase 3b) consults `agent_models` FIRST: an assignment for `(tenant, promptKey)`
+ * `promptKey` consults `agent_models` FIRST: an assignment for `(tenant, promptKey)`
  * names a specific chat config (`aiConfigId`, else the tenant default) and/or a model override; the
  * chain is then assignment → tenant default → platform → 503. Only chat is assignable — embeddings
  * feed a different client shape and no agent runs on them.
  *
  * The PLATFORM DEFAULT is a model id per prompt key for the platform tier only — a
  * `platform_agent_models` row (platform state, written by a global admin or an app's own tooling),
- * else the committed `PROMPT_DEFAULT_MODELS` entry (`@rocketpod/shared/ai/default-models`, empty in
- * the kit). It applies when the chain lands on the platform's own key (no assignment model, no
+ * else the committed `PROMPT_DEFAULT_MODELS` entry (`@rocketpod/shared/ai/default-models`, empty by
+ * default). It applies when the chain lands on the platform's own key (no assignment model, no
  * tenant config) AND that tier is the provider — and, for an `*_compatible` one, the base URL — the
  * id belongs to. So the full order for a prompt key is:
  *   tenant `agent_models` → tenant default `ai_configs` → platform default model on the platform
@@ -236,7 +236,7 @@ export async function chatClientFromRow(
 }
 
 /**
- * The OpenAI-compatible platform chat tier (M6): `AI_API_KEY`, at `AI_BASE_URL` when one is set
+ * The OpenAI-compatible platform chat tier: `AI_API_KEY`, at `AI_BASE_URL` when one is set
  * (provider `openai_compatible`, which needs `AI_MODEL` — there is no sensible default model for an
  * arbitrary endpoint), else OpenAI itself (`AI_MODEL` or OpenAI's chat default).
  */
@@ -262,7 +262,7 @@ function platformOpenAiChat(cfg: AppConfig): PlatformChat | null {
   }
 }
 
-/** The platform embeddings tier for `EMBEDDINGS_API_KEY` (M6: optionally at `EMBEDDINGS_BASE_URL`). */
+/** The platform embeddings tier for `EMBEDDINGS_API_KEY` (optionally at `EMBEDDINGS_BASE_URL`). */
 function platformKeyEmbeddings(
   cfg: AppConfig
 ): { provider: AiProvider; model: string; apiKey: string; baseUrl?: string } | null {
@@ -288,7 +288,7 @@ export interface PlatformChat {
 
 /**
  * Platform order: the operator's `ANTHROPIC_API_KEY` (a deliberate choice) → the operator's
- * OpenAI-compatible `AI_API_KEY` (M6 — OpenRouter, vLLM, Ollama… at `AI_BASE_URL`; OpenAI itself
+ * OpenAI-compatible `AI_API_KEY` (OpenRouter, vLLM, Ollama… at `AI_BASE_URL`; OpenAI itself
  * without one) → nothing. The ONE definition `resolveChat`, `readiness` and the agent-models list all read, so
  * the three can never disagree.
  */
@@ -334,7 +334,7 @@ export async function decisionsClientFromRow(
 }
 
 /**
- * The client behind `ctx.decide` (D37). `fallbackSystem` is the resolved `agent-decide` prompt —
+ * The client behind `ctx.decide`. `fallbackSystem` is the resolved `agent-decide` prompt —
  * the caller resolves it (prompts are read through `resolvePrompt`, which this module does not
  * import) and it is used only when the chain lands on the chat model.
  */

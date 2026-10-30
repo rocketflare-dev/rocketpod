@@ -1,5 +1,5 @@
 /**
- * `feedback list` and `evals promote` (D33), plus the feedback span in `traces show`: the promotion
+ * `feedback list` and `evals promote`, plus the feedback span in `traces show`: the promotion
  * queue renders and forwards its filters; promote tries the id as a message and falls back to a run
  * on 404, refuses to write tenant data unconfirmed, refuses a duplicate case id, and appends one
  * valid `EvalCase` line.

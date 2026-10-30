@@ -1,5 +1,5 @@
 /**
- * D35, narrowed to one driver in Rocketpod: `src/db/client.ts` is the only file that knows the
+ * `src/db/client.ts` is the only file that knows the
  * driver (postgres.js), so the driver stays swappable and the request path stays honest about
  * pooled connections. `Database` types `db.execute()` as `unknown`, so most wrong reads are type
  * errors already; what still compiles is a CAST, and that is what this scan refuses.
@@ -16,7 +16,7 @@
  * 4. no SQLSTATE read by hand (`err.code === '23505'`, `case '40001':` on a `.code`) — drizzle
  *    wraps the driver's error, so `pgErrorCode()` / `isUniqueViolation()` walk the chain;
  * 5. no session state outside a transaction. A request's connection is POOLED — a view of the
- *    Node process pool, or Hyperdrive on the Worker — so a statement-level `SET`,
+ *    process pool, or behind a transaction-mode pooler — so a statement-level `SET`,
  *    `set_config(…, false)`, a session advisory lock (`pg_advisory_lock`, not
  *    `pg_advisory_xact_lock`) or a `CREATE TEMP TABLE` leaks into whichever request gets that
  *    connection next. Inside a callback passed to `.transaction(…)`, `transaction(…)` or
@@ -33,7 +33,7 @@ import { describe, expect, it } from 'vitest'
 
 const SRC = path.resolve(__dirname, '../../src')
 const EXEMPT = new Set([path.join(SRC, 'db/client.ts')])
-/** The Node entry holds connections of its own (the LISTEN connection, M5). */
+/** The Node entry holds connections of its own (the LISTEN connection). */
 const EXEMPT_DIRS = [path.join(SRC, 'node') + path.sep]
 const DRIVER_MODULES = [/^postgres$/, /^drizzle-orm\/postgres-js(\/|$)/]
 const RESULT_MEMBERS = new Set(['rows', 'rowCount', 'count', 'length'])
@@ -200,7 +200,7 @@ function findViolations(file: string, text: string): string[] {
   return found
 }
 
-describe('driver-specific code (D35, the driver seam)', () => {
+describe('driver-specific code (the driver seam)', () => {
   it('src/ reads raw results, error codes and session state only in driver-agnostic ways', () => {
     const violations = sourceFiles(SRC)
       .filter(file => !EXEMPT.has(file) && !EXEMPT_DIRS.some(dir => file.startsWith(dir)))

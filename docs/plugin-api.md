@@ -83,7 +83,7 @@ of the contract too, and removing one is a break the ledger catches.
 
 The server surface: the context family, and the types a plugin must be able to name.
 
-> The plugin API — the ONE module a plugin's server half imports from the host (D31).
+> The plugin API — the ONE module a plugin's server half imports from the host.
 
 - `type AbilityCheck = (action: Actions, subject: Subjects) => boolean`
   The two-argument ability check, as a plugin's own helper takes it.
@@ -99,7 +99,7 @@ The server surface: the context family, and the types a plugin must be able to n
   - `db: Database`
   - `config: PluginConfig`
   - `platform: PluginPlatform`
-    The host's runtime capabilities (M1) — what the Worker bindings were.
+    The host's runtime capabilities — jobs, storage, realtime, AI.
   - `logger: AgentContext['logger']`
   - `tenantId: string`
   - `runId: string`
@@ -108,7 +108,7 @@ The server surface: the context family, and the types a plugin must be able to n
   - `input: Input`
     Already validated against the agent's own `inputSchema`, twice: at enqueue and before `run()`.
   - `tools: Tool[]`
-    The kit's knowledge tools plus every installed plugin's, bound to this run's scope.
+    The built-in knowledge tools plus every installed plugin's, bound to this run's scope.
   - `prompt(vars?: Record<string, string \| undefined>): Promise<string>`
     The system prompt for this agent's `promptKey`, with `appName`/`tenantName` filled in.
   - `step( key: string, label: string, status: 'running' \| 'done' \| 'error', detail?: string ): Promise<void>`
@@ -122,7 +122,7 @@ The server surface: the context family, and the types a plugin must be able to n
   - `structured<T>(options: PluginStructuredOptions<T>): Promise<T>`
     One forced tool call, zod-validated, one retry with the issues fed back.
   - `decide: AgentDecide`
-    Typed questions answered with probabilities (D37): `decide(key, { state, questions })`, `decide.sift(key, …)`, `decide.pick(key, …)`. The tenant's decisions engine answers —…
+    Typed questions answered with probabilities: `decide(key, { state, questions })`, `decide.sift(key, …)`, `decide.pick(key, …)`. The tenant's decisions engine answers — TypeSafe's…
 - `interface AgentDecide`
   `ctx.decide` — callable, with the two shapes as properties.
 - `interface AgentTraceContext extends Omit<TraceParams, 'name'>`
@@ -137,7 +137,7 @@ The server surface: the context family, and the types a plugin must be able to n
 - `function createRouter(): Hono<AppEnv>`
 - `function createStepRealtimeFor(hub: Broadcaster \| null): StepRealtime`
 - `function cronCtx(ctx: TaskContext): CronCtx`
-  Adapt the kit's `TaskContext`.
+  Adapt the core `TaskContext`.
 - `interface CronCtx extends PluginContext, BackgroundMethods`
   One cron run. `waitUntil` exists here because a scheduled invocation genuinely has one.
   - `waitUntil(promise: Promise<unknown>): void`
@@ -146,7 +146,7 @@ The server surface: the context family, and the types a plugin must be able to n
 - `interface Decision`
   What `ctx.decide(...)` resolves to.
 - `function defineTool<Input>(tool: Tool<Input>): Tool<Input>`
-  Declare a tool. A thin helper, and its only job is to be the thing a plugin imports instead of the `Tool` type from a kit path — but it is also where the two rules in this file's…
+  Declare a tool. A thin helper, and its only job is to be the thing a plugin imports instead of the `Tool` type from a core path — but it is also where the two rules in this file's…
 - `async function deleteIngestedDocument( ctx: PluginContext, input: { tenantId: string; source: string; externalId: string } ): Promise<boolean>`
   The item is gone upstream: delete its document, chunks, grants and stored original.
 - `interface DetachedCtx extends PluginContext`
@@ -170,11 +170,11 @@ The server surface: the context family, and the types a plugin must be able to n
   - `userId: string \| null`
     Who caused it — the signing-up user, the approving admin. Null for a system path.
   - `features: readonly string[]`
-    The features this DEPLOYMENT ships (D30). A hook that CREATES rows is the sharpest feature door there is, because it has no nav entry to hide behind: seed nothing for a surface…
+    The features this DEPLOYMENT ships. A hook that CREATES rows is the sharpest feature door there is, because it has no nav entry to hide behind: seed nothing for a surface this…
 - `async function ingestDocument( ctx: PluginContext, input: PluginIngestTextInput ): Promise<PluginIngestResult>`
   Index text. Small texts are indexed before this returns; larger ones return `queued`. No embeddings provider → 503 `ai_not_configured`, checked before anything is written.
 - `async function ingestDocumentFile( ctx: PluginContext, input: PluginIngestFileInput ): Promise<PluginIngestResult>`
-  Store a file in R2 and index it — text-like types now, binary ones (PDF, Office…) through the `document.convert` job. Unsupported type → 415 `unsupported_media_type`; no `FILES`…
+  Store a file in object storage (`Platform.storage`, S3) and index it — text-like types now, binary ones (PDF, Office…) through the `document.convert` job. Unsupported type → 415…
 - `function isAdminLevel(session: RoleView): boolean`
   May administer members / invitations / keys: owner, admin, support, or global admin.
 - `function isGlobalAdmin(session: RoleView): boolean`
@@ -184,7 +184,7 @@ The server surface: the context family, and the types a plugin must be able to n
 - `function isUniqueViolation(err: unknown): boolean`
   A unique / primary-key violation (`23505`).
 - `function jobCtx(ctx: JobContext): JobCtx`
-  Adapt the kit's `JobContext`. The only place a plugin's job half names a kit internal.
+  Adapt the core `JobContext`. The only place a plugin's job half names a core internal.
 - `interface JobCtx extends PluginContext, BackgroundMethods`
   One queue message. `job.payload` is already narrowed to the variant this handler was registered for — `ServerPlugin.jobHandlers` is checked against the job types the plugin's own…
 - `type JobEnvelope = z.infer<typeof jobEnvelopeSchema>`
@@ -248,7 +248,7 @@ The server surface: the context family, and the types a plugin must be able to n
   - `env: PluginBindings`
     The runtime env: vars and secrets by name, plus whatever bindings this plugin's own `plugin.json` declares (typed `unknown` — narrow them where you read them). Prefer `config` for…
   - `platform: PluginPlatform`
-    The host's runtime capabilities (M1, `src/platform/types.ts`) — jobs, storage, realtime, AI. Neutral: the same object whatever the host runs on. Prefer the context's own methods…
+    The host's runtime capabilities (`src/platform/types.ts`) — jobs, storage, realtime, AI. Neutral: the same object whatever the host runs on. Prefer the context's own methods…
 - `interface PluginIngestFileInput extends IngestCommon`
 - `interface PluginIngestResult`
   What an ingest answers. `queued` means a `document.index` / `document.convert` job finishes it.
@@ -266,7 +266,7 @@ The server surface: the context family, and the types a plugin must be able to n
 - `type PluginPlatform = Platform`
   What `ctx.platform` is, named for the same reason.
 - `type PluginPublicMount = readonly [string, Hono<AppEnv>]`
-  One UNAUTHENTICATED mount (D34): prefix and router, no gate — a feature gate reads `auth.features`, and there is no auth here. The prefix must be `/api/hooks/<plugin id>` or…
+  One UNAUTHENTICATED mount: prefix and router, no gate — a feature gate reads `auth.features`, and there is no auth here. The prefix must be `/api/hooks/<plugin id>` or beneath it;…
 - `interface PluginRequires`
   What `pnpm plugin check` verifies before an install, mirrored from the plugin's manifest.
 - `interface PluginRoute`
@@ -304,21 +304,21 @@ The server surface: the context family, and the types a plugin must be able to n
 - `async function recordActivity(db: Database, input: ActivityInput): Promise<void>`
 - `async function recordUsage(db: Database, input: UsageInput): Promise<void>`
 - `function requestCtx(c: AppContext): RequestCtx`
-  Build a plugin's request context from the kit's.
+  Build a plugin's request context from the core one.
 - `interface RequestCtx extends PluginContext, PluginAuth`
   What a route handler is handed.
   - `readonly scope: AccessScope`
-    Tenant-wide visibility scope (D29) — hand it to a predicate, never to a query as a tenant id.
+    Tenant-wide visibility scope — hand it to a predicate, never to a query as a tenant id.
   - `readonly groups: readonly GroupRef[]`
     The reader's groups in this organisation, each with the name of the TYPE it belongs to.
   - `readonly visibility: RequestVisibility`
-    Read and write who may see one of this plugin's own rows (D29) — see `RequestVisibility`.
+    Read and write who may see one of this plugin's own rows — see `RequestVisibility`.
   - `guard(action: Actions, subject: Subjects): void`
     403 unless this role may `action` the `subject`. The KIND of thing, never the row.
   - `can(action: Actions, subject: Subjects): boolean`
     The same question without throwing — for branching, e.g. "may they also see the archived ones".
   - `hasFeature(name: string): boolean`
-    `true` when this deployment ships the feature AND this organisation has it (D30).
+    `true` when this deployment ships the feature AND this organisation has it.
   - `uuid(name: string): string`
     A `:id`-style parameter that must be a UUID. Anything else is a 404, never a database error — which also stops the route being a probe for which id shapes exist.
   - `valid<T>(target: 'json' \| 'query' \| 'param' \| 'form' \| 'header' \| 'cookie'): T`
@@ -328,12 +328,12 @@ The server surface: the context family, and the types a plugin must be able to n
   - `defer(fn: () => Promise<unknown>): void`
     Run something that may outlive the response (an email, an audit write, a nudge). It goes through `waitUntil`, is never awaited on the response path, and LOGS rather than throws —…
   - `enqueue(input: JobInput, options?: { delaySeconds?: number }): Promise<JobEnvelope>`
-    Hand work to `JOBS_QUEUE`. **A route never runs long work.** A missing binding throws rather than running inline, because silently doing the work in the request is how a 30-second…
+    Hand work to the jobs queue (pg-boss). **A route never runs long work.** No queue throws rather than running inline, because silently doing the work in the request is how a…
   - `enqueueMany(inputs: readonly JobInput[], options?: { delaySeconds?: number }): Promise<void>`
   - `nudge(entity: string, id?: string): void`
-    Tell this organisation's open tabs that a family of rows moved. `entity` IS the query-key family root, so declaring it once covers the socket wiring (D8).
+    Tell this organisation's open tabs that a family of rows moved. `entity` IS the query-key family root, so declaring it once covers the socket wiring.
   - `nudgeTopic(topic: string, entity: string, id?: string): void`
-    The same nudge to the sockets SUBSCRIBED to `topic` only — one row's viewers (D8, `@rocketpod/ shared/realtime` § Topics). `topic` is `tenantTopic('<id>.<kind>', ctx.tenantId,…
+    The same nudge to the sockets SUBSCRIBED to `topic` only — one row's viewers (`@rocketpod/ shared/realtime` § Topics). `topic` is `tenantTopic('<id>.<kind>', ctx.tenantId, rowId)`…
   - `storage(): StorageService`
     Object storage, or a 503 `storage_not_configured` — loud, because a silently absent store loses bytes.
   - `notFound(message?: string, code?: string): never`
@@ -343,11 +343,11 @@ The server surface: the context family, and the types a plugin must be able to n
   - `conflict(message?: string, code?: string, details?: unknown): never`
   - `unavailable(message?: string, code?: string): never`
   - `detached(): DetachedCtx`
-    A snapshot of this context that outlives the handler (D31).
+    A snapshot of this context that outlives the handler.
   - `readonly realtime: Realtime`
-    The realtime handle, for a plugin service that takes `realtime?` the way the kit's do.
+    The realtime handle, for a plugin service that takes `realtime?` the way core services do.
 - `interface RequestVisibility`
-  Reading and writing who may see one of a plugin's own rows (D29, D31).
+  Reading and writing who may see one of a plugin's own rows.
   - `resolve( input: { visibility?: ResourceVisibility; groupIds?: readonly string[] } \| undefined ): Promise<SetResourceGroupsInput>`
     Validate what a CLIENT asked for, against the caller's own groups. Absent input keeps the default, which is tenant-wide; `'tenant'` always clears the grants, because leaving stale…
   - `set(kind: string, resourceId: string, input: SetResourceGroupsInput): Promise<string[]>`
@@ -363,7 +363,7 @@ The server surface: the context family, and the types a plugin must be able to n
 - `async function sealSecret(config: PluginConfig, plaintext: string): Promise<string>`
   Encrypt a credential for storage. The output is opaque base64; keep it in a `*_enc` column.
 - `interface SeedCtx extends Pick<PluginContext, 'db'>`
-  `pnpm seed --demo`, after the kit's own block.
+  `pnpm seed --demo`, after the core block.
   - `tenantId: string`
   - `ownerId: string`
   - `demoId: (key: string) => string`
@@ -374,9 +374,9 @@ The server surface: the context family, and the types a plugin must be able to n
   - `mounts?: readonly PluginMount[]`
     Spread into the mount table of `api/index.ts`; the prefix is `/api/<id>` by convention.
   - `publicMounts?: readonly PluginPublicMount[]`
-    Routes a third party calls with no session or key — an admin-consent callback, a webhook (D34). Mounted BEFORE the authed mounts and without `authMiddleware`, under…
+    Routes a third party calls with no session or key — an admin-consent callback, a webhook Mounted BEFORE the authed mounts and without `authMiddleware`, under `/api/hooks/<id>`…
   - `apiPrefixes?: readonly string[]`
-    Extra path prefixes the Worker owns, unioned into `API_PREFIXES` — so an unmatched path under one is a JSON 404 rather than `index.html`. Adding one ALSO means adding it to…
+    Extra path prefixes the app owns, unioned into `API_PREFIXES` — so an unmatched path under one is a JSON 404 rather than `index.html`, and the static handler (`node/assets.ts`,…
   - `jobHandlers?: { [T in JobTypeOf<S> & string]: T extends JobType ? JobHandler<T> : JobHandler<any> }`
     `type` → handler, covering EXACTLY the job variants `shared.jobs` declares. Merged into the consumer's dispatch table; each handler gets its own DB client and awaits everything,…
   - `agents?: { [K in AgentKeyOf<S> & string]: AnyAgentDefinition }`
@@ -384,20 +384,20 @@ The server surface: the context family, and the types a plugin must be able to n
   - `prompts?: { [K in PromptKeyOf<S> & string]: PromptDefinition }`
     Prompt registry entries, one per key in `shared.promptKeys`.
   - `agentTools?: (ctx: AgentToolContext) => Tool[] \| Promise<Tool[]>`
-    Tools added to every agent run, beside the kit's three knowledge tools. Bound to the run's access scope, so a plugin tool reads what its REQUESTER may read and nothing more. May…
+    Tools added to every agent run, beside the three built-in knowledge tools. Bound to the run's access scope, so a plugin tool reads what its REQUESTER may read and nothing more.…
   - `scheduledTasks?: Readonly<Record<string, ScheduledTask[]>>`
-    Cron expression → tasks, merged into `SCHEDULED_TASKS` (tasks on a cron the kit already runs are appended after the kit's). A cron the kit does NOT run must also be added to…
+    Cron expression → tasks, merged into `SCHEDULED_TASKS` (tasks on a cron core already runs are appended after the core ones). A new expression needs no other edit: the worker…
   - `grants?: Partial<Record<EffectiveRole, RoleGrant>>`
-    Per-role CASL rules, applied after the kit's own matrix — additive, never a replacement.
+    Per-role CASL rules, applied after the core matrix — additive, never a replacement.
   - `rlsExcludedTables?: readonly string[]`
     Plugin tables with no `tenant_id`, unioned into `RLS_EXCLUDED_TABLES` with a reason each.
   - `unscopedAllowlist?: Readonly<Record<string, string>>`
     Source files the cross-tenant allow-list scan may skip, keyed the way that test keys its own: a path relative to `apps/web/` (`src/plugins/<id>/…`) mapped to the REASON it is…
   - `visibilityResources?: readonly VisibilityResource[]`
-    D29: rows of this plugin that a group may restrict. Read by `services/access.ts`.
+    Rows of this plugin that a group may restrict. Read by `services/access.ts`.
   - `hooks?: { onTenantCreated?: ( db: Database, tenant: Tenant, userId: string, features: readonly string[] ) => Promise<void> onTenantDeleted?: (db: Database, tenantId: string, env: AppBindings) => Promise<void> seedDemo?: (db: Database, ctx: PluginSeedContext) => Promise<void> }`
   - `extensions?: Readonly<Record<string, readonly unknown[]>>`
-    Cross-plugin registries (D31 decision 6): the analytics plugin reads `extensions.cubes` and friends from every installed plugin and narrows them with zod, failing loudly on…
+    Cross-plugin registries: the analytics plugin reads `extensions.cubes` and friends from every installed plugin and narrows them with zod, failing loudly on anything it cannot…
 - `interface SetResourceGroupsInput`
 - `function sharedWithMyGroups( scope: AccessScope, junction: string, foreignKey: string, resourceId: SQL ): SQL`
   `exists (select 1 from <junction> j where j.<fk> = <resource>.id and j.group_id = any($ids))`.
@@ -419,7 +419,7 @@ The server surface: the context family, and the types a plugin must be able to n
   - `timeout?: Duration`
 - `interface StepRealtime`
   - `realtime: Realtime`
-    The `Realtime` a kit-shaped service takes as its trailing optional argument.
+    The `Realtime` a core-shaped service takes as its trailing optional argument.
   - `settle(): Promise<void>`
     Await every send collected so far. Failures are swallowed — a nudge is never load-bearing.
   - `nudgeEntity(tenantId: string, entity: string, id?: string): Promise<void>`
@@ -436,18 +436,20 @@ The server surface: the context family, and the types a plugin must be able to n
   An answered gate, as the loop consumes it — keyed by `toolCallId` in {@link RunToolLoopOptions.approvals}, built by the runtime from the resolved rows. The agent never assembles…
 - `interface ToolCallParams`
 - `function toolCtx(ctx: AgentToolContext): ToolCtx`
-  Adapt the runtime's tool context. The only place a plugin's tools name a kit internal.
+  Adapt the runtime's tool context. The only place a plugin's tools name a core internal.
 - `interface ToolCtx`
   What `ServerPlugin.agentTools(ctx)` is handed, spelled as the plugin surface rather than as the runtime's internal shape.
   - `db: Database`
   - `config: PluginConfig`
   - `platform: PluginPlatform`
-    The host's runtime capabilities (M1) — what the Worker bindings were.
+    The host's runtime capabilities — jobs, storage, realtime, AI.
   - `scope: AccessScope`
   - `tenantId: string`
     The run's tenant — `scope.tenantId`, surfaced because every query needs it.
   - `maxDocumentChars?: number`
     The CALLER's budget for one document window, in characters. An agent run's is far larger than a chat turn's.
+  - `features(): Promise<readonly string[]>`
+    The feature keys the run's organisation has — what `ctx.features(tenantId)` answers in a job. A plugin whose tool belongs to a flagged surface returns `[]` when the flag is off,…
 - `function toolInputSchema(schema: ZodType): JsonSchema`
   JSON Schema (draft-07, `$schema` stripped) for a tool input.
 - `interface ToolLoopCheckpoint`
@@ -468,9 +470,9 @@ The server surface: the context family, and the types a plugin must be able to n
   - `routes: readonly PluginRoute[]`
   - `nav?: readonly PluginNavGroup[]`
   - `settingsTabs?: (ctx: { can: (action: string, subject: string) => boolean }) => TabConfig[]`
-    Extra `/settings?tab=` tabs, appended after the kit's. `can` is the caller's ability.
+    Extra `/settings?tab=` tabs, appended after the core ones. `can` is the caller's ability.
   - `homeLinks?: readonly QuickLink[]`
-    Quick links for the Home page, merged AHEAD of the kit's own (D31). A feature somebody reaches from Home is one they were told about; a plugin that only adds a nav item is one…
+    Quick links for the Home page, merged AHEAD of the core ones. A feature somebody reaches from Home is one they were told about; a plugin that only adds a nav item is one they have…
   - `queryKeys?: Readonly<Record<string, unknown>>`
     Families merged into `queryKeys`; every root must start with `<id>:`.
   - `agentForms?: Readonly<Partial<Record<AgentKeyOf<S> & string, AgentForm>>>`
@@ -501,14 +503,14 @@ The server surface: the context family, and the types a plugin must be able to n
 
 The two escape hatches that read the whole installed set. Not on the barrel, on purpose.
 
-> The two escape hatches that read the WHOLE installed set (D31).
+> The two escape hatches that read the WHOLE installed set.
 
 - `function allTables(): AllTables`
   The whole schema namespace, for a library that takes one (drizzle-cube's `createCubeApp({ schema })` is the case this exists for).
 - `type AllTables = typeof schema`
-  The merged drizzle schema: every kit table AND every installed plugin's.
+  The merged drizzle schema: every core table AND every installed plugin's.
 - `function extensions(key: string): readonly unknown[]`
-  Everything every installed plugin contributed under one `extensions` key (D31, decision 6).
+  Everything every installed plugin contributed under one `extensions` key.
 - `function extensionSources(key: string): readonly string[]`
   Which plugins contributed under a key — for the error message when one of them fails to parse.
 
@@ -516,7 +518,7 @@ The two escape hatches that read the whole installed set. Not on the barrel, on 
 
 The only host module a plugin's `ui/index.ts` may import — it ships in the main bundle.
 
-> The WIRING half of the UI kit (D31) — the only host module a plugin's `ui/index.ts` may import.
+> The WIRING half of the UI kit — the only host module a plugin's `ui/index.ts` may import.
 
 - `type AnyUiPlugin = UiPlugin<SharedPlugin>`
 - `const featureGuard: (feature: NavGuard, guard: NavGuard) => NavGuard`
@@ -551,9 +553,9 @@ The only host module a plugin's `ui/index.ts` may import — it ships in the mai
   - `routes: readonly PluginRoute[]`
   - `nav?: readonly PluginNavGroup[]`
   - `settingsTabs?: (ctx: { can: (action: string, subject: string) => boolean }) => TabConfig[]`
-    Extra `/settings?tab=` tabs, appended after the kit's. `can` is the caller's ability.
+    Extra `/settings?tab=` tabs, appended after the core ones. `can` is the caller's ability.
   - `homeLinks?: readonly QuickLink[]`
-    Quick links for the Home page, merged AHEAD of the kit's own (D31). A feature somebody reaches from Home is one they were told about; a plugin that only adds a nav item is one…
+    Quick links for the Home page, merged AHEAD of the core ones. A feature somebody reaches from Home is one they were told about; a plugin that only adds a nav item is one they have…
   - `queryKeys?: Readonly<Record<string, unknown>>`
     Families merged into `queryKeys`; every root must start with `<id>:`.
   - `agentForms?: Readonly<Partial<Record<AgentKeyOf<S> & string, AgentForm>>>`
@@ -564,7 +566,7 @@ The only host module a plugin's `ui/index.ts` may import — it ships in the mai
 
 Components and hooks, for a lazy PAGE. Never for the UI entry.
 
-> The COMPONENTS half of the UI kit (D31) — for a plugin's PAGES, never for its `ui/index.ts`.
+> The COMPONENTS half of the UI kit — for a plugin's PAGES, never for its `ui/index.ts`.
 
 - `function AccessBadge({ visibility, groups, className = '', }: { visibility: ResourceVisibility groups: GroupRef[] className?: string })`
   The read-only counterpart: a lock and the group names, for a list row.
@@ -630,7 +632,7 @@ Components and hooks, for a lazy PAGE. Never for the UI entry.
 - `function SettingToggle({ id, label, description, checked, onChange, disabled, }: SettingToggleProps)`
   Toggle variant.
 - `function setUnauthorizedHandler(handler: UnauthorizedHandler \| null): void`
-  Register the global 401 handler. One handler; the last registration wins. Pass `null` to remove it. Phase 1 calls this from `AuthProvider` with the redirect-to-login behaviour.
+  Register the global 401 handler. One handler; the last registration wins. Pass `null` to remove it. `AuthProvider` calls this with the redirect-to-login behaviour.
 - `function showToast(message: string, type: ToastType, duration?: number): void`
   Show an error or a warning from anywhere, inside or outside React.
 - `default function SideNav({ items = navigationConfig, footer }: SideNavProps)`
@@ -647,7 +649,7 @@ Components and hooks, for a lazy PAGE. Never for the UI entry.
   Tabs whose active state lives in `?tab=`, so deep links and back/forward work.
 - `function useAuth(): AuthContextValue`
 - `function useFeature(name: FeatureName): boolean`
-  Is a feature on for this session (D30)? Reads `session.features` — the array the server resolved — and NEVER the ability: `manage all` covers `access` on every `Feature:` subject,…
+  Is a feature on for this session? Reads `session.features` — the array the server resolved — and NEVER the ability: `manage all` covers `access` on every `Feature:` subject, so an…
 - `function useGroups(typeId?: string, enabled = true)`
 - `function useGroupTypes(enabled = true)`
 - `function useMyGroups()`
@@ -655,7 +657,7 @@ Components and hooks, for a lazy PAGE. Never for the UI entry.
 - `function usePermissions()`
 - `function useRealtimeTopic(topic: string \| null): void`
 - `function useTenancyMode(): TenancyMode`
-  `'single'` hides OrgSwitcher, /select-tenant and org create/delete (D25).
+  `'single'` hides OrgSwitcher, /select-tenant and org create/delete.
 - `const useToastStore: UseBoundStore<StoreApi<ToastStore>>`
 - `function VisibilityModal({ open, onClose, name, visibility, groups, available, tenantName, isSaving = false, onSave, }: VisibilityModalProps)`
 - `interface VisibilityModalProps`
@@ -664,7 +666,7 @@ Components and hooks, for a lazy PAGE. Never for the UI entry.
 
 `ServerPlugin` and `UiPlugin` — the slots a plugin fills.
 
-> The Worker half of a plugin (D31): what a plugin contributes to the server and to the UI.
+> The server half of a plugin: what a plugin contributes to the server and to the UI.
 
 - `type AnyServerPlugin = ServerPlugin<SharedPlugin>`
   The element type of the barrels — a plugin whose shared half is not narrowed.
@@ -678,7 +680,7 @@ Components and hooks, for a lazy PAGE. Never for the UI entry.
     Insert before the core group with this label; appended when the label is not found.
   - `items: NavItem[]`
 - `type PluginPublicMount = readonly [string, Hono<AppEnv>]`
-  One UNAUTHENTICATED mount (D34): prefix and router, no gate — a feature gate reads `auth.features`, and there is no auth here. The prefix must be `/api/hooks/<plugin id>` or…
+  One UNAUTHENTICATED mount: prefix and router, no gate — a feature gate reads `auth.features`, and there is no auth here. The prefix must be `/api/hooks/<plugin id>` or beneath it;…
 - `interface PluginRequires`
   What `pnpm plugin check` verifies before an install, mirrored from the plugin's manifest.
 - `interface PluginRoute`
@@ -699,9 +701,9 @@ Components and hooks, for a lazy PAGE. Never for the UI entry.
   - `mounts?: readonly PluginMount[]`
     Spread into the mount table of `api/index.ts`; the prefix is `/api/<id>` by convention.
   - `publicMounts?: readonly PluginPublicMount[]`
-    Routes a third party calls with no session or key — an admin-consent callback, a webhook (D34). Mounted BEFORE the authed mounts and without `authMiddleware`, under…
+    Routes a third party calls with no session or key — an admin-consent callback, a webhook Mounted BEFORE the authed mounts and without `authMiddleware`, under `/api/hooks/<id>`…
   - `apiPrefixes?: readonly string[]`
-    Extra path prefixes the Worker owns, unioned into `API_PREFIXES` — so an unmatched path under one is a JSON 404 rather than `index.html`. Adding one ALSO means adding it to…
+    Extra path prefixes the app owns, unioned into `API_PREFIXES` — so an unmatched path under one is a JSON 404 rather than `index.html`, and the static handler (`node/assets.ts`,…
   - `jobHandlers?: { [T in JobTypeOf<S> & string]: T extends JobType ? JobHandler<T> : JobHandler<any> }`
     `type` → handler, covering EXACTLY the job variants `shared.jobs` declares. Merged into the consumer's dispatch table; each handler gets its own DB client and awaits everything,…
   - `agents?: { [K in AgentKeyOf<S> & string]: AnyAgentDefinition }`
@@ -709,28 +711,28 @@ Components and hooks, for a lazy PAGE. Never for the UI entry.
   - `prompts?: { [K in PromptKeyOf<S> & string]: PromptDefinition }`
     Prompt registry entries, one per key in `shared.promptKeys`.
   - `agentTools?: (ctx: AgentToolContext) => Tool[] \| Promise<Tool[]>`
-    Tools added to every agent run, beside the kit's three knowledge tools. Bound to the run's access scope, so a plugin tool reads what its REQUESTER may read and nothing more. May…
+    Tools added to every agent run, beside the three built-in knowledge tools. Bound to the run's access scope, so a plugin tool reads what its REQUESTER may read and nothing more.…
   - `scheduledTasks?: Readonly<Record<string, ScheduledTask[]>>`
-    Cron expression → tasks, merged into `SCHEDULED_TASKS` (tasks on a cron the kit already runs are appended after the kit's). A cron the kit does NOT run must also be added to…
+    Cron expression → tasks, merged into `SCHEDULED_TASKS` (tasks on a cron core already runs are appended after the core ones). A new expression needs no other edit: the worker…
   - `grants?: Partial<Record<EffectiveRole, RoleGrant>>`
-    Per-role CASL rules, applied after the kit's own matrix — additive, never a replacement.
+    Per-role CASL rules, applied after the core matrix — additive, never a replacement.
   - `rlsExcludedTables?: readonly string[]`
     Plugin tables with no `tenant_id`, unioned into `RLS_EXCLUDED_TABLES` with a reason each.
   - `unscopedAllowlist?: Readonly<Record<string, string>>`
     Source files the cross-tenant allow-list scan may skip, keyed the way that test keys its own: a path relative to `apps/web/` (`src/plugins/<id>/…`) mapped to the REASON it is…
   - `visibilityResources?: readonly VisibilityResource[]`
-    D29: rows of this plugin that a group may restrict. Read by `services/access.ts`.
+    Rows of this plugin that a group may restrict. Read by `services/access.ts`.
   - `hooks?: { onTenantCreated?: ( db: Database, tenant: Tenant, userId: string, features: readonly string[] ) => Promise<void> onTenantDeleted?: (db: Database, tenantId: string, env: AppBindings) => Promise<void> seedDemo?: (db: Database, ctx: PluginSeedContext) => Promise<void> }`
   - `extensions?: Readonly<Record<string, readonly unknown[]>>`
-    Cross-plugin registries (D31 decision 6): the analytics plugin reads `extensions.cubes` and friends from every installed plugin and narrows them with zod, failing loudly on…
+    Cross-plugin registries: the analytics plugin reads `extensions.cubes` and friends from every installed plugin and narrows them with zod, failing loudly on anything it cannot…
 - `interface UiPlugin<S extends SharedPlugin = SharedPlugin>`
   - `shared: S`
   - `routes: readonly PluginRoute[]`
   - `nav?: readonly PluginNavGroup[]`
   - `settingsTabs?: (ctx: { can: (action: string, subject: string) => boolean }) => TabConfig[]`
-    Extra `/settings?tab=` tabs, appended after the kit's. `can` is the caller's ability.
+    Extra `/settings?tab=` tabs, appended after the core ones. `can` is the caller's ability.
   - `homeLinks?: readonly QuickLink[]`
-    Quick links for the Home page, merged AHEAD of the kit's own (D31). A feature somebody reaches from Home is one they were told about; a plugin that only adds a nav item is one…
+    Quick links for the Home page, merged AHEAD of the core ones. A feature somebody reaches from Home is one they were told about; a plugin that only adds a nav item is one they have…
   - `queryKeys?: Readonly<Record<string, unknown>>`
     Families merged into `queryKeys`; every root must start with `<id>:`.
   - `agentForms?: Readonly<Partial<Record<AgentKeyOf<S> & string, AgentForm>>>`
@@ -740,7 +742,7 @@ Components and hooks, for a lazy PAGE. Never for the UI entry.
 
 The build-time schema symbols. A `pgTable(...)` runs at module scope, so these cannot be injected.
 
-> The schema kit (D31) — the build-time symbols a plugin's table file needs at MODULE scope.
+> The schema kit — the build-time symbols a plugin's table file needs at MODULE scope.
 
 - `const activityEvents: table "activity_events" { id, tenantId, userId, type, subjectType, subjectId, metadata, createdAt }`
 - `const groupMembers: table "group_members" { tenantId, groupId, userId, createdAt }`
@@ -749,7 +751,7 @@ The build-time schema symbols. A `pgTable(...)` runs at module scope, so these c
 - `function membershipIsolation()`
   `users` has no `tenant_id` — a user is global and belongs to MANY tenants through `tenant_users` — so it is scoped by MEMBERSHIP of the active tenant instead.
 - `const RESOURCE_VISIBILITY_VALUES: readonly ["tenant", "groups"]`
-  The values of a resource's `visibility` column (D29): `tenant` = every member of the organisation, `groups` = only the groups granted in that resource's junction table (plus the…
+  The values of a resource's `visibility` column: `tenant` = every member of the organisation, `groups` = only the groups granted in that resource's junction table (plus the owner…
 - `function tenantIsolation(table: string, column = sql`tenant_id`)`
   ONE policy predicate, shared by every table. Do not inline a copy per table: drizzle-kit diffs the rendered SQL text, so a stray space shows up as N spurious `ALTER POLICY`…
 - `function tenantRef(tenants: { id: AnyPgColumn })`
@@ -764,7 +766,7 @@ The build-time schema symbols. A `pgTable(...)` runs at module scope, so these c
 
 What a plugin's CONTRACT module imports: the error envelope, pagination, `SharedPlugin`.
 
-> The shared plugin API (D31) — what a plugin's CONTRACT module imports from the kit.
+> The shared plugin API — what a plugin's CONTRACT module imports from the host.
 
 - `type Actions = (typeof ACTIONS)[number]`
 - `type AgentKeyOf = NonNullable<DeclaredBy<S, 'agentKeys'>>[number]`
@@ -805,7 +807,7 @@ What a plugin's CONTRACT module imports: the error envelope, pagination, `Shared
 - `const paginationQuerySchema: z.ZodObject<{ page: z.ZodDefault<z.ZodCoercedNumber<unknown>>; pageSize: z.ZodDefault<z.ZodCoercedNumber<unknown>>; }, z.core.$strip>`
   Page-based pagination (page-based). Query: `?page=1&pageSize=25`.
 - `const PLUGIN_ID_RE: RegExp`
-  `^[a-z][a-z0-9-]*$` and never containing `rocketpod`: a plugin is written in the kit's vocabulary so `scripts/rename.mjs` can translate it into a renamed app on the way in, and an…
+  `^[a-z][a-z0-9-]*$` and never containing `rocketpod`: an id carrying the app's original name would be rewritten with everything else when the app is renamed.
 - `interface PluginEvalCoverage`
   What a plugin declares for its own prompt and agent keys (`SharedPlugin.evalCoverage`).
 - `function pluginNamespace(id: string): string`
@@ -827,17 +829,17 @@ What a plugin's CONTRACT module imports: the error envelope, pagination, `Shared
   - `readonly promptKeys?: readonly string[]`
     Prompt registry keys this plugin owns; `ServerPlugin.prompts` must cover exactly these.
   - `readonly evalCoverage?: PluginEvalCoverage`
-    The eval coverage contract for this plugin's own `promptKeys` and `agentKeys` (D33, `@rocketpod/shared/ai/eval-coverage`): per key, the `apps/evals` suite, datasets and baseline…
+    The eval coverage contract for this plugin's own `promptKeys` and `agentKeys` (`@rocketpod/shared/ai/eval-coverage`): per key, the `apps/evals` suite, datasets and baseline that…
   - `readonly jobs?: readonly JobVariant[]`
     Job envelope variants as DATA: `jobInputSchema` is a discriminated union over `[...CORE_JOB_VARIANTS, ...plugin variants]`. Namespace every `type` with the plugin's id…
   - `readonly subjects?: readonly string[]`
     CASL subjects this plugin adds, unioned into `Subjects`. A subject is a NOUN the plugin owns (`Order`), and the rules that grant it live in `ServerPlugin.grants`.
   - `readonly features?: Readonly<Record<string, FeatureDefinition>>`
-    Feature-flag definitions keyed by flag key (D30), merged into `FEATURE_FLAGS`. A flag is configuration, not a permission: gate with `hasFeature(auth.features, …)`, never with CASL.
+    Feature-flag definitions keyed by flag key, merged into `FEATURE_FLAGS`. A flag is configuration, not a permission: gate with `hasFeature(auth.features, …)`, never with CASL.
   - `readonly config?: ZodRawShape`
-    Extra `[vars]` / secrets, merged into the Worker's config schema (`apps/web/src/config.ts`). A zod raw shape rather than a whole object so the kit's schema stays one schema.
+    Extra env vars / secrets, merged into the server's config schema (`apps/web/src/config.ts`). A zod raw shape rather than a whole object so the core schema stays one schema.
   - `readonly realtimeRoots?: readonly string[]`
-    Query-key roots that `access.changed` should invalidate (D29): a plugin whose rows carry `visibility` has to be re-fetched when somebody's group membership moves under them.
+    Query-key roots that `access.changed` should invalidate: a plugin whose rows carry `visibility` has to be re-fetched when somebody's group membership moves under them.
   - `readonly realtimeTopics?: readonly RealtimeTopicDefinition[]`
     Realtime TOPICS this plugin publishes on (`@rocketpod/shared/realtime` § Topics): a channel a page subscribes to by name — one row's live progress — rather than the tenant-wide…
 - `type SubjectOf = NonNullable<DeclaredBy<S, 'subjects'>>[number]`
@@ -848,7 +850,7 @@ What a plugin's CONTRACT module imports: the error envelope, pagination, `Shared
 
 The CLI half: the one `fetch` site, the exit codes, the output helpers.
 
-> The CLI plugin API (D31) — what a plugin's command module imports from the kit.
+> The CLI plugin API — what a plugin's command module imports from the CLI.
 
 - `type ActionWrapper = ( handler: (ctx: CommandContext, command: Command) => Promise<void> ) => (...args: unknown[]) => Promise<void>`
   `action()` in `cli.ts`: builds the context from the global options and maps any error.
@@ -868,7 +870,7 @@ The CLI half: the one `fetch` site, the exit codes, the output helpers.
 - `const EXIT_FORBIDDEN: 3`
 - `const EXIT_NOT_LOGGED_IN: 2`
 - `const EXIT_OK: 0`
-  CLI error types and the exit-code mapping (D26): 0 ok · 1 error · 2 not logged in · 3 forbidden. Commands throw; `cli.ts` catches once, prints once, and sets `process.exitCode`.
+  CLI error types and the exit-code mapping: 0 ok · 1 error · 2 not logged in · 3 forbidden. Commands throw; `cli.ts` catches once, prints once, and sets `process.exitCode`.
 - `function exitCodeForStatus(status: number): number`
 - `function formatCell(value: unknown): string`
 - `function formatDate(value: Date \| string \| null \| undefined): string`
@@ -892,7 +894,7 @@ The CLI half: the one `fetch` site, the exit codes, the output helpers.
 
 `CliPlugin` and the `action()` wrapper it registers with.
 
-> The CLI half of a plugin (D31).
+> The CLI half of a plugin.
 
 - `type ActionWrapper = ( handler: (ctx: CommandContext, command: Command) => Promise<void> ) => (...args: unknown[]) => Promise<void>`
   `action()` in `cli.ts`: builds the context from the global options and maps any error.
@@ -906,7 +908,7 @@ The CLI half: the one `fetch` site, the exit codes, the output helpers.
 
 The harness: a real database, the real Hono app, real bindings-shaped stubs, the provider tree.
 
-> `@testkit/integration` — the host's test harness, as a DECLARED entry (D31).
+> `@testkit/integration` — the host's test harness, as a DECLARED entry.
 
 - `function bearerHeader(key: string): Record<string, string>`
 - `async function cleanDatabase(db: Database): Promise<void>`
@@ -953,7 +955,7 @@ The harness: a real database, the real Hono app, real bindings-shaped stubs, the
 - `function rulesFor( role: MembershipRole \| null, isGlobalAdmin = false, features: string[] = [] )`
   Packed rules EXACTLY as the server emits them for this role (same matrix, same packer).
 - `const SCHEDULED_TASKS: Record<string, ScheduledTask[]>`
-  Core tasks plus every installed plugin's (D31). A plugin naming a cron the kit already runs APPENDS to it — each task is try/caught on its own, so a plugin's failure cannot stop…
+  Core tasks plus every installed plugin's. A plugin naming a cron core already runs APPENDS to it — each task is try/caught on its own, so a plugin's failure cannot stop core's…
 - `interface ScheduledTask`
 - `const SESSION_COOKIE_NAME: "__Host-session"`
   The login cookie. `middleware/csrf.ts` re-exports this so the CSRF check names the same cookie.
@@ -985,7 +987,7 @@ The harness: a real database, the real Hono app, real bindings-shaped stubs, the
 
 Builders for the context family, for tests that never touch data.
 
-> `@testkit/unit` — builders for the plugin context family (D31).
+> `@testkit/unit` — builders for the plugin context family.
 
 - `interface CronCtxOptions extends BaseOptions`
 - `type FakeRequestCtx = RequestCtx & { readonly deferred: ReadonlyArray<() => Promise<unknown>> settle(): Promise<void> }`
@@ -994,11 +996,11 @@ Builders for the context family, for tests that never touch data.
   The fake step recorder, so a test can assert the NAMES a run asked for and their order.
 - `function makeCronCtx(options: CronCtxOptions): CronCtx`
 - `function makeJobCtx(options: BaseOptions): JobCtx`
-  One queue message's context, through the kit's own `jobCtx` adapter.
+  One queue message's context, through the host's own `jobCtx` adapter.
 - `function makeRequestCtx(options: RequestCtxOptions): FakeRequestCtx`
   A `RequestCtx` with no request behind it.
 - `function makeToolCtx(options: ToolCtxOptions): ToolCtx`
-  What `ServerPlugin.agentTools(ctx)` is handed, through the kit's own `toolCtx` adapter.
+  What `ServerPlugin.agentTools(ctx)` is handed, through the host's own `toolCtx` adapter.
 - `function makeWorkflowCtx(options: WorkflowCtxOptions): FakeWorkflowCtx`
   A `WorkflowCtx` over a recording step.
 - `interface RequestCtxOptions extends BaseOptions`
@@ -1244,6 +1246,7 @@ nothing in the comparison that can throw.
 @/plugins/api :: member :: ToolCtx.scope :: scope: AccessScope
 @/plugins/api :: member :: ToolCtx.tenantId :: tenantId: string
 @/plugins/api :: member :: ToolCtx.maxDocumentChars :: maxDocumentChars?: number
+@/plugins/api :: member :: ToolCtx.features :: features(): Promise<readonly string[]>
 @/plugins/api :: function :: toolInputSchema :: function toolInputSchema(schema: ZodType): JsonSchema
 @/plugins/api :: interface :: ToolLoopCheckpoint :: interface ToolLoopCheckpoint
 @/plugins/api :: interface :: ToolLoopResult :: interface ToolLoopResult

@@ -1,9 +1,10 @@
 /**
- * `files` — the index of objects stored in the `FILES` R2 bucket (D23). R2 holds the bytes under
- * `key`; this row holds who owns them, in which tenant, and what to serve them as. Rows are
- * immutable (upload = insert, replace = new row), so there is no `updated_at`. `scope` groups
- * uploads by purpose (`avatars` is the kit's example; `documents` holds knowledge-base originals
- * owned by a `documents` row); `key` is unique because it embeds a UUID.
+ * `files` — the index of objects in object storage (`Platform.storage`, an S3-compatible
+ * bucket), which holds the bytes under `key`; this row holds who owns them, in which tenant, and
+ * what to serve them as. Rows are immutable (upload = insert, replace = new row), so there is no
+ * `updated_at`. `scope` groups uploads by purpose (`avatars` is the built-in example; `documents`
+ * holds knowledge-base originals owned by a `documents` row); `key` is unique because it embeds a
+ * UUID.
  */
 import { relations } from 'drizzle-orm'
 import { index, integer, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core'
@@ -25,7 +26,7 @@ export const files = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     scope: text('scope', { enum: FILE_SCOPES }).notNull(),
-    /** R2 object key: `tenants/<tenantId>/<scope>/<uuid>-<sanitised filename>`. */
+    /** Object key: `tenants/<tenantId>/<scope>/<uuid>-<sanitised filename>`. */
     key: text('key').notNull().unique(),
     /** The client's original filename, sanitised — for `Content-Disposition` and listings. */
     filename: text('filename').notNull(),

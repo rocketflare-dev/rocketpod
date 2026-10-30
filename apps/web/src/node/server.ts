@@ -1,22 +1,22 @@
 /**
- * The Node entry (M2, `docs/ROADMAP.md`): the same Hono app the Worker serves, on
- * `@hono/node-server`, with a Node `Platform`, one Postgres pool per process and real
- * post-response work. One image, three modes (`SERVER_MODE`, or the first argument):
+ * The server entry: the Hono app (`src/api/index.ts`) on `@hono/node-server`, with the
+ * `Platform`, one Postgres pool per process and tracked post-response work. One image, three
+ * modes (`SERVER_MODE`, or the first argument):
  *
- * - `web`: the API, `/ws` (`realtime.ts`: sockets + the LISTEN connection; M5), the SPA's static
+ * - `web`: the API, `/ws` (`realtime.ts`: sockets + the LISTEN connection), the SPA's static
  *   files (`assets.ts`), `/healthz` (liveness) and `/readyz`
  *   (a `SELECT 1` on the pool; 503 while draining, so a load balancer stops sending traffic).
- * - `worker`: the jobs consumer and the cron schedules (`jobs.ts`, pg-boss; M3) and the agent
- *   runs (`runs.ts`, OpenWorkflow; M4).
+ * - `worker`: the jobs consumer and the cron schedules (`jobs.ts`, pg-boss) and the agent
+ *   runs (`runs.ts`, OpenWorkflow).
  * - `all`: both in one process — local dev, and small installs.
  *
  * This file and `src/config.ts`'s `loadConfig` are where configuration comes from: `process.env`
- * is read HERE and nowhere else under `src/` (`tests/config/platform-seam.test.ts`). The Worker
- * entry (`src/worker.ts`) never imports this directory.
+ * is read HERE and nowhere else under `src/` (`tests/config/platform-seam.test.ts`), and nothing
+ * outside `src/node/` imports this directory.
  *
  * Shutdown (SIGTERM/SIGINT): readiness flips to 503, the listener stops accepting, in-flight
- * requests finish, pg-boss and OpenWorkflow stop fetching and let in-flight work finish, the deferred-work set
- * drains, then the pool is closed.
+ * requests finish, pg-boss and OpenWorkflow stop fetching and let in-flight work finish, the
+ * deferred-work set drains, then the pool is closed.
  */
 import type { IncomingMessage } from 'node:http'
 import { STATUS_CODES } from 'node:http'
@@ -56,7 +56,7 @@ export interface StartServerOptions {
   port?: number
   hostname?: string
   /**
-   * `worker` mode only (M7): serve `/healthz` + `/readyz` — and nothing else — on this port, so a
+   * `worker` mode only: serve `/healthz` + `/readyz` — and nothing else — on this port, so a
    * container healthcheck or a Kubernetes probe can watch a worker. Unset: a worker binds no port.
    */
   probePort?: number
@@ -167,7 +167,7 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
   }
   if (server && !serveApp) log(`worker: probes on :${port}`)
   if (server && serveApp) {
-    // `/ws` (M5): Node delivers an upgrade outside the fetch handler, so the app runs here inside
+    // `/ws`: Node delivers an upgrade outside the fetch handler, so the app runs here inside
     // an `upgradeScope` slot — the route authenticates and `realtime.hub.accept()` fills the slot —
     // and the handshake completes only if it did. Anything else is written back as plain HTTP.
     server.on('upgrade', (req: IncomingMessage, socket: Duplex, head: Buffer) => {
@@ -265,7 +265,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     mode,
     port: env.PORT ? Number(env.PORT) : 3001,
     hostname: env.HOST || '0.0.0.0',
-    // A worker answers its probes on the same port the web process serves on (M7).
+    // A worker answers its probes on the same port the web process serves on.
     probePort: env.PORT ? Number(env.PORT) : 3001,
     uiDir: env.UI_DIST_DIR || 'dist/ui',
   })

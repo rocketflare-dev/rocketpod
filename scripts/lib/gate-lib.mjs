@@ -1,6 +1,7 @@
 /**
  * `pnpm gate` — an app's checks, defined once (docs/CONCEPTS.md §4). The same command is the
- * pre-commit gate on a laptop, the one job in a copy's CI, and Launch's ship gate (which reads
+ * pre-commit gate on a laptop, what a copy's CI runs (in parallel parts: `pnpm gate lint typecheck
+ * build` and `pnpm test --only …`, .github/workflows/ci.yml), and Launch's ship gate (which reads
  * `--list --json`, contract: `packages/shared/src/gate.ts`). `scripts/gate.mjs` executes; this file
  * holds the steps and the argument rules, unit-tested in `apps/web/tests/config/gate.test.ts`.
  *

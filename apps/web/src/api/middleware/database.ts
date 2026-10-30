@@ -1,5 +1,5 @@
 /**
- * Per-request database handle (D35): `openDatabase(config)`, `c.set('db')`,
+ * Per-request database handle: `openDatabase(config)`, `c.set('db')`,
  * and the handle is closed in `executionCtx.waitUntil` AFTER the response. On Node the handle is a
  * view of the process pool and closing it is a no-op (`installProcessPool`); without one (tests,
  * scripts) it is a client of its own, so nothing is kept across requests. `finally`, not post-`next()`: a throwing handler
@@ -10,7 +10,7 @@
  * `tests/helpers/request.ts` awaits them — the production close path runs verbatim. If no
  * ExecutionContext is available (Hono's `executionCtx` getter throws) the close is awaited inline.
  *
- * Runs on ASSETS paths too, deliberately unconditional: postgres.js connects on the first query,
+ * Runs on static-asset paths too, deliberately unconditional: postgres.js connects on the first query,
  * so a request that never queries costs nothing and `close()` is a no-op.
  */
 import { createMiddleware } from 'hono/factory'

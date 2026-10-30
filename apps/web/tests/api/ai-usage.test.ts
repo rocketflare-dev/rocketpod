@@ -1,5 +1,5 @@
 /**
- * `ai_usage` (D18): `recordUsage` rows, `tapUsage` reports every generation, `summarizeUsage`
+ * `ai_usage`: `recordUsage` rows, `tapUsage` reports every generation, `summarizeUsage`
  * groups per (provider, model, feature) within a range; `GET /api/ai/usage/summary` is admin+,
  * tenant-scoped, and validates the range.
  */

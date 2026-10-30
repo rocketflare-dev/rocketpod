@@ -1,5 +1,5 @@
 /**
- * The pure half of the run workspace (issue #17): the timeline reducer and its grouping, the
+ * The pure half of the run workspace: the timeline reducer and its grouping, the
  * column split, the input summary, the expiry tick chooser, and the JSON-Schema → fields
  * conversion. No database, no DOM — these are data functions, and each of them is guarding a
  * specific way the page could be silently wrong.
@@ -113,7 +113,7 @@ describe('buildTimeline', () => {
     expect(rows.map(r => r.kind)).toEqual(['interrupt', 'steering', 'artifact'])
   })
 
-  it('reads a decision (D37) and counts its questions; a malformed one stays visible as unknown', () => {
+  it('reads a decision and counts its questions; a malformed one stays visible as unknown', () => {
     const rows = buildTimeline([
       ev(1, 'decision', {
         decisionId: eid(7),

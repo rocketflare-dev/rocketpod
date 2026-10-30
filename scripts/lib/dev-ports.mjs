@@ -6,8 +6,8 @@
  * shell or in `apps/web/.env`. The shell wins, then `.env`, then the default. Types:
  * `dev-ports.d.mts`.
  *
- * `APP_URL` in `.env` must follow the UI port by hand — the Worker builds OAuth redirects,
- * magic links and its CORS/CSRF allow-list from it, and cannot read `process.env`.
+ * `APP_URL` in `.env` must follow the UI port by hand — the server builds OAuth redirects,
+ * magic links and its CORS/CSRF allow-list from it, and does not derive it from the port.
  */
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'

@@ -1,8 +1,8 @@
 /**
- * `agent_run_events` — append-only progress log for one agent run (D7, D8). The Workflow appends a
- * row per `step` / `tool.start` / `tool.end` / `text` / `status` / `error` event and then nudges the
- * tenant's hub (`entity.changed { entity: 'agent-run', id }`); viewers re-query `GET
- * /api/agents/runs/:id`, so progress survives a reconnect, a retry and a different isolate.
+ * `agent_run_events` — append-only progress log for one agent run. The run body appends
+ * a row per `step` / `tool.start` / `tool.end` / `text` / `status` / `error` event and then nudges
+ * the tenant's hub (`entity.changed { entity: 'agent-run', id }`); viewers re-query `GET
+ * /api/agents/runs/:id`, so progress survives a reconnect, a retry and a different replica.
  * `seq` is assigned per run by the writer and continues across attempts; `(run_id, seq)` is unique
  * so a re-driven step can never duplicate a position.
  */

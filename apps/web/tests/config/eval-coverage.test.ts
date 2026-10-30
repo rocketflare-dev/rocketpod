@@ -1,5 +1,5 @@
 /**
- * The eval COVERAGE CONTRACT (D33, `docs/EVALS.md` § "The coverage contract"), checked with no
+ * The eval COVERAGE CONTRACT (`docs/EVALS.md` § "The coverage contract"), checked with no
  * model call and no database. Every prompt in `PROMPT_REGISTRY` and every agent in `AGENTS`
  * (installed plugins' included, through `SharedPlugin.evalCoverage`) has an entry in
  * `@rocketpod/shared/ai/eval-coverage`, and every entry's suite, datasets and baseline exist under

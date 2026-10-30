@@ -1,6 +1,6 @@
 /**
  * A test-only plugin that declares realtime TOPIC kinds (`SharedPlugin.realtimeTopics`), so a test
- * can drive the real hub over topics when the kit ships none and no installed plugin declares one.
+ * can drive the real hub over topics when core ships none and no installed plugin declares one.
  * Its subjects are CORE ones with different grants: `Document` is readable by every member,
  * `Trace` by owner/admin/support only — the pair that proves `/ws` hands the hub what this
  * member's role may read.

@@ -1,5 +1,5 @@
 /**
- * Realtime event contracts (D8). "DB is the truth, WebSocket is a nudge": an event names WHAT
+ * Realtime event contracts. "DB is the truth, WebSocket is a nudge": an event names WHAT
  * changed (its `type`, optionally an `entity.changed` payload `{ entity, id }`) and the client
  * re-queries — it never treats a payload as state. `REALTIME_INVALIDATIONS` maps each event type
  * to the TanStack query-key ROOTS the UI invalidates (the `queryKeys.<family>.all` prefixes in
@@ -17,9 +17,9 @@ export const realtimeEventTypeSchema = z.enum([
   'member.changed',
   'invitation.changed',
   'tenant.changed',
-  /** D29: this person's group membership changed — what they may READ has moved under them. */
+  /** This person's group membership changed — what they may READ has moved under them. */
   'access.changed',
-  /** D30: a feature flag moved for this tenant — what EXISTS for them has changed. */
+  /** A feature flag moved for this tenant — what EXISTS for them has changed. */
   'features.changed',
   'entity.changed',
   'ping',
@@ -65,7 +65,7 @@ const CORE_REALTIME_INVALIDATIONS: Record<RealtimeEventType, string[][]> = {
 }
 
 /**
- * The same map with every installed plugin's `realtimeRoots` added to `access.changed` (D29, D31).
+ * The same map with every installed plugin's `realtimeRoots` added to `access.changed`.
  *
  * Only that event: a plugin whose rows carry `visibility` has to be re-fetched when somebody's
  * group membership moves under them, or they keep looking at content they can no longer open.
@@ -112,10 +112,10 @@ const TOPIC_ID_RE = /^[A-Za-z0-9_-]{1,128}$/
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 /** Longer than any topic the grammar above can build; a frame naming more is not one. */
 export const REALTIME_TOPIC_MAX_LENGTH = 256
-/** The namespace the kit keeps for itself; no topic kind may live in it. */
+/** The namespace core keeps for itself; no topic kind may live in it. */
 const RESERVED_NAMESPACE = 'kit'
 
-/** Core's own topic kinds. Empty: no kit page needs more than the tenant-wide nudge yet. */
+/** Core's own topic kinds. Empty: no core page needs more than the tenant-wide nudge yet. */
 export const CORE_REALTIME_TOPICS: readonly RealtimeTopicDefinition[] = []
 
 /** The registry: prefix → its definition. Built by `buildRealtimeTopicRegistry`. */

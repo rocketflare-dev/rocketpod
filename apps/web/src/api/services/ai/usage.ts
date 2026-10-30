@@ -1,5 +1,5 @@
 /**
- * AI usage ledger (D18): `recordUsage` writes one `ai_usage` row from a provider's usage report,
+ * AI usage ledger: `recordUsage` writes one `ai_usage` row from a provider's usage report,
  * `tapUsage` wraps a `ChatClient` so every generation reports through one callback (the chat
  * route records; agents will too), and `summarizeUsage` answers `GET /api/ai/usage/summary`.
  *
@@ -80,7 +80,7 @@ export async function summarizeUsage(
   const to = range.to ?? new Date()
   const from = range.from ?? new Date(to.getTime() - 30 * DAY_MS)
   // No upper bound unless the caller set one: a row stamped by Postgres `now()` can sit a few ms
-  // ahead of this isolate's clock, and "everything so far" must include it.
+  // ahead of this process's clock, and "everything so far" must include it.
   const upper = range.to ? lt(aiUsage.at, range.to) : undefined
   const grouped = await db
     .select({

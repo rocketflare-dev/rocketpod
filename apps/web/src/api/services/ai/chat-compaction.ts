@@ -1,5 +1,5 @@
 /**
- * Chat compaction (D17): fold the messages that no longer fit a conversation's context budget into
+ * Chat compaction: fold the messages that no longer fit a conversation's context budget into
  * its rolling summary. The `chat.compact` job (`queues/handlers/chat-compact.ts`) calls it with the
  * deployment's `CHAT_HISTORY_MAX_CHARS`; anything else that wants a thread compacted — an eval
  * target on a seeded thread, a maintenance script — calls the SAME function, so it measures or
@@ -23,9 +23,9 @@ import { noopTracer, type Tracer } from '../../observability/tracer'
 import { traceChatClient, withAgentTrace } from '../../observability/tracing'
 import type { Logger } from '../../utils/core/logger'
 import { resolvePrompt } from '../prompts'
+import { callStructuredTool } from './agent-loop'
 import { pendingCompaction, selectHistoryWindow } from './chat-history'
 import { AiNotConfiguredError } from './errors'
-import { callStructuredTool } from './kit'
 import { resolveChat } from './resolve'
 import type { AiEnv } from './types'
 import { recordUsage } from './usage'
@@ -144,7 +144,7 @@ export async function compactConversation(
     }).catch(err => logger.warn({ err }, 'chat.compact: usage write failed'))
   }
   try {
-    // D32: the compaction call is traced as its own job trace, in the thread's session.
+    // The compaction call is traced as its own job trace, in the thread's session.
     const result = await withAgentTrace(
       'chat.compact',
       {

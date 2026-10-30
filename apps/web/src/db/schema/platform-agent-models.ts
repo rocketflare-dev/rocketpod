@@ -1,7 +1,7 @@
 /**
  * `platform_agent_models` — the PLATFORM DEFAULT model per prompt key: what the platform's own key
  * (`ANTHROPIC_API_KEY`, else `AI_*`) runs for one agent or prompt when a tenant has decided nothing
- * for it. Written by a global admin (SQL, or an app's own admin tooling — the kit ships no writer),
+ * for it. Written by a global admin (SQL, or an app's own admin tooling — core ships no writer),
  * read only by `services/ai/resolve.ts` (`planChat`) — the order and its reasons are
  * `docs/CONCEPTS.md` §9. A row wins over the committed `PROMPT_DEFAULT_MODELS` entry for its key.
  *

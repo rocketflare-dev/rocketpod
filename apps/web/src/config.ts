@@ -1,5 +1,5 @@
 /**
- * Application configuration (D3, D4, D9, D25): one zod schema over the env object, validated
+ * Application configuration: one zod schema over the env object, validated
  * lazily and memoised by env identity. Called from `fetch` (via `configMiddleware`), `queue` and
  * `scheduled` so all three entry points fail identically.
  *
@@ -82,56 +82,55 @@ const coreConfigSchema = z.object({
   RELEASE_VERSION: z.string().min(1).default('dev'),
   LOG_LEVEL: z.enum(LOG_LEVELS).default('info'),
   EMAIL_FROM: z.string().min(1).default('Rocketpod <noreply@example.com>'),
-  /** D25: schema is identical in both modes; `single` disables the multi-org surface. */
+  /** The schema is identical in both modes; `single` disables the multi-org surface. */
   TENANCY_MODE: z.enum(['multi', 'single']).default('multi'),
-  /** D9: who may create an account. */
+  /** Who may create an account. */
   SIGNUP_MODE: z.enum(['open', 'invite_only', 'approval']).default('invite_only'),
-  /** D1: `enforce` wraps tenant-scoped work in a transaction with `set_config(..., true)`. */
+  /** `enforce` wraps tenant-scoped work in a transaction with `set_config(..., true)`. */
   TENANT_SCOPE_MODE: z.enum(['off', 'enforce']).default('off'),
   /**
-   * D35, narrowed in Rocketpod: `postgres` (postgres.js — any Postgres, Neon included, over TCP).
-   * Missing means `postgres`. `neon` (Rocketflare's
-   * serverless driver) was removed and fails here, naming the fix, rather than on the first query.
+   * `postgres` (postgres.js — any Postgres, Neon included, over TCP) is the only driver. Missing
+   * means `postgres`. Any other value (`neon`) fails here, naming the fix, rather than on the first
+   * query.
    */
   DATABASE_DRIVER: z.preprocess(
     value => (typeof value === 'string' && value.trim() === '' ? undefined : value),
     z
       .enum(['postgres'], {
-        error:
-          'must be postgres (DATABASE_DRIVER=neon was removed in Rocketpod — unset it or set postgres)',
+        error: 'must be postgres (DATABASE_DRIVER=neon was removed — unset it or set postgres)',
       })
       .default('postgres')
   ),
   /**
-   * Node entry (M2): connections in the ONE postgres.js pool each process holds
+   * Node entry: connections in the ONE postgres.js pool each process holds
    * (`installProcessPool`).
    */
   DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(200).default(10),
   /**
-   * Node entry (M2): how many reverse proxies in front of the server append to `X-Forwarded-For`.
+   * Node entry: how many reverse proxies in front of the server append to `X-Forwarded-For`.
    * 0 (the default) ignores the header and uses the socket's address; behind one ingress, 1.
    */
   TRUSTED_PROXY_HOPS: z.coerce.number().int().min(0).max(10).default(0),
   /**
-   * Node worker (M3): consumers of the jobs queue per `worker` process, each fetching batches of
+   * Node worker: consumers of the jobs queue per `worker` process, each fetching batches of
    * up to 10.
    */
   JOBS_CONCURRENCY: z.coerce.number().int().min(1).max(50).default(2),
-  /** Node worker (M3): how often an idle consumer polls the jobs queue, in seconds (≥ 0.5). */
+  /** Node worker: how often an idle consumer polls the jobs queue, in seconds (≥ 0.5). */
   JOBS_POLL_INTERVAL_SECONDS: z.coerce.number().min(0.5).max(60).default(2),
   /**
-   * Node worker (M4): agent runs one `worker` process executes at once (OpenWorkflow's worker
+   * Node worker: agent runs one `worker` process executes at once (OpenWorkflow's worker
    * concurrency). A parked run holds no slot.
    */
   RUNS_CONCURRENCY: z.coerce.number().int().min(1).max(50).default(4),
   /**
-   * Node storage (M6): `s3` stores uploads in an S3-compatible bucket (AWS S3, MinIO, R2's S3
-   * endpoint, GCS interop). Unset = no object storage (uploads answer 503).
+   * Node storage: `s3` stores uploads in an S3-compatible bucket (AWS S3, MinIO, Ceph/RGW, GCS
+   * interop). Unset = no object storage (uploads answer 503).
    */
   STORAGE_DRIVER: optionalEnum(['s3'] as const),
   /** The S3 endpoint (`http://localhost:9000` for MinIO). Unset = AWS's default for the region. */
   STORAGE_ENDPOINT: optionalString,
-  /** `us-east-1` unless the store wants another (R2 accepts `auto`). */
+  /** `us-east-1` unless the store wants another. */
   STORAGE_REGION: z.preprocess(
     value => (typeof value === 'string' && value.trim() === '' ? undefined : value),
     z.string().min(1).default('us-east-1')
@@ -140,27 +139,27 @@ const coreConfigSchema = z.object({
   /** Path-style addressing (`http://host/bucket/key`) — true for MinIO and most self-hosted stores. */
   STORAGE_FORCE_PATH_STYLE: optionalBoolean(false),
   /**
-   * Platform chat over any OpenAI-compatible endpoint (M6), the tier after `ANTHROPIC_API_KEY`:
+   * Platform chat over any OpenAI-compatible endpoint, the tier after `ANTHROPIC_API_KEY`:
    * `AI_API_KEY` + `AI_BASE_URL` (OpenRouter, vLLM, Ollama…) + `AI_MODEL`. Without a base URL the
    * key is OpenAI's own (`AI_MODEL` defaults to its chat default).
    */
   AI_BASE_URL: optionalString,
   AI_MODEL: optionalString,
   /**
-   * Platform embeddings endpoint (M6) for `EMBEDDINGS_API_KEY`: unset = OpenAI. The model must
+   * Platform embeddings endpoint for `EMBEDDINGS_API_KEY`: unset = OpenAI. The model must
    * answer 1024 dimensions (`dimensions: 1024` is sent); `EMBEDDINGS_MODEL` defaults to OpenAI's.
    */
   EMBEDDINGS_BASE_URL: optionalString,
   EMBEDDINGS_MODEL: optionalString,
   /**
-   * D32: where the langfuse preset sends spans when `OTEL_EXPORTER_OTLP_ENDPOINT` is unset —
+   * Where the langfuse preset sends spans when `OTEL_EXPORTER_OTLP_ENDPOINT` is unset —
    * `<base>/api/public/otel`.
    */
   LANGFUSE_BASE_URL: z.string().url().default('https://cloud.langfuse.com'),
-  /** `deployment.environment.name` on every exported span; defaults to `APP_ENV` (D32). */
+  /** `deployment.environment.name` on every exported span; defaults to `APP_ENV`. */
   LANGFUSE_TRACING_ENVIRONMENT: optionalString,
   /**
-   * D32: the OTLP/HTTP base URL spans are POSTed to (`/v1/traces` is appended). Unset + Langfuse
+   * The OTLP/HTTP base URL spans are POSTed to (`/v1/traces` is appended). Unset + Langfuse
    * keys → Langfuse Cloud; unset otherwise → no export (the local `ai_spans` store still records).
    */
   OTEL_EXPORTER_OTLP_ENDPOINT: z.preprocess(
@@ -170,39 +169,37 @@ const coreConfigSchema = z.object({
   /** `http/json` (default) or `http/protobuf` (the phoenix preset's default — Phoenix takes nothing else). */
   OTEL_EXPORTER_OTLP_PROTOCOL: optionalEnum(['http/json', 'http/protobuf']),
   /**
-   * D32: which backend's auth and headers to fill in. Unset → `langfuse` when both Langfuse keys
+   * Which backend's auth and headers to fill in. Unset → `langfuse` when both Langfuse keys
    * are set (existing deployments migrate with no new secret), else `generic`.
    */
   OBSERVABILITY_PRESET: optionalEnum(['langfuse', 'phoenix', 'generic']),
-  /** D32: `false` strips prompts, completions and tool I/O from the export AND from `ai_spans`. */
+  /** `false` strips prompts, completions and tool I/O from the export AND from `ai_spans`. */
   OBSERVABILITY_CAPTURE_CONTENT: optionalBoolean(true),
-  /** D32: link-out template, `{traceId}` substituted — e.g. `https://cloud.langfuse.com/project/<id>/traces/{traceId}`. */
+  /** Link-out template, `{traceId}` substituted — e.g. `https://cloud.langfuse.com/project/<id>/traces/{traceId}`. */
   OBSERVABILITY_TRACE_URL: optionalString,
-  /** D32: days of `ai_spans` the nightly prune keeps. */
+  /** Days of `ai_spans` the nightly prune keeps. */
   OBSERVABILITY_SPAN_RETENTION_DAYS: optionalPositiveInt(14),
-  /** D17: per-call `max_tokens` when a tenant config sets none; and the tool-loop turn cap. */
+  /** Per-call `max_tokens` when a tenant config sets none; and the tool-loop turn cap. */
   AGENT_MAX_OUTPUT_TOKENS: optionalPositiveInt(16384),
   AGENT_MAX_TURNS: optionalPositiveInt(30),
   /**
-   * D18: give the chat box the knowledge tools (`search_knowledge`, `get_document`,
+   * Give the chat box the knowledge tools (`search_knowledge`, `get_document`,
    * `list_documents`), so it answers from the workspace's own material. It costs more tokens per
    * turn. `false` is the operator's way back to a tool-free chat.
    */
   CHAT_KNOWLEDGE_TOOLS: optionalBoolean(true),
   /**
-   * Issue #17: how long a run parked on a human question waits before it expires. Consumed
+   * How long a run parked on a human question waits before it expires. Consumed
    * VERBATIM as the `timeout` of `step.waitForEvent`, so it must be a duration string the run
    * engine accepts ("168 hours", "30 minutes", "7 days") — not a number of seconds.
    *
-   * Workflows allows 1 second to 365 days here and a `waiting` instance does not count toward
-   * concurrency, so parking really is free. The real bound is **instance retention**: 30 days on
-   * Workers Paid but only 3 days on Free, and a run parked past retention loses its instance, so
-   * `waitForEvent` never fires and only the read-path expiry sweep recovers it. Keep this under
-   * 3 days if you are not on Workers Paid.
+   * A parked run is a row in the `openworkflow` schema and holds no `RUNS_CONCURRENCY` slot, so
+   * parking is free however long it lasts. When the timeout passes first, the wait throws
+   * `workflow.wait_for_event_timeout` and the run settles `cancelled`, its question `expired`.
    */
   AGENT_INTERRUPT_TIMEOUT: z.string().min(1).default('168 hours'),
   /**
-   * D17: characters of stored history a chat turn may replay. The real constraint is the model's
+   * Characters of stored history a chat turn may replay. The real constraint is the model's
    * context window and the tenant picks the model, so this is the knob rather than a message count
    * — 24 000 chars is roughly 6 000 tokens, which leaves room on a small (24k-token) model.
    * Raise it for a long-context provider. Anything older is trimmed and folded into the thread's
@@ -210,9 +207,9 @@ const coreConfigSchema = z.object({
    */
   CHAT_HISTORY_MAX_CHARS: optionalPositiveInt(24_000),
   /**
-   * D30, layer 1: the feature keys this deployment ships AT ALL. Only consulted for a flag whose
-   * registry entry sets `environmentGated` — everything else is decided by the rollout state in the
-   * database, so an ordinary flag needs no deploy.
+   * Feature flags, layer 1: the feature keys this deployment ships AT ALL. Only consulted for a
+   * flag whose registry entry sets `environmentGated` — everything else is decided by the rollout
+   * state in the database, so an ordinary flag needs no deploy.
    *
    * Blank means none, which is the FAIL-CLOSED direction and the point: this gate's failure mode is
    * an unreleased surface appearing in production, so an environment that forgets the var stays
@@ -263,18 +260,18 @@ const coreConfigSchema = z.object({
   /** Per-PR database branch; when set it wins over DATABASE_URL (see db/client.ts). */
   PREVIEW_DATABASE_URL: optionalString,
   /**
-   * Node realtime (M5): the connection the `/ws` hub LISTENs on. Unset = the database URL. LISTEN
+   * Node realtime: the connection the `/ws` hub LISTENs on. Unset = the database URL. LISTEN
    * needs a session: behind PgBouncer in transaction mode, point this straight at Postgres (or at a
    * session-mode pool).
    */
   DATABASE_LISTEN_URL: optionalString,
-  /** M6: credentials for the `STORAGE_DRIVER=s3` bucket. */
+  /** Credentials for the `STORAGE_DRIVER=s3` bucket. */
   STORAGE_ACCESS_KEY_ID: optionalString,
   STORAGE_SECRET_ACCESS_KEY: optionalString,
-  /** AES-GCM key for OAuth tokens at rest (D12). */
+  /** AES-GCM key for OAuth tokens at rest. */
   OAUTH_ENCRYPTION_KEY: optionalSecret(32),
   RESEND_API_KEY: optionalString,
-  /** Comma-separated emails promoted to global admin on first VERIFIED login (D9). */
+  /** Comma-separated emails promoted to global admin on first VERIFIED login. */
   BOOTSTRAP_ADMIN_EMAILS: csvList,
   GOOGLE_CLIENT_ID: optionalString,
   GOOGLE_CLIENT_SECRET: optionalString,
@@ -283,25 +280,25 @@ const coreConfigSchema = z.object({
   /** Optional: a PUBLIC client (PKCE only) has none. Sent as HTTP Basic (`client_secret_basic`). */
   OIDC_CLIENT_SECRET: optionalString,
   ANTHROPIC_API_KEY: optionalString,
-  /** M6: the key for the OpenAI-compatible platform chat tier (`AI_BASE_URL`, `AI_MODEL`). */
+  /** The key for the OpenAI-compatible platform chat tier (`AI_BASE_URL`, `AI_MODEL`). */
   AI_API_KEY: optionalString,
   EMBEDDINGS_API_KEY: optionalString,
-  /** D37: platform TypeSafe (Jev) key for `ctx.decide`; tenants may set their own in Settings → AI. */
+  /** Platform TypeSafe (Jev) key for `ctx.decide`; tenants may set their own in Settings → AI. */
   TYPESAFE_API_KEY: optionalString,
   LANGFUSE_PUBLIC_KEY: optionalString,
   LANGFUSE_SECRET_KEY: optionalString,
-  /** D32: extra OTLP request headers, `k=v,k=v` (values URL-encoded, per the OTel spec). A secret. */
+  /** Extra OTLP request headers, `k=v,k=v` (values URL-encoded, per the OTel spec). A secret. */
   OTEL_EXPORTER_OTLP_HEADERS: optionalString,
 })
 
 /**
- * `[vars]` and secrets contributed by installed plugins (D31), validated with everything else so a
+ * `[vars]` and secrets contributed by installed plugins, validated with everything else so a
  * plugin with a missing var fails at `loadConfig` rather than at its first request.
  *
  * `AppConfig` stays the CORE type on purpose, and the cast is what holds that line: `extend()` over
- * a `ZodRawShape` collapses the inferred shape to an index signature, which would turn every kit
+ * a `ZodRawShape` collapses the inferred shape to an index signature, which would turn every core
  * key into `any`. A plugin reads its own keys through its own narrowing helper — one plugin's vars
- * can never widen, or weaken, the type the kit is checked against.
+ * can never widen, or weaken, the type core is checked against.
  */
 const pluginConfigShape: z.ZodRawShape = Object.assign(
   {},
@@ -355,7 +352,7 @@ export function loadConfig(env: unknown): AppConfig {
 export const isProduction = (cfg: AppConfig): boolean => cfg.APP_ENV === 'production'
 export const isDevelopment = (cfg: AppConfig): boolean => cfg.APP_ENV === 'development'
 
-/** `{APP_URL}/auth/{provider}/callback` — never configured per provider (D11). */
+/** `{APP_URL}/auth/{provider}/callback` — never configured per provider. */
 export function oauthRedirectUri(cfg: AppConfig, provider: OAuthProviderName): string {
   return new URL(`/auth/${provider}/callback`, cfg.APP_URL).toString()
 }

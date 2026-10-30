@@ -1,8 +1,8 @@
 /**
- * `c.set('platform')` (M1): the runtime's capabilities for this request — the prebuilt
- * `env.PLATFORM` an entry point handed in, else the Worker's bindings adapted on the spot
+ * `c.set('platform')`: the runtime's capabilities for this request — the prebuilt
+ * `env.PLATFORM` the entry point handed in (`src/node/platform.ts`), else `EMPTY_PLATFORM`
  * (`src/platform/index.ts`). Routes, services and later middleware read it; none of them reads a
- * binding from `c.env`.
+ * capability from `c.env`.
  */
 import { createMiddleware } from 'hono/factory'
 import { resolvePlatform } from '../../platform'

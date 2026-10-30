@@ -1,5 +1,5 @@
 /**
- * Hono typing (04 §2, D13): the env is the neutral `AppBindings` below (vars + an optional
+ * Hono typing: the env is the neutral `AppBindings` below (vars + an optional
  * prebuilt `Platform`), variables are declared once here, and every `Hono` instance is
  * `Hono<AppEnv>` via `utils/routes/router.ts`. No `declare module 'hono'` augmentation.
  */
@@ -15,7 +15,7 @@ import type { Platform } from '../platform/types'
 import type { Tracer } from './observability/tracer'
 
 /**
- * What `authMiddleware` sets (D10, D25). Read ONLY through `withAuthAndDb` in routes and the
+ * What `authMiddleware` sets. Read ONLY through `withAuthAndDb` in routes and the
  * helpers in `middleware/permissions.ts`. `tenantId`/`tenantUser` are null for a user with no
  * membership (pending approval) — routes that need a tenant get 403 `no_tenant` before they run.
  */
@@ -39,7 +39,7 @@ export interface AuthContext {
   /** Feature flags on for the active tenant → `can('access', 'Feature:<f>')`. */
   features: string[]
   /**
-   * The groups this person belongs to IN THE ACTIVE TENANT (D29) — empty without a membership.
+   * The groups this person belongs to IN THE ACTIVE TENANT — empty without a membership.
    * Read it through `accessScopeOf(auth)` (`services/access.ts`) rather than directly: visibility
    * is a SQL predicate, never a CASL condition.
    */
@@ -47,24 +47,24 @@ export interface AuthContext {
 }
 
 /**
- * The runtime env as the app sees it (M1): vars and secrets by name, read through `loadConfig`
- * (D3) and never directly by a route; the database connection when it comes from the runtime; the
+ * The runtime env as the app sees it: vars and secrets by name, read through `loadConfig`
+ * and never directly by a route; the database URL; the
  * SPA's assets; and, when the entry point built one, the `Platform` itself. Every runtime
  * capability (jobs, storage, realtime, runs, rate limits, AI) is read through `c.get('platform')`,
- * never from here — the Cloudflare binding types stay inside `src/platform/cloudflare/`.
+ * never from here.
  */
 export interface AppBindings {
   readonly [name: string]: unknown
-  /** A prebuilt platform (a non-Worker entry, a test); the Worker's is adapted from its bindings. */
+  /** The prebuilt platform (`src/node/platform.ts`, or a test's); absent = `EMPTY_PLATFORM`. */
   PLATFORM?: Platform
-  /** The SPA's static assets, when the runtime serves them. */
+  /** The SPA's `index.html` fallback (`src/node/assets.ts`), when the server serves the UI. */
   ASSETS?: { fetch(request: Request): Promise<Response> }
 }
 
 export interface AppVariables {
-  /** Validated config — routes read this, never `c.env` (D3). */
+  /** Validated config — routes read this, never `c.env`. */
   config: AppConfig
-  /** The runtime's capabilities (M1, `src/platform/types.ts`); set by `platformMiddleware`. */
+  /** The runtime's capabilities (`src/platform/types.ts`); set by `platformMiddleware`. */
   platform: Platform
   /** Per-request drizzle handle (owner connection). */
   db: Database
@@ -72,7 +72,7 @@ export interface AppVariables {
   dbClose?: () => Promise<void>
   logger: PinoLogger
   requestId: string
-  /** Per-request tracer (D16): Langfuse batcher when keys are set, else no-op. Set by `tracerMiddleware`. */
+  /** Per-request tracer: Langfuse batcher when keys are set, else no-op. Set by `tracerMiddleware`. */
   tracer: Tracer
   /** Set by `authMiddleware`; absent on public routes. */
   auth?: AuthContext

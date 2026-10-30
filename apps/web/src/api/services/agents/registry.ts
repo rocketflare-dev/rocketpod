@@ -1,5 +1,5 @@
 /**
- * The agent registry (D7, D17): `AGENTS` maps every `AgentKey` to a definition = the shared
+ * The agent registry: `AGENTS` maps every `AgentKey` to a definition = the shared
  * `AgentMeta` (key, title, schemas, promptKey, exclusive) + a server-side `run(ctx)`. The runtime
  * (`runtime.ts`, driven by `workflows/agent-run.ts`) owns the lifecycle — claim, trace, client,
  * cancellation, persistence, events — so an agent is a declarative meta and one async function that
@@ -17,7 +17,12 @@ import type { Platform } from '../../../platform/types'
 import { serverPlugins } from '../../../plugins/server'
 import type { Tracer } from '../../observability/tracer'
 import type { Logger } from '../../utils/core/logger'
-import { type Tool, type ToolApproval, type ToolLoopCheckpoint, toolInputSchema } from '../ai/kit'
+import {
+  type Tool,
+  type ToolApproval,
+  type ToolLoopCheckpoint,
+  toolInputSchema,
+} from '../ai/agent-loop'
 import type { ChatClient } from '../ai/types'
 import type { RegistryPromptKey } from '../prompts'
 import type { AgentDecide } from './decisions'
@@ -31,7 +36,7 @@ export interface AgentEvent {
   data: unknown
 }
 
-/** What a run may touch: the runtime's capabilities (M1, `src/platform/types.ts`). */
+/** What a run may touch: the runtime's capabilities (`src/platform/types.ts`). */
 export type AgentRunEnv = Platform
 
 /** What an agent asks a person through {@link AgentContext.interrupt}. */
@@ -39,7 +44,7 @@ export interface AgentInterruptAsk {
   /**
    * **Yours, and it must be stable across attempts.** A resumed or retried `execute` step
    * re-enters `run()` from the TOP and reaches this call again; `(run_id, key)` is what makes the
-   * second call find the ANSWER rather than opening a second question (T2). Derive it from
+   * second call find the ANSWER rather than opening a second question. Derive it from
    * something durable — the entity id, the step name — never from a counter or `Date.now()`.
    */
   key: string
@@ -85,7 +90,7 @@ export interface AgentContext<Input = unknown> {
   /** The resolved (traced) client for `meta.promptKey` and the model/max_tokens to pass it. */
   chat: { client: ChatClient; model: string; maxOutputTokens: number }
   /**
-   * The kit's built-in tools, tenant-scoped to this run (`tools/`: `search_knowledge` over
+   * The built-in tools, tenant-scoped to this run (`tools/`: `search_knowledge` over
    * everything indexed in the knowledge base, `get_document` to read one in full or by window).
    * Hand them to `runToolLoop` alongside the agent's own tools; a forced single-tool agent may
    * ignore them.
@@ -110,15 +115,15 @@ export interface AgentContext<Input = unknown> {
    */
   once<T>(key: string, fn: () => Promise<T>): Promise<T>
   /**
-   * Ask a person, and suspend the run until they answer (issue #17).
+   * Ask a person, and suspend the run until they answer.
    *
    * Three things are true of every call and each one has bitten somebody:
    *
    * 1. **`key` is yours and must be stable across attempts.** A resumed `execute` re-enters
    *    `run()` from the top and reaches this line again; `UNIQUE (run_id, key)` is what makes the
-   *    second call find the answer instead of asking again, forever (T2).
-   * 2. **Everything after this call is on the far side of a Worker deploy.** The run may resume
-   *    days later, in a different isolate, on different code. Anything with a side effect goes
+   *    second call find the answer instead of asking again, forever.
+   * 2. **Everything after this call is on the far side of a deploy.** The run may resume
+   *    days later, in a different process, on different code. Anything with a side effect goes
    *    behind {@link AgentContext.once}, exactly as it would after any retry.
    * 3. **Rejection differs by kind.** An `approval` that is declined throws
    *    `InterruptDeclinedError` and settles the run `cancelled`; `choice` / `input` / `form`
@@ -149,7 +154,7 @@ export interface AgentContext<Input = unknown> {
    */
   approvals: ReadonlyMap<string, ToolApproval>
   /**
-   * Ask typed questions about a state and get probabilities back (D37) — `ctx.decide(key, { state,
+   * Ask typed questions about a state and get probabilities back — `ctx.decide(key, { state,
    * questions })`, or the shapes `ctx.decide.sift(key, …)` (the same yes/no of every item, one
    * request) and `ctx.decide.pick(key, …)` (one item, or none). Answered by the tenant's decisions
    * engine — TypeSafe's Jev when configured, else the chat model (`llm_self_report`, uncalibrated)
@@ -184,7 +189,7 @@ export interface AgentDefinition<Input = unknown, Output = unknown> {
 // biome-ignore lint/suspicious/noExplicitAny: the catalog mixes agent input/output types.
 export type AnyAgentDefinition = AgentDefinition<any, any>
 
-/** The kit's own agents. A plugin adds its own through `ServerPlugin.agents`. */
+/** The core agents. A plugin adds its own through `ServerPlugin.agents`. */
 const CORE_AGENTS = {
   'summarize-text': summarizeTextAgent,
   'research-topic': researchTopicAgent,
@@ -192,7 +197,7 @@ const CORE_AGENTS = {
 } satisfies Record<string, AnyAgentDefinition>
 
 /**
- * Core plus every installed plugin's (D31). `AGENT_KEYS` already carries a plugin's keys, and the
+ * Core plus every installed plugin's. `AGENT_KEYS` already carries a plugin's keys, and the
  * plugin's own `agents` is checked against the keys IT declared — so the only thing this merge
  * asserts is that the two halves together cover the union.
  */
@@ -221,8 +226,8 @@ export function isAgentKey(key: string): key is AgentKey {
  * hand-written one (`formFor`'s middle rung) — both of which read this field and nothing else, so
  * omitting it does not fail, it silently degrades to a JSON box.
  *
- * Built once per isolate: `AGENTS` is a module constant, so the conversion cannot change between
- * requests and a Worker should not pay for it on each one.
+ * Built once per process: `AGENTS` is a module constant, so the conversion cannot change between
+ * requests and the server should not pay for it on each one.
  */
 let agentInfoCache: AgentInfo[] | null = null
 

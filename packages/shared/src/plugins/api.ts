@@ -1,5 +1,5 @@
 /**
- * The shared plugin API (D31) — what a plugin's CONTRACT module imports from the kit.
+ * The shared plugin API — what a plugin's CONTRACT module imports from the host.
  *
  * A plugin's shared entry is the one of its four published files that all three consumers read, so
  * it is also the one with the strictest rule about what IT may read. Two constraints shape this
@@ -21,7 +21,7 @@
  * `tests/config/shared-imports.test.ts` checks all three spellings.
  */
 
-/** `SharedPlugin.evalCoverage`'s entries (D33): a suite that measures a key, or why none does. */
+/** `SharedPlugin.evalCoverage`'s entries: a suite that measures a key, or why none does. */
 export type { EvalCoverage, EvalCoverageEntry, PluginEvalCoverage } from '../ai/eval-coverage'
 export type { ApiErrorBody, ErrorCode } from '../errors'
 /** The error envelope every failure uses, including validation. Success bodies are bare. */

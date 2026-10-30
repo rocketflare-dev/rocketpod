@@ -1,7 +1,7 @@
 /**
- * Database access and the lifecycle contexts that have a `db` but no request (D31).
+ * Database access and the lifecycle contexts that have a `db` but no request.
  *
- * The kit's connection rule is unchanged: **one client per unit of work, closed by whoever opened
+ * The core connection rule applies: **one client per unit of work, closed by whoever opened
  * it.** A plugin never opens one — every context below already carries the right handle — which is
  * also what stops the commonest plugin bug, a handle captured in a module-scope variable and reused
  * after the request that owned it has closed it.
@@ -16,7 +16,7 @@ import type { Tenant } from '../../db/schema'
 import type { PluginContext } from './types'
 
 /**
- * The driver seam, for a plugin (D35, `apps/web/src/db/CLAUDE.md`). Only `db/client.ts` knows
+ * The driver seam, for a plugin (`apps/web/src/db/CLAUDE.md`). Only `db/client.ts` knows
  * the driver — postgres.js returns the rows array itself, other drivers a `{ rows, rowCount }`
  * object, and drizzle wraps the driver's error — so a plugin never casts or indexes a raw result
  * or reads `err.code` by hand: `rows<T>(result)` for the rows,
@@ -47,7 +47,7 @@ export interface HookCtx extends Pick<PluginContext, 'db'> {
   /** Who caused it — the signing-up user, the approving admin. Null for a system path. */
   userId: string | null
   /**
-   * The features this DEPLOYMENT ships (D30). A hook that CREATES rows is the sharpest feature door
+   * The features this DEPLOYMENT ships. A hook that CREATES rows is the sharpest feature door
    * there is, because it has no nav entry to hide behind: seed nothing for a surface this
    * deployment does not have.
    */
@@ -55,7 +55,7 @@ export interface HookCtx extends Pick<PluginContext, 'db'> {
 }
 
 /**
- * `pnpm seed --demo`, after the kit's own block.
+ * `pnpm seed --demo`, after the core block.
  *
  * `demoId(key)` is already namespaced with the plugin's id, so two plugins that both seed `note:1`
  * cannot collide and re-running the seed adds nothing.
@@ -71,7 +71,7 @@ export interface SeedCtx extends Pick<PluginContext, 'db'> {
  * Run several writes as one transaction.
  *
  * Keep it SHORT. A transaction holds a real pooled connection for its whole life — one the pool
- * cannot hand to another request until it commits (D35). It is also why there is
+ * cannot hand to another request until it commits. It is also why there is
  * no nudge or enqueue inside: those go after the commit, or a listener re-queries for a row that
  * is not there yet.
  */

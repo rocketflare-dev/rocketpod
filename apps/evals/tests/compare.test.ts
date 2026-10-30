@@ -1,4 +1,4 @@
-/** `pnpm eval`'s pure half (D33): reading a run report, baselines, and the regression compare. */
+/** `pnpm eval`'s pure half: reading a run report, baselines, and the regression compare. */
 import { describe, expect, it } from 'vitest'
 import {
   baselinesFrom,
@@ -45,9 +45,7 @@ const report = (
 
 describe('reading a run', () => {
   it('keys suites by path under suites/ and reads scores, usage and prompt versions', () => {
-    expect(suiteId('/x/apps/evals/suites/agents/summarize-text.eval.ts')).toBe(
-      'agents-summarize-text'
-    )
+    expect(suiteId('/x/apps/evals/suites/agents/my-agent.eval.ts')).toBe('agents-my-agent')
     const [c] = extractCases(report([assertion('refund-window', { Rubric: 1, Contains: 0.5 })]))
     expect(c).toMatchObject({
       suite: 'chat-knowledge',
@@ -74,16 +72,16 @@ describe('baselinesFrom', () => {
     const triage = extractCases(
       report(
         [assertion('refund-conditions', { Decisions: 1 })],
-        '/r/apps/evals/suites/agents/triage-research.eval.ts'
+        '/r/apps/evals/suites/agents/my-agent.eval.ts'
       )
     ).map(c => ({
       ...c,
       model: 'claude-y',
-      promptKey: 'triage-research',
-      promptVersion: 'triage-research@def456',
+      promptKey: 'my-agent',
+      promptVersion: 'my-agent@def456',
       // The chat-model fallback answered `ctx.decide`, so the decisions prompt was measured too.
       promptVersions: {
-        'triage-research': 'triage-research@def456',
+        'my-agent': 'my-agent@def456',
         'agent-decide': 'agent-decide@0a1b',
       },
     }))
@@ -93,16 +91,16 @@ describe('baselinesFrom', () => {
       model: 'claude-x',
       promptVersions: { chat: 'chat@abc123' },
     })
-    expect(out['agents-triage-research']).toMatchObject({
+    expect(out['agents-my-agent']).toMatchObject({
       model: 'claude-y',
       promptVersions: {
-        'triage-research': 'triage-research@def456',
+        'my-agent': 'my-agent@def456',
         'agent-decide': 'agent-decide@0a1b',
       },
     })
     // Each suite carries ITS prompts only: chat's baseline knows nothing of the agent's.
-    expect(out['chat-knowledge']?.promptVersions).not.toHaveProperty('triage-research')
-    expect(out['agents-triage-research']).not.toHaveProperty('provisional')
+    expect(out['chat-knowledge']?.promptVersions).not.toHaveProperty('my-agent')
+    expect(out['agents-my-agent']).not.toHaveProperty('provisional')
   })
 
   it('keeps every version when one suite ran more than one, so the gate reads it as stale', () => {

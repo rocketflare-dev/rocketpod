@@ -2,7 +2,7 @@ name: Kit
 
 # The KIT's own checks — true of this repository and of nothing made from it, so the file is
 # `kitOnly` (.rocketflare.json): the rename deletes it and `pnpm kit:upgrade` never ports it. A
-# copy's CI is ci.yml's one job; this file proves what only the kit can prove about itself:
+# copy's CI is ci.yml (its `Gate` check); this file proves what only the kit can prove about itself:
 #
 #   kit-checks  the published plugin API is current, the vendored plugin audits clean, a behaviour
 #               change carries its porting note, `defaultPlugins` is well formed — no database;
@@ -101,13 +101,25 @@ jobs:
           pnpm install --no-frozen-lockfile
           node scripts/plugin-api-doc.mjs
           pnpm lint:fix
-          for path in apps/web/tests/kit-only .github/workflows/kit.yml \
-                      .github/workflows/plugin-ci.yml .github/workflows/notify-plugins.yml; do
+          # Every kitOnly path, read from the manifest rather than listed twice.
+          for path in $(node -p 'require("./.rocketflare.json").kitOnly.map(g => g.replace(/\/\*\*$/, "")).join(" ")'); do
             if [ -e "$path" ]; then
               echo "::error::the renamed copy still carries $path (kitOnly)"
               exit 1
             fi
           done
+          if grep -n 'changelog-nudge' .claude/settings.json; then
+            echo "::error::the renamed copy still registers the kit's maintainer hook"
+            exit 1
+          fi
+          if node -e 'process.exit(require("./package.json").scripts["kit:release"] ? 0 : 1)'; then
+            echo "::error::the renamed copy still has the kit:release script"
+            exit 1
+          fi
+          if node -e 'process.exit("retiredSurfaces" in require("./.rocketflare.json") ? 0 : 1)'; then
+            echo "::error::the renamed copy still carries retiredSurfaces"
+            exit 1
+          fi
           if grep -n -- '--project kit-only' package.json apps/web/package.json; then
             echo "::error::the renamed copy still wires the kit-only vitest project"
             exit 1

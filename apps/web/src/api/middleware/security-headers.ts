@@ -1,10 +1,10 @@
 /**
- * Security headers on every response (04 §4: a minimal set, applied after `next()`). Placed early so it also covers 4xx/5xx produced by later middleware. CSP is a
+ * Security headers on every response (a minimal set, applied after `next()`). Placed early so it also covers 4xx/5xx produced by later middleware. CSP is a
  * constant list — append `connect-src` entries here when the UI talks to a third party. There is
  * ONE exception, opt-in per response: a route that has proved its content type may
  * `c.set('embeddable', true)` and get `SAMEORIGIN` + `frame-ancestors 'self'` instead, which is
- * what lets the document viewer frame a PDF (D18). A 101
- * (a WebSocket upgrade, D8) is returned untouched: re-wrapping a 101 `Response` drops the socket.
+ * what lets the document viewer frame a PDF. A 101
+ * (a WebSocket upgrade) is returned untouched: re-wrapping a 101 `Response` drops the socket.
  */
 import { createMiddleware } from 'hono/factory'
 import type { AppEnv } from '../types'

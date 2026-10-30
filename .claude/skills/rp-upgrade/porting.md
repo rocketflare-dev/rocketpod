@@ -21,7 +21,7 @@ steps to work top to bottom, `## Conflicts to expect` is `path → what changed 
 | `deleted` | the kit removed it | decide. It stays unless they say otherwise |
 | `skipped-surface-absent` | belongs to a surface this app deleted | **nothing. Ever.** |
 | `skipped-locally-deleted` | the adopter deleted this file | nothing |
-| `skipped-kit-only` | the kit's own identity (LICENSE, SECURITY.md, install.sh, the rename tool) and the kit's own tests (`kitOnly`: `apps/web/tests/kit-only/**`) | nothing — and delete a kit-only test if one is already here |
+| `skipped-kit-only` | the kit's own identity (LICENSE, SECURITY.md, the rename tool) and everything `kitOnly`: its tests (`apps/web/tests/kit-only/**`), workflows (`kit.yml`, `plugin-ci.yml`, `notify-plugins.yml`), maintainer scripts (`release.mjs`, `changelog-nudge.mjs` + `lib/nudge-lib.mjs`, `default-plugins.mjs`, `install.sh`) and `CONTRIBUTING.md` / `CODE_OF_CONDUCT.md` | nothing — and delete a kit-only file if one is already here, with any package.json script or `.claude/settings.json` hook that calls it |
 | `skipped-plugin-owned` | a file an installed plugin owns — see below | **nothing here.** `pnpm plugin upgrade <id>`, after this |
 | `migration-derived` | `apps/web/migrations/**` | regenerate — see below |
 | `manual-env` | `.env.example`, `.env.test` | see below |
@@ -92,10 +92,6 @@ After `pnpm db:generate`, diff your file against `reference/apps/web/migrations/
 anything drizzle cannot derive from schema: `INSERT`/`UPDATE`/`DELETE` backfills, `CREATE EXTENSION`,
 functions, triggers, `ALTER TABLE … USING`. A change to the embedding dimension is never a
 regenerate — that is a new table and a re-embed (`docs/ADAPTING.md` §3).
-
-**A Rocketflare release** never ports through `/rp-upgrade` (this kit forked from it — record a
-hand port in `docs/FORK.md`); its wrangler tomls, bindings and provisioning have no counterpart
-here.
 
 ## `.env.example` and `.env.test`
 

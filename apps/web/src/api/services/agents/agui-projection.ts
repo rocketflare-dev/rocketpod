@@ -1,6 +1,6 @@
 /**
  * An agent run, read back as AG-UI. A **projection, not a rewrite**: `agent_run_events` stays
- * exactly as it is — the durable record, written inside Workflow steps where every write is
+ * exactly as it is — the durable record, written inside durable run steps where every write is
  * awaited and ordered by `seq` — and this maps it at read time. Nothing in the runtime knows AG-UI
  * exists.
  *
@@ -48,9 +48,9 @@ export interface RunProjectionContext {
 }
 
 /**
- * What the kit's agent runs can do, in AG-UI's own capability vocabulary. Declared on every run's
+ * What this app's agent runs can do, in AG-UI's own capability vocabulary. Declared on every run's
  * `STATE_SNAPSHOT` so a third-party client knows — before it renders anything — that an approve
- * button on this server does something. `feedback` is true since D33: a thumbs up/down on the run's
+ * button on this server does something. `feedback` is true: a thumbs up/down on the run's
  * output is `POST /api/feedback` (`target: 'agent_run'`), and it lands in the run's trace.
  */
 export const AGENT_RUN_CAPABILITIES = {
@@ -103,7 +103,7 @@ export function projectRunToAgui(
 }
 
 /**
- * The same projection, one row at a time, for `GET /runs/:id/agui/stream` (decision 5).
+ * The same projection, one row at a time, for `GET /runs/:id/agui/stream`.
  *
  * Re-projecting the whole array per tick is cheap in CPU and expensive in everything else: it
  * forces the stream to hold or re-read the entire log every tick, which is exactly the O(events)
@@ -222,7 +222,7 @@ export function createRunProjector(run: AgentRun): RunProjector {
           })
           // The same mapper the live chat uses, over the SUMMARISED result stored in the row — so a
           // run reads back with the cards a chat would have shown, and the runtime still knows
-          // nothing about AG-UI (D18).
+          // nothing about AG-UI.
           for (const card of documentCardsFromToolResult(name, data.result)) {
             out.push(kitCustom(KIT_CUSTOM_EVENTS.document, { card }))
           }
@@ -270,7 +270,7 @@ export function createRunProjector(run: AgentRun): RunProjector {
         case 'error': {
           const message = asString(data.message) ?? 'The run failed'
           lastError = message
-          // A retry is not terminal: the Workflow step will run again.
+          // A retry is not terminal: the run step will run again.
           if (data.willRetry === true) {
             out.push(
               kitCustom(KIT_CUSTOM_EVENTS.agentRetry, {
@@ -289,11 +289,11 @@ export function createRunProjector(run: AgentRun): RunProjector {
 
     finish(current, context = {}) {
       // A parked run is the ONE active state with a terminal event, and it is the spec's own
-      // delivery (`RunFinishedInterruptOutcome`) rather than anything kit-shaped — which is what
-      // lets a third-party client answer a kit run with zero kit-specific code.
+      // delivery (`RunFinishedInterruptOutcome`) rather than anything app-specific — which is
+      // what lets a third-party client answer a run with zero app-specific code.
       if (current.status === 'awaiting_input') {
         const pending = (context.interrupts ?? []).filter(row => row.status === 'pending')
-        // No pending row is NOT impossible (T6): it is the window between the resolve route's
+        // No pending row is NOT impossible: it is the window between the resolve route's
         // write and the `resumeRun` that follows it. Treated as active — a terminal event here
         // would tell a client the run had stopped on a question that has already been answered.
         if (pending.length === 0) return []

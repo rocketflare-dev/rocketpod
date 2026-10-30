@@ -12,7 +12,7 @@
  * **The protobuf schema can be narrower than the event set.** `@ag-ui/proto@0.0.59` had no message
  * for `TOOL_CALL_RESULT` and encoded one as an EMPTY frame no client can decode, so
  * {@link createAguiEncoder} drops an event the negotiated transport cannot carry. Since 1.0.2 every
- * event the kit emits has a message and the list is empty; it stays, pinned by a round-trip in
+ * event the app emits has a message and the list is empty; it stays, pinned by a round-trip in
  * `tests/config/agui-contract.test.ts`, so a narrower proto in a later release fails there rather
  * than on a client.
  */
@@ -48,7 +48,7 @@ export function createAguiEncoder(accept: string | undefined): AguiEncoder {
   }
 }
 
-/** Build one kit CUSTOM event. The `kit.` namespace is the kit's; an app picks its own prefix. */
+/** Build one `kit.` CUSTOM event. `kit.` is reserved for core; a plugin picks its own prefix. */
 export function kitCustom(name: KitCustomEventName, value: unknown): KitAguiEvent {
   return { type: AguiEventType.CUSTOM, name, value }
 }

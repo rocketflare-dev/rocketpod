@@ -1,7 +1,7 @@
 /**
- * Test-only agents for the agent RUNTIME's suites. The kit's example agents (`summarize-text`,
- * `research-topic`, `triage-research` in `services/agents/examples/`) are demos a copy deletes, so
- * the runtime is driven through two small agents that live here, never in `src/`:
+ * Test-only agents for the agent RUNTIME's suites. The example agents (`services/agents/examples/`)
+ * are demos a copy deletes, so the runtime is driven through two small agents that live here,
+ * never in `src/`:
  *
  * - `test-summarize` — one forced `submit_summary` call, an `approval` interrupt before an optional
  *   `ingestText` write behind `ctx.once`, artifacts, `ai_usage` under `agent:test-summarize`;
@@ -9,7 +9,7 @@
  *   `requiresApproval` (`allowEdits`), checkpointed (`ctx.checkpoint`), the loop's usage written
  *   once (`ctx.once('loop-usage')`), ending in a terminal `submit_answer`.
  *
- * They are registered through the PLUGIN seam (D31), exactly as an installed plugin's agents are:
+ * They are registered through the PLUGIN seam, exactly as an installed plugin's agents are:
  * a file mocks both barrels, and is `// @vitest-isolate` for it —
  *
  *     vi.mock('@rocketpod/shared/plugins', async importOriginal =>
@@ -31,7 +31,7 @@ import type {
   AgentDefinition,
   AnyAgentDefinition,
 } from '@/api/services/agents/registry'
-import type { Tool } from '@/api/services/ai/kit'
+import type { Tool } from '@/api/services/ai/agent-loop'
 import type { ChatMessage } from '@/api/services/ai/types'
 import { TEST_AGENTS_SHARED, TEST_RESEARCH, TEST_SUMMARIZE } from './test-agents-shared'
 
@@ -41,7 +41,7 @@ export const SUBMIT_SUMMARY_TOOL = 'submit_summary'
 export const SUBMIT_ANSWER_TOOL = 'submit_answer'
 export const SAVE_NOTE_TOOL = 'save_note'
 
-const kit = () => import('@/api/services/ai/kit')
+const kit = () => import('@/api/services/ai/agent-loop')
 const ingest = () => import('@/api/services/ai/ingest')
 const usageLedger = () => import('@/api/services/ai/usage')
 

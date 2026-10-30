@@ -1,15 +1,15 @@
 /**
- * Background work: `JobCtx` for a queue handler, `CronCtx` for a scheduled task (D7, D31).
+ * Background work: `JobCtx` for a queue handler, `CronCtx` for a scheduled task.
  *
- * Both are the kit's own contexts with methods bolted on, and both keep the kit's two hard rules:
+ * Both are the core contexts with methods bolted on, and both keep the two hard core rules:
  *
  * - **Await everything. There is no `waitUntil` in a queue consumer.** A handler that defers work
  *   and returns has told the platform the message succeeded while the work is still running — and
- *   the isolate may be gone before it finishes. That is why `JobCtx` has no `defer`, where
- *   `RequestCtx` does.
- * - **Throw to retry, return to ack.** Backoff is 30 s doubling to a 15-minute cap and the toml's
- *   `max_retries` ends it. A handler that swallows its own error has converted a retryable failure
- *   into silent data loss.
+ *   nothing tracks it after that, so a retry or a shutdown can cut it off. That is why `JobCtx`
+ *   has no `defer`, where `RequestCtx` does.
+ * - **Throw to retry, return to ack.** Backoff is 30 s doubling to a 15-minute cap, and after
+ *   `JOBS_RETRY_LIMIT` retries the job moves to the dead-letter queue (`node/jobs-schema.ts`). A
+ *   handler that swallows its own error has converted a retryable failure into silent data loss.
  *
  * Neither context carries a `tenantId`, deliberately. A job's tenant comes from its PAYLOAD and a
  * cron task runs across every organisation, so there is no ambient tenant to reach for absently —
@@ -33,7 +33,7 @@ export type { ScheduledTask, TaskContext } from '../../api/scheduled'
 /** What every background context can do, tenant supplied per call. */
 export interface BackgroundMethods {
   /**
-   * Enqueue follow-on work. A missing `JOBS_QUEUE` throws rather than running inline.
+   * Enqueue follow-on work. No jobs queue on the platform throws rather than running inline.
    *
    * It answers the stamped ENVELOPE, not just an id: the `id`, the `type` and the `enqueuedAt` are
    * what a caller echoes back so somebody can find the job again, and a narrower return would only
@@ -52,7 +52,7 @@ export interface BackgroundMethods {
    */
   nudgeTopic(tenantId: string, topic: string, entity: string, id?: string): Promise<void>
   /**
-   * The feature keys one organisation has (D30) — what `auth.features` is on a request, resolved
+   * The feature keys one organisation has — what `auth.features` is on a request, resolved
    * here for a tenant named per call. A cron that fans out across every organisation reads this to
    * skip the ones whose flag is off; there is no user, so a user-bucketed rollout answers on the
    * tenant's override and the platform state alone.
@@ -75,7 +75,7 @@ export interface CronCtx extends PluginContext, BackgroundMethods {
 
 /**
  * Shared by `JobCtx`, `CronCtx` and the public-mount context (`./public`). `platform` is the host's
- * runtime (M1) — the queue and the realtime hub come from it, never from a binding on `env`.
+ * runtime — the queue and the realtime hub come from it, never from a value on `env`.
  */
 export function backgroundMethods(
   { db, config }: Pick<PluginContext, 'db' | 'config'>,
@@ -99,7 +99,7 @@ export function backgroundMethods(
   }
 }
 
-/** Adapt the kit's `JobContext`. The only place a plugin's job half names a kit internal. */
+/** Adapt the core `JobContext`. The only place a plugin's job half names a core internal. */
 export function jobCtx(ctx: JobContext): JobCtx {
   return {
     db: ctx.db,
@@ -111,7 +111,7 @@ export function jobCtx(ctx: JobContext): JobCtx {
   }
 }
 
-/** Adapt the kit's `TaskContext`. */
+/** Adapt the core `TaskContext`. */
 export function cronCtx(ctx: TaskContext): CronCtx {
   return {
     db: ctx.db,

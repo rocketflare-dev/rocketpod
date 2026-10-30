@@ -1,5 +1,5 @@
 /**
- * The login handoff's numbers (D26), in a module of their own with no imports: `auth.ts` uses them,
+ * The login handoff's numbers, in a module of their own with no imports: `auth.ts` uses them,
  * and the web app's Guide pins them as facts (`apps/web/src/api/services/guide-facts.ts`) — its
  * drift test reads them from here without loading the CLI's HTTP client.
  */

@@ -1,7 +1,7 @@
 // @vitest-isolate
 // Mocks `@/api/services/ai/resolve` (the chat provider seam), so this file needs its own module registry.
 /**
- * `research-topic` (D7, D18) — the agentic agent, driven through the real runtime against Postgres
+ * `research-topic` — the agentic agent, driven through the real runtime against Postgres
  * with a `FakeChatClient` scripting the turns and a really-ingested document behind
  * `search_knowledge`: the loop searches, then calls the terminal `submit_answer`; the run succeeds
  * with the answer, the citation resolved to the real document, `ai_usage` summed over both turns
@@ -14,7 +14,7 @@
  * as hallucinations. The contract itself (checkpoint, no replay, usage once, a gated tool parks with
  * nothing written) is the runtime's, in `agent-tool-loop-runtime.test.ts` on a test-only agent.
  *
- * And the two human-in-the-loop shapes this agent exists to demonstrate (issue #17): `ask_human`
+ * And the two human-in-the-loop shapes this agent exists to demonstrate: `ask_human`
  * raising a `choice` interrupt from INSIDE a tool handler, and `index_finding` gated by
  * `Tool.requiresApproval` with edits allowed, saving the approved finding as a document artifact.
  */
@@ -164,7 +164,7 @@ describe('research-topic agent', () => {
     expect(output.turns).toBe(2)
 
     // The search really ran: the model was given the built-in tools and got hits back. An
-    // installed plugin's tools (D31) arrive on `ctx.tools` too, between the kit's three and the
+    // installed plugin's tools arrive on `ctx.tools` too, between the three built-in ones and the
     // agent's own, so the assertion is "these, in this order, all present" rather than equality.
     const offered = client.calls[0]?.tools?.map(t => t.name) ?? []
     expect(offered.slice(0, 3)).toEqual(['search_knowledge', 'get_document', 'list_documents'])
@@ -259,7 +259,7 @@ describe('research-topic agent', () => {
     const logger = fakeLogger()
 
     // Attempt 1: one real search turn, then the provider falls over with a RETRYABLE fault, which
-    // is the only way `executeRun` rethrows for a Workflow step retry.
+    // is the only way `executeRun` rethrows for a step retry.
     const first = script([
       {
         toolUses: [{ name: 'search_knowledge', input: { query: 'access requests' } }],

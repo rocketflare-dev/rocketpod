@@ -1,11 +1,7 @@
 /**
- * The human-in-the-loop contracts (issue #17), tested where they are cheapest to test: pure, no
- * database, no Worker. Three of these are guarding a specific way this feature can fail silently.
+ * The human-in-the-loop contracts, tested where they are cheapest to test: pure, no
+ * database, no run engine. Two of these are guarding a specific way this feature can fail silently.
  *
- * - **`AGENT_RESUME_EVENT`** — Cloudflare rejects a `.` in a Workflow event type with
- *   `workflow.invalid_event_type`, and NOTHING else in the suite would catch it: the Node
- *   harness's `createFakeWorkflowStep` never validates the name. A bad one first surfaces as a
- *   parked run that can never be resumed, in production, on the first approval anyone ever gives.
  * - **`INTERRUPT_REJECTION`** — whether declining stops the run or goes back to the model is the
  *   difference between "no, don't send that email" and "the agent sent it anyway".
  * - **the payload validators** — the route and the UI both call `interruptPayloadSchema(spec)`, so

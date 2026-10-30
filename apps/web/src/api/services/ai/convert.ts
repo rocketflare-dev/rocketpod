@@ -1,5 +1,5 @@
 /**
- * Document → text for the knowledge base (D18 uploads). Text-like types (`kind: 'text'` in
+ * Document → text for the knowledge base (uploads). Text-like types (`kind: 'text'` in
  * `DOCUMENT_UPLOAD_TYPES`) are decoded as UTF-8 here and never need a model. Everything else goes
  * through the platform's `converter` (on Node: PDF, Word, HTML, XML — `src/node/converter.ts`),
  * which declares the types it reads in `contentTypes`. The converter is OPTIONAL in code: without
@@ -49,8 +49,9 @@ export interface ConversionResult {
 
 /**
  * Turn one stored upload into indexable text. Throws `ConversionFailedError` for a permanent
- * platform refusal, or `Error('conversion_not_configured')` when a binary type meets a Worker
- * without the binding (the route pre-checks this; the job hits it only after a config change).
+ * platform refusal, or `Error('conversion_not_configured')` when a binary type meets a server
+ * with no `platform.converter` (the route pre-checks this; the job hits it only after a config
+ * change).
  */
 export async function convertToText(
   env: AiEnv,

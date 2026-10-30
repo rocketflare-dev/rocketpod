@@ -11,16 +11,11 @@ needs before its first real feature: tenancy, sign-in, roles and permissions, ba
 realtime, file storage, an AI layer (chat, agents, retrieval) and a CLI —
 running as one Node server over Postgres (jobs, cron, durable agent runs and realtime fan-out all
 live there) plus an S3-compatible object store, with a React UI and a shared contract package that
-keeps the API, the UI and the CLI in agreement. It is a hard fork of
-[Rocketflare](https://github.com/rocketflare-dev/rocketflare) with no Cloudflare dependency
-([`docs/FORK.md`](docs/FORK.md)) — one container image, run with Docker Compose or the Helm chart
-([`docs/DEPLOY.md`](docs/DEPLOY.md)). The first local run needs **zero external credentials** (AI
+keeps the API, the UI and the CLI in agreement. It ships as one container image, run with Docker
+Compose or the Helm chart ([`docs/DEPLOY.md`](docs/DEPLOY.md)). The first local run needs **zero external credentials** (AI
 features wait for a provider key), and the codebase is written to be driven by a coding agent: `CLAUDE.md`,
 `.claude/rules/`, per-directory guides and a "how it works" reference mean the next feature is a
 contract → schema → route → page (→ command) loop, not a platform project.
-
-> See **[Rocketflare](https://github.com/rocketflare-dev/rocketflare)** for the original version of
-> Rocketpod that runs on Cloudflare (one Worker, Workflows, Durable Objects, R2 and Queues).
 
 ## Getting started
 
@@ -124,7 +119,7 @@ you removed. [`CHANGELOG.md`](CHANGELOG.md) is what you would be catching up on.
 
 ### Email and files
 - **Email** through Resend over plain `fetch` with shared templates (magic link, invitation, accepted, access decision); absent an API key, messages are logged, never failed. Invitation mail is queued; the magic link stays inline because someone is waiting.
-- **File storage** on any S3-compatible store (AWS S3, R2, MinIO, GCS…) behind a `StorageService` seam: tenant-prefixed keys, bytes streamed through the server, an indexed `files` table, per-scope MIME and size limits, avatars wired end-to-end (upload UI → `/api/files/:id` with ETag/304).
+- **File storage** on any S3-compatible store (AWS S3, MinIO, Ceph, GCS…) behind a `StorageService` seam: tenant-prefixed keys, bytes streamed through the server, an indexed `files` table, per-scope MIME and size limits, avatars wired end-to-end (upload UI → `/api/files/:id` with ETag/304).
 
 ### AI layer
 - **Tiered provider resolution** — per-agent model assignment → the tenant's own provider (keys encrypted at rest, tested from Settings → AI) → a platform Anthropic key → a platform OpenAI-compatible key (OpenRouter, vLLM, Ollama…) → a clean 503. Providers: Anthropic, Anthropic-compatible (Fireworks, Moonshot presets), OpenAI (the Responses API), OpenAI-compatible; per-model request rules (`packages/shared/src/ai/models.ts`) keep each call to what that model accepts, and the defaults are `claude-haiku-5-5` / `gpt-6-luna`.
@@ -152,7 +147,7 @@ not installed by default until a container-ready release exists (`docs/CONCEPTS.
 ### Developer experience
 - **Contracts first** — `packages/shared` holds the zod schemas the API validates with and the UI and CLI parse with; consumed as TypeScript source, no build step.
 - **Release = root version** — tag = root `package.json` version; a tag pushes the image to `ghcr.io/rocketflare-dev/rocketpod`, and CI lints and validates the Helm chart.
-- **Tests that mean something** — API tests drive the real Hono app against a real Postgres; queue consumers, the agent-run body and cron tasks are plain functions tested directly, and the Node adapters run against real Postgres and an S3 gateway; UI tests in jsdom; a config project checks the no-Cloudflare guard, packaging parity, the env schema and permissions with no database.
+- **Tests that mean something** — API tests drive the real Hono app against a real Postgres; queue consumers, the agent-run body and cron tasks are plain functions tested directly, and the Node adapters run against real Postgres and an S3 gateway; UI tests in jsdom; a config project checks the platform-seam guard (no edge-runtime imports), packaging parity, the env schema and permissions with no database.
 - **Agent-readable** — `CLAUDE.md` (also `AGENTS.md`), path-scoped rules in `.claude/rules/`, a `CLAUDE.md` in every significant directory, and `docs/CONCEPTS.md` describing each subsystem, its invariant and its known gaps.
 - **Plugins** — a feature can be a separate git repository copied in (never npm-installed, exactly like the kit): five barrels take one line each, and a plugin contributes contracts, tables with RLS policies, routes, jobs, agent tools, lifecycle hooks, lazy pages, nav items and CLI commands without a core file naming it. In the other direction it imports the kit only through declared entries — a family of injected execution contexts, versioned as `PLUGIN_API` and documented in a generated, diff-checked `docs/plugin-api.md` — so the plugin surface can stand still while kit internals move. `pnpm plugin check` is an exhaustive audit whose every finding carries the file, the line and the exact edit, and CI runs the same command; `example-feature` is the vendored reference plugin, and it is meant to be deleted.
 - **Design tokens** — two DaisyUI themes whose brand values live in one header block, with the WCAG AA contrast floors each token must meet written beside them.
@@ -174,7 +169,8 @@ exist), `pnpm preflight` (the read-only check),
 `pnpm dev`, `pnpm seed` / `pnpm seed --demo`, `pnpm test`, `pnpm cli …`, `pnpm web <script>` (any
 `apps/web` script), `pnpm db:*`, `pnpm build` then `node apps/web/dist/server.js all` (the
 production server). Root `scripts/` holds the first-run tooling: `bootstrap.sh` / `bootstrap.mjs`,
-`install.sh`, `rename.mjs` (`docs/ADAPTING.md` §1 as one command) and their `lib/`.
+`rename.mjs` (`docs/ADAPTING.md` §1 as one command) and their `lib/` — plus, in the kit repository
+only, `install.sh` and the release and maintainer-hook scripts, which the rename deletes.
 
 ## Not included (by design)
 
@@ -192,24 +188,24 @@ there list every known gap.
 | [`docs/CONCEPTS.md`](docs/CONCEPTS.md) | before assuming a capability exists or building a new one — one section per subsystem with its invariant and known gaps |
 | [`docs/ADAPTING.md`](docs/ADAPTING.md) | you just copied the kit to start an app (package names, CLI bin, config dir, env prefix, what to delete, where the first features go) |
 | [`docs/DEPLOY.md`](docs/DEPLOY.md) | running it in production: the image, Docker Compose, the Helm chart, secrets, external Postgres and S3, scaling |
-| [`docs/FORK.md`](docs/FORK.md) | how Rocketpod relates to Rocketflare, and which Rocketflare releases have been ported |
 | [`docs/RLS.md`](docs/RLS.md) | tenant isolation posture and how to turn row-level security on |
 | [`docs/EVALS.md`](docs/EVALS.md) | writing and running evals for chat and agents (`pnpm eval`) |
-| [`docs/DESIGN-SELFHOSTED.md`](docs/DESIGN-SELFHOSTED.md) · [`docs/ROADMAP.md`](docs/ROADMAP.md) | the design of the Postgres-backed adapters that replaced Cloudflare, and what comes next |
+| [`docs/DESIGN-SELFHOSTED.md`](docs/DESIGN-SELFHOSTED.md) | why Rocketpod runs as a Node container, and the design of its Postgres-backed adapters |
 | `.claude/rules/*.md` | layer conventions (api, database, ui, cli, testing, code-quality, runtime) — auto-loaded by path |
 | `.claude/skills/` | the slash commands a coding agent drives: `/rp-setup` (first run), `/rp-preflight` (read-only diagnosis), `/rp-adapt` (rename + checklist), `/rp-how-do-i` (coaching for a new feature — asks, plans, writes `docs/features/<slug>.md`, never the code), `/rp-upgrade` (port later kit releases into your copy), `/rp-plugin` (install, upgrade, remove or audit a plugin), `/rp-traces` (debug a run or chat turn from its span tree; pick or switch a tracing backend), `/rp-evals` (write, run and interpret evals; compare models or prompts; turn thumbs-down into cases) — an agent may run those when you ask in plain words — and `/rp-deploy` (Compose or Helm), which renders and checks locally and asks you before it pushes an image, touches a cluster or creates anything billed |
 
 ## Provenance
 
-Forked from Rocketflare 0.19.0, with 0.20.0 ported since (`docs/FORK.md`). Rocketflare itself was
-extracted from two internal applications: one contributed the structure, docs system, auth, tenancy
-and AI layer; the other the platform substrate and the analytics layer. Rocketpod replaced that
-substrate's Cloudflare pieces with Postgres-backed equivalents (`docs/DESIGN-SELFHOSTED.md`). The
-decisions are recorded, subsystem by subsystem, in [`docs/CONCEPTS.md`](docs/CONCEPTS.md).
+Extracted from two internal applications: one contributed the structure, docs system, auth, tenancy
+and AI layer; the other the platform substrate and the analytics layer. The runtime — Node in a
+container, with jobs, durable runs, realtime and limits all in Postgres — is designed in
+[`docs/DESIGN-SELFHOSTED.md`](docs/DESIGN-SELFHOSTED.md). The decisions are recorded, subsystem by subsystem, in [`docs/CONCEPTS.md`](docs/CONCEPTS.md).
 
 ## Contributing
 
-Bug reports, feature requests and pull requests are welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md)
+To the kit itself (an app made from it loses `CONTRIBUTING.md` and `CODE_OF_CONDUCT.md` at the
+rename, and gets its own `SECURITY.md`): bug reports, feature requests and pull requests are
+welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md)
 (setup, the pre-commit gate, test shapes, PR guidelines), [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md)
 and [`SECURITY.md`](SECURITY.md) for reporting vulnerabilities privately.
 

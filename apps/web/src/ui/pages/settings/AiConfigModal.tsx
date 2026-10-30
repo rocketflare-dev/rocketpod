@@ -1,5 +1,5 @@
 /**
- * Add / edit one AI provider row (D17). Provider → preset chips (`presetsFor`) fill base URL +
+ * Add / edit one AI provider row. Provider → preset chips (`presetsFor`) fill base URL +
  * model; fields follow the catalog's `needsApiKey` / `needsBaseUrl` / `supportsThinking` /
  * `supportsServiceTier`; the API key is write-only ("leave blank to keep"); the body is validated
  * with `upsertAiConfigRequestSchema` plus the three provider rules the schema alone cannot state.
@@ -406,7 +406,7 @@ function AiConfigForm({
               id={options.length > 0 ? 'ai-model-other' : 'ai-model'}
               aria-label={options.length > 0 ? 'Model id' : undefined}
               // Off: the browser would otherwise offer ids typed against OTHER providers, and a
-              // `@cf/…` suggestion under Anthropic reads as a model this form can use.
+              // suggestion typed under another provider reads as a model this form can use.
               autoComplete="off"
               spellCheck={false}
               className={`input input-sm w-full font-mono ${options.length > 0 ? 'mt-2' : ''} ${

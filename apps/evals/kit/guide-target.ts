@@ -1,5 +1,5 @@
 /**
- * The Guide target (D33): one case → one "Ask the Guide" answer, IN-PROCESS, through the route the
+ * The Guide target: one case → one "Ask the Guide" answer, IN-PROCESS, through the route the
  * reader calls (`POST /api/guide/ask`). Driving the route is the point: the `guide-chat` prompt,
  * the screen hint, the asker's audience and the `search_guide` tool are all decided there.
  *

@@ -248,7 +248,7 @@ describe('GET /auth/oidc', () => {
     expect(flowCookie).toBeTruthy()
   })
 
-  it('caches discovery per isolate', async () => {
+  it('caches discovery per process', async () => {
     const env = oidcEnv()
     await start(env)
     await start(env)

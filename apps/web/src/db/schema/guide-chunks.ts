@@ -8,8 +8,8 @@
  * member of a tenant), READ SCOPE by `audience` inside retrieval (an `admin` page only for admins)
  * — never per surface. Never join a tenant table against it.
  *
- * Isolation from every other model surface is by construction: kit search and the knowledge tools
- * read `chunks`, and only the guide route registers the `search_guide` tool that reads this table
+ * Isolation from every other model surface is by construction: knowledge search and the
+ * knowledge tools read `chunks`, and only the guide route registers the `search_guide` tool that reads this table
  * (`tests/config/guide-isolation.test.ts`, `tests/api/guide.test.ts`).
  *
  * The rows are DERIVED: every web boot chunks the committed pages and rewrites the table when a

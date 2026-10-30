@@ -63,8 +63,9 @@ How the Guide works mechanically is `docs/CONCEPTS.md` § The Guide.
    `pnpm -C apps/web guide:index` and commit `apps/web/content/guide/embeddings.jsonl.gz`. Never
    run it without a platform `EMBEDDINGS_API_KEY`, and never hand-edit the file.
 8. **Bump `verified`** to `git rev-parse --short HEAD` on every page you checked.
-9. **Repeat `docs:stale` until clean**, then `pnpm gate`. A behaviour change the Guide describes
-   also gets its `docs/upgrades/unreleased.md` entry, like any other change (CLAUDE.md).
+9. **Repeat `docs:stale` until clean**, then `pnpm gate`. In the kit repository only, a behaviour
+   change the Guide describes also gets its `docs/upgrades/unreleased.md` entry, like any other
+   change (CLAUDE.md); an app writes no porting note.
 
 Report the pages checked, the claims changed (page, old, new, and the code that proves it), the
 screenshots rewritten, and whether the vectors were rebuilt.

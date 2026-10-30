@@ -4,7 +4,7 @@
  * The Guide: the reader routes (audience by role, API keys), loading the pages into
  * `guide_chunks` (vectors borrowed only for unchanged chunk text), retrieval (keyword-only when it
  * must be, hybrid when it can, audience in SQL), "Ask the Guide" end to end over AG-UI, and the
- * isolation guarantee — no model-facing surface (kit document search, the agents' tools) ever
+ * isolation guarantee — no model-facing surface (document search, the agents' tools) ever
  * returns a Guide row.
  *
  * The table is GLOBAL, so this file empties it before each case; the Node-entry tests boot with
@@ -377,7 +377,7 @@ describe('Ask the Guide', () => {
 })
 
 describe('isolation', () => {
-  it('kit document search never returns a Guide passage', async () => {
+  it('document search never returns a Guide passage', async () => {
     const env = guideEnv()
     await loadGuideRows(db, rows({ model: FAKE_EMBEDDINGS_MODEL }))
     const admin = await actor('admin')

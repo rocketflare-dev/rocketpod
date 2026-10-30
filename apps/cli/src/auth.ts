@@ -1,5 +1,5 @@
 /**
- * Login handoff (D26). The CLI listens on the first free port in 8765–8770 at
+ * Login handoff. The CLI listens on the first free port in 8765–8770 at
  * `http://127.0.0.1:<port>/callback`, opens `${serverUrl}/auth/cli?redirect_uri=<callback>` in the
  * browser, and the server — after login + tenant selection — redirects back with
  * `?key=<api key>&tenant_id=<uuid>&tenant_name=<name>` (or `?error=<code>`). The callback answers
@@ -24,7 +24,7 @@ export const CALLBACK_PATH = '/callback'
 export const AUTH_CLI_PATH = '/auth/cli'
 
 /** Tolerant: the CLI only needs email/name, and the server may add fields. */
-/** `/api/me` is the flat `meResponseSchema` from `@rocketpod/shared/user-settings` (D13). */
+/** `/api/me` is the flat `meResponseSchema` from `@rocketpod/shared/user-settings`. */
 export const meResponseSchema = sharedMeResponseSchema.partial()
 export type MeResponse = z.infer<typeof meResponseSchema>
 export const tenantResponseSchema = tenantSchema.partial()

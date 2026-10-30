@@ -1,9 +1,8 @@
 /**
- * Queue consumer dispatcher (D7): one `queue` export routing on `batch.queue`. The jobs queue is
- * matched by PREFIX (`isJobsQueue`) because the NAME differs per environment
- * (`rocketpod-jobs` / `rocketpod-jobs-staging` — queue names are account-scoped) while the
- * binding and the code are identical. Any other queue is logged and acked so an accidentally bound
- * queue cannot retry forever. Config is validated like `fetch` (D3).
+ * Queue consumer dispatcher: one `queue` export routing on `batch.queue`. The jobs queue is
+ * matched by PREFIX (`isJobsQueue`), so an environment-suffixed name (`rocketpod-jobs-staging`)
+ * routes like the pg-boss queue `rocketpod-jobs` (`src/node/jobs-schema.ts`). Any other queue is
+ * logged and acked so a stray queue cannot retry forever. Config is validated like `fetch`.
  */
 import { loadConfig } from '../config'
 import type { JobBatch } from '../platform/types'

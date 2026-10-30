@@ -1,6 +1,6 @@
 /**
- * `agent_run_interrupts` — one row per question an agent run asked a person (issue #17). The run
- * parks (`agent_runs.status = 'awaiting_input'`, the Workflow instance on `step.waitForEvent`) and
+ * `agent_run_interrupts` — one row per question an agent run asked a person. The run
+ * parks (`agent_runs.status = 'awaiting_input'`, the engine's run on `step.waitForEvent`) and
  * resumes when somebody answers.
  *
  * Three properties of this table are load-bearing:
@@ -52,7 +52,7 @@ export const agentRunInterrupts = pgTable(
     message: text('message'),
     /** The tool call this ask gates, when it gates one. */
     toolCallId: text('tool_call_id'),
-    /** JSON Schema an answer must satisfy — for a client that carries no kit code. */
+    /** JSON Schema an answer must satisfy — for a client that carries no app-specific code. */
     responseSchema: jsonb('response_schema').$type<JsonSchema>(),
     /** What was asked, in the shape the panel needs to draw it. Typed, and named `spec` not `metadata`. */
     spec: jsonb('spec').$type<AgentInterruptSpec>().notNull(),
@@ -72,7 +72,7 @@ export const agentRunInterrupts = pgTable(
     ...timestamps(),
   },
   table => [
-    // The idempotency (T2): a re-entered `execute` finds the first ask, not a second question.
+    // The idempotency: a re-entered `execute` finds the first ask, not a second question.
     uniqueIndex('agent_run_interrupts_run_key_idx').on(table.runId, table.key),
     // The inbox: everything this tenant still owes an answer to, newest first.
     index('agent_run_interrupts_tenant_status_idx').on(

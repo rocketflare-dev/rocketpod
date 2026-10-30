@@ -428,8 +428,8 @@ export function parseBootstrapArgs(argv, env = {}) {
       case '--yes':
         opts.yes = true
         break
-      // Rocketflare's Workers AI toggle; Rocketpod has no `[ai]` block to toggle. Accepted so a
-      // caller written for the parent kit (Launch) still runs.
+      // No offline AI mode exists to toggle. Accepted and ignored so a caller that passes them
+      // (Launch's bootstrap command) still runs.
       case '--offline':
       case '--online':
         break
@@ -494,7 +494,7 @@ export function parseBootstrapArgs(argv, env = {}) {
   }
   if (opts.driver === 'neon') {
     throw new BootstrapUsageError(
-      '--driver neon was removed in Rocketpod: postgres.js reaches any Postgres, Neon included — use --driver postgres or leave it out'
+      '--driver neon was removed: postgres.js reaches any Postgres, Neon included — use --driver postgres or leave it out'
     )
   }
   if (opts.driver !== null && !DATABASE_DRIVERS.includes(opts.driver)) {
@@ -518,7 +518,7 @@ export function parseBootstrapArgs(argv, env = {}) {
   return opts
 }
 
-/** D35, narrowed in Rocketpod: the one value `DATABASE_DRIVER` takes (apps/web/src/db/client.ts). */
+/** D35: the one value `DATABASE_DRIVER` takes (apps/web/src/db/client.ts). */
 export const DATABASE_DRIVERS = ['postgres']
 
 /** A Neon host (a hosted Postgres; DDL goes to its direct host, never `-pooler`). */
@@ -531,9 +531,9 @@ export function isNeonDatabaseUrl(url) {
 }
 
 /**
- * The LOCAL driver the bootstrap writes to `.env` (D35). Rocketpod has one — postgres.js
- * over TCP, whatever the database (the compose one, a `--db-url`, a Neon branch) — so this is
- * always `postgres`; a stale `neon` from a Rocketflare-era `.env` is rewritten.
+ * The LOCAL driver the bootstrap writes to `.env` (D35). There is one — postgres.js over TCP,
+ * whatever the database (the compose one, a `--db-url`, a Neon branch) — so this is always
+ * `postgres`; a stale `neon` left in an older `.env` is rewritten.
  */
 export function localDriverFor(_input = {}) {
   return 'postgres'

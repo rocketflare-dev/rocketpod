@@ -1,14 +1,14 @@
 /**
- * The agent run's durable body (D5, D7, M1) — written against the neutral `Step`
+ * The agent run's durable body — written against the neutral `Step`
  * (`src/platform/types.ts`), so any run engine can drive it; on Node, OpenWorkflow
  * (`src/node/runs.ts`) adapts its step and calls it. The instance id starts as the run id (`enqueueRun` creates it
  * after the `agent_runs` row exists) and becomes `<runId>-r1`, `-r2`… if a park has to be restarted
- * on a lost instance (`nudgeOrRestartInstance`, T5). The steps — the engine checkpoints between them:
+ * on a lost instance (`nudgeOrRestartInstance`). The steps — the engine checkpoints between them:
  *   claim       → `claimRun` (row is the gate; a cancelled-while-queued run exits here)
  *   execute#N   → the whole tool loop INSIDE one step (`retries: 2`, `timeout: 10 minutes`); the
  *                 runtime rethrows only faults a retry can fix, and the retry re-claims through the
  *                 same row. `awaiting_input` back means a person now owes the run an answer
- *   resume#N    → `step.waitForEvent(AGENT_RESUME_EVENT)` — the durable park (issue #17). The
+ *   resume#N    → `step.waitForEvent(AGENT_RESUME_EVENT)` — the durable park. The
  *                 resolve route flips the row `awaiting_input → running` and THEN wakes us, so the
  *                 next `execute#N+1` re-enters `run()` from the top and finds the answer as a row
  *   expire#N    → nobody answered inside `AGENT_INTERRUPT_TIMEOUT`: settle `cancelled`, `error` NULL
@@ -83,7 +83,7 @@ export async function runAgentRun(
 
   let outcome: ExecuteOutcome | undefined
   // One round per human decision: `execute#N` runs the agent, `resume#N` parks the INSTANCE on
-  // the answer. The `#N` is not decoration — a Workflow step name is its identity, so a second
+  // the answer. The `#N` is not decoration — a step name is its identity, so a second
   // `step.do('execute')` would hand back the FIRST one's cached result and the run would look
   // like it had ignored the approval.
   for (let round = 0; ; round++) {
@@ -123,12 +123,12 @@ export async function runAgentRun(
 
     try {
       // The payload is ignored on purpose: the answer is already a row, written by the resolve
-      // route before it woke us, and re-entering `execute` reads it (decision 2). The event is
-      // a nudge. `AGENT_RESUME_EVENT` is a constant because a `.` in the type is rejected by
-      // the platform with `workflow.invalid_event_type` (T8).
+      // route before it woke us, and re-entering `execute` reads it. The event is
+      // a nudge. `AGENT_RESUME_EVENT` is a constant with no `.` in it: OpenWorkflow would
+      // accept one, but the body stays portable to engines that reject it.
       await step.waitForEvent(`resume#${round}`, {
         type: AGENT_RESUME_EVENT,
-        // `[vars]`, so a string: the engine parses it, and `Duration` is a template-literal type
+        // An env var, so a string: the engine parses it, and `Duration` is a template-literal type
         // no runtime value can satisfy structurally. A bad duration is a failure on the first
         // park, which is what `.env.example` documents.
         timeout: cfg.AGENT_INTERRUPT_TIMEOUT as Duration,

@@ -1,7 +1,7 @@
 /**
  * `resolveClientIp` (`src/api/utils/routes/client-ip.ts`), the one rule for a client's address:
  * the socket unless trusted proxies are declared; the first X-Forwarded-For entry when the runtime
- * knows no socket (a bare `app.request`). `cf-connecting-ip` is never read (M6b).
+ * knows no socket (a bare `app.request`). `cf-connecting-ip` is never read.
  */
 import { describe, expect, it } from 'vitest'
 import { resolveClientIp } from '@/api/utils/routes/client-ip'

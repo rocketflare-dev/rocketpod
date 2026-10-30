@@ -1,10 +1,10 @@
 /**
- * `GET /api/agents/runs/:id/agui/stream` — a run's timeline, live (issue #7).
+ * `GET /api/agents/runs/:id/agui/stream` — a run's timeline, live.
  *
  * A **polling** stream: the body tails `agent_run_events` on one open connection, projects each
  * new row through {@link createRunProjector} and frames it as spec AG-UI with `seq` as the cursor.
- * Measured against what it replaces — every 3 s, `getRun` + `reconcileRun` (a Workflow
- * `instance.status()` subrequest) + `listEvents` returning *every row, unbounded* — it is cheaper
+ * Measured against what it replaces — every 3 s, `getRun` + `reconcileRun` (a run-engine
+ * `instance.status()` query) + `listEvents` returning *every row, unbounded* — it is cheaper
  * per unit of wall clock at six times the resolution: one bounded, indexed
  * `WHERE (tenant_id, run_id) AND seq > $cursor LIMIT 200` that usually returns nothing, plus the
  * run row, on a connection already open.
@@ -17,13 +17,14 @@
  *    starts after it and the client holds a text message that never closes, forever, with no
  *    error. Replaying a whole group is free: every id in it is derived from the row id, so a
  *    replayed group is byte-identical.
- * 2. **No `RUN_ERROR` for the stream's own failure** (decision 6). `chat-turn.ts` emits one
- *    because there the stream *is* the run; here the run is a durable Workflow in another isolate
- *    and is almost certainly fine. Closing with no terminal event means "reconnect", uniformly —
- *    for a redeploy, an idle cap, a duration cap, a transport error and a client abort.
- * 3. **`reconcileRun` runs exactly once, at open, never in the loop.** It is a Workflow subrequest
- *    per call; a 10-minute stream would spend ~1 200 of them on a question the tail already
- *    answers. The route does it before the first frame; this file never touches the binding.
+ * 2. **No `RUN_ERROR` for the stream's own failure**. `chat-turn.ts` emits one because there
+ *    the stream *is* the run; here the run is a durable OpenWorkflow run, usually in another
+ *    process, and is almost certainly fine. Closing with no terminal event means "reconnect",
+ *    uniformly — for a redeploy, an idle cap, a duration cap, a transport error and a client
+ *    abort.
+ * 3. **`reconcileRun` runs exactly once, at open, never in the loop.** It is an engine query per
+ *    call; a 10-minute stream would spend ~1 200 of them on a question the tail already
+ *    answers. The route does it before the first frame; this file never touches the engine.
  * 4. **Protobuf has no cursor and no comments.** The AG-UI binary transport has no SSE framing, so
  *    a protobuf client resumes by `?afterSeq=` only — and a `: ping` comment frame written into a
  *    binary stream is not a valid protobuf frame and poisons everything after it.

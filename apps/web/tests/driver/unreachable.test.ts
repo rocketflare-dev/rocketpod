@@ -1,5 +1,5 @@
 /**
- * D35: a database that cannot be reached is a 503 `database_unavailable`, not a 500. postgres.js
+ * A database that cannot be reached is a 503 `database_unavailable`, not a 500. postgres.js
  * reports a code (`ECONNREFUSED`). Probed against a port nothing listens on, through
  * `openDatabase` as a request does.
  */

@@ -1,10 +1,10 @@
 /**
- * `JOBS_QUEUE` producer (D7): `enqueueJob(env.JOBS_QUEUE, input)` validates the input against
+ * The jobs producer (pg-boss): `enqueueJob(platform.jobs, input)` validates the input against
  * `jobInputSchema`, stamps the envelope (`id`, `enqueuedAt`) and sends. Routes and services call
  * this instead of doing the work inline — "a route never runs long work; it enqueues".
  *
  * The queue is passed in (never read from a global) so the same service code runs from a route
- * (`c.get('platform').jobs`), a cron, a Workflow step or a test (`RecordingQueue`).
+ * (`c.get('platform').jobs`), a cron, a run step or a test (`RecordingQueue`).
  */
 import { ERROR_CODES } from '@rocketpod/shared/errors'
 import {
@@ -48,7 +48,7 @@ export class JobsQueueNotConfiguredError extends ServiceUnavailableError {
   }
 }
 
-/** The binding or a clear configuration error — never a silent no-op. */
+/** The queue or a clear configuration error — never a silent no-op. */
 export function requireJobsQueue(queue: JobsQueue | undefined | null): JobsQueue {
   if (!queue) throw new JobsQueueNotConfiguredError()
   return queue
@@ -75,7 +75,7 @@ export async function enqueueJob(
   return job
 }
 
-/** Queues accept at most 100 messages per `sendBatch`. */
+/** Messages per `sendBatch` call: a large fan-out is sent in bounded chunks. */
 const SEND_BATCH_LIMIT = 100
 
 export async function enqueueJobs(

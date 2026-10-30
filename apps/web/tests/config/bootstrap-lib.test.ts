@@ -57,7 +57,7 @@ describe('parseNvmrc / versionAtLeast', () => {
   })
 })
 
-describe('describeTracing (preflight, D32)', () => {
+describe('describeTracing (preflight)', () => {
   it('reports local-only, the langfuse preset from the keys, and phoenix/generic endpoints — never a secret', () => {
     expect(describeTracing({})).toBe(
       'local ai_spans on; export off (local only — no OTEL_EXPORTER_OTLP_ENDPOINT)'
@@ -350,7 +350,7 @@ describe('planDefaultPlugins', () => {
     expect(plan.skipped).toEqual(['analytics'])
   })
 
-  it('is empty and silent with nothing declared — the kit today', () => {
+  it('is empty and silent with nothing declared', () => {
     expect(planDefaultPlugins([], [])).toEqual({ install: [], skipped: [], problems: [] })
     expect(planDefaultPlugins(undefined, [])).toEqual({ install: [], skipped: [], problems: [] })
   })
@@ -361,8 +361,8 @@ describe('planDefaultPlugins', () => {
       ['https://example.test/x.git', { repo: 'https://example.test/y.git' }, { id: 'z' }, entry],
       []
     )
-    // The sentences come from `defaultPluginEntryProblems` now — one validator for the bootstrap,
-    // `kit:release` and both workflows, which used to answer this differently from each other.
+    // The sentences come from `defaultPluginEntryProblems` — one validator for the bootstrap and
+    // every other caller, so they cannot answer this differently from each other.
     expect(plan.problems).toHaveLength(3)
     expect(plan.problems[1]).toMatch(/no "id"/)
     expect(plan.problems[2]).toMatch(/'z' has no "repo"/)
@@ -422,7 +422,7 @@ describe('parseBootstrapArgs', () => {
     expect(parseBootstrapArgs([], { ROCKETPOD_ALLOW_ROOT: '' }).allowRoot).toBe(false)
   })
 
-  it('reads --driver (D35) in both forms: postgres only, neon refused with the fix', () => {
+  it('reads --driver in both forms: postgres only, neon refused with the fix', () => {
     expect(parseBootstrapArgs(['--driver', 'postgres']).driver).toBe('postgres')
     expect(parseBootstrapArgs(['--driver=postgres']).driver).toBe('postgres')
     expect(() => parseBootstrapArgs(['--driver', 'pg'])).toThrow(/must be postgres/)
@@ -457,7 +457,7 @@ describe('parseBootstrapArgs', () => {
   })
 
   it('keeps the existing flag rules', () => {
-    // Rocketflare's Workers AI toggle: accepted (a parent-kit caller still runs) and ignored.
+    // --offline/--online toggle nothing here: accepted (so Launch's bootstrap call runs), ignored.
     expect(parseBootstrapArgs(['--offline', '--online'])).toEqual(parseBootstrapArgs([]))
     expect(() => parseBootstrapArgs(['--nope'])).toThrow(/unknown option --nope/)
     expect(() => parseBootstrapArgs(['--as'])).toThrow(/--as needs an email/)

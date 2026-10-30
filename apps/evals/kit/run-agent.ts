@@ -1,5 +1,5 @@
 /**
- * Run an ENQUEUED agent run to its end, in-process (D33): the three step bodies inline (`claimStep`
+ * Run an ENQUEUED agent run to its end, in-process: the three step bodies inline (`claimStep`
  * → `executeRun` → `finishStep`) exactly as the run body (`runAgentRun`) calls them, with no run
  * engine. `executeRun` throws only to ask for a step retry, so it is retried here up to the same
  * limit the engine gives it (`EXECUTE_RETRIES`). Call it inside `withEvalScope`.

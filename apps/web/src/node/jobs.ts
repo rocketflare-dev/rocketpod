@@ -1,30 +1,26 @@
 /**
- * Jobs and cron on Node (M3, `docs/ROADMAP.md`): **pg-boss** over the app's own Postgres stands in
- * for Cloudflare Queues (`JOBS_QUEUE` + the `queue()` consumer) and for `[triggers] crons` (the
- * `scheduled()` entry). The app side is unchanged — the consumer hands pg-boss's jobs to the same
- * `queue()` the Worker exports (`src/api/queue.ts` → `processJobsBatch`), and a cron occurrence to
- * the same `scheduled()` — so what changes is only the transport:
+ * Jobs and cron: **pg-boss** over the app's own Postgres carries the jobs queue (`JOBS_QUEUE` +
+ * the `queue()` consumer, `src/api/queue.ts` → `processJobsBatch`) and the cron schedules (the
+ * `scheduled()` entry, `src/api/scheduled.ts`). This file is only the transport:
  *
  * - **Producer** (`createPgBossJobsQueue`): `send` → `boss.send`, `sendBatch` → `boss.insert`,
- *   `delaySeconds` → `startAfter`. It is the Node `Platform`'s `jobs`; pg-boss starts on the first
+ *   `delaySeconds` → `startAfter`. It is the `Platform`'s `jobs`; pg-boss starts on the first
  *   send, so a `web` process boots (and answers `/healthz`) with the database down.
- * - **Consumer** (`worker`/`all` modes): batches of up to 10 (`max_batch_size`), settled PER JOB
+ * - **Consumer** (`worker`/`all` modes): batches of up to 10 (`JOBS_BATCH_SIZE`), settled PER JOB
  *   (`perJobResults`) from the `ack()`/`retry()` calls `processJobsBatch` makes. A message neither
- *   acked nor retried counts as acked — a Cloudflare consumer that returns acks its whole batch —
- *   and a batch whose processing THROWS fails every job in it, as a thrown `queue()` retries the
- *   batch.
+ *   acked nor retried counts as acked, and a batch whose processing THROWS fails every job in it.
  * - **Retries**: the queue carries the policy, so `retry({ delaySeconds })` FAILS the job and
  *   pg-boss reschedules it on the queue's own curve — 30 s doubling to a 15 min cap, the
  *   `backoffSeconds` curve the consumer computes, as a floor: pg-boss's jitter lands each delay
- *   between that figure and twice it (still capped at 15 min). Three retries after the first delivery (`max_retries = 3`), then the job
- *   moves to the dead-letter queue (`<queue>-dlq`), which Cloudflare's config only had commented
- *   out. A crashed or stuck consumer's job comes back after `expireInSeconds` (15 min, the
- *   Cloudflare consumer's wall-clock limit) and counts as an attempt.
+ *   between that figure and twice it (still capped at 15 min). Three retries after the first
+ *   delivery (`JOBS_RETRY_LIMIT`), then the job moves to the dead-letter queue (`<queue>-dlq`). A
+ *   crashed or stuck consumer's job comes back after `expireInSeconds` (15 min) and counts as an
+ *   attempt.
  * - **Cron**: every expression in `SCHEDULED_TASKS` is a pg-boss schedule (keyed by the
- *   expression, UTC) on the cron queue; expressions no longer registered are unscheduled at start. pg-boss
- *   claims each cron pass with a database row and files each occurrence under a singleton key, so
- *   N worker replicas send ONE job per occurrence, and one consumer runs it. Cron jobs never
- *   retry — Cloudflare does not re-run a failed `scheduled()` either.
+ *   expression, UTC) on the cron queue; expressions no longer registered are unscheduled at start.
+ *   pg-boss claims each cron pass with a database row and files each occurrence under a singleton
+ *   key, so N worker replicas send ONE job per occurrence, and one consumer runs it. Cron jobs
+ *   never retry: a failed occurrence waits for the next one.
  *
  * The queues, their policies and the schema install live in `jobs-schema.ts`, which imports nothing
  * of the app, so `scripts/migrate.ts` can install them without loading it.
@@ -99,7 +95,7 @@ export interface NodeJobsOptions {
   boss?: BossOptions
   /** The cron expressions to schedule. Default: every key of `SCHEDULED_TASKS`. */
   crons?: readonly string[]
-  /** Replace what runs a batch / a cron occurrence (tests). Default: the Worker's `queue()` / `scheduled()`. */
+  /** Replace what runs a batch / a cron occurrence (tests). Default: `queue()` / `scheduled()`. */
   handlers?: {
     jobs?: (batch: JobBatch, env: AppBindings) => Promise<void>
     cron?: (cron: string, env: AppBindings) => Promise<void>
@@ -182,7 +178,7 @@ export function createNodeJobs(options: NodeJobsOptions, role: 'producer' | 'wor
   }
 }
 
-/** One cron occurrence through the Worker's own `scheduled()`, waiting for its deferred work. */
+/** One cron occurrence through the app's `scheduled()`, waiting for its deferred work. */
 export async function runCron(cron: string, env: AppBindings): Promise<void> {
   const pending: Promise<unknown>[] = []
   await scheduled({ cron }, env, { waitUntil: p => void pending.push(p) })

@@ -44,9 +44,11 @@ describe('kit.yml', () => {
   it('renamed: renames to a hyphenated slug, proves the kit-only files are gone, runs pnpm gate', () => {
     const renamed = job('renamed')
     expect(renamed).toContain('node scripts/rename.mjs my-app')
-    for (const file of ['kit.yml', 'plugin-ci.yml', 'notify-plugins.yml']) {
-      expect(renamed).toContain(`.github/workflows/${file}`)
-    }
+    // Every kitOnly path, read from the manifest; and the wiring that called them.
+    expect(renamed).toContain('require("./.rocketflare.json").kitOnly')
+    expect(renamed).toContain('changelog-nudge')
+    expect(renamed).toContain('kit:release')
+    expect(renamed).toContain('retiredSurfaces')
     expect(renamed).toMatch(/- run: pnpm gate\s*$/)
   })
 

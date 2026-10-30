@@ -1,10 +1,10 @@
 /**
- * Ingest + retrieval (D18, 00 §1.3) with a deterministic fake embedder (the `AI` stub answers
+ * Ingest + retrieval with a deterministic fake embedder (the model stub answers
  * keyword-keyed unit vectors): `POST /api/ai/documents/ingest` → `indexed` with chunks carrying
  * embeddings; `POST /search` returns the matching chunk first with dense + lexical ranks; a
  * `documentId` filter narrows; another tenant's search finds nothing and its reads are 404; > 50
  * chunks → `pending` + a `document.index` job on the queue (and `JobsQueueNotConfiguredError`
- * without the binding); no embeddings provider → 503 `ai_not_configured` and NO row; list /
+ * without a jobs queue); no embeddings provider → 503 `ai_not_configured` and NO row; list /
  * get / delete (cascade, owner-or-admin); 401 anon; member 403 deleting another's.
  */
 import { documentSchema, searchResponseSchema } from '@rocketpod/shared/ai/embeddings'

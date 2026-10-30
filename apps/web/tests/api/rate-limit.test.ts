@@ -1,6 +1,6 @@
 /**
- * KV rate limiting + operation lock (D14) against the in-memory KV: the 11th request in a minute
- * is 429 with Retry-After; no binding → no limit; the lock refuses a concurrent second caller.
+ * Rate limiting + operation lock against the in-memory store: the 11th request in a minute
+ * is 429 with Retry-After; no limiter → no limit; the lock refuses a concurrent second caller.
  */
 import { describe, expect, it } from 'vitest'
 import { operationLock } from '@/api/middleware/rate-limit'
@@ -10,7 +10,7 @@ import { createMemoryLocks, createTestEnv, MemoryKV } from '../mocks/bindings'
 
 describe('authRateLimit on /auth/magic-link/request', () => {
   it('allows 10 per minute per IP, then 429 rate_limited with Retry-After', async () => {
-    const env = createTestEnv() // ONE env = one KV shared by every request below
+    const env = createTestEnv() // ONE env = one store shared by every request below
     const headers = { 'x-forwarded-for': '203.0.113.7' }
     const body = { json: { email: `rl_${uniqueId().toLowerCase()}@example.test` }, env }
     for (let i = 0; i < 10; i++) {
@@ -30,7 +30,7 @@ describe('authRateLimit on /auth/magic-link/request', () => {
     expect(other.status).toBe(202)
   })
 
-  it('is a no-op without the KV binding', async () => {
+  it('is a no-op without a rate limiter', async () => {
     const env = createTestEnv({ rateLimiter: null, locks: null })
     const headers = { 'x-forwarded-for': '203.0.113.9' }
     for (let i = 0; i < 12; i++) {
@@ -61,7 +61,7 @@ describe('authRateLimit on /auth/magic-link/request', () => {
 })
 
 describe('operationLock', () => {
-  it('runs fn, refuses a concurrent caller with 409, releases afterwards, and works without KV', async () => {
+  it('runs fn, 409s a concurrent caller, releases afterwards; no locks = no lock', async () => {
     const store = new MemoryKV()
     const kv = createMemoryLocks(store)
     let release: () => void = () => {}

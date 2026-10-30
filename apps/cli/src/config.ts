@@ -1,8 +1,8 @@
 /**
- * CLI config (D26): `~/.rocketpod/config.json` (dir 0700, file 0600) holding the server URL, API key,
+ * CLI config: `~/.rocketpod/config.json` (dir 0700, file 0600) holding the server URL, API key,
  * active tenant and the signed-in user. Env overrides for CI: `ROCKETPOD_API_KEY`, `ROCKETPOD_URL`, and
- * `ROCKETPOD_CONFIG_DIR` to relocate the directory. ADAPTING renames the `ROCKETPOD_` prefix and `.rocketpod` dir
- * here — these constants are the only place they live.
+ * `ROCKETPOD_CONFIG_DIR` to relocate the directory. The env prefix and config dir name live only in
+ * these constants.
  */
 import { chmod, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
@@ -12,7 +12,7 @@ import { z } from 'zod'
 export const ENV_PREFIX = 'ROCKETPOD'
 export const CONFIG_DIR_NAME = '.rocketpod'
 export const CONFIG_FILE_NAME = 'config.json'
-/** The kit's local the dev server port; a real app sets its production URL here. */
+/** The local dev server port; a real app sets its production URL here. */
 export const DEFAULT_SERVER_URL = 'http://localhost:3001'
 
 export const ENV = {

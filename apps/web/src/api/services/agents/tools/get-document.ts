@@ -1,5 +1,5 @@
 /**
- * `get_document` (D7, D18): read one knowledge document's text, whole or a window of it. The
+ * `get_document`: read one knowledge document's text, whole or a window of it. The
  * companion of `search_knowledge` — search finds the passage, this reads around it or the full
  * text. Windows are character offsets over the stored `content` (pasted text, or the converted
  * markdown of an upload), capped per call so a 500 000-char document is paged, never dumped into
@@ -8,13 +8,13 @@
  * characters because reading the document is the job, while a chat turn gets
  * `CHAT_GET_DOCUMENT_MAX_CHARS` because it shares one context window with the whole thread.
  * Scoped by the run's `AccessScope`; another tenant's id, an unknown id, a document the requester
- * may not see (D29 — the SAME answer as unknown, and the hint never says the document exists) or a
+ * may not see (the SAME answer as unknown, and the hint never says the document exists) or a
  * not-yet-converted upload each get a plain answer rather than an error.
  */
 import { type DocumentContent, KNOWLEDGE_TOOLS } from '@rocketpod/shared/ai/embeddings'
 import { z } from 'zod'
+import type { Tool } from '../../ai/agent-loop'
 import { readDocumentWindow } from '../../ai/document-content'
-import type { Tool } from '../../ai/kit'
 import { type KnowledgeBaseEntry, listKnowledgeDocuments } from './list-documents'
 import type { AgentToolContext } from './search-knowledge'
 
@@ -28,7 +28,7 @@ export const GET_DOCUMENT_DEFAULT_CHARS = 20_000
 export const GET_DOCUMENT_MAX_CHARS = 50_000
 /**
  * The ceiling for a CHAT turn (~1 500 tokens). One number cannot serve both: an agent run gets a
- * Workflow step to itself, while a chat turn shares one context window with the thread's history
+ * durable run step to itself, while a chat turn shares one context window with the thread's history
  * and every later turn — 50 000 characters there is most of a small model's window spent on one
  * tool result, which is how a thread poisons its own next turn. Sized against `RESPONSE_MAX_CHARS`
  * in `search-knowledge.ts`, and a quarter of the default `CHAT_HISTORY_MAX_CHARS`, so a window plus

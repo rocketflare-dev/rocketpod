@@ -1,5 +1,5 @@
 /**
- * The agent target (D33): one case → one real agent run, IN-PROCESS, through the real runtime —
+ * The agent target: one case → one real agent run, IN-PROCESS, through the real runtime —
  * `enqueueRun` (the row, validated input), then the three step bodies inline (`runAgentInProcess`:
  * `claimStep` → `executeRun` → `finishStep`) exactly as the run body (`runAgentRun`) calls them,
  * with no run engine.
@@ -63,7 +63,7 @@ export function agentHarness(agentKey: AgentKey): Harness<EvalCase, JsonValue | 
         .orderBy(asc(agentRunEvents.seq))
       const output = (row.output ?? undefined) as JsonValue | undefined
       const transcript = transcriptFromRunEvents(events, row.input, output, row.error)
-      // D37: every `ctx.decide` answer, keyed for `DecisionJudge` — read from the table, not a model.
+      // Every `ctx.decide` answer, keyed for `DecisionJudge` — read from the table, not a model.
       const decisions: RecordedDecisions = {}
       const recorded = await listDecisions(world.db, world.tenantId, runId)
       for (const d of recorded) {

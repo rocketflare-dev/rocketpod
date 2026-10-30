@@ -1,5 +1,5 @@
 /**
- * Tracing (D32), no database, injected fetch: `tracerFor` picks sinks from config (no-op with
+ * Tracing, no database, injected fetch: `tracerFor` picks sinks from config (no-op with
  * none; the langfuse preset from the existing keys, phoenix defaulting to protobuf); the OTLP JSON
  * request matches a fixture; handles nest (a tool call's span under the agent span, retrieval under
  * the tool); a run's trace and root ids are derived from the run id; capture-off strips content
@@ -20,7 +20,7 @@ import {
   tracerFor,
   withAgentTrace,
 } from '@/api/observability/tracing'
-import { runToolLoop, type Tool } from '@/api/services/ai/kit'
+import { runToolLoop, type Tool } from '@/api/services/ai/agent-loop'
 import { loadConfig } from '@/config'
 import { FakeChatClient } from '../helpers/ai'
 import { TEST_RESEARCH } from '../helpers/test-agents-shared'

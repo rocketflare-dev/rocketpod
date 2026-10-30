@@ -1,5 +1,5 @@
 /**
- * `ai_usage` — one row per model generation (D18): who spent what, on which provider/model, for
+ * `ai_usage` — one row per model generation: who spent what, on which provider/model, for
  * which feature. Written by `services/ai/usage.ts` from the provider's usage tap (chat route,
  * agent runs, connection tests). Append-only, no `updated_at`. `costMicrocents` stays null until an
  * app supplies a pricing table — cheap to record now, impossible to backfill later.

@@ -2,7 +2,7 @@
 // Mocks `@/api/services/ai/resolve` (the chat and decisions seams), so this file needs its own module registry.
 // Also mocks both plugin barrels to register the test-only agents (tests/helpers/test-agents.ts).
 /**
- * `ctx.decide` (D37) through the real runtime against Postgres, with a scripted decisions engine:
+ * `ctx.decide` through the real runtime against Postgres, with a scripted decisions engine:
  * a decision is recorded ONCE per `(run, key)` and a re-entered `run()` replays it without asking
  * again; reusing a key with different questions fails the run; each call writes a thin `decision`
  * event (projected to AG-UI as `kit.agent.decision`), an `ai_usage` row and an

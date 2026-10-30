@@ -1,7 +1,6 @@
 /**
- * Realtime on Node (M5, `docs/ROADMAP.md`): the `/ws` hub without the `NotificationsHub` Durable
- * Object. Two halves, joined by Postgres `LISTEN/NOTIFY` so any process can nudge a socket held by
- * any other:
+ * Realtime: the `/ws` hub. Two halves, joined by Postgres `LISTEN/NOTIFY` so any process can nudge
+ * a socket held by any other:
  *
  * - **Publisher** (every mode): `toTenant`/`toUser`/`toUsers` → `pg_notify('rp_realtime', json)`
  *   on a small postgres.js client of its own. Jobs, runs and cron in a `worker` process publish the
@@ -12,9 +11,9 @@
  * - **Sockets + listener** (`web`/`all`): the sockets this process accepted, by tenant, each tagged
  *   with its user; ONE dedicated connection (`DATABASE_LISTEN_URL`, else the database URL) LISTENs
  *   and delivers every notification to the matching local sockets. A lost listener reconnects with
- *   backoff; notifications sent while it was down are lost (best effort, as on the DO).
+ *   backoff; notifications sent while it was down are lost (best effort).
  *
- * The wire protocol is the DO's: events are sent as `JSON.stringify(event)`; a client's
+ * The wire protocol: events are sent as `JSON.stringify(event)`; a client's
  * `{"type":"ping"}` (every 30 s, `src/ui/lib/websocketClient.ts`) is answered `{"type":"pong"}`.
  * The server also pings at the protocol level every `heartbeatMs` and drops a socket that missed
  * the previous one. Shutdown closes every socket with 1001 ("going away"), which the client treats

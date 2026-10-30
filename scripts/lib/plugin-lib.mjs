@@ -546,7 +546,7 @@ export function classifyPluginFile(relPath, id, { skills = [] } = {}) {
 /**
  * Everything wrong with a plugin's platform declarations, as sentences. Empty means installable.
  *
- * Rocketpod has no Cloudflare runtime (M6b): a plugin reaches jobs, storage, realtime, durable
+ * Rocketpod has no Cloudflare runtime: a plugin reaches jobs, storage, realtime, durable
  * runs, rate limits and locks through its context (`ctx.platform`, `docs/plugin-api.md`), never
  * through a binding of its own. So a manifest that still declares `bindings` (a KV namespace, a
  * queue, a bucket, a Durable Object, a Workflow) or `workerExports` (classes for a Worker's entry
@@ -1751,7 +1751,7 @@ export function missingDependencies(manifest, packageJsons = {}) {
  *
  * **`pnpm add` silently overwrites the range in the host's `package.json`**, so two plugins wanting
  * different majors of one package is last-install-wins with nothing said — at the exact moment
- * somebody is being asked to approve an install that carries full Worker and database access. And
+ * somebody is being asked to approve an install that carries full server and database access. And
  * `package.json` is `manual` in `.rocketflare.json`, so no kit upgrade ever reconciles it for
  * anyone afterwards.
  *

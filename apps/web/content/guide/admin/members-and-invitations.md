@@ -11,6 +11,7 @@ sources:
   - apps/web/src/api/services/invitations.ts
   - apps/web/src/permissions/abilities.ts
   - packages/shared/src/tenants.ts
+  - apps/web/src/api/services/members.ts
 verified: 790a55b
 ---
 
@@ -57,5 +58,10 @@ When someone accepts, they move to **Members** with the role you chose.
 
 In **Members**, change the role with the select on their row, or remove them with the button at
 the end of it. A removed person loses access to the organisation straight away.
+
+A row marked **Labs Access** is managed there, not here: it has no role select and no remove
+button. Change that person's role or access in Labs Access, and it applies the next time they sign
+in. An organisation made by Labs Access starts with no owner; ask a platform administrator for
+anything only an owner can do.
 
 People sign in the way the [signing-in page](../start/signing-in.md) describes.

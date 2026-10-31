@@ -4,6 +4,7 @@
  *   - `manage TenantMember` (admin+) → change roles, remove, invite
  *   - explicit `role === 'owner'` (or global admin) → touch owner rows / assign owner
  *   - `support` rows are read-only (not an assignable role)
+ *   - `labs` rows (`source`, the OIDC_PRESET=labs reconcile) are read-only: Labs Access owns them
  * Invitation "copy link" appears only when the server includes a `token` on the row.
  * Groups come back on the member row itself — one query for the page, never one per group —
  * and "Edit groups" opens `MemberGroupsModal` for `manage Group`.
@@ -69,10 +70,15 @@ function MembersPanel({ onInvite }: { onInvite?: () => void }) {
     !canManage ||
     m.userId === user?.id ||
     (m.role === 'owner' && !canManageOwners) ||
+    m.source === 'labs' ||
     !(ASSIGNABLE_ROLES as readonly string[]).includes(m.role)
 
   const canRemove = (m: Member) =>
-    canManage && m.userId !== user?.id && m.role !== 'owner' && m.role !== 'support'
+    canManage &&
+    m.userId !== user?.id &&
+    m.role !== 'owner' &&
+    m.role !== 'support' &&
+    m.source !== 'labs'
 
   return (
     <SectionPanel
@@ -125,7 +131,17 @@ function MembersPanel({ onInvite }: { onInvite?: () => void }) {
                   </td>
                   <td>
                     {roleLocked(m) ? (
-                      <RoleBadge role={m.role} />
+                      <span className="inline-flex items-center gap-1.5">
+                        <RoleBadge role={m.role} />
+                        {m.source === 'labs' && (
+                          <span
+                            className="badge badge-sm badge-ghost"
+                            title="Managed by Labs Access: change it there"
+                          >
+                            Labs Access
+                          </span>
+                        )}
+                      </span>
                     ) : (
                       <select
                         className="select select-xs capitalize"

@@ -354,6 +354,36 @@ without issuer and client id refuses to boot (config error). Verify: `/auth/meth
 An account whose `email_verified` is `false` — or missing, unless `OIDC_TRUST_EMAIL=true` — is
 refused (`?error=email_unverified`); an existing kit user is linked by verified email.
 
+### 2.3c Labs Access (`OIDC_PRESET=labs`)
+Labs Access is Nearform's identity service for labs apps: one Cognito pool whose Pre Token Lambda
+writes the person's orgs and roles for THIS app into the id_token. With the preset on, every
+sign-in reconciles tenants, memberships and global admin from those claims (`docs/CONCEPTS.md` §1,
+§2), and admission comes from the claims instead of `SIGNUP_MODE`.
+1. In Labs Access, register the app (it creates the Cognito app client) and grant it to the orgs
+   that should use it. Callback URL: `{APP_URL}/auth/oidc/callback`; sign-out URL:
+   `{APP_URL}/login?signedOut=1` (Cognito returns there only when it is registered — the kit sends
+   it as `logout_uri`)
+2. Set `OIDC_ISSUER=https://cognito-idp.eu-west-1.amazonaws.com/eu-west-1_0oYB88KbO` (the pool's
+   issuer, no trailing slash), `OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET` from the app client,
+   `OIDC_LABEL=Labs` (or your wording) and **`OIDC_PRESET=labs`**. Leave `OIDC_TRUST_EMAIL` off —
+   Labs Access sets `email_verified: true` for verified domains. `TENANCY_MODE` must be `multi`
+3. Once everyone signs in through it, set `AUTH_OIDC_ONLY=true`
+4. Deployed: `OIDC_PRESET` is plain config (compose `.env`, the chart's `config`)
+
+What a sign-in does: each org in `labs_orgs` becomes (or finds) the tenant with that
+`external_org_id`, named from the claim; the person gets a `labs` membership (`client_admin` and
+`nearform_staff` → admin, `client_member` → member); an org no longer granted loses its `labs`
+membership; `labs_platform_admin` → global admin. A tenant created this way has **no owner** — a
+global admin can still do owner-only things, and can make an owner from a manual membership.
+`labs` memberships are read-only in Settings → People (409 `labs_managed` from the API). Someone
+Labs Access refuses (no grant for this app, not staff) lands on `/login?error=no_access`: "You
+don't have access to this app". Sessions slide over 7 days.
+
+Absent (`OIDC_PRESET` blank): plain OIDC, the `labs_*` claims are not read. `OIDC_PRESET=labs`
+without issuer and client id, or with `TENANCY_MODE=single`, refuses to boot. Verify: sign in as a
+person granted one org → `/auth/session` shows that tenant with the mapped role and
+`accessRequest: null`; the tenants table has a row with `external_org_id` = the org id.
+
 ### 2.4 First admin
 `BOOTSTRAP_ADMIN_EMAILS=you@example.com` (comma-separated). Promoted to global admin on the first
 **verified** login, logged loudly. Absent: promote by hand once —

@@ -6,16 +6,25 @@
  * signs real id_tokens with a jose key pair, so every check `jwtVerify` makes is exercised for real.
  */
 import { logoutResponseSchema } from '@rocketpod/shared/auth'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { exportJWK, generateKeyPair, type JWTPayload, SignJWT } from 'jose'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { OAUTH_STATE_COOKIE_NAME, SESSION_COOKIE_NAME } from '@/api/auth/cookies'
 import { resetOidcCaches } from '@/api/auth/providers/oidc'
-import { oauthProviders, userSessions, users } from '@/db/schema'
+import {
+  accessRequests,
+  oauthProviders,
+  tenants,
+  tenantUsers,
+  userSessions,
+  users,
+} from '@/db/schema'
 import {
   createTestSession,
+  createTestTenant,
   createTestTenantWithUser,
   createTestUser,
+  linkUserToTenant,
   sessionCookieHeader,
   uniqueId,
 } from '../helpers/auth'
@@ -69,6 +78,8 @@ interface Issuer {
   /** Remove these claims from the id_token entirely. */
   omit: string[]
   userinfo: Record<string, unknown> | null
+  /** When set, the token endpoint answers with this instead of tokens (an issuer refusing). */
+  tokenFailure: { status: number; body: unknown } | null
   jwksFetches: number
   discoveryFetches: number
   tokenRequests: Array<{ body: URLSearchParams; authorization: string | null }>
@@ -119,6 +130,7 @@ beforeEach(async () => {
     claims: {},
     omit: [],
     userinfo: null,
+    tokenFailure: null,
     jwksFetches: 0,
     discoveryFetches: 0,
     tokenRequests: [],
@@ -140,6 +152,7 @@ beforeEach(async () => {
       const code = body.get('code') ?? ''
       // A real issuer redeems a code ONCE — the replay defence the router relies on.
       if (idp.usedCodes.has(code)) return jsonResponse({ error: 'invalid_grant' }, 400)
+      if (idp.tokenFailure) return jsonResponse(idp.tokenFailure.body, idp.tokenFailure.status)
       idp.usedCodes.add(code)
       return jsonResponse({
         access_token: `access-${code}`,
@@ -558,6 +571,8 @@ describe('POST /auth/logout with an issuer', () => {
     expect(url.searchParams.get('post_logout_redirect_uri')).toBe(
       'http://localhost:3001/login?signedOut=1'
     )
+    // Amazon Cognito's /logout returns to the app only with `logout_uri`.
+    expect(url.searchParams.get('logout_uri')).toBe('http://localhost:3001/login?signedOut=1')
     expect(url.searchParams.has('id_token_hint')).toBe(false)
     expect(
       (await request('/auth/session', { headers: sessionCookieHeader(token) }, { env })).status
@@ -570,5 +585,404 @@ describe('POST /auth/logout with an issuer', () => {
     resetOidcCaches()
     idp.discovery.issuer = 'https://evil.test'
     expect((await request('/auth/logout', { method: 'POST' }, { env: oidcEnv() })).status).toBe(204)
+  })
+})
+
+// ---- OIDC_PRESET=labs -----------------------------------------------------------------------
+
+describe('OIDC_PRESET=labs', () => {
+  type Org = { id: string; slug: string; name: string; role: string }
+
+  function labsEnv(overrides: Record<string, unknown> = {}) {
+    return oidcEnv({ OIDC_PRESET: 'labs', ...overrides })
+  }
+
+  function newOrg(role = 'client_member'): Org {
+    const id = uniqueId()
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '')
+    return { id: `org-${id}`, slug: `acme-${id}`, name: `Acme ${id}`, role }
+  }
+
+  /** The next id_token is a Labs Access one for `email`. */
+  function labsToken(
+    email: string,
+    orgs: Org[],
+    extra: Record<string, unknown> = {},
+    sub = `sub_${email}`
+  ) {
+    idp.claims = {
+      sub,
+      email,
+      email_verified: true,
+      name: 'Labs Person',
+      labs_v: 1,
+      labs_person: `person-${sub}`,
+      labs_staff: false,
+      labs_platform_admin: false,
+      labs_orgs: orgs,
+      ...extra,
+    }
+  }
+
+  function newEmail() {
+    return `labs_${uniqueId().toLowerCase()}@example.test`
+  }
+
+  async function tenantFor(org: Org) {
+    const [row] = await db.select().from(tenants).where(eq(tenants.externalOrgId, org.id))
+    return row
+  }
+
+  async function membership(tenantId: string, userId: string) {
+    const [row] = await db
+      .select()
+      .from(tenantUsers)
+      .where(and(eq(tenantUsers.tenantId, tenantId), eq(tenantUsers.userId, userId)))
+    return row
+  }
+
+  async function sessionOf(res: Response, env: Env) {
+    const token = cookieValue(res, SESSION_COOKIE_NAME) as string
+    expect(token).toBeTruthy()
+    return sessionFor(token, env)
+  }
+
+  async function sessionFor(token: string, env: Env) {
+    return json<{
+      user: { id: string; isGlobalAdmin: boolean }
+      tenant: { id: string; role: string } | null
+      tenants: Array<{ id: string; role: string }>
+      accessRequest: { status: string } | null
+    }>(await request('/auth/session', { headers: sessionCookieHeader(token) }, { env }))
+  }
+
+  it('first sign-in creates the tenant (no owner) and a labs membership, whatever SIGNUP_MODE says', async () => {
+    for (const mode of ['invite_only', 'approval'] as const) {
+      const email = newEmail()
+      const org = newOrg('client_admin')
+      labsToken(email, [org])
+      const env = labsEnv({ SIGNUP_MODE: mode })
+      const res = await signIn(env)
+      expect(location(res).pathname).toBe('/')
+
+      const tenant = await tenantFor(org)
+      expect(tenant).toMatchObject({ name: org.name, slug: org.slug })
+      const session = await sessionOf(res, env)
+      expect(session.tenant?.id).toBe(tenant?.id)
+      expect(session.tenant?.role).toBe('admin')
+      expect(session.accessRequest).toBeNull()
+      expect(await membership(tenant?.id as string, session.user.id)).toMatchObject({
+        role: 'admin',
+        source: 'labs',
+      })
+      // The preset never writes `owner`: a new tenant is ownerless.
+      const owners = await db
+        .select()
+        .from(tenantUsers)
+        .where(and(eq(tenantUsers.tenantId, tenant?.id as string), eq(tenantUsers.role, 'owner')))
+      expect(owners).toHaveLength(0)
+      // Nobody is left "waiting for an administrator".
+      const requests = await db.select().from(accessRequests).where(eq(accessRequests.email, email))
+      expect(requests).toHaveLength(0)
+    }
+  })
+
+  it('maps client_member → member and nearform_staff → admin', async () => {
+    const email = newEmail()
+    const member = newOrg('client_member')
+    const staffed = newOrg('nearform_staff')
+    labsToken(email, [member, staffed], { labs_staff: true })
+    const env = labsEnv()
+    const session = await sessionOf(await signIn(env), env)
+    const roles = Object.fromEntries(session.tenants.map(t => [t.id, t.role]))
+    expect(roles[(await tenantFor(member))?.id as string]).toBe('member')
+    expect(roles[(await tenantFor(staffed))?.id as string]).toBe('admin')
+  })
+
+  it('a second sign-in keeps the tenant in step: new name, new role, same tenant', async () => {
+    const email = newEmail()
+    const org = newOrg('client_member')
+    labsToken(email, [org])
+    const env = labsEnv()
+    const first = await sessionOf(await signIn(env), env)
+    const before = await tenantFor(org)
+
+    labsToken(email, [{ ...org, name: 'Acme Renamed', role: 'client_admin' }])
+    const second = await sessionOf(await signIn(env), env)
+    expect(second.user.id).toBe(first.user.id)
+    const after = await tenantFor(org)
+    expect(after?.id).toBe(before?.id)
+    expect(after?.name).toBe('Acme Renamed')
+    expect(after?.slug).toBe(before?.slug)
+    expect(await membership(after?.id as string, first.user.id)).toMatchObject({
+      role: 'admin',
+      source: 'labs',
+    })
+  })
+
+  it("a taken slug is made unique; an org's tenant is found by its id, never by slug", async () => {
+    const org = newOrg()
+    const squatter = await createTestTenant(db, { slug: org.slug })
+    labsToken(newEmail(), [org])
+    await signIn(labsEnv())
+    const tenant = await tenantFor(org)
+    expect(tenant?.id).not.toBe(squatter.id)
+    expect(tenant?.slug).toBe(`${org.slug}-2`)
+  })
+
+  it('an org gone from the claims loses its labs membership; manual ones stay; the session is unpinned', async () => {
+    const email = newEmail()
+    const keep = newOrg()
+    const drop = newOrg()
+    labsToken(email, [keep, drop])
+    const env = labsEnv()
+    const first = await sessionOf(await signIn(env), env)
+    const userId = first.user.id
+    const dropped = (await tenantFor(drop))?.id as string
+    const manual = await createTestTenant(db)
+    await linkUserToTenant(db, userId, manual.id, 'member')
+    // An older session sits in the tenant about to be removed.
+    const pinned = await createTestSession(db, userId, dropped)
+
+    labsToken(email, [keep])
+    const res = await signIn(env)
+    const session = await sessionOf(res, env)
+    expect(await membership(dropped, userId)).toBeUndefined()
+    expect(await membership((await tenantFor(keep))?.id as string, userId)).toMatchObject({
+      source: 'labs',
+    })
+    expect(await membership(manual.id, userId)).toMatchObject({ source: 'manual', role: 'member' })
+    expect(session.tenants.map(t => t.id)).not.toContain(dropped)
+    const [old] = await db
+      .select()
+      .from(userSessions)
+      .where(and(eq(userSessions.userId, userId), eq(userSessions.selectedTenantId, dropped)))
+    expect(old).toBeUndefined()
+    expect((await sessionFor(pinned, env)).tenant?.id).toBe((await tenantFor(keep))?.id)
+  })
+
+  it('an owner row and a support row are never rewritten; a manual admin/member row is adopted', async () => {
+    const email = newEmail()
+    const owned = newOrg('client_member')
+    const adopted = newOrg('client_admin')
+    const user = await createTestUser(db, { email })
+    const ownedTenant = await createTestTenant(db, { externalOrgId: owned.id })
+    const adoptedTenant = await createTestTenant(db, { externalOrgId: adopted.id })
+    await linkUserToTenant(db, user.id, ownedTenant.id, 'owner')
+    await linkUserToTenant(db, user.id, adoptedTenant.id, 'member')
+    labsToken(email, [owned, adopted])
+    await signIn(labsEnv())
+    expect(await membership(ownedTenant.id, user.id)).toMatchObject({
+      role: 'owner',
+      source: 'manual',
+    })
+    expect(await membership(adoptedTenant.id, user.id)).toMatchObject({
+      role: 'admin',
+      source: 'labs',
+    })
+  })
+
+  it('labs_platform_admin sets the global admin flag, and its absence clears only what Labs set', async () => {
+    const email = newEmail()
+    const env = labsEnv()
+    labsToken(email, [], { labs_staff: true, labs_platform_admin: true })
+    const granted = await sessionOf(await signIn(env), env)
+    expect(granted.user.isGlobalAdmin).toBe(true)
+    const [row] = await db.select().from(users).where(eq(users.id, granted.user.id))
+    expect(row?.globalAdminSource).toBe('labs')
+
+    labsToken(email, [], { labs_staff: true, labs_platform_admin: false })
+    const cleared = await sessionOf(await signIn(env), env)
+    expect(cleared.user.isGlobalAdmin).toBe(false)
+    const [after] = await db.select().from(users).where(eq(users.id, granted.user.id))
+    expect(after?.globalAdminSource).toBeNull()
+
+    // A global admin the app made itself is not Labs' to take away.
+    const manualAdmin = await createTestUser(db, { isGlobalAdmin: true })
+    labsToken(manualAdmin.email, [], { labs_staff: true })
+    const kept = await sessionOf(await signIn(env), env)
+    expect(kept.user.id).toBe(manualAdmin.id)
+    expect(kept.user.isGlobalAdmin).toBe(true)
+  })
+
+  it('staff with no org grant sign in to the no-tenant experience, not an access request', async () => {
+    const email = newEmail()
+    labsToken(email, [], { labs_staff: true })
+    const env = labsEnv({ SIGNUP_MODE: 'approval' })
+    const session = await sessionOf(await signIn(env), env)
+    expect(session.tenant).toBeNull()
+    expect(session.tenants).toEqual([])
+    expect(session.accessRequest).toBeNull()
+  })
+
+  it('a person already waiting on an access request is seated and the request closed', async () => {
+    const email = newEmail()
+    const env = labsEnv({ SIGNUP_MODE: 'approval' })
+    // The bug this preset fixes: plain OIDC + approval leaves a client user waiting.
+    idp.claims = { sub: `sub_${email}`, email, email_verified: true }
+    const waiting = await sessionOf(await signIn(oidcEnv({ SIGNUP_MODE: 'approval' })), env)
+    expect(waiting.accessRequest).toEqual({ status: 'pending' })
+
+    const org = newOrg()
+    labsToken(email, [org])
+    const seated = await sessionOf(await signIn(env), env)
+    expect(seated.user.id).toBe(waiting.user.id)
+    expect(seated.tenant?.id).toBe((await tenantFor(org))?.id)
+    const [requestRow] = await db
+      .select()
+      .from(accessRequests)
+      .where(eq(accessRequests.email, email))
+    expect(requestRow?.status).toBe('approved')
+  })
+
+  it('a labs-managed membership is 409 labs_managed to edit or remove; a manual one still works', async () => {
+    const org = newOrg('client_member')
+    const email = newEmail()
+    labsToken(email, [org])
+    const env = labsEnv()
+    const member = await sessionOf(await signIn(env), env)
+    const tenantId = (await tenantFor(org))?.id as string
+    const owner = await createTestUser(db)
+    await linkUserToTenant(db, owner.id, tenantId, 'owner')
+    const manual = await createTestUser(db)
+    await linkUserToTenant(db, manual.id, tenantId, 'member')
+    const cookie = sessionCookieHeader(await createTestSession(db, owner.id, tenantId))
+
+    const patch = await request(`/api/members/${member.user.id}`, {
+      method: 'PATCH',
+      headers: { ...cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role: 'admin' }),
+    })
+    expect(patch.status).toBe(409)
+    expect(await json(patch)).toMatchObject({ statusCode: 409, code: 'labs_managed' })
+    const remove = await request(`/api/members/${member.user.id}`, {
+      method: 'DELETE',
+      headers: cookie,
+    })
+    expect(remove.status).toBe(409)
+    expect(await json(remove)).toMatchObject({ code: 'labs_managed' })
+    expect(await membership(tenantId, member.user.id)).toMatchObject({ role: 'member' })
+
+    const list = await json<{ items: Array<{ userId: string; source: string }> }>(
+      await request('/api/members?pageSize=50', { headers: cookie })
+    )
+    expect(list.items.find(m => m.userId === member.user.id)?.source).toBe('labs')
+
+    const manualPatch = await request(`/api/members/${manual.id}`, {
+      method: 'PATCH',
+      headers: { ...cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role: 'admin' }),
+    })
+    expect(manualPatch.status).toBe(200)
+    const manualRemove = await request(`/api/members/${manual.id}`, {
+      method: 'DELETE',
+      headers: cookie,
+    })
+    expect(manualRemove.status).toBe(204)
+  })
+
+  it.each([
+    [
+      'an OAuth error body',
+      {
+        error: 'invalid_request',
+        error_description: 'PreTokenGeneration failed with error UserLambdaValidationException.',
+      },
+    ],
+    [
+      'an AWS error body',
+      { __type: 'UserLambdaValidationException', message: 'No grant for this app' },
+    ],
+  ])(
+    'a 400 UserLambdaValidationException at the token exchange → no_access (%s)',
+    async (_l, body) => {
+      idp.tokenFailure = { status: 400, body }
+      const res = await signIn(labsEnv())
+      expect(location(res).pathname).toBe('/login')
+      expect(location(res).searchParams.get('error')).toBe('no_access')
+      expect(cookieValue(res, SESSION_COOKIE_NAME) ?? '').toBe('')
+    }
+  )
+
+  it('any other failed token exchange is still oauth_failed', async () => {
+    idp.tokenFailure = { status: 400, body: { error: 'invalid_grant' } }
+    const res = await signIn(labsEnv())
+    expect(location(res).searchParams.get('error')).toBe('oauth_failed')
+  })
+
+  it('malformed claims are ignored: nothing is created or removed, and admission is plain OIDC', async () => {
+    const email = newEmail()
+    const org = newOrg()
+    labsToken(email, [org])
+    const env = labsEnv()
+    const first = await sessionOf(await signIn(env), env)
+    const tenantId = (await tenantFor(org))?.id as string
+
+    const stranger = newOrg()
+    labsToken(email, [{ ...stranger, role: 'overlord' }])
+    const second = await sessionOf(await signIn(env), env)
+    expect(second.user.id).toBe(first.user.id)
+    expect(await tenantFor(stranger)).toBeUndefined()
+    expect(await membership(tenantId, first.user.id)).toMatchObject({ source: 'labs' })
+
+    // A new person with malformed claims meets SIGNUP_MODE like any OIDC sign-in.
+    labsToken(newEmail(), [newOrg()], { labs_staff: 'yes' })
+    expect(location(await signIn(env)).searchParams.get('error')).toBe('not_invited')
+  })
+
+  it('links a person who already signed in with Google at the same verified email', async () => {
+    const user = await createTestUser(db)
+    await db.insert(oauthProviders).values({
+      userId: user.id,
+      provider: 'google',
+      providerUserId: `google-${uniqueId()}`,
+      email: user.email,
+    })
+    const org = newOrg('client_admin')
+    labsToken(user.email, [org])
+    const env = labsEnv()
+    const session = await sessionOf(await signIn(env), env)
+    expect(session.user.id).toBe(user.id)
+    expect(await linkFor(`sub_${user.email}`)).toHaveLength(1)
+    expect(await membership((await tenantFor(org))?.id as string, user.id)).toMatchObject({
+      role: 'admin',
+      source: 'labs',
+    })
+  })
+
+  it('a preset session slides over 7 days, not 30', async () => {
+    labsToken(newEmail(), [newOrg()])
+    const env = labsEnv()
+    const res = await signIn(env)
+    const userId = (await sessionOf(res, env)).user.id
+    const [row] = await db.select().from(userSessions).where(eq(userSessions.userId, userId))
+    const days = ((row?.expiresAt.getTime() ?? 0) - Date.now()) / 86_400_000
+    expect(days).toBeGreaterThan(6.9)
+    expect(days).toBeLessThan(7.1)
+    expect(row?.ttlSeconds).toBe(7 * 24 * 60 * 60)
+
+    // Renewed on use by its own window.
+    await db
+      .update(userSessions)
+      .set({ lastSeenAt: new Date(Date.now() - 2 * 60 * 60 * 1000) })
+      .where(eq(userSessions.id, row?.id as string))
+    await sessionOf(res, env)
+    const [slid] = await db
+      .select()
+      .from(userSessions)
+      .where(eq(userSessions.id, row?.id as string))
+    expect(slid?.lastSeenAt.getTime()).toBeGreaterThan(Date.now() - 60_000)
+    const slidDays = ((slid?.expiresAt.getTime() ?? 0) - Date.now()) / 86_400_000
+    expect(slidDays).toBeGreaterThan(6.9)
+    expect(slidDays).toBeLessThan(7.1)
+  })
+
+  it('without the preset the labs claims are not read at all', async () => {
+    const org = newOrg('client_admin')
+    labsToken(newEmail(), [org])
+    const res = await signIn(oidcEnv())
+    expect(location(res).searchParams.get('error')).toBe('not_invited')
+    expect(await tenantFor(org)).toBeUndefined()
   })
 })

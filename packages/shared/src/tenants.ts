@@ -13,6 +13,14 @@ export type TenantRole = z.infer<typeof tenantRoleSchema>
 export const membershipRoleSchema = z.enum(['owner', 'admin', 'member', 'support'])
 export type MembershipRole = z.infer<typeof membershipRoleSchema>
 
+/**
+ * Where a membership came from: `manual` (invite, approval, sign-up, the app's own UI) or `labs`
+ * (reconciled from the Labs Access token claims on sign-in under `OIDC_PRESET=labs`). A `labs`
+ * row is read-only in the app — edits and removals answer 409 `labs_managed`.
+ */
+export const membershipSourceSchema = z.enum(['manual', 'labs'])
+export type MembershipSource = z.infer<typeof membershipSourceSchema>
+
 /** Roles excluded from "how many people use this org" counts (a visiting global admin). */
 export const NON_MEMBER_ROLES = ['support'] as const satisfies readonly MembershipRole[]
 
@@ -106,6 +114,11 @@ export const memberSchema = z.object({
   name: z.string(),
   avatarUrl: z.string().nullable(),
   role: membershipRoleSchema,
+  /**
+   * `labs` rows are managed by Labs Access and read-only here (`OIDC_PRESET=labs`). Defaults to
+   * `manual` so a client parsing a server from before the column (the CLI) keeps working.
+   */
+  source: membershipSourceSchema.default('manual'),
   joinedAt: z.coerce.date(),
   /** NULL = invited but never signed in. */
   lastLoginAt: z.coerce.date().nullable(),

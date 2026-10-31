@@ -26,6 +26,10 @@ these:
 
 Some organisations use single sign-on only. Then the page shows one button and nothing else.
 
+If single sign-on sends you back with **"You don't have access to this app"**, your sign-in worked
+but your organisation has not been given this app. Ask your organisation's administrator to grant
+it, then sign in again.
+
 ## Email sign-in links
 
 A link works once, and only for {{fact:auth.magic_link_minutes}} minutes after it is sent. If it
@@ -36,7 +40,9 @@ has expired, or you already used it, go back to the sign-in page and ask for a n
 ## How long you stay signed in
 
 A sign-in lasts {{fact:auth.session_days}} days on that browser. Signing out from the user menu ends
-it at once.
+it at once. Where the app signs you in through Labs Access, a sign-in ends after
+{{fact:auth.labs_session_days}} days without a visit instead, and each sign-in brings your
+organisations and role up to date.
 
 ## Add a second way in
 

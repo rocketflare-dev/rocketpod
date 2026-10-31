@@ -7,13 +7,21 @@
  * `email_verified === false` is refused; an existing link wins, then email-based linking to an
  * existing user, else `admitUser`. Tokens are AES-GCM encrypted at rest — `OAUTH_ENCRYPTION_KEY`
  * is checked before the redirect. Unknown or unconfigured provider → 404 envelope; under
- * `AUTH_OIDC_ONLY` every provider but `oidc` → `/login?error=oidc_only`.
+ * `AUTH_OIDC_ONLY` every provider but `oidc` → `/login?error=oidc_only`. A token exchange the
+ * issuer refuses because its pre-token hook denied the person (Cognito's 400
+ * `UserLambdaValidationException`) → `/login?error=no_access`.
+ *
+ * `OIDC_PRESET=labs` (`services/labs-identity.ts`): after the identity is resolved and BEFORE
+ * `completeLogin`, every `oidc` sign-in reconciles tenants, memberships and global admin from the
+ * verified `labs_*` claims — here, not in `admitUser`, because a linked user never reaches
+ * `admitUser`. A new person the claims admit is created whatever `SIGNUP_MODE` says.
  */
 import { ERROR_CODES } from '@rocketpod/shared/errors'
 import { generateCodeVerifier, generateState } from 'arctic'
-import { isOidcOnly, oauthRedirectUri } from '../../../config'
+import { isLabsPreset, isOidcOnly, oauthRedirectUri } from '../../../config'
 import {
   clearFlowCookie,
+  LABS_SESSION_TTL_MS,
   OAUTH_STATE_COOKIE_NAME,
   readFlowCookie,
   setFlowCookie,
@@ -21,8 +29,11 @@ import {
 import { requireEncryptionKey } from '../../auth/oauth-encryption'
 import { findProviderLink, upsertProviderLink } from '../../auth/oauth-providers'
 import { getProvider, type ProviderDefinition, scopesOf } from '../../auth/providers'
+import { isAccessDeniedAtTokenExchange } from '../../auth/providers/oidc'
 import { resolveCookieAuth } from '../../middleware/auth'
 import { admitUser, findUserByEmail } from '../../services/auth'
+import { platformFeatures } from '../../services/features'
+import { labsClaimsAdmit, readLabsClaims, reconcileLabsClaims } from '../../services/labs-identity'
 import type { AppContext } from '../../types'
 import { ConflictError, NotFoundError, UnauthorizedError } from '../../utils/core/errors'
 import { createRouter } from '../../utils/routes/router'
@@ -150,6 +161,10 @@ oauthRouter.get('/:provider/callback', async c => {
     tokens = await client.validateAuthorizationCode(code, flow.verifier)
     profile = await def.fetchProfile(tokens, { cfg, nonce: flow.nonce })
   } catch (err) {
+    if (def.id === 'oidc' && isAccessDeniedAtTokenExchange(err)) {
+      logger.info({ provider: def.id }, 'OIDC issuer denied the token exchange: no access')
+      return loginErrorRedirect(c, 'no_access')
+    }
     logger.warn({ err, provider: def.id }, 'OAuth code exchange or profile fetch failed')
     return loginErrorRedirect(c, 'oauth_failed')
   }
@@ -179,12 +194,23 @@ oauthRouter.get('/:provider/callback', async c => {
     : undefined
   if (user?.blockedAt) return loginErrorRedirect(c, 'blocked')
 
-  // 2. Else by verified email (existing user is linked; a new one goes through sign-up gating).
+  // The labs preset: verified claims, or null (absent/malformed → ignored, logged).
+  const labs =
+    def.id === 'oidc' && isLabsPreset(cfg) ? readLabsClaims(profile.idTokenClaims, logger) : null
+
+  // 2. Else by verified email (existing user is linked; a new one goes through sign-up gating —
+  //    or, under the labs preset, is admitted by the claims).
   if (!user) {
     const admitted = await admitUser(
       db,
       cfg,
-      { email, name: profile.name, verified: true, avatarUrl: profile.avatarUrl },
+      {
+        email,
+        name: profile.name,
+        verified: true,
+        avatarUrl: profile.avatarUrl,
+        admittedBy: labs && labsClaimsAdmit(labs) ? 'labs' : undefined,
+      },
       logger,
       c.get('platform').jobs
     )
@@ -201,6 +227,31 @@ oauthRouter.get('/:provider/callback', async c => {
     throw err
   }
 
-  await completeLogin(c, db, cfg, user)
+  if (labs) {
+    try {
+      const reconciled = await reconcileLabsClaims(
+        db,
+        user,
+        labs,
+        logger,
+        await platformFeatures(db, cfg)
+      )
+      user = reconciled.user
+    } catch (err) {
+      // Never sign someone in on memberships the claims were about to change.
+      logger.error({ err, userId: user.id }, 'OIDC_PRESET=labs: reconcile failed')
+      return loginErrorRedirect(c, 'oauth_failed')
+    }
+  }
+
+  const presetSession = def.id === 'oidc' && isLabsPreset(cfg)
+  await completeLogin(
+    c,
+    db,
+    cfg,
+    user,
+    null,
+    presetSession ? { ttlMs: LABS_SESSION_TTL_MS } : undefined
+  )
   return c.redirect(flow.redirectTo, 302)
 })

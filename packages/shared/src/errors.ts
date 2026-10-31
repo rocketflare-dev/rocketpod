@@ -66,6 +66,12 @@ export const ERROR_CODES = {
   interruptNotPending: 'interrupt_not_pending',
   /** 409: the run is not parked, so there is nothing to resume. */
   runNotAwaitingInput: 'run_not_awaiting_input',
+  /**
+   * 409: the membership is managed by Labs Access (`tenant_users.source = 'labs'`,
+   * `OIDC_PRESET=labs`) — its role and its existence follow the person's token claims, so the
+   * app may neither edit nor remove it. Change it in Labs Access; the next sign-in applies it.
+   */
+  labsManaged: 'labs_managed',
   /** 416: the `Range` asked for starts past the end of the object (`Content-Range: bytes *\/n`). */
   rangeNotSatisfiable: 'range_not_satisfiable',
 } as const

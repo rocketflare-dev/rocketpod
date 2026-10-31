@@ -18,8 +18,15 @@
  * - **`email_verified`** must be asserted `true`: a missing flag is UNVERIFIED unless
  *   `OIDC_TRUST_EMAIL=true`, and an explicit `false` is always refused by the router.
  * - **`groups`** is read into the profile and deliberately not stored (docs/CONCEPTS.md §2 gaps).
+ * - **The verified payload** rides on the profile as `idTokenClaims`, for an issuer preset
+ *   (`OIDC_PRESET=labs` reads `labs_*` from it in the callback — `services/labs-identity.ts`).
  */
-import { CodeChallengeMethod, OAuth2Client } from 'arctic'
+import {
+  CodeChallengeMethod,
+  OAuth2Client,
+  OAuth2RequestError,
+  UnexpectedErrorResponseBodyError,
+} from 'arctic'
 import {
   createRemoteJWKSet,
   type JWKSCacheInput,
@@ -103,6 +110,27 @@ function verifiedFlag(value: unknown): boolean | undefined {
 function stringClaim(payload: JWTPayload, key: string): string | undefined {
   const value = payload[key]
   return typeof value === 'string' && value.length > 0 ? value : undefined
+}
+
+/** What Cognito says when its Pre Token Generation Lambda refused the person. */
+const PRE_TOKEN_DENIAL = /UserLambdaValidationException|PreTokenGeneration failed/i
+
+/**
+ * The token exchange failed because the issuer DENIED this person, not because anything broke:
+ * Amazon Cognito answers `/oauth2/token` with HTTP 400 `UserLambdaValidationException` (and the
+ * Lambda's message) when a Pre Token Generation Lambda throws — Labs Access's way of saying "no
+ * grant for this app" (LABS-IDENTITY §6). The browser has already come back with a `code`, so this
+ * is the only place the refusal is visible. arctic surfaces a 400 either as an `OAuth2RequestError`
+ * (an OAuth `error` body) or an `UnexpectedErrorResponseBodyError` (an AWS-shaped body).
+ */
+export function isAccessDeniedAtTokenExchange(err: unknown): boolean {
+  if (err instanceof OAuth2RequestError) {
+    return PRE_TOKEN_DENIAL.test(`${err.code} ${err.description ?? ''}`)
+  }
+  if (err instanceof UnexpectedErrorResponseBodyError) {
+    return err.status === 400 && PRE_TOKEN_DENIAL.test(JSON.stringify(err.data ?? ''))
+  }
+  return false
 }
 
 /** Verify an `id_token` for this deployment; returns its claims or throws. */
@@ -228,6 +256,7 @@ export async function oidcProfile(
       null,
     avatarUrl: picture ?? null,
     groups,
+    idTokenClaims: claims,
   }
 }
 
@@ -235,16 +264,17 @@ export async function oidcProfile(
  * RP-initiated logout (OIDC RP-Initiated Logout 1.0): the issuer's `end_session_endpoint` with
  * `client_id` and `post_logout_redirect_uri=<APP_URL>/login?signedOut=1`, or null when the issuer
  * advertises none (or discovery fails — logging out locally must never depend on the issuer).
+ * The same URL also goes as `logout_uri`: Amazon Cognito's `/logout` returns to the app only with
+ * that parameter (it shows "Invalid request" without it); other issuers ignore it.
  * No `id_token_hint`: the app does not keep id_tokens, so the issuer may ask for confirmation.
  */
 export async function oidcEndSessionUrl(cfg: AppConfig): Promise<string | null> {
   const doc = await discoverOidc(cfg)
   if (!doc.end_session_endpoint) return null
   const url = new URL(doc.end_session_endpoint)
+  const returnTo = new URL('/login?signedOut=1', cfg.APP_URL).toString()
   url.searchParams.set('client_id', cfg.OIDC_CLIENT_ID ?? '')
-  url.searchParams.set(
-    'post_logout_redirect_uri',
-    new URL('/login?signedOut=1', cfg.APP_URL).toString()
-  )
+  url.searchParams.set('post_logout_redirect_uri', returnTo)
+  url.searchParams.set('logout_uri', returnTo)
   return url.toString()
 }

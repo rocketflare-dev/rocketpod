@@ -7,6 +7,10 @@
  * `status` lets a global admin suspend an org — the auth middleware then answers 403
  * `tenant_suspended`. `seedDataCreated` + `lastAccessedAt` are the demo-tenant lifecycle: a cron
  * may purge demo data from idle tenants.
+ *
+ * `externalOrgId` is the id of the organisation this tenant mirrors in an external directory —
+ * the Labs Access org id under `OIDC_PRESET=labs`, the key the sign-in reconcile finds the tenant
+ * by. Unique; NULL for every tenant the app made itself.
  */
 import { sql } from 'drizzle-orm'
 import { boolean, pgEnum, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core'
@@ -23,6 +27,7 @@ export const tenants = pgTable(
     /** URL-safe identifier (`slugSchema` in src/shared/tenants.ts). */
     slug: text('slug').notNull().unique(),
     status: tenantStatusEnum('status').notNull().default('active'),
+    externalOrgId: text('external_org_id').unique(),
     /** True once demo/seed rows were generated for this tenant (`pnpm seed`, onboarding). */
     seedDataCreated: boolean('seed_data_created').notNull().default(false),
     /** Touched (fire-and-forget) by the auth middleware; drives idle-tenant housekeeping. */

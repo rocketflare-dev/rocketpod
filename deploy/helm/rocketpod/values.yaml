@@ -62,6 +62,7 @@ config:
   OIDC_SCOPES: ""
   AUTH_OIDC_ONLY: ""
   OIDC_TRUST_EMAIL: ""
+  OIDC_PRESET: ""
 
 # Secrets → a Secret, unless `existingSecret` names one you manage (External Secrets, Sealed
 # Secrets, Vault…) with the same keys. Empty values are left out.

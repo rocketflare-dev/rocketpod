@@ -32,6 +32,13 @@ export interface AdmitInput {
   /** The login proved ownership of the address (magic link; provider said verified). */
   verified: boolean
   avatarUrl?: string | null
+  /**
+   * The issuer already decided this person may use the app (`OIDC_PRESET=labs`: the verified
+   * claims carry an org grant, staff or platform admin). A new user is created whatever
+   * `SIGNUP_MODE` says, with no access request and no `onNoTenant` — the claims reconcile the
+   * tenants right after.
+   */
+  admittedBy?: 'labs'
 }
 
 export type AdmitResult =
@@ -148,6 +155,12 @@ export async function admitUser(
       'BOOTSTRAP_ADMIN_EMAILS: created the first GLOBAL ADMIN on verified login'
     )
     await onNoTenant(db, cfg, user, logger)
+    return { ok: true, user, created: true }
+  }
+
+  if (input.admittedBy === 'labs') {
+    const user = await createUser(db, { ...input, email }, { isGlobalAdmin: false })
+    logger.info({ userId: user.id }, 'OIDC_PRESET=labs: admitted by the token claims')
     return { ok: true, user, created: true }
   }
 

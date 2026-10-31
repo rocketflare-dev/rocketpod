@@ -34,7 +34,7 @@ import {
   invitationStatusSchema,
   tenantRoleSchema,
 } from '@rocketpod/shared/tenants'
-import { SESSION_TTL_MS } from '../auth/cookies'
+import { LABS_SESSION_TTL_MS, SESSION_TTL_MS } from '../auth/cookies'
 
 /** `a`, `a and b`, `a, b and c` — code-formatted, as a page would write them. */
 function codeList(values: readonly string[]): string {
@@ -82,6 +82,7 @@ export const PINNED_FACTS = {
 /** Facts built from constants this module imports. */
 const IMPORTED_FACTS = {
   'auth.session_days': String(SESSION_TTL_MS / DAY_MS),
+  'auth.labs_session_days': String(LABS_SESSION_TTL_MS / DAY_MS),
   'auth.signup_modes': codeList(signupModeSchema.options),
   'team.roles': codeList(tenantRoleSchema.options),
   'team.invitation_statuses': codeList(invitationStatusSchema.options),

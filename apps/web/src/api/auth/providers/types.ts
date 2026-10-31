@@ -16,6 +16,11 @@ export interface OAuthProfile {
   avatarUrl: string | null
   /** Group names the issuer asserted (OIDC `groups`). Read, never stored — a known gap. */
   groups?: string[]
+  /**
+   * The VERIFIED id_token's payload (OIDC only) — what an issuer preset reads its own claims from
+   * (`OIDC_PRESET=labs`: the `labs_*` claims). Never stored.
+   */
+  idTokenClaims?: Record<string, unknown>
 }
 
 export interface OAuthTokenSet {

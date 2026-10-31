@@ -43,6 +43,13 @@
       "when": 1792658907045,
       "tag": "0005_guide-chunks",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793442827301,
+      "tag": "0006_labs-preset",
+      "breakpoints": true
     }
   ]
 }

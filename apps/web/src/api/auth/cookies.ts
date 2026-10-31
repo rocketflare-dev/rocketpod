@@ -15,6 +15,8 @@ export const SESSION_COOKIE_NAME = '__Host-session'
 export const OAUTH_STATE_COOKIE_NAME = 'oauth_state'
 
 export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000
+/** A sign-in under `OIDC_PRESET=labs` slides over 7 days, not 30 (LABS-IDENTITY §8.4). */
+export const LABS_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000
 const FLOW_COOKIE_TTL_S = 10 * 60
 
 /** `Secure` for the non-`__Host-` flow cookies: on everywhere but plain-http development. */

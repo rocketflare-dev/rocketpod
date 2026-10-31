@@ -5,7 +5,7 @@
  * admin `new_org` approval and the seed script. `getSingleTenant` is the `TENANCY_MODE=single`
  * anchor: the first tenant row.
  */
-import type { MembershipRole } from '@rocketpod/shared/tenants'
+import type { MembershipRole, MembershipSource } from '@rocketpod/shared/tenants'
 import { slugify } from '@rocketpod/shared/tenants'
 import { asc, eq, like } from 'drizzle-orm'
 import type { Database } from '../../../db/client'
@@ -44,6 +44,10 @@ export interface CreateTenantForUserInput {
   slug?: string
   userId: string
   role?: MembershipRole
+  /** The founding membership's source (`manual` unless the `labs` preset creates the tenant). */
+  source?: MembershipSource
+  /** The external directory's org id (`tenants.external_org_id`, the `labs` preset). */
+  externalOrgId?: string | null
   invitedByUserId?: string | null
   /**
    * The features this deployment ships, so the new tenant is seeded with the template
@@ -65,12 +69,16 @@ export async function createTenantForUser(
   }
   const role = input.role ?? 'owner'
   const tenant = await db.transaction(async tx => {
-    const [tenant] = await tx.insert(tenants).values({ name: input.name, slug }).returning()
+    const [tenant] = await tx
+      .insert(tenants)
+      .values({ name: input.name, slug, externalOrgId: input.externalOrgId ?? null })
+      .returning()
     if (!tenant) throw new Error('createTenantForUser: insert returned no row')
     await tx.insert(tenantUsers).values({
       tenantId: tenant.id,
       userId: input.userId,
       role,
+      source: input.source ?? 'manual',
       invitedByUserId: input.invitedByUserId ?? null,
     })
     await tx.insert(tenantSettings).values({ tenantId: tenant.id }).onConflictDoNothing()

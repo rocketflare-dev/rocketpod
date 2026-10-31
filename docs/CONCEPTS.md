@@ -65,6 +65,17 @@ suites on vitest 4, §9 — never part of the gate).
   tenant predicate, never substituted for it**. Admin-level roles bypass it. Groups grant READ only.
   Deleting a group that still grants something is 409 `group_in_use` (`?force=1` narrows).
   `access.changed` nudges the affected users.
+- **Tenants from an external directory (`OIDC_PRESET=labs`, §2).** `tenants.external_org_id`
+  (unique, NULL for every tenant the app made) ties a tenant to a Labs Access org, and
+  `tenant_users.source` (`manual | labs`) says who manages a membership. The sign-in reconcile
+  creates a tenant per granted org, keeps its name in step with the claim, and adds or removes the
+  person's `labs` rows. **A tenant the preset creates has no owner — decided:** the preset never
+  writes `owner` (or `support`), so the last-owner guard only ever counts owners a person chose,
+  and losing an org in Labs can never delete a tenant's last owner. Ownerless is a state the kit
+  already allows: owner-only actions stay open to global admins (`isOwnerLevel`), and an owner can
+  be made later from a MANUAL membership. A `labs` row is read-only in the app — role change and
+  removal answer 409 `labs_managed` (People shows a "Labs Access" badge instead of controls);
+  manual rows in the same tenant work as ever.
 - **Isolation = predicates + inert RLS (D1)** — §4, `docs/RLS.md`.
 
 **Known gaps:** no IdP group sync (SCIM/SAML claims); no group hierarchy or per-group roles;
@@ -73,7 +84,8 @@ are always `tenant`; no audit log beyond `activity_events`; no personal API keys
 
 ## 2. Auth
 
-- **Sessions are rows**: `user_sessions`, 30-day sliding TTL (`SESSION_TTL_MS`), cookie `__Host-session` (`HttpOnly`,
+- **Sessions are rows**: `user_sessions`, 30-day sliding TTL (`SESSION_TTL_MS`; a row's own
+  `ttl_seconds` overrides it — 7 days under `OIDC_PRESET=labs`, the cookie keeping 30), cookie `__Host-session` (`HttpOnly`,
   `SameSite=Lax`, `Secure` outside development). `authMiddleware` resolves session → user →
   membership → groups → features in one query. The second strategy is a Bearer tenant API key
   (hashed, expiry, soft revoke).
@@ -98,7 +110,28 @@ are always `tenant`; no audit log beyond `activity_events`; no personal API keys
   explicit `false` is always refused. `AUTH_OIDC_ONLY=true` leaves the login page one "Continue with <label>" button (never an
   automatic redirect: a live issuer session must not become a silent login) and refuses `/auth/google|microsoft` — it **hides** magic link, it does not disable it (invitations
   still use it). With an `end_session_endpoint`, `POST /auth/logout` answers
-  `200 { endSessionUrl }` (RP-initiated logout back to `/login?signedOut=1`); otherwise 204. Setup: `SETUP.md` → "Sign in with any OIDC issuer".
+  `200 { endSessionUrl }` (RP-initiated logout back to `/login?signedOut=1`, sent as both
+  `post_logout_redirect_uri` and `logout_uri` — Amazon Cognito returns only on the latter); otherwise
+  204. A token exchange the issuer refuses with HTTP 400 `UserLambdaValidationException` (a Cognito
+  Pre Token Lambda denying the person) lands on `/login?error=no_access` — "You don't have access to
+  this app" — not the generic error. Setup: `SETUP.md` → "Sign in with any OIDC issuer".
+- **The `labs` preset (`OIDC_PRESET=labs`)**: the issuer is Labs Access (the Labs Cognito pool),
+  whose id_token carries `labs_v`, `labs_person`, `labs_staff`, `labs_platform_admin` and
+  `labs_orgs: [{ id, slug, name, role }]` (only the orgs granted THIS app). The callback reads them
+  from the payload `oidc.ts` already verified (zod, `@rocketpod/shared/labs`; missing or malformed →
+  ignored and logged, the sign-in is plain OIDC) and runs `reconcileLabsClaims`
+  (`services/labs-identity.ts`) on **every** sign-in, before `completeLogin` — linked users never
+  reach `admitUser`, so it cannot live there. Admission comes from the claims, not `SIGNUP_MODE`:
+  a person with an org grant, `labs_staff` or `labs_platform_admin` is created if new and is never
+  given an access request (any pending one is closed once they hold a tenant). Roles map through
+  `LABS_ROLE_MAP` (`client_admin`/`nearform_staff`/`nearform_admin` → `admin`, `client_member` →
+  `member`; edit the constant to override); an existing manual admin/member row is adopted as
+  `labs`, an `owner` or `support` row is left alone. An org gone from the claims deletes its `labs`
+  row (with the member's tenant settings) and unpins sessions pinned to it.
+  `labs_platform_admin` sets `is_global_admin` with `global_admin_source = 'labs'`; the claim going
+  clears it only when that source is `labs` (the admin console writes `manual`). Staff with no
+  org get the normal no-tenant pages and, as global admins, "Enter" from `/admin`. Sessions slide
+  over 7 days (LABS-IDENTITY §8.4). Tenancy is §1.
 - **Hardening (D12)**: random tokens hashed with SHA-256, a required encryption key, CSRF by origin
   allow-list (Bearer is exempt), and a sliding-window rate limit on login routes (the platform's
   `rateLimiter`: the `rate_limits` table — `src/node/limits.ts`, exact under concurrency, keyed by
@@ -113,7 +146,11 @@ deployment; the `groups` claim is read into the profile but **not stored or mapp
 or roles; no `id_token_hint` on logout (id_tokens are not kept, so the issuer may ask to confirm);
 no back-channel or front-channel logout; `OIDC_TRUST_EMAIL=true` trusts every email the issuer
 sends (no per-domain rule) — set it only for an issuer that controls the `email` claim; the client secret
-is sent as `client_secret_basic` only (no `private_key_jwt`).
+is sent as `client_secret_basic` only (no `private_key_jwt`). `labs` preset: claims are as fresh
+as the last sign-in — no Labs Access webhooks (`POST /api/labs/events`, LABS-IDENTITY §8.2) yet, so
+a removal between sign-ins waits for the session to lapse (7 days idle) or the next sign-in; the
+app does not write `app_tenants` back to Labs Access; the slug is taken from the claim once and
+never follows a later rename; the role map is a code constant, not config.
 
 ## 3. API shell
 

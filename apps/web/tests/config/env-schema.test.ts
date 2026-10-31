@@ -3,6 +3,7 @@ import {
   ConfigError,
   configuredOAuthProviders,
   hasOidc,
+  isLabsPreset,
   isOidcOnly,
   loadConfig,
   oauthRedirectUri,
@@ -79,5 +80,20 @@ describe('loadConfig', () => {
       OIDC_CLIENT_ID: 'app',
     })
     expect(isOidcOnly(cfg)).toBe(true)
+  })
+
+  it('OIDC_PRESET=labs needs an issuer, a client id and multi-tenancy; anything else is refused', () => {
+    const issuer = { OIDC_ISSUER: 'https://idp.test', OIDC_CLIENT_ID: 'app' }
+    expect(loadConfig({ ...base, OIDC_PRESET: '' }).OIDC_PRESET).toBeUndefined()
+    expect(() => loadConfig({ ...base, OIDC_PRESET: 'labs' })).toThrow(/OIDC_PRESET/)
+    expect(() =>
+      loadConfig({ ...base, OIDC_PRESET: 'labs', OIDC_ISSUER: 'https://idp.test' })
+    ).toThrow(ConfigError)
+    expect(() =>
+      loadConfig({ ...base, ...issuer, OIDC_PRESET: 'labs', TENANCY_MODE: 'single' })
+    ).toThrow(/TENANCY_MODE=multi/)
+    expect(() => loadConfig({ ...base, ...issuer, OIDC_PRESET: 'okta' })).toThrow(/OIDC_PRESET/)
+    expect(isLabsPreset(loadConfig({ ...base, ...issuer, OIDC_PRESET: 'labs' }))).toBe(true)
+    expect(isLabsPreset(loadConfig({ ...base, ...issuer }))).toBe(false)
   })
 })

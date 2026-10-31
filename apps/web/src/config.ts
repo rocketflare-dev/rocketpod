@@ -249,6 +249,18 @@ const coreConfigSchema = z.object({
    * `email_verified: false` is refused either way.
    */
   OIDC_TRUST_EMAIL: optionalBoolean(false),
+  /**
+   * A known issuer's extra contract on top of plain OIDC. Unset → plain OIDC. `labs` → the issuer
+   * is Labs Access (the Labs Cognito pool): every OIDC sign-in reconciles tenants, memberships and
+   * the global-admin flag from the `labs_*` id_token claims, admission comes from those claims
+   * rather than `SIGNUP_MODE`, and the session slides over 7 days instead of 30
+   * (`api/services/labs-identity.ts`, docs/CONCEPTS.md §2). Requires `OIDC_ISSUER` +
+   * `OIDC_CLIENT_ID` and `TENANCY_MODE=multi`.
+   */
+  OIDC_PRESET: z.preprocess(
+    value => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+    z.enum(['labs']).optional()
+  ),
 
   // ---- Secrets (.env locally, the deployment's secret store deployed) — all optional here;
   //      features gate on presence (zero-creds first run) or demand them at use time. -------
@@ -313,6 +325,22 @@ const configSchema = coreConfigSchema.extend(pluginConfigShape).superRefine((cfg
       message: 'AUTH_OIDC_ONLY=true needs OIDC_ISSUER and OIDC_CLIENT_ID',
     })
   }
+  // The preset reads its claims from the issuer's id_token — without an issuer it reads nothing.
+  if (cfg.OIDC_PRESET === 'labs' && !(cfg.OIDC_ISSUER && cfg.OIDC_CLIENT_ID)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['OIDC_PRESET'],
+      message: 'OIDC_PRESET=labs needs OIDC_ISSUER and OIDC_CLIENT_ID',
+    })
+  }
+  // One tenant per Labs org: single-tenant mode has exactly one, so the two cannot both hold.
+  if (cfg.OIDC_PRESET === 'labs' && cfg.TENANCY_MODE === 'single') {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['OIDC_PRESET'],
+      message: 'OIDC_PRESET=labs needs TENANCY_MODE=multi (it creates one tenant per Labs org)',
+    })
+  }
 }) as unknown as typeof coreConfigSchema
 
 export type AppConfig = z.infer<typeof coreConfigSchema>
@@ -371,6 +399,9 @@ export function configuredOAuthProviders(cfg: AppConfig): OAuthProviderName[] {
 
 /** An OIDC issuer is configured — issuer + client id (the secret is optional: public clients). */
 export const hasOidc = (cfg: AppConfig): boolean => Boolean(cfg.OIDC_ISSUER && cfg.OIDC_CLIENT_ID)
+
+/** `OIDC_PRESET=labs` in force (loadConfig has already refused it without an issuer). */
+export const isLabsPreset = (cfg: AppConfig): boolean => cfg.OIDC_PRESET === 'labs' && hasOidc(cfg)
 
 /** `AUTH_OIDC_ONLY` in force (loadConfig has already refused it without an issuer). */
 export const isOidcOnly = (cfg: AppConfig): boolean => cfg.AUTH_OIDC_ONLY && hasOidc(cfg)

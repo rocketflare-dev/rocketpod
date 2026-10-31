@@ -448,9 +448,14 @@ export async function setGlobalAdmin(
       throw new ConflictError('At least one global admin must remain', 'last_global_admin')
     }
   }
+  if (target.isGlobalAdmin === input.isGlobalAdmin) return target
+  // A grant made here is `manual`, so a Labs sign-in without `labs_platform_admin` never clears it.
   const [updated] = await db
     .update(users)
-    .set({ isGlobalAdmin: input.isGlobalAdmin })
+    .set({
+      isGlobalAdmin: input.isGlobalAdmin,
+      globalAdminSource: input.isGlobalAdmin ? 'manual' : null,
+    })
     .where(eq(users.id, input.userId))
     .returning()
   return updated ?? target

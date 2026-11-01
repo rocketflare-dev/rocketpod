@@ -11,17 +11,17 @@
  * issuer refuses because its pre-token hook denied the person (Cognito's 400
  * `UserLambdaValidationException`) → `/login?error=no_access`.
  *
- * `OIDC_PRESET=labs` (`services/labs-identity.ts`): after the identity is resolved and BEFORE
+ * `OIDC_MANAGED_TENANCY` (`services/idp-tenancy.ts`): after the identity is resolved and BEFORE
  * `completeLogin`, every `oidc` sign-in reconciles tenants, memberships and global admin from the
- * verified `labs_*` claims — here, not in `admitUser`, because a linked user never reaches
- * `admitUser`. A new person the claims admit is created whatever `SIGNUP_MODE` says.
+ * verified id_token's claims — here, not in `admitUser`, because a linked user never reaches
+ * `admitUser`. A new person the claims admit is created whatever `SIGNUP_MODE` says, and the
+ * session ends `OIDC_SESSION_MAX_AGE_DAYS` after sign-in.
  */
 import { ERROR_CODES } from '@rocketpod/shared/errors'
 import { generateCodeVerifier, generateState } from 'arctic'
-import { isLabsPreset, isOidcOnly, oauthRedirectUri } from '../../../config'
+import { isIdpManaged, isOidcOnly, oauthRedirectUri } from '../../../config'
 import {
   clearFlowCookie,
-  LABS_SESSION_TTL_MS,
   OAUTH_STATE_COOKIE_NAME,
   readFlowCookie,
   setFlowCookie,
@@ -33,11 +33,13 @@ import { isAccessDeniedAtTokenExchange } from '../../auth/providers/oidc'
 import { resolveCookieAuth } from '../../middleware/auth'
 import { admitUser, findUserByEmail } from '../../services/auth'
 import { platformFeatures } from '../../services/features'
-import { labsClaimsAdmit, readLabsClaims, reconcileLabsClaims } from '../../services/labs-identity'
+import { idpClaimsAdmit, readIdpClaims, reconcileIdpClaims } from '../../services/idp-tenancy'
 import type { AppContext } from '../../types'
 import { ConflictError, NotFoundError, UnauthorizedError } from '../../utils/core/errors'
 import { createRouter } from '../../utils/routes/router'
 import { completeLogin, type LoginErrorCode, loginErrorRedirect, safeRedirectPath } from './helpers'
+
+const DAY_MS = 24 * 60 * 60 * 1000
 
 export const oauthRouter = createRouter()
 
@@ -194,12 +196,12 @@ oauthRouter.get('/:provider/callback', async c => {
     : undefined
   if (user?.blockedAt) return loginErrorRedirect(c, 'blocked')
 
-  // The labs preset: verified claims, or null (absent/malformed → ignored, logged).
-  const labs =
-    def.id === 'oidc' && isLabsPreset(cfg) ? readLabsClaims(profile.idTokenClaims, logger) : null
+  // IdP-managed tenancy: verified claims, or null (absent/malformed → ignored, logged).
+  const managed = def.id === 'oidc' && isIdpManaged(cfg)
+  const claims = managed ? readIdpClaims(cfg, profile.idTokenClaims, logger) : null
 
   // 2. Else by verified email (existing user is linked; a new one goes through sign-up gating —
-  //    or, under the labs preset, is admitted by the claims).
+  //    or, under IdP-managed tenancy, is admitted by the claims).
   if (!user) {
     const admitted = await admitUser(
       db,
@@ -209,7 +211,7 @@ oauthRouter.get('/:provider/callback', async c => {
         name: profile.name,
         verified: true,
         avatarUrl: profile.avatarUrl,
-        admittedBy: labs && labsClaimsAdmit(labs) ? 'labs' : undefined,
+        admittedBy: claims && idpClaimsAdmit(claims) ? 'idp' : undefined,
       },
       logger,
       c.get('platform').jobs
@@ -227,31 +229,30 @@ oauthRouter.get('/:provider/callback', async c => {
     throw err
   }
 
-  if (labs) {
+  if (claims) {
     try {
-      const reconciled = await reconcileLabsClaims(
+      const reconciled = await reconcileIdpClaims(
         db,
         user,
-        labs,
+        claims,
         logger,
         await platformFeatures(db, cfg)
       )
       user = reconciled.user
     } catch (err) {
       // Never sign someone in on memberships the claims were about to change.
-      logger.error({ err, userId: user.id }, 'OIDC_PRESET=labs: reconcile failed')
+      logger.error({ err, userId: user.id }, 'IdP-managed tenancy: reconcile failed')
       return loginErrorRedirect(c, 'oauth_failed')
     }
   }
 
-  const presetSession = def.id === 'oidc' && isLabsPreset(cfg)
   await completeLogin(
     c,
     db,
     cfg,
     user,
     null,
-    presetSession ? { ttlMs: LABS_SESSION_TTL_MS } : undefined
+    managed ? { maxAgeMs: cfg.OIDC_SESSION_MAX_AGE_DAYS * DAY_MS } : undefined
   )
   return c.redirect(flow.redirectTo, 302)
 })

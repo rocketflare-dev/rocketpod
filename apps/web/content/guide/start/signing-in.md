@@ -40,9 +40,10 @@ has expired, or you already used it, go back to the sign-in page and ask for a n
 ## How long you stay signed in
 
 A sign-in lasts {{fact:auth.session_days}} days on that browser. Signing out from the user menu ends
-it at once. Where the app signs you in through Labs Access, a sign-in ends after
-{{fact:auth.labs_session_days}} days without a visit instead, and each sign-in brings your
-organisations and role up to date.
+it at once. Where your organisation's identity provider decides who may use the app, a sign-in
+through it ends a fixed time after you sign in, however often you visit:
+{{fact:auth.idp_session_days}} days unless your administrator chose otherwise. Each sign-in
+brings your organisations and role up to date.
 
 ## Add a second way in
 

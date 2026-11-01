@@ -7,7 +7,7 @@
  * Pre-tenant infrastructure: in `RLS_REVOKED_TABLES` (no policy, app role has no grants).
  */
 import { relations } from 'drizzle-orm'
-import { index, integer, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core'
+import { index, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core'
 import { tenants } from './tenants'
 import { users } from './users'
 
@@ -26,10 +26,11 @@ export const userSessions = pgTable(
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
     /**
-     * The sliding window this session renews to on use, in seconds. NULL = the kit's
-     * `SESSION_TTL_MS` (30 days); a sign-in under `OIDC_PRESET=labs` stores 7 days.
+     * The latest `expiresAt` may slide to, however active the session. NULL = no cap; an OIDC
+     * sign-in under `OIDC_MANAGED_TENANCY` stores sign-in + `OIDC_SESSION_MAX_AGE_DAYS`, so the
+     * person signs in again and is reconciled from fresh claims.
      */
-    ttlSeconds: integer('ttl_seconds'),
+    maxExpiresAt: timestamp('max_expires_at', { withTimezone: true }),
     ip: text('ip'),
     userAgent: text('user_agent'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

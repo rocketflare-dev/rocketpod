@@ -3,7 +3,7 @@ import {
   ConfigError,
   configuredOAuthProviders,
   hasOidc,
-  isLabsPreset,
+  isIdpManaged,
   isOidcOnly,
   loadConfig,
   oauthRedirectUri,
@@ -82,18 +82,40 @@ describe('loadConfig', () => {
     expect(isOidcOnly(cfg)).toBe(true)
   })
 
-  it('OIDC_PRESET=labs needs an issuer, a client id and multi-tenancy; anything else is refused', () => {
+  it('OIDC_MANAGED_TENANCY needs an issuer, a client id and multi-tenancy', () => {
     const issuer = { OIDC_ISSUER: 'https://idp.test', OIDC_CLIENT_ID: 'app' }
-    expect(loadConfig({ ...base, OIDC_PRESET: '' }).OIDC_PRESET).toBeUndefined()
-    expect(() => loadConfig({ ...base, OIDC_PRESET: 'labs' })).toThrow(/OIDC_PRESET/)
+    expect(loadConfig({ ...base, OIDC_MANAGED_TENANCY: '' }).OIDC_MANAGED_TENANCY).toBe(false)
+    expect(() => loadConfig({ ...base, OIDC_MANAGED_TENANCY: 'true' })).toThrow(
+      /OIDC_MANAGED_TENANCY/
+    )
     expect(() =>
-      loadConfig({ ...base, OIDC_PRESET: 'labs', OIDC_ISSUER: 'https://idp.test' })
+      loadConfig({ ...base, OIDC_MANAGED_TENANCY: 'true', OIDC_ISSUER: 'https://idp.test' })
     ).toThrow(ConfigError)
     expect(() =>
-      loadConfig({ ...base, ...issuer, OIDC_PRESET: 'labs', TENANCY_MODE: 'single' })
+      loadConfig({ ...base, ...issuer, OIDC_MANAGED_TENANCY: 'true', TENANCY_MODE: 'single' })
     ).toThrow(/TENANCY_MODE=multi/)
-    expect(() => loadConfig({ ...base, ...issuer, OIDC_PRESET: 'okta' })).toThrow(/OIDC_PRESET/)
-    expect(isLabsPreset(loadConfig({ ...base, ...issuer, OIDC_PRESET: 'labs' }))).toBe(true)
-    expect(isLabsPreset(loadConfig({ ...base, ...issuer }))).toBe(false)
+    expect(isIdpManaged(loadConfig({ ...base, ...issuer, OIDC_MANAGED_TENANCY: 'true' }))).toBe(
+      true
+    )
+    expect(isIdpManaged(loadConfig({ ...base, ...issuer }))).toBe(false)
+  })
+
+  it('OIDC_ROLE_MAP parses issuerRole:admin|member pairs and refuses anything else', () => {
+    expect(loadConfig(base).OIDC_ROLE_MAP).toEqual({ admin: 'admin', member: 'member' })
+    expect(
+      loadConfig({ ...base, OIDC_ROLE_MAP: ' org_admin:admin , org_member:member ' }).OIDC_ROLE_MAP
+    ).toEqual({ org_admin: 'admin', org_member: 'member' })
+    expect(() => loadConfig({ ...base, OIDC_ROLE_MAP: 'boss:owner' })).toThrow(/OIDC_ROLE_MAP/)
+    expect(() => loadConfig({ ...base, OIDC_ROLE_MAP: 'nocolon' })).toThrow(/OIDC_ROLE_MAP/)
+  })
+
+  it('IDENTITY_WEBHOOK_SECRET must be a Standard Webhooks secret', () => {
+    const secret = `whsec_${Buffer.alloc(32, 7).toString('base64')}`
+    expect(loadConfig({ ...base, IDENTITY_WEBHOOK_SECRET: secret }).IDENTITY_WEBHOOK_SECRET).toBe(
+      secret
+    )
+    expect(() => loadConfig({ ...base, IDENTITY_WEBHOOK_SECRET: 'hunter2' })).toThrow(
+      /IDENTITY_WEBHOOK_SECRET/
+    )
   })
 })

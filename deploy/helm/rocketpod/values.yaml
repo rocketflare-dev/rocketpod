@@ -62,7 +62,12 @@ config:
   OIDC_SCOPES: ""
   AUTH_OIDC_ONLY: ""
   OIDC_TRUST_EMAIL: ""
-  OIDC_PRESET: ""
+  OIDC_MANAGED_TENANCY: ""
+  OIDC_ORGS_CLAIM: ""
+  OIDC_ROLE_MAP: ""
+  OIDC_ADMIT_CLAIM: ""
+  OIDC_GLOBAL_ADMIN_CLAIM: ""
+  OIDC_SESSION_MAX_AGE_DAYS: ""
 
 # Secrets → a Secret, unless `existingSecret` names one you manage (External Secrets, Sealed
 # Secrets, Vault…) with the same keys. Empty values are left out.
@@ -80,6 +85,7 @@ secrets:
   STORAGE_SECRET_ACCESS_KEY: ""
   # 32+ characters (openssl rand -base64 32); needed for OAuth sign-in.
   OAUTH_ENCRYPTION_KEY: ""
+  IDENTITY_WEBHOOK_SECRET: ""
   RESEND_API_KEY: ""
   BOOTSTRAP_ADMIN_EMAILS: ""
   GOOGLE_CLIENT_ID: ""

@@ -3,9 +3,9 @@
  * `resolveSession` is the ONE query behind every cookie-authenticated request — session + user +
  * best membership + tenant + the membership's groups + pending access request through LATERAL
  * joins, so the auth middleware costs one round trip however far the server is from Postgres.
- * Sliding expiry — 30 days, or the session's own `ttl_seconds` (7 days for a sign-in under
- * `OIDC_PRESET=labs`): `touchSession` extends at most hourly (SQL-throttled) and is called
- * through `waitUntil`, never awaited on the response path.
+ * Sliding 30-day expiry, never past the session's own `max_expires_at` when it has one (an OIDC
+ * sign-in under `OIDC_MANAGED_TENANCY`): `touchSession` extends at most hourly (SQL-throttled) and
+ * is called through `waitUntil`, never awaited on the response path.
  */
 import type { FeatureFlagEvaluation } from '@rocketpod/shared/features'
 import type { GroupRef } from '@rocketpod/shared/groups'
@@ -22,8 +22,8 @@ export interface CreateSessionInput {
   selectedTenantId?: string | null
   ip?: string | null
   userAgent?: string | null
-  /** The sliding window, when it is not the kit's `SESSION_TTL_MS` (stored as `ttl_seconds`). */
-  ttlMs?: number
+  /** How long after sign-in the session ends however active it is (stored as `max_expires_at`). */
+  maxAgeMs?: number
 }
 
 export interface CreatedSession {
@@ -38,7 +38,9 @@ export async function createSession(
   input: CreateSessionInput
 ): Promise<CreatedSession> {
   const token = randomToken(32)
-  const expiresAt = new Date(Date.now() + (input.ttlMs ?? SESSION_TTL_MS))
+  const now = Date.now()
+  const maxExpiresAt = input.maxAgeMs === undefined ? null : new Date(now + input.maxAgeMs)
+  const expiresAt = new Date(Math.min(now + SESSION_TTL_MS, maxExpiresAt?.getTime() ?? Infinity))
   const [row] = await db
     .insert(userSessions)
     .values({
@@ -46,7 +48,7 @@ export async function createSession(
       tokenHash: await hashToken(token),
       selectedTenantId: input.selectedTenantId ?? null,
       expiresAt,
-      ttlSeconds: input.ttlMs === undefined ? null : Math.round(input.ttlMs / 1000),
+      maxExpiresAt,
       ip: input.ip ?? null,
       userAgent: input.userAgent?.slice(0, 512) ?? null,
     })
@@ -249,16 +251,16 @@ export async function resolveSession(db: Database, token: string): Promise<Resol
 }
 
 /**
- * Slide the expiry by the session's own window (`ttl_seconds`, else `SESSION_TTL_MS`); the SQL
- * predicate makes it a no-op unless the last touch is > 1 hour old.
+ * Slide the expiry by `SESSION_TTL_MS`, capped at `max_expires_at`; the SQL predicate makes it a
+ * no-op unless the last touch is > 1 hour old.
  */
 export async function touchSession(db: Database, sessionId: string): Promise<void> {
-  const defaultSeconds = Math.round(SESSION_TTL_MS / 1000)
+  const slideTo = new Date(Date.now() + SESSION_TTL_MS)
   await db
     .update(userSessions)
     .set({
       lastSeenAt: new Date(),
-      expiresAt: sql`now() + make_interval(secs => coalesce(${userSessions.ttlSeconds}, ${defaultSeconds}))`,
+      expiresAt: sql`least(${slideTo.toISOString()}::timestamptz, coalesce(${userSessions.maxExpiresAt}, 'infinity'::timestamptz))`,
     })
     .where(
       and(

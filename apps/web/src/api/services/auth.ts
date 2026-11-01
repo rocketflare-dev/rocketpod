@@ -33,12 +33,12 @@ export interface AdmitInput {
   verified: boolean
   avatarUrl?: string | null
   /**
-   * The issuer already decided this person may use the app (`OIDC_PRESET=labs`: the verified
-   * claims carry an org grant, staff or platform admin). A new user is created whatever
+   * The issuer already decided this person may use the app (`OIDC_MANAGED_TENANCY`: the verified
+   * claims carry an org, the admit claim or the global-admin claim). A new user is created whatever
    * `SIGNUP_MODE` says, with no access request and no `onNoTenant` — the claims reconcile the
    * tenants right after.
    */
-  admittedBy?: 'labs'
+  admittedBy?: 'idp'
 }
 
 export type AdmitResult =
@@ -158,9 +158,9 @@ export async function admitUser(
     return { ok: true, user, created: true }
   }
 
-  if (input.admittedBy === 'labs') {
+  if (input.admittedBy === 'idp') {
     const user = await createUser(db, { ...input, email }, { isGlobalAdmin: false })
-    logger.info({ userId: user.id }, 'OIDC_PRESET=labs: admitted by the token claims')
+    logger.info({ userId: user.id }, 'IdP-managed tenancy: admitted by the token claims')
     return { ok: true, user, created: true }
   }
 

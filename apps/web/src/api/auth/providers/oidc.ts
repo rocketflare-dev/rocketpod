@@ -18,8 +18,8 @@
  * - **`email_verified`** must be asserted `true`: a missing flag is UNVERIFIED unless
  *   `OIDC_TRUST_EMAIL=true`, and an explicit `false` is always refused by the router.
  * - **`groups`** is read into the profile and deliberately not stored (docs/CONCEPTS.md §2 gaps).
- * - **The verified payload** rides on the profile as `idTokenClaims`, for an issuer preset
- *   (`OIDC_PRESET=labs` reads `labs_*` from it in the callback — `services/labs-identity.ts`).
+ * - **The verified payload** rides on the profile as `idTokenClaims`, for IdP-managed tenancy
+ *   (`OIDC_MANAGED_TENANCY` reads the orgs claim from it in the callback — `services/idp-tenancy.ts`).
  */
 import {
   CodeChallengeMethod,
@@ -118,8 +118,8 @@ const PRE_TOKEN_DENIAL = /UserLambdaValidationException|PreTokenGeneration faile
 /**
  * The token exchange failed because the issuer DENIED this person, not because anything broke:
  * Amazon Cognito answers `/oauth2/token` with HTTP 400 `UserLambdaValidationException` (and the
- * Lambda's message) when a Pre Token Generation Lambda throws — Labs Access's way of saying "no
- * grant for this app" (LABS-IDENTITY §6). The browser has already come back with a `code`, so this
+ * Lambda's message) when a Pre Token Generation Lambda throws: an identity service's way of saying
+ * "this person may not use this app". The browser has already come back with a `code`, so this
  * is the only place the refusal is visible. arctic surfaces a 400 either as an `OAuth2RequestError`
  * (an OAuth `error` body) or an `UnexpectedErrorResponseBodyError` (an AWS-shaped body).
  */

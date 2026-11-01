@@ -449,7 +449,8 @@ export async function setGlobalAdmin(
     }
   }
   if (target.isGlobalAdmin === input.isGlobalAdmin) return target
-  // A grant made here is `manual`, so a Labs sign-in without `labs_platform_admin` never clears it.
+  // A grant made here is `manual`, so a sign-in without the issuer's global-admin claim never
+  // clears it.
   const [updated] = await db
     .update(users)
     .set({

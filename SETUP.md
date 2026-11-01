@@ -354,35 +354,58 @@ without issuer and client id refuses to boot (config error). Verify: `/auth/meth
 An account whose `email_verified` is `false` — or missing, unless `OIDC_TRUST_EMAIL=true` — is
 refused (`?error=email_unverified`); an existing kit user is linked by verified email.
 
-### 2.3c Labs Access (`OIDC_PRESET=labs`)
-Labs Access is Nearform's identity service for labs apps: one Cognito pool whose Pre Token Lambda
-writes the person's orgs and roles for THIS app into the id_token. With the preset on, every
-sign-in reconciles tenants, memberships and global admin from those claims (`docs/CONCEPTS.md` §1,
-§2), and admission comes from the claims instead of `SIGNUP_MODE`.
-1. In Labs Access, register the app (it creates the Cognito app client) and grant it to the orgs
-   that should use it. Callback URL: `{APP_URL}/auth/oidc/callback`; sign-out URL:
-   `{APP_URL}/login?signedOut=1` (Cognito returns there only when it is registered — the kit sends
-   it as `logout_uri`)
-2. Set `OIDC_ISSUER=https://cognito-idp.eu-west-1.amazonaws.com/eu-west-1_0oYB88KbO` (the pool's
-   issuer, no trailing slash), `OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET` from the app client,
-   `OIDC_LABEL=Labs` (or your wording) and **`OIDC_PRESET=labs`**. Leave `OIDC_TRUST_EMAIL` off —
-   Labs Access sets `email_verified: true` for verified domains. `TENANCY_MODE` must be `multi`
-3. Once everyone signs in through it, set `AUTH_OIDC_ONLY=true`
-4. Deployed: `OIDC_PRESET` is plain config (compose `.env`, the chart's `config`)
+### 2.3c IdP-managed tenancy (`OIDC_MANAGED_TENANCY=true`)
+For an identity service that decides which organisations a person may use THIS app in, and with
+what role, and puts that in the id_token. With it on, every OIDC sign-in reconciles tenants,
+memberships and global admin from the claims (`docs/CONCEPTS.md` §1, §2), admission comes from the
+claims instead of `SIGNUP_MODE`, and between sign-ins the service can post signed identity events.
 
-What a sign-in does: each org in `labs_orgs` becomes (or finds) the tenant with that
-`external_org_id`, named from the claim; the person gets a `labs` membership (`client_admin` and
-`nearform_staff` → admin, `client_member` → member); an org no longer granted loses its `labs`
-membership; `labs_platform_admin` → global admin. A tenant created this way has **no owner** — a
-global admin can still do owner-only things, and can make an owner from a manual membership.
-`labs` memberships are read-only in Settings → People (409 `labs_managed` from the API). Someone
-Labs Access refuses (no grant for this app, not staff) lands on `/login?error=no_access`: "You
-don't have access to this app". Sessions slide over 7 days.
+The id_token must carry the person's orgs as an array (the claim's name is `OIDC_ORGS_CLAIM`,
+default `orgs`):
 
-Absent (`OIDC_PRESET` blank): plain OIDC, the `labs_*` claims are not read. `OIDC_PRESET=labs`
-without issuer and client id, or with `TENANCY_MODE=single`, refuses to boot. Verify: sign in as a
-person granted one org → `/auth/session` shows that tenant with the mapped role and
-`accessRequest: null`; the tenants table has a row with `external_org_id` = the org id.
+```json
+{ "orgs": [{ "id": "org_123", "name": "Acme", "slug": "acme", "role": "admin" }] }
+```
+
+`id` is the org's stable id (the tenant's `external_org_id`), `slug` is optional, and `role` is the
+service's own word for the person's role there.
+
+1. Set up OIDC as in 2.3b. `TENANCY_MODE` must be `multi`
+2. Set **`OIDC_MANAGED_TENANCY=true`**, and map the service's roles with `OIDC_ROLE_MAP`:
+   `issuerRole:admin|member` pairs, for example `org_admin:admin,org_member:member` (default
+   `admin:admin,member:member`). An org whose role is not in the map is skipped
+3. Optional: `OIDC_ADMIT_CLAIM` names a boolean claim that admits a person with no orgs (staff who
+   may use every app, say), and `OIDC_GLOBAL_ADMIN_CLAIM` one that makes them a global admin while
+   it is true
+4. `OIDC_SESSION_MAX_AGE_DAYS` (default 7): an OIDC session ends this long after sign-in however
+   active the person is, so their claims are re-read at least that often
+5. Identity events (optional): give the service `{APP_URL}/api/identity/events` as its webhook URL
+   and set its signing secret (`whsec_…`) as `IDENTITY_WEBHOOK_SECRET`, a secret (compose `.env`,
+   the chart's `secrets`). Keep `OIDC_SESSION_MAX_AGE_DAYS` no longer than the service keeps an
+   undelivered event, so a missed one is healed by the next sign-in
+6. Once everyone signs in through it, set `AUTH_OIDC_ONLY=true`
+
+With Amazon Cognito, a Pre Token Generation Lambda writes the claims; one that throws to refuse a
+person lands them on `/login?error=no_access` ("You don't have access to this app"). Register
+`{APP_URL}/login?signedOut=1` as the app client's sign-out URL — the kit sends it as `logout_uri`,
+the only parameter Cognito returns on.
+
+What a sign-in does: each org in the claim becomes (or finds) the tenant with that
+`external_org_id`, named from the claim; the person gets an `idp` membership with the mapped role;
+an org no longer in the claim loses its `idp` membership. A tenant created this way has **no
+owner** — a global admin can still do owner-only things, and can make an owner from a manual
+membership. `idp` memberships are read-only in Settings → People (409 `idp_managed` from the API).
+
+What an event does: `person.suspended` ends the person's sessions and removes their `idp`
+memberships; `membership.removed`, `grant.revoked` and `org.suspended` remove `idp` memberships;
+`membership.role_changed` changes one; `org.renamed` renames the tenant. Each is signed (Standard
+Webhooks), applied idempotently and in any order; `docs/CONCEPTS.md` §2 has the details.
+
+Absent (`OIDC_MANAGED_TENANCY` blank): plain OIDC, the claims are not read and
+`/api/identity/events` answers 404. Turned on without issuer and client id, or with
+`TENANCY_MODE=single`, it refuses to boot. Verify: sign in as a person with one org →
+`/auth/session` shows that tenant with the mapped role and `accessRequest: null`; the tenants table
+has a row with `external_org_id` = the org id.
 
 ### 2.4 First admin
 `BOOTSTRAP_ADMIN_EMAILS=you@example.com` (comma-separated). Promoted to global admin on the first

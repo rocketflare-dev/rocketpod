@@ -17,8 +17,8 @@ export interface OAuthProfile {
   /** Group names the issuer asserted (OIDC `groups`). Read, never stored — a known gap. */
   groups?: string[]
   /**
-   * The VERIFIED id_token's payload (OIDC only) — what an issuer preset reads its own claims from
-   * (`OIDC_PRESET=labs`: the `labs_*` claims). Never stored.
+   * The VERIFIED id_token's payload (OIDC only) — what IdP-managed tenancy reads its claims from
+   * (`OIDC_MANAGED_TENANCY`). Never stored.
    */
   idTokenClaims?: Record<string, unknown>
 }

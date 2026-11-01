@@ -7,7 +7,7 @@ import { redirectToSchema } from '@rocketpod/shared/auth'
 import type { AppConfig } from '../../../config'
 import type { Database } from '../../../db/client'
 import type { User } from '../../../db/schema'
-import { SESSION_TTL_MS, setSessionCookie } from '../../auth/cookies'
+import { setSessionCookie } from '../../auth/cookies'
 import { createSession } from '../../auth/sessions'
 import { defaultTenantFor } from '../../services/auth'
 import type { AppContext } from '../../types'
@@ -23,7 +23,7 @@ export type LoginErrorCode =
   | 'oauth_state_mismatch'
   | 'provider_linked_elsewhere'
   | 'oidc_only'
-  /** The issuer refused to mint tokens for this person (Labs Access: no grant for this app). */
+  /** The issuer refused to mint tokens for this person (its pre-token hook denied them). */
   | 'no_access'
 
 /** A relative same-origin path, else `fallback`. Never `/login` (redirect loop). */
@@ -43,9 +43,8 @@ export { clientIpOf }
 
 /**
  * Session for the user's oldest membership (or none), cookie set. Returns the session id.
- * `ttlMs` gives the session a sliding window other than the kit's 30 days (the `labs` preset's 7);
- * the cookie then keeps the kit's 30-day life, so the ROW — renewed on use — decides when an idle
- * session ends.
+ * `maxAgeMs` ends the session that long after sign-in however active it is (IdP-managed tenancy);
+ * the cookie ends then too.
  */
 export async function completeLogin(
   c: AppContext,
@@ -53,7 +52,7 @@ export async function completeLogin(
   _cfg: AppConfig,
   user: User,
   selectedTenantId?: string | null,
-  options: { ttlMs?: number } = {}
+  options: { maxAgeMs?: number } = {}
 ): Promise<{ sessionId: string; tenantId: string | null; token: string }> {
   const tenantId = selectedTenantId ?? (await defaultTenantFor(db, user.id))
   const session = await createSession(db, {
@@ -61,10 +60,8 @@ export async function completeLogin(
     selectedTenantId: tenantId,
     ip: clientIpOf(c),
     userAgent: c.req.header('user-agent') ?? null,
-    ttlMs: options.ttlMs,
+    maxAgeMs: options.maxAgeMs,
   })
-  const cookieExpires =
-    options.ttlMs === undefined ? session.expiresAt : new Date(Date.now() + SESSION_TTL_MS)
-  setSessionCookie(c, session.token, cookieExpires)
+  setSessionCookie(c, session.token, session.expiresAt)
   return { sessionId: session.id, tenantId, token: session.token }
 }

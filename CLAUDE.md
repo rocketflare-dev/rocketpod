@@ -180,8 +180,10 @@ LISTEN; direct or session-mode when PgBouncer runs in transaction mode), `DATABA
 `FEATURES_ENABLED` (D30 — comma-separated feature keys this deployment ships at all; fail-closed,
 consulted only for a flag marked `environmentGated`; the rollout state itself lives in Postgres) ·
 `OIDC_ISSUER`/`OIDC_CLIENT_ID`/`OIDC_LABEL`/`OIDC_SCOPES`/`AUTH_OIDC_ONLY`/`OIDC_TRUST_EMAIL`
-(optional SSO, `SETUP.md` 2.3b; secret `OIDC_CLIENT_SECRET`) · `OIDC_PRESET` (`labs` = Labs
-Access: tenants and roles from the id_token claims, `SETUP.md` 2.3c) · tracing `OBSERVABILITY_*`,
+(optional SSO, `SETUP.md` 2.3b; secret `OIDC_CLIENT_SECRET`) · `OIDC_MANAGED_TENANCY` +
+`OIDC_ORGS_CLAIM`/`OIDC_ROLE_MAP`/`OIDC_ADMIT_CLAIM`/`OIDC_GLOBAL_ADMIN_CLAIM`/`OIDC_SESSION_MAX_AGE_DAYS`
+(IdP-managed tenancy: tenants and roles from the id_token, `SETUP.md` 2.3c; secret
+`IDENTITY_WEBHOOK_SECRET` for its identity events) · tracing `OBSERVABILITY_*`,
 `OTEL_EXPORTER_OTLP_*`, `LANGFUSE_*`. `src/config.ts` is the full list;
 `tests/config/packaging.test.ts` holds the chart to it.
 

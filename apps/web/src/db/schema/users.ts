@@ -11,7 +11,7 @@ import { boolean, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-or
 import { timestamps } from './_helpers'
 import { membershipIsolation } from './rls'
 
-export const GLOBAL_ADMIN_SOURCES = ['manual', 'labs'] as const
+export const GLOBAL_ADMIN_SOURCES = ['manual', 'idp'] as const
 export type GlobalAdminSource = (typeof GLOBAL_ADMIN_SOURCES)[number]
 
 export const users = pgTable(
@@ -25,9 +25,10 @@ export const users = pgTable(
     /** Platform flag: `manage all` and access to `/api/admin/*`. Not a tenant role. */
     isGlobalAdmin: boolean('is_global_admin').notNull().default(false),
     /**
-     * Who granted `isGlobalAdmin`: `labs` = the `labs_platform_admin` claim (cleared again when the
-     * claim goes), `manual` = the admin console; NULL = not a global admin, or granted before the
-     * column existed (`BOOTSTRAP_ADMIN_EMAILS`, the seed) — treated as manual, never cleared by Labs.
+     * Who granted `isGlobalAdmin`: `idp` = the issuer's `OIDC_GLOBAL_ADMIN_CLAIM` (cleared again
+     * when the claim goes), `manual` = the admin console; NULL = not a global admin, or granted
+     * without a source (`BOOTSTRAP_ADMIN_EMAILS`, the seed) — treated as manual, never cleared by a
+     * sign-in.
      */
     globalAdminSource: text('global_admin_source', { enum: GLOBAL_ADMIN_SOURCES }),
     /** Set when a login proved ownership of `email` (magic link, or a provider asserting verified). */

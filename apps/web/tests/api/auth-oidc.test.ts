@@ -588,24 +588,31 @@ describe('POST /auth/logout with an issuer', () => {
   })
 })
 
-// ---- OIDC_PRESET=labs -----------------------------------------------------------------------
+// ---- IdP-managed tenancy (OIDC_MANAGED_TENANCY) ---------------------------------------------
 
-describe('OIDC_PRESET=labs', () => {
+describe('OIDC_MANAGED_TENANCY', () => {
   type Org = { id: string; slug: string; name: string; role: string }
 
-  function labsEnv(overrides: Record<string, unknown> = {}) {
-    return oidcEnv({ OIDC_PRESET: 'labs', ...overrides })
+  /** An issuer with its own role names, an admit claim and a global-admin claim. */
+  function managedEnv(overrides: Record<string, unknown> = {}) {
+    return oidcEnv({
+      OIDC_MANAGED_TENANCY: 'true',
+      OIDC_ROLE_MAP: 'org_admin:admin,org_member:member,org_staff:admin',
+      OIDC_ADMIT_CLAIM: 'staff',
+      OIDC_GLOBAL_ADMIN_CLAIM: 'platform_admin',
+      ...overrides,
+    })
   }
 
-  function newOrg(role = 'client_member'): Org {
+  function newOrg(role = 'org_member'): Org {
     const id = uniqueId()
       .toLowerCase()
       .replace(/[^a-z0-9]/g, '')
     return { id: `org-${id}`, slug: `acme-${id}`, name: `Acme ${id}`, role }
   }
 
-  /** The next id_token is a Labs Access one for `email`. */
-  function labsToken(
+  /** The next id_token is the managing issuer's for `email`. */
+  function managedToken(
     email: string,
     orgs: Org[],
     extra: Record<string, unknown> = {},
@@ -615,18 +622,16 @@ describe('OIDC_PRESET=labs', () => {
       sub,
       email,
       email_verified: true,
-      name: 'Labs Person',
-      labs_v: 1,
-      labs_person: `person-${sub}`,
-      labs_staff: false,
-      labs_platform_admin: false,
-      labs_orgs: orgs,
+      name: 'Managed Person',
+      staff: false,
+      platform_admin: false,
+      orgs,
       ...extra,
     }
   }
 
   function newEmail() {
-    return `labs_${uniqueId().toLowerCase()}@example.test`
+    return `idp_${uniqueId().toLowerCase()}@example.test`
   }
 
   async function tenantFor(org: Org) {
@@ -657,12 +662,12 @@ describe('OIDC_PRESET=labs', () => {
     }>(await request('/auth/session', { headers: sessionCookieHeader(token) }, { env }))
   }
 
-  it('first sign-in creates the tenant (no owner) and a labs membership, whatever SIGNUP_MODE says', async () => {
+  it('first sign-in creates the tenant (no owner) and an idp membership, whatever SIGNUP_MODE says', async () => {
     for (const mode of ['invite_only', 'approval'] as const) {
       const email = newEmail()
-      const org = newOrg('client_admin')
-      labsToken(email, [org])
-      const env = labsEnv({ SIGNUP_MODE: mode })
+      const org = newOrg('org_admin')
+      managedToken(email, [org])
+      const env = managedEnv({ SIGNUP_MODE: mode })
       const res = await signIn(env)
       expect(location(res).pathname).toBe('/')
 
@@ -674,9 +679,9 @@ describe('OIDC_PRESET=labs', () => {
       expect(session.accessRequest).toBeNull()
       expect(await membership(tenant?.id as string, session.user.id)).toMatchObject({
         role: 'admin',
-        source: 'labs',
+        source: 'idp',
       })
-      // The preset never writes `owner`: a new tenant is ownerless.
+      // Managed tenancy never writes `owner`: a new tenant is ownerless.
       const owners = await db
         .select()
         .from(tenantUsers)
@@ -688,27 +693,29 @@ describe('OIDC_PRESET=labs', () => {
     }
   })
 
-  it('maps client_member → member and nearform_staff → admin', async () => {
+  it('maps issuer roles through OIDC_ROLE_MAP, and skips an org whose role is not in it', async () => {
     const email = newEmail()
-    const member = newOrg('client_member')
-    const staffed = newOrg('nearform_staff')
-    labsToken(email, [member, staffed], { labs_staff: true })
-    const env = labsEnv()
+    const member = newOrg('org_member')
+    const staffed = newOrg('org_staff')
+    const unmapped = newOrg('overlord')
+    managedToken(email, [member, staffed, unmapped], { staff: true })
+    const env = managedEnv()
     const session = await sessionOf(await signIn(env), env)
     const roles = Object.fromEntries(session.tenants.map(t => [t.id, t.role]))
     expect(roles[(await tenantFor(member))?.id as string]).toBe('member')
     expect(roles[(await tenantFor(staffed))?.id as string]).toBe('admin')
+    expect(await tenantFor(unmapped)).toBeUndefined()
   })
 
   it('a second sign-in keeps the tenant in step: new name, new role, same tenant', async () => {
     const email = newEmail()
-    const org = newOrg('client_member')
-    labsToken(email, [org])
-    const env = labsEnv()
+    const org = newOrg('org_member')
+    managedToken(email, [org])
+    const env = managedEnv()
     const first = await sessionOf(await signIn(env), env)
     const before = await tenantFor(org)
 
-    labsToken(email, [{ ...org, name: 'Acme Renamed', role: 'client_admin' }])
+    managedToken(email, [{ ...org, name: 'Acme Renamed', role: 'org_admin' }])
     const second = await sessionOf(await signIn(env), env)
     expect(second.user.id).toBe(first.user.id)
     const after = await tenantFor(org)
@@ -717,26 +724,26 @@ describe('OIDC_PRESET=labs', () => {
     expect(after?.slug).toBe(before?.slug)
     expect(await membership(after?.id as string, first.user.id)).toMatchObject({
       role: 'admin',
-      source: 'labs',
+      source: 'idp',
     })
   })
 
   it("a taken slug is made unique; an org's tenant is found by its id, never by slug", async () => {
     const org = newOrg()
     const squatter = await createTestTenant(db, { slug: org.slug })
-    labsToken(newEmail(), [org])
-    await signIn(labsEnv())
+    managedToken(newEmail(), [org])
+    await signIn(managedEnv())
     const tenant = await tenantFor(org)
     expect(tenant?.id).not.toBe(squatter.id)
     expect(tenant?.slug).toBe(`${org.slug}-2`)
   })
 
-  it('an org gone from the claims loses its labs membership; manual ones stay; the session is unpinned', async () => {
+  it('an org gone from the claims loses its idp membership; manual ones stay; the session is unpinned', async () => {
     const email = newEmail()
     const keep = newOrg()
     const drop = newOrg()
-    labsToken(email, [keep, drop])
-    const env = labsEnv()
+    managedToken(email, [keep, drop])
+    const env = managedEnv()
     const first = await sessionOf(await signIn(env), env)
     const userId = first.user.id
     const dropped = (await tenantFor(drop))?.id as string
@@ -745,12 +752,12 @@ describe('OIDC_PRESET=labs', () => {
     // An older session sits in the tenant about to be removed.
     const pinned = await createTestSession(db, userId, dropped)
 
-    labsToken(email, [keep])
+    managedToken(email, [keep])
     const res = await signIn(env)
     const session = await sessionOf(res, env)
     expect(await membership(dropped, userId)).toBeUndefined()
     expect(await membership((await tenantFor(keep))?.id as string, userId)).toMatchObject({
-      source: 'labs',
+      source: 'idp',
     })
     expect(await membership(manual.id, userId)).toMatchObject({ source: 'manual', role: 'member' })
     expect(session.tenants.map(t => t.id)).not.toContain(dropped)
@@ -764,52 +771,52 @@ describe('OIDC_PRESET=labs', () => {
 
   it('an owner row and a support row are never rewritten; a manual admin/member row is adopted', async () => {
     const email = newEmail()
-    const owned = newOrg('client_member')
-    const adopted = newOrg('client_admin')
+    const owned = newOrg('org_member')
+    const adopted = newOrg('org_admin')
     const user = await createTestUser(db, { email })
     const ownedTenant = await createTestTenant(db, { externalOrgId: owned.id })
     const adoptedTenant = await createTestTenant(db, { externalOrgId: adopted.id })
     await linkUserToTenant(db, user.id, ownedTenant.id, 'owner')
     await linkUserToTenant(db, user.id, adoptedTenant.id, 'member')
-    labsToken(email, [owned, adopted])
-    await signIn(labsEnv())
+    managedToken(email, [owned, adopted])
+    await signIn(managedEnv())
     expect(await membership(ownedTenant.id, user.id)).toMatchObject({
       role: 'owner',
       source: 'manual',
     })
     expect(await membership(adoptedTenant.id, user.id)).toMatchObject({
       role: 'admin',
-      source: 'labs',
+      source: 'idp',
     })
   })
 
-  it('labs_platform_admin sets the global admin flag, and its absence clears only what Labs set', async () => {
+  it('the global-admin claim sets the flag, and its absence clears only what the issuer set', async () => {
     const email = newEmail()
-    const env = labsEnv()
-    labsToken(email, [], { labs_staff: true, labs_platform_admin: true })
+    const env = managedEnv()
+    managedToken(email, [], { staff: true, platform_admin: true })
     const granted = await sessionOf(await signIn(env), env)
     expect(granted.user.isGlobalAdmin).toBe(true)
     const [row] = await db.select().from(users).where(eq(users.id, granted.user.id))
-    expect(row?.globalAdminSource).toBe('labs')
+    expect(row?.globalAdminSource).toBe('idp')
 
-    labsToken(email, [], { labs_staff: true, labs_platform_admin: false })
+    managedToken(email, [], { staff: true, platform_admin: false })
     const cleared = await sessionOf(await signIn(env), env)
     expect(cleared.user.isGlobalAdmin).toBe(false)
     const [after] = await db.select().from(users).where(eq(users.id, granted.user.id))
     expect(after?.globalAdminSource).toBeNull()
 
-    // A global admin the app made itself is not Labs' to take away.
+    // A global admin the app made itself is not the issuer's to take away.
     const manualAdmin = await createTestUser(db, { isGlobalAdmin: true })
-    labsToken(manualAdmin.email, [], { labs_staff: true })
+    managedToken(manualAdmin.email, [], { staff: true })
     const kept = await sessionOf(await signIn(env), env)
     expect(kept.user.id).toBe(manualAdmin.id)
     expect(kept.user.isGlobalAdmin).toBe(true)
   })
 
-  it('staff with no org grant sign in to the no-tenant experience, not an access request', async () => {
+  it('the admit claim with no orgs signs in to the no-tenant experience, not an access request', async () => {
     const email = newEmail()
-    labsToken(email, [], { labs_staff: true })
-    const env = labsEnv({ SIGNUP_MODE: 'approval' })
+    managedToken(email, [], { staff: true })
+    const env = managedEnv({ SIGNUP_MODE: 'approval' })
     const session = await sessionOf(await signIn(env), env)
     expect(session.tenant).toBeNull()
     expect(session.tenants).toEqual([])
@@ -818,14 +825,14 @@ describe('OIDC_PRESET=labs', () => {
 
   it('a person already waiting on an access request is seated and the request closed', async () => {
     const email = newEmail()
-    const env = labsEnv({ SIGNUP_MODE: 'approval' })
-    // The bug this preset fixes: plain OIDC + approval leaves a client user waiting.
+    const env = managedEnv({ SIGNUP_MODE: 'approval' })
+    // Plain OIDC + approval leaves the person waiting; the claims seat them.
     idp.claims = { sub: `sub_${email}`, email, email_verified: true }
     const waiting = await sessionOf(await signIn(oidcEnv({ SIGNUP_MODE: 'approval' })), env)
     expect(waiting.accessRequest).toEqual({ status: 'pending' })
 
     const org = newOrg()
-    labsToken(email, [org])
+    managedToken(email, [org])
     const seated = await sessionOf(await signIn(env), env)
     expect(seated.user.id).toBe(waiting.user.id)
     expect(seated.tenant?.id).toBe((await tenantFor(org))?.id)
@@ -836,11 +843,11 @@ describe('OIDC_PRESET=labs', () => {
     expect(requestRow?.status).toBe('approved')
   })
 
-  it('a labs-managed membership is 409 labs_managed to edit or remove; a manual one still works', async () => {
-    const org = newOrg('client_member')
+  it('an idp membership is 409 idp_managed to edit or remove; a manual one still works', async () => {
+    const org = newOrg('org_member')
     const email = newEmail()
-    labsToken(email, [org])
-    const env = labsEnv()
+    managedToken(email, [org])
+    const env = managedEnv()
     const member = await sessionOf(await signIn(env), env)
     const tenantId = (await tenantFor(org))?.id as string
     const owner = await createTestUser(db)
@@ -855,19 +862,19 @@ describe('OIDC_PRESET=labs', () => {
       body: JSON.stringify({ role: 'admin' }),
     })
     expect(patch.status).toBe(409)
-    expect(await json(patch)).toMatchObject({ statusCode: 409, code: 'labs_managed' })
+    expect(await json(patch)).toMatchObject({ statusCode: 409, code: 'idp_managed' })
     const remove = await request(`/api/members/${member.user.id}`, {
       method: 'DELETE',
       headers: cookie,
     })
     expect(remove.status).toBe(409)
-    expect(await json(remove)).toMatchObject({ code: 'labs_managed' })
+    expect(await json(remove)).toMatchObject({ code: 'idp_managed' })
     expect(await membership(tenantId, member.user.id)).toMatchObject({ role: 'member' })
 
     const list = await json<{ items: Array<{ userId: string; source: string }> }>(
       await request('/api/members?pageSize=50', { headers: cookie })
     )
-    expect(list.items.find(m => m.userId === member.user.id)?.source).toBe('labs')
+    expect(list.items.find(m => m.userId === member.user.id)?.source).toBe('idp')
 
     const manualPatch = await request(`/api/members/${manual.id}`, {
       method: 'PATCH',
@@ -898,7 +905,7 @@ describe('OIDC_PRESET=labs', () => {
     'a 400 UserLambdaValidationException at the token exchange → no_access (%s)',
     async (_l, body) => {
       idp.tokenFailure = { status: 400, body }
-      const res = await signIn(labsEnv())
+      const res = await signIn(managedEnv())
       expect(location(res).pathname).toBe('/login')
       expect(location(res).searchParams.get('error')).toBe('no_access')
       expect(cookieValue(res, SESSION_COOKIE_NAME) ?? '').toBe('')
@@ -907,27 +914,27 @@ describe('OIDC_PRESET=labs', () => {
 
   it('any other failed token exchange is still oauth_failed', async () => {
     idp.tokenFailure = { status: 400, body: { error: 'invalid_grant' } }
-    const res = await signIn(labsEnv())
+    const res = await signIn(managedEnv())
     expect(location(res).searchParams.get('error')).toBe('oauth_failed')
   })
 
   it('malformed claims are ignored: nothing is created or removed, and admission is plain OIDC', async () => {
     const email = newEmail()
     const org = newOrg()
-    labsToken(email, [org])
-    const env = labsEnv()
+    managedToken(email, [org])
+    const env = managedEnv()
     const first = await sessionOf(await signIn(env), env)
     const tenantId = (await tenantFor(org))?.id as string
 
     const stranger = newOrg()
-    labsToken(email, [{ ...stranger, role: 'overlord' }])
+    managedToken(email, [], { orgs: [{ ...stranger, id: 42 }] })
     const second = await sessionOf(await signIn(env), env)
     expect(second.user.id).toBe(first.user.id)
     expect(await tenantFor(stranger)).toBeUndefined()
-    expect(await membership(tenantId, first.user.id)).toMatchObject({ source: 'labs' })
+    expect(await membership(tenantId, first.user.id)).toMatchObject({ source: 'idp' })
 
     // A new person with malformed claims meets SIGNUP_MODE like any OIDC sign-in.
-    labsToken(newEmail(), [newOrg()], { labs_staff: 'yes' })
+    managedToken(newEmail(), [], { orgs: 'acme' })
     expect(location(await signIn(env)).searchParams.get('error')).toBe('not_invited')
   })
 
@@ -939,50 +946,328 @@ describe('OIDC_PRESET=labs', () => {
       providerUserId: `google-${uniqueId()}`,
       email: user.email,
     })
-    const org = newOrg('client_admin')
-    labsToken(user.email, [org])
-    const env = labsEnv()
+    const org = newOrg('org_admin')
+    managedToken(user.email, [org])
+    const env = managedEnv()
     const session = await sessionOf(await signIn(env), env)
     expect(session.user.id).toBe(user.id)
     expect(await linkFor(`sub_${user.email}`)).toHaveLength(1)
     expect(await membership((await tenantFor(org))?.id as string, user.id)).toMatchObject({
       role: 'admin',
-      source: 'labs',
+      source: 'idp',
     })
   })
 
-  it('a preset session slides over 7 days, not 30', async () => {
-    labsToken(newEmail(), [newOrg()])
-    const env = labsEnv()
+  it('a managed session ends OIDC_SESSION_MAX_AGE_DAYS after sign-in, however active', async () => {
+    managedToken(newEmail(), [newOrg()])
+    const env = managedEnv()
     const res = await signIn(env)
     const userId = (await sessionOf(res, env)).user.id
     const [row] = await db.select().from(userSessions).where(eq(userSessions.userId, userId))
-    const days = ((row?.expiresAt.getTime() ?? 0) - Date.now()) / 86_400_000
-    expect(days).toBeGreaterThan(6.9)
-    expect(days).toBeLessThan(7.1)
-    expect(row?.ttlSeconds).toBe(7 * 24 * 60 * 60)
+    const days = (d: Date | null | undefined) => ((d?.getTime() ?? 0) - Date.now()) / 86_400_000
+    expect(days(row?.expiresAt)).toBeGreaterThan(6.9)
+    expect(days(row?.expiresAt)).toBeLessThan(7.1)
+    expect(row?.maxExpiresAt?.getTime()).toBe(row?.expiresAt.getTime())
 
-    // Renewed on use by its own window.
+    // Use renews `lastSeenAt` but never moves the end.
     await db
       .update(userSessions)
       .set({ lastSeenAt: new Date(Date.now() - 2 * 60 * 60 * 1000) })
       .where(eq(userSessions.id, row?.id as string))
     await sessionOf(res, env)
+    const [used] = await db
+      .select()
+      .from(userSessions)
+      .where(eq(userSessions.id, row?.id as string))
+    expect(used?.lastSeenAt.getTime()).toBeGreaterThan(Date.now() - 60_000)
+    expect(used?.expiresAt.getTime()).toBe(row?.maxExpiresAt?.getTime())
+
+    // The cookie ends with it.
+    const cookie = res.headers.getSetCookie().find(c => c.startsWith(`${SESSION_COOKIE_NAME}=`))
+    const expires = new Date(/Expires=([^;]+)/i.exec(cookie ?? '')?.[1] ?? 0)
+    expect(days(expires)).toBeLessThan(7.1)
+
+    // Configurable.
+    managedToken(newEmail(), [newOrg()])
+    const short = managedEnv({ OIDC_SESSION_MAX_AGE_DAYS: '1' })
+    const shortUser = (await sessionOf(await signIn(short), short)).user.id
+    const [shortRow] = await db
+      .select()
+      .from(userSessions)
+      .where(eq(userSessions.userId, shortUser))
+    expect(days(shortRow?.expiresAt)).toBeLessThan(1.1)
+  })
+
+  it('a session without a cap still slides over 30 days', async () => {
+    const email = newEmail()
+    idp.claims = { sub: `sub_${email}`, email, email_verified: true }
+    const env = oidcEnv({ SIGNUP_MODE: 'open' })
+    const res = await signIn(env)
+    const userId = await sessionUserId(res, env)
+    const [row] = await db.select().from(userSessions).where(eq(userSessions.userId, userId))
+    expect(row?.maxExpiresAt).toBeNull()
+    await db
+      .update(userSessions)
+      .set({
+        lastSeenAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
+        expiresAt: new Date(Date.now() + 86_400_000),
+      })
+      .where(eq(userSessions.id, row?.id as string))
+    await sessionUserId(res, env)
     const [slid] = await db
       .select()
       .from(userSessions)
       .where(eq(userSessions.id, row?.id as string))
-    expect(slid?.lastSeenAt.getTime()).toBeGreaterThan(Date.now() - 60_000)
-    const slidDays = ((slid?.expiresAt.getTime() ?? 0) - Date.now()) / 86_400_000
-    expect(slidDays).toBeGreaterThan(6.9)
-    expect(slidDays).toBeLessThan(7.1)
+    expect(((slid?.expiresAt.getTime() ?? 0) - Date.now()) / 86_400_000).toBeGreaterThan(29.9)
   })
 
-  it('without the preset the labs claims are not read at all', async () => {
-    const org = newOrg('client_admin')
-    labsToken(newEmail(), [org])
+  it('the default config reads `orgs` with roles admin and member', async () => {
+    const email = newEmail()
+    const org = newOrg('admin')
+    managedToken(email, [org])
+    const env = oidcEnv({ OIDC_MANAGED_TENANCY: 'true' })
+    const session = await sessionOf(await signIn(env), env)
+    expect(session.tenant).toMatchObject({ id: (await tenantFor(org))?.id, role: 'admin' })
+  })
+
+  it('without OIDC_MANAGED_TENANCY the claims are not read at all', async () => {
+    const org = newOrg('org_admin')
+    managedToken(newEmail(), [org])
     const res = await signIn(oidcEnv())
     expect(location(res).searchParams.get('error')).toBe('not_invited')
     expect(await tenantFor(org)).toBeUndefined()
+  })
+
+  // ---- Identity events (POST /api/identity/events) --------------------------------------------
+
+  const WEBHOOK_SECRET = `whsec_${Buffer.alloc(32, 9).toString('base64')}`
+
+  function eventsEnv(overrides: Record<string, unknown> = {}) {
+    return managedEnv({ IDENTITY_WEBHOOK_SECRET: WEBHOOK_SECRET, ...overrides })
+  }
+
+  async function sign(secret: string, id: string, timestamp: number, body: string) {
+    const key = await crypto.subtle.importKey(
+      'raw',
+      Buffer.from(secret.slice('whsec_'.length), 'base64'),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign']
+    )
+    const mac = await crypto.subtle.sign(
+      'HMAC',
+      key,
+      new TextEncoder().encode(`${id}.${timestamp}.${body}`)
+    )
+    return `v1,${Buffer.from(mac).toString('base64')}`
+  }
+
+  let eventSeq = 0
+  /** An event `minutesAgo` old (default: now), with a fresh id. */
+  function event(type: string, data: Record<string, unknown>, minutesAgo = 0) {
+    eventSeq++
+    return {
+      id: `evt_${eventSeq}_${uniqueId()}`,
+      type,
+      occurredAt: new Date(Date.now() - minutesAgo * 60_000).toISOString(),
+      data,
+    }
+  }
+
+  async function post(
+    env: Env,
+    body: { id: string } & Record<string, unknown>,
+    opts: { secrets?: string[]; timestamp?: number; send?: string } = {}
+  ) {
+    const text = JSON.stringify(body)
+    const timestamp = opts.timestamp ?? Math.floor(Date.now() / 1000)
+    const signatures = await Promise.all(
+      (opts.secrets ?? [WEBHOOK_SECRET]).map(s => sign(s, body.id, timestamp, text))
+    )
+    return request(
+      '/api/identity/events',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'webhook-id': body.id,
+          'webhook-timestamp': String(timestamp),
+          'webhook-signature': signatures.join(' '),
+        },
+        body: opts.send ?? text,
+      },
+      { env }
+    )
+  }
+
+  /** A person signed in through the issuer with `orgs`; returns their ids and person ref. */
+  async function signedIn(orgs: Org[], env = eventsEnv()) {
+    const email = newEmail()
+    managedToken(email, orgs)
+    const res = await signIn(env)
+    const userId = (await sessionOf(res, env)).user.id
+    return { email, userId, res, person: { personId: `p-${email}`, email, sub: `sub_${email}` } }
+  }
+
+  it('identity events: 404 unless managed tenancy and a secret are configured', async () => {
+    const e = event('org.suspended', { orgId: 'x' })
+    expect((await post(managedEnv(), e)).status).toBe(404)
+    expect((await post(oidcEnv({ IDENTITY_WEBHOOK_SECRET: WEBHOOK_SECRET }), e)).status).toBe(404)
+  })
+
+  it('identity events: refuses a missing or wrong signature and a stale timestamp', async () => {
+    const env = eventsEnv()
+    const e = event('org.suspended', { orgId: 'x' })
+    const other = `whsec_${Buffer.alloc(32, 1).toString('base64')}`
+    expect((await post(env, e, { secrets: [other] })).status).toBe(401)
+    expect((await post(env, e, { secrets: [] })).status).toBe(401)
+    const old = Math.floor(Date.now() / 1000) - 6 * 60
+    expect((await post(env, e, { timestamp: old })).status).toBe(401)
+    // The body signed is the body checked.
+    const tampered = await post(env, e, { send: JSON.stringify({ ...e, data: { orgId: 'y' } }) })
+    expect(tampered.status).toBe(401)
+    // During a rotation either of two signatures verifies.
+    expect((await post(env, e, { secrets: [other, WEBHOOK_SECRET] })).status).toBe(204)
+  })
+
+  it('identity events: an unknown type is accepted and ignored; a malformed known one is 400', async () => {
+    const env = eventsEnv()
+    expect((await post(env, event('person.renamed', { anything: true }))).status).toBe(204)
+    expect((await post(env, event('org.renamed', { orgId: 'x' }))).status).toBe(400)
+  })
+
+  it('membership.removed takes the person out of the tenant and unpins their session', async () => {
+    const org = newOrg()
+    const keep = newOrg()
+    const env = eventsEnv()
+    const { userId, person, res } = await signedIn([org, keep], env)
+    const tenantId = (await tenantFor(org))?.id as string
+    const pinned = await createTestSession(db, userId, tenantId)
+
+    expect(
+      (await post(env, event('membership.removed', { ...person, orgId: org.id }))).status
+    ).toBe(204)
+    expect(await membership(tenantId, userId)).toBeUndefined()
+    expect(await membership((await tenantFor(keep))?.id as string, userId)).toBeDefined()
+    expect((await sessionFor(pinned, env)).tenant?.id).toBe((await tenantFor(keep))?.id)
+    expect((await sessionOf(res, env)).tenants.map(t => t.id)).not.toContain(tenantId)
+  })
+
+  it('membership.role_changed maps the role, changes only an existing membership, and an unmapped role removes it', async () => {
+    const org = newOrg('org_member')
+    const env = eventsEnv()
+    const { userId, person } = await signedIn([org], env)
+    const tenantId = (await tenantFor(org))?.id as string
+
+    await post(
+      env,
+      event('membership.role_changed', { ...person, orgId: org.id, role: 'org_admin' })
+    )
+    expect(await membership(tenantId, userId)).toMatchObject({ role: 'admin', source: 'idp' })
+
+    // A person with no membership there gains none.
+    const stranger = await signedIn([newOrg()], env)
+    await post(
+      env,
+      event('membership.role_changed', { ...stranger.person, orgId: org.id, role: 'org_admin' })
+    )
+    expect(await membership(tenantId, stranger.userId)).toBeUndefined()
+
+    await post(
+      env,
+      event('membership.role_changed', { ...person, orgId: org.id, role: 'overlord' })
+    )
+    expect(await membership(tenantId, userId)).toBeUndefined()
+  })
+
+  it('events apply in any order: one older than the last sign-in or event is skipped', async () => {
+    const org = newOrg('org_member')
+    const env = eventsEnv()
+    const { userId, person } = await signedIn([org], env)
+    const tenantId = (await tenantFor(org))?.id as string
+
+    // Older than the sign-in: the sign-in's claims are newer.
+    await post(env, event('membership.removed', { ...person, orgId: org.id }, 5))
+    expect(await membership(tenantId, userId)).toBeDefined()
+
+    // A newer change, then an older one arriving late.
+    const newer = event('membership.role_changed', { ...person, orgId: org.id, role: 'org_admin' })
+    await post(env, newer)
+    const late = event('membership.role_changed', { ...person, orgId: org.id, role: 'org_member' })
+    late.occurredAt = new Date(Date.parse(newer.occurredAt) - 1000).toISOString()
+    await post(env, late)
+    expect(await membership(tenantId, userId)).toMatchObject({ role: 'admin' })
+
+    // A retry of the same event changes nothing and still answers 204.
+    expect((await post(env, newer)).status).toBe(204)
+    expect(await membership(tenantId, userId)).toMatchObject({ role: 'admin' })
+
+    // Renames too.
+    const renamed = event('org.renamed', { orgId: org.id, name: 'Newer Name' })
+    await post(env, renamed)
+    const staleRename = event('org.renamed', { orgId: org.id, name: 'Older Name' })
+    staleRename.occurredAt = new Date(Date.parse(renamed.occurredAt) - 1000).toISOString()
+    await post(env, staleRename)
+    expect((await tenantFor(org))?.name).toBe('Newer Name')
+  })
+
+  it('person.suspended ends sessions started before it and removes idp memberships, not manual ones', async () => {
+    const org = newOrg()
+    const env = eventsEnv()
+    const { userId, person, res } = await signedIn([org], env)
+    const manual = await createTestTenant(db)
+    await linkUserToTenant(db, userId, manual.id, 'member')
+
+    // Found by sub even when the email has changed.
+    await post(env, event('person.suspended', { ...person, email: 'changed@example.test' }))
+    const token = cookieValue(res, SESSION_COOKIE_NAME) as string
+    const after = await request('/auth/session', { headers: sessionCookieHeader(token) }, { env })
+    expect(after.status).toBe(401)
+    expect(await membership((await tenantFor(org))?.id as string, userId)).toBeUndefined()
+    expect(await membership(manual.id, userId)).toMatchObject({ source: 'manual' })
+  })
+
+  it('a person without a sub is found by email; an unknown person or org is a no-op 204', async () => {
+    const org = newOrg()
+    const env = eventsEnv()
+    const { userId, email } = await signedIn([org], env)
+    const res = await post(
+      env,
+      event('membership.removed', { personId: 'p', email: email.toUpperCase(), orgId: org.id })
+    )
+    expect(res.status).toBe(204)
+    expect(await membership((await tenantFor(org))?.id as string, userId)).toBeUndefined()
+
+    const nobody = { personId: 'p', email: 'nobody@example.test' }
+    expect((await post(env, event('person.suspended', nobody))).status).toBe(204)
+    expect((await post(env, event('org.suspended', { orgId: 'org-unknown' }))).status).toBe(204)
+  })
+
+  it('grant.revoked and org.suspended remove the idp memberships of an org; an owner stays', async () => {
+    const org = newOrg()
+    const env = eventsEnv()
+    const a = await signedIn([org], env)
+    const b = await signedIn([org], env)
+    const tenantId = (await tenantFor(org))?.id as string
+    const owner = await createTestUser(db)
+    await linkUserToTenant(db, owner.id, tenantId, 'owner')
+
+    // With a person: only that person.
+    await post(env, event('grant.revoked', { orgId: org.id, person: a.person }))
+    expect(await membership(tenantId, a.userId)).toBeUndefined()
+    expect(await membership(tenantId, b.userId)).toBeDefined()
+
+    // Without: everyone the issuer seated.
+    await post(env, event('grant.revoked', { orgId: org.id, appId: 'ignored' }))
+    expect(await membership(tenantId, b.userId)).toBeUndefined()
+    expect(await membership(tenantId, owner.id)).toMatchObject({ role: 'owner' })
+
+    // The next sign-in that the claims allow restores access.
+    managedToken(b.email, [org])
+    await signIn(env)
+    expect(await membership(tenantId, b.userId)).toMatchObject({ source: 'idp' })
+
+    await post(env, event('org.suspended', { orgId: org.id }))
+    expect(await membership(tenantId, b.userId)).toBeUndefined()
   })
 })

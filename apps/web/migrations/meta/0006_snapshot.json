@@ -1,5 +1,5 @@
 {
-  "id": "2341167c-3ab4-4221-a969-7f048dbe2fcb",
+  "id": "7470e840-dfd9-4426-974e-3dc62f5451f7",
   "prevId": "30955d99-e21f-4419-812e-c473fb1d0de2",
   "version": "7",
   "dialect": "postgresql",
@@ -5291,6 +5291,12 @@
           "notNull": true,
           "default": "'manual'"
         },
+        "idp_synced_at": {
+          "name": "idp_synced_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "joined_at": {
           "name": "joined_at",
           "type": "timestamp with time zone",
@@ -5452,6 +5458,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "idp_synced_at": {
+          "name": "idp_synced_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "seed_data_created": {
           "name": "seed_data_created",
           "type": "boolean",
@@ -5556,9 +5568,9 @@
           "notNull": true,
           "default": "now()"
         },
-        "ttl_seconds": {
-          "name": "ttl_seconds",
-          "type": "integer",
+        "max_expires_at": {
+          "name": "max_expires_at",
+          "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
         },

@@ -1,9 +1,9 @@
 /**
  * Membership administration: list, role change, removal — with the ownership invariants
  * the matrix leaves to routes: assigning or taking away `owner` is owner-only, the last owner can
- * never be demoted or removed, `support` rows are managed only from /admin, and `labs` rows
- * (`source = 'labs'`, the `OIDC_PRESET=labs` reconcile) are managed only by Labs Access — 409
- * `labs_managed` on both role change and removal.
+ * never be demoted or removed, `support` rows are managed only from /admin, and `idp` rows
+ * (`source = 'idp'`, IdP-managed tenancy) are managed only by the OIDC issuer — 409 `idp_managed`
+ * on both role change and removal.
  */
 import { ERROR_CODES } from '@rocketpod/shared/errors'
 import type { PaginationQuery } from '@rocketpod/shared/pagination'
@@ -69,12 +69,12 @@ async function getMembership(db: Database, tenantId: string, userId: string) {
   return row
 }
 
-/** A `labs` membership follows the person's Labs Access claims; the app may not change it. */
-function assertNotLabsManaged(target: { source: string }) {
-  if (target.source === 'labs') {
+/** An `idp` membership follows the issuer's claims and events; the app may not change it. */
+function assertNotIdpManaged(target: { source: string }) {
+  if (target.source === 'idp') {
     throw new ConflictError(
-      'This membership is managed by Labs Access. Change it there; it applies at their next sign-in.',
-      ERROR_CODES.labsManaged
+      'This membership is managed by your identity provider. Change it there.',
+      ERROR_CODES.idpManaged
     )
   }
 }
@@ -96,7 +96,7 @@ export async function changeMemberRole(
       'support_role_locked'
     )
   }
-  assertNotLabsManaged(target)
+  assertNotIdpManaged(target)
   const touchesOwner = target.role === 'owner' || input.role === 'owner'
   if (touchesOwner && !isOwnerLevel(input.actor)) {
     throw new ForbiddenError('Only an owner can assign or remove the owner role')
@@ -137,7 +137,7 @@ export async function removeMember(
       'support_role_locked'
     )
   }
-  assertNotLabsManaged(target)
+  assertNotIdpManaged(target)
   if (target.role === 'owner') {
     if (!isOwnerLevel(input.actor)) throw new ForbiddenError('Only an owner can remove an owner')
     if ((await countOwners(db, input.tenantId)) <= 1) {

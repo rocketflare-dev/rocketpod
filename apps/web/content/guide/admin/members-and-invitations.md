@@ -59,9 +59,10 @@ When someone accepts, they move to **Members** with the role you chose.
 In **Members**, change the role with the select on their row, or remove them with the button at
 the end of it. A removed person loses access to the organisation straight away.
 
-A row marked **Labs Access** is managed there, not here: it has no role select and no remove
-button. Change that person's role or access in Labs Access, and it applies the next time they sign
-in. An organisation made by Labs Access starts with no owner; ask a platform administrator for
-anything only an owner can do.
+A row marked **Managed** belongs to your identity provider, not to this app: it has no role
+select and no remove button. Change that person's role or access in the identity provider; it
+applies here within minutes, or at their next sign-in. An organisation the identity provider
+created here starts with no owner; ask a platform administrator for anything only an owner can
+do.
 
 People sign in the way the [signing-in page](../start/signing-in.md) describes.

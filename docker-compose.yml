@@ -29,6 +29,7 @@ x-app: &app
     EMAIL_FROM: ${EMAIL_FROM:-Rocketpod <noreply@example.com>}
     RESEND_API_KEY: ${RESEND_API_KEY:-}
     OAUTH_ENCRYPTION_KEY: ${OAUTH_ENCRYPTION_KEY:-}
+    IDENTITY_WEBHOOK_SECRET: ${IDENTITY_WEBHOOK_SECRET:-}
     # No proxy in front of this file: the socket address is the client. Behind one, set the hop count.
     TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-0}
     DATABASE_URL: ${DATABASE_URL:-postgresql://rocketpod:rocketpod_pass@postgres:5432/rocketpod}
@@ -55,7 +56,12 @@ x-app: &app
     OIDC_ISSUER: ${OIDC_ISSUER:-}
     OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
     OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
-    OIDC_PRESET: ${OIDC_PRESET:-}
+    OIDC_MANAGED_TENANCY: ${OIDC_MANAGED_TENANCY:-}
+    OIDC_ORGS_CLAIM: ${OIDC_ORGS_CLAIM:-}
+    OIDC_ROLE_MAP: ${OIDC_ROLE_MAP:-}
+    OIDC_ADMIT_CLAIM: ${OIDC_ADMIT_CLAIM:-}
+    OIDC_GLOBAL_ADMIN_CLAIM: ${OIDC_GLOBAL_ADMIN_CLAIM:-}
+    OIDC_SESSION_MAX_AGE_DAYS: ${OIDC_SESSION_MAX_AGE_DAYS:-}
     JOBS_CONCURRENCY: ${JOBS_CONCURRENCY:-2}
     RUNS_CONCURRENCY: ${RUNS_CONCURRENCY:-4}
   depends_on: &app-depends

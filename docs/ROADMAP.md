@@ -55,7 +55,7 @@ large or still carrying its domain; each has a porting note in that app's
 - **Media recording** (`763ec75`…): `Platform.media` over ffmpeg, the browser chunk store (OPFS →
   IndexedDB → memory) and ordered resumable uploader, real per-engine recording fixtures.
 - **Recipes**: vendoring a private package as workspace source (`scripts/vendor-interviewkit.mjs`,
-  re-applied patches, `--check`), and a forced-command SSH deploy (`deploy/nearform`: the key can
+  re-applied patches, `--check`), and a forced-command SSH deploy (a `deploy/<name>` directory: the key can
   only run `deploy <semver>`, a dump before each deploy, `compose up --wait`).
 
 ## Verification

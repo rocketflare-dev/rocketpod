@@ -4,7 +4,7 @@
  *   - `manage TenantMember` (admin+) → change roles, remove, invite
  *   - explicit `role === 'owner'` (or global admin) → touch owner rows / assign owner
  *   - `support` rows are read-only (not an assignable role)
- *   - `labs` rows (`source`, the OIDC_PRESET=labs reconcile) are read-only: Labs Access owns them
+ *   - `idp` rows (`source`, IdP-managed tenancy) are read-only: the identity provider owns them
  * Invitation "copy link" appears only when the server includes a `token` on the row.
  * Groups come back on the member row itself — one query for the page, never one per group —
  * and "Edit groups" opens `MemberGroupsModal` for `manage Group`.
@@ -70,7 +70,7 @@ function MembersPanel({ onInvite }: { onInvite?: () => void }) {
     !canManage ||
     m.userId === user?.id ||
     (m.role === 'owner' && !canManageOwners) ||
-    m.source === 'labs' ||
+    m.source === 'idp' ||
     !(ASSIGNABLE_ROLES as readonly string[]).includes(m.role)
 
   const canRemove = (m: Member) =>
@@ -78,7 +78,7 @@ function MembersPanel({ onInvite }: { onInvite?: () => void }) {
     m.userId !== user?.id &&
     m.role !== 'owner' &&
     m.role !== 'support' &&
-    m.source !== 'labs'
+    m.source !== 'idp'
 
   return (
     <SectionPanel
@@ -133,12 +133,12 @@ function MembersPanel({ onInvite }: { onInvite?: () => void }) {
                     {roleLocked(m) ? (
                       <span className="inline-flex items-center gap-1.5">
                         <RoleBadge role={m.role} />
-                        {m.source === 'labs' && (
+                        {m.source === 'idp' && (
                           <span
                             className="badge badge-sm badge-ghost"
-                            title="Managed by Labs Access: change it there"
+                            title="Managed by your identity provider: change it there"
                           >
-                            Labs Access
+                            Managed
                           </span>
                         )}
                       </span>

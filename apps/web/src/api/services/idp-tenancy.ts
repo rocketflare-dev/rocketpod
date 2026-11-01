@@ -178,29 +178,42 @@ async function ensureOrgTenant(
     return synced ?? existing
   }
   try {
-    // The founding row is the person's `idp` membership — never `owner` (see the header).
-    const created = await createTenantForUser(db, {
-      name: org.name,
-      slug: await uniqueSlug(db, org.slug ?? org.name),
-      userId: user.id,
-      role: org.appRole,
-      source: 'idp',
-      externalOrgId: org.id,
-      features,
-      idpSyncedAt: now,
-    })
-    logger.info(
-      { tenantId: created.id, externalOrgId: org.id },
-      'IdP-managed tenancy: created the tenant for an issuer org'
-    )
-    return created
+    return await createOrgTenant(db, user, org, features, logger, now)
   } catch (err) {
-    // Two first sign-ins to the same org at once: the loser finds the winner's tenant.
     if (!isUniqueViolation(err)) throw err
+    // Two first sign-ins to the same org at once: the loser finds the winner's tenant.
     const raced = await findOrgTenant(db, org.id)
-    if (!raced) throw err
-    return raced
+    if (raced) return raced
+    // Two different orgs took the same free slug at once: the loser picks again.
+    return createOrgTenant(db, user, org, features, logger, now)
   }
+}
+
+/** A new tenant for an issuer org; the founding row is the person's `idp` membership. */
+async function createOrgTenant(
+  db: Database,
+  user: User,
+  org: IdpClaims['orgs'][number],
+  features: readonly string[],
+  logger: IdpLogger,
+  now: Date
+): Promise<Tenant> {
+  // Never `owner` (see the header).
+  const created = await createTenantForUser(db, {
+    name: org.name,
+    slug: await uniqueSlug(db, org.slug ?? org.name),
+    userId: user.id,
+    role: org.appRole,
+    source: 'idp',
+    externalOrgId: org.id,
+    features,
+    idpSyncedAt: now,
+  })
+  logger.info(
+    { tenantId: created.id, externalOrgId: org.id },
+    'IdP-managed tenancy: created the tenant for an issuer org'
+  )
+  return created
 }
 
 async function findOrgTenant(db: Database, externalOrgId: string): Promise<Tenant | undefined> {
@@ -234,11 +247,21 @@ async function upsertIdpMembership(
     return
   }
   if (current.role === 'owner' || current.role === 'support') return
-  await db
+  // Only the row as read: an owner promotion or an event that changed it since wins, and the next
+  // sign-in reconciles from there.
+  const [updated] = await db
     .update(tenantUsers)
     .set({ role, source: 'idp', idpSyncedAt: now })
-    .where(and(eq(tenantUsers.tenantId, tenantId), eq(tenantUsers.userId, userId)))
-  if (current.role !== role) {
+    .where(
+      and(
+        eq(tenantUsers.tenantId, tenantId),
+        eq(tenantUsers.userId, userId),
+        eq(tenantUsers.role, current.role),
+        eq(tenantUsers.source, current.source)
+      )
+    )
+    .returning({ userId: tenantUsers.userId })
+  if (updated && current.role !== role) {
     await recordActivity(db, {
       tenantId,
       userId,
@@ -279,10 +302,17 @@ async function removeIdpMemberships(
       )
     )
   if (stale.length === 0) return []
+  const removed: typeof stale = []
   await db.transaction(async tx => {
     for (const { tenantId, userId } of stale) {
       const row = and(eq(tenantUsers.tenantId, tenantId), eq(tenantUsers.userId, userId))
-      await tx.delete(tenantUsers).where(and(row, eq(tenantUsers.source, 'idp')))
+      // The staleness check again: a sign-in or event that stamped the row since the read wins.
+      const [gone] = await tx
+        .delete(tenantUsers)
+        .where(and(row, eq(tenantUsers.source, 'idp'), staleBefore(filter.before)))
+        .returning({ userId: tenantUsers.userId })
+      if (!gone) continue
+      removed.push({ tenantId, userId })
       await tx
         .delete(tenantUserSettings)
         .where(
@@ -295,7 +325,7 @@ async function removeIdpMemberships(
         .where(and(eq(userSessions.userId, userId), eq(userSessions.selectedTenantId, tenantId)))
     }
   })
-  for (const { tenantId, userId } of stale) {
+  for (const { tenantId, userId } of removed) {
     await recordActivity(db, {
       tenantId,
       userId,
@@ -305,7 +335,7 @@ async function removeIdpMemberships(
       metadata: { via: 'idp' },
     })
   }
-  return stale.map(r => r.tenantId)
+  return removed.map(r => r.tenantId)
 }
 
 /** Grant from the claim; revoke only what the claim granted. */

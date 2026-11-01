@@ -39,8 +39,6 @@ import { ConflictError, NotFoundError, UnauthorizedError } from '../../utils/cor
 import { createRouter } from '../../utils/routes/router'
 import { completeLogin, type LoginErrorCode, loginErrorRedirect, safeRedirectPath } from './helpers'
 
-const DAY_MS = 24 * 60 * 60 * 1000
-
 export const oauthRouter = createRouter()
 
 interface OAuthFlowState {
@@ -246,13 +244,6 @@ oauthRouter.get('/:provider/callback', async c => {
     }
   }
 
-  await completeLogin(
-    c,
-    db,
-    cfg,
-    user,
-    null,
-    managed ? { maxAgeMs: cfg.OIDC_SESSION_MAX_AGE_DAYS * DAY_MS } : undefined
-  )
+  await completeLogin(c, db, cfg, user, null)
   return c.redirect(flow.redirectTo, 302)
 })

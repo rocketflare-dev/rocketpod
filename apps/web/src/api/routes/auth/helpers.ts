@@ -4,7 +4,7 @@
  * the open-redirect guard). Error redirects land on `/login?error=<code>`.
  */
 import { redirectToSchema } from '@rocketpod/shared/auth'
-import type { AppConfig } from '../../../config'
+import { type AppConfig, isIdpManaged } from '../../../config'
 import type { Database } from '../../../db/client'
 import type { User } from '../../../db/schema'
 import { setSessionCookie } from '../../auth/cookies'
@@ -39,20 +39,22 @@ export function loginErrorRedirect(c: AppContext, code: LoginErrorCode): Respons
   return c.redirect(`/login?error=${code}`, 302)
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000
+
 export { clientIpOf }
 
 /**
  * Session for the user's oldest membership (or none), cookie set. Returns the session id.
- * `maxAgeMs` ends the session that long after sign-in however active it is (IdP-managed tenancy);
- * the cookie ends then too.
+ * Under IdP-managed tenancy every session, however it signed in, ends `OIDC_SESSION_MAX_AGE_DAYS`
+ * after sign-in however active it is, so nobody outlasts the issuer's last word on them; the cookie
+ * ends then too.
  */
 export async function completeLogin(
   c: AppContext,
   db: Database,
-  _cfg: AppConfig,
+  cfg: AppConfig,
   user: User,
-  selectedTenantId?: string | null,
-  options: { maxAgeMs?: number } = {}
+  selectedTenantId?: string | null
 ): Promise<{ sessionId: string; tenantId: string | null; token: string }> {
   const tenantId = selectedTenantId ?? (await defaultTenantFor(db, user.id))
   const session = await createSession(db, {
@@ -60,7 +62,7 @@ export async function completeLogin(
     selectedTenantId: tenantId,
     ip: clientIpOf(c),
     userAgent: c.req.header('user-agent') ?? null,
-    maxAgeMs: options.maxAgeMs,
+    maxAgeMs: isIdpManaged(cfg) ? cfg.OIDC_SESSION_MAX_AGE_DAYS * DAY_MS : undefined,
   })
   setSessionCookie(c, session.token, session.expiresAt)
   return { sessionId: session.id, tenantId, token: session.token }

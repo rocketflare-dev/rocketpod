@@ -305,9 +305,13 @@ const coreConfigSchema = z.object({
   /**
    * Under `OIDC_MANAGED_TENANCY`, an OIDC session ends this many days after sign-in, however active
    * the person is, so everyone is reconciled from fresh claims at least this often. Keep it no
-   * longer than the issuer keeps undelivered identity events.
+   * longer than the issuer keeps undelivered identity events. At most 30, the cookie's own life: the
+   * cookie is set once, at sign-in.
    */
-  OIDC_SESSION_MAX_AGE_DAYS: optionalPositiveInt(7),
+  OIDC_SESSION_MAX_AGE_DAYS: z.preprocess(
+    value => (value === undefined || value === null || String(value).trim() === '' ? 7 : value),
+    z.coerce.number().int().positive().max(30)
+  ),
 
   // ---- Secrets (.env locally, the deployment's secret store deployed) — all optional here;
   //      features gate on presence (zero-creds first run) or demand them at use time. -------

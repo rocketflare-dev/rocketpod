@@ -109,6 +109,16 @@ describe('loadConfig', () => {
     expect(() => loadConfig({ ...base, OIDC_ROLE_MAP: 'nocolon' })).toThrow(/OIDC_ROLE_MAP/)
   })
 
+  it('OIDC_SESSION_MAX_AGE_DAYS is 1 to 30 days, 7 by default', () => {
+    expect(loadConfig(base).OIDC_SESSION_MAX_AGE_DAYS).toBe(7)
+    expect(loadConfig({ ...base, OIDC_SESSION_MAX_AGE_DAYS: '30' }).OIDC_SESSION_MAX_AGE_DAYS).toBe(
+      30
+    )
+    expect(() => loadConfig({ ...base, OIDC_SESSION_MAX_AGE_DAYS: '31' })).toThrow(
+      /OIDC_SESSION_MAX_AGE_DAYS/
+    )
+  })
+
   it('IDENTITY_WEBHOOK_SECRET must be a Standard Webhooks secret', () => {
     const secret = `whsec_${Buffer.alloc(32, 7).toString('base64')}`
     expect(loadConfig({ ...base, IDENTITY_WEBHOOK_SECRET: secret }).IDENTITY_WEBHOOK_SECRET).toBe(

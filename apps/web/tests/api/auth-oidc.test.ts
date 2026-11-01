@@ -998,6 +998,21 @@ describe('OIDC_MANAGED_TENANCY', () => {
     expect(days(shortRow?.expiresAt)).toBeLessThan(1.1)
   })
 
+  it('under managed tenancy every sign-in is capped, not only an OIDC one', async () => {
+    const env = managedEnv()
+    const email = newEmail()
+    const res = await request('/auth/dev-login', { method: 'POST' }, { json: { email }, env })
+    expect(res.status).toBe(200)
+    const [row] = await db
+      .select({ s: userSessions })
+      .from(userSessions)
+      .innerJoin(users, eq(users.id, userSessions.userId))
+      .where(eq(users.email, email))
+    const days = ((row?.s.maxExpiresAt?.getTime() ?? 0) - Date.now()) / 86_400_000
+    expect(days).toBeGreaterThan(6.9)
+    expect(days).toBeLessThan(7.1)
+  })
+
   it('a session without a cap still slides over 30 days', async () => {
     const email = newEmail()
     idp.claims = { sub: `sub_${email}`, email, email_verified: true }

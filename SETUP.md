@@ -377,8 +377,9 @@ service's own word for the person's role there.
 3. Optional: `OIDC_ADMIT_CLAIM` names a boolean claim that admits a person with no orgs (staff who
    may use every app, say), and `OIDC_GLOBAL_ADMIN_CLAIM` one that makes them a global admin while
    it is true
-4. `OIDC_SESSION_MAX_AGE_DAYS` (default 7): an OIDC session ends this long after sign-in however
-   active the person is, so their claims are re-read at least that often
+4. `OIDC_SESSION_MAX_AGE_DAYS` (default 7, at most 30): every session, however the person signed
+   in, ends this long after sign-in however active they are, so their claims are re-read at least
+   that often
 5. Identity events (optional): give the service `{APP_URL}/api/identity/events` as its webhook URL
    and set its signing secret (`whsec_…`) as `IDENTITY_WEBHOOK_SECRET`, a secret (compose `.env`,
    the chart's `secrets`). Keep `OIDC_SESSION_MAX_AGE_DAYS` no longer than the service keeps an

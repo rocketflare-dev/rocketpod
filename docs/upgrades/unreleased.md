@@ -20,15 +20,15 @@ manual: true
 
 IdP-managed tenancy: with `OIDC_MANAGED_TENANCY=true` the OIDC issuer decides which of its orgs a person may use the app in, and with what role. Every OIDC sign-in reconciles tenants, memberships and global admin from the verified id_token; between sign-ins the issuer's signed identity events (Standard Webhooks, `POST /api/identity/events`) change them; and an OIDC session ends a fixed time after sign-in. OIDC logout also sends `logout_uri` for Amazon Cognito, and a Cognito pre-token denial shows "You don't have access to this app".
 
-- `config.ts`: `OIDC_MANAGED_TENANCY`, `OIDC_ORGS_CLAIM` (default `orgs`), `OIDC_ROLE_MAP` (`issuerRole:admin|member` pairs, parsed to a record), `OIDC_ADMIT_CLAIM`, `OIDC_GLOBAL_ADMIN_CLAIM`, `OIDC_SESSION_MAX_AGE_DAYS` (default 7) and the secret `IDENTITY_WEBHOOK_SECRET` (`whsec_…`); managed tenancy needs `OIDC_ISSUER`, `OIDC_CLIENT_ID` and `TENANCY_MODE=multi`; `isIdpManaged(cfg)`.
+- `config.ts`: `OIDC_MANAGED_TENANCY`, `OIDC_ORGS_CLAIM` (default `orgs`), `OIDC_ROLE_MAP` (`issuerRole:admin|member` pairs, parsed to a record), `OIDC_ADMIT_CLAIM`, `OIDC_GLOBAL_ADMIN_CLAIM`, `OIDC_SESSION_MAX_AGE_DAYS` (default 7, at most 30) and the secret `IDENTITY_WEBHOOK_SECRET` (`whsec_…`); managed tenancy needs `OIDC_ISSUER`, `OIDC_CLIENT_ID` and `TENANCY_MODE=multi`; `isIdpManaged(cfg)`.
 - `packages/shared/src/idp.ts`: the orgs-claim schema and the identity-event schemas.
 - `services/idp-tenancy.ts`: `readIdpClaims`, `idpClaimsAdmit`, `reconcileIdpClaims`, `applyIdentityEvent`.
 - `auth/standard-webhooks.ts`: `verifyStandardWebhook`, `webhookHeaders`.
 - `routes/identity-events.ts`, mounted at `/api/identity` without `authMiddleware`.
-- `routes/auth/oauth.ts`: under managed tenancy, claims admit a new person (not `SIGNUP_MODE`), the reconcile runs before `completeLogin`, and the session is capped; a 400 `UserLambdaValidationException` at the token exchange → `/login?error=no_access`.
+- `routes/auth/oauth.ts`: under managed tenancy, claims admit a new person (not `SIGNUP_MODE`), the reconcile runs before `completeLogin`; a 400 `UserLambdaValidationException` at the token exchange → `/login?error=no_access`.
 - `services/auth.ts`: `AdmitInput.admittedBy: 'idp'` creates the user with no access request and no `onNoTenant`.
 - `services/members.ts`: role change and removal of a `source='idp'` row → 409 `idp_managed` (`ERROR_CODES.idpManaged`); the list returns `source`.
-- `auth/sessions.ts` + `routes/auth/helpers.ts`: a session may carry `max_expires_at`, which the 30-day slide never passes; managed sign-ins set it to sign-in + `OIDC_SESSION_MAX_AGE_DAYS`, and the cookie ends with it.
+- `auth/sessions.ts` + `routes/auth/helpers.ts`: a session may carry `max_expires_at`, which the 30-day slide never passes; under managed tenancy every sign-in (OIDC, magic link, dev login) sets it to sign-in + `OIDC_SESSION_MAX_AGE_DAYS`, and the cookie ends with it.
 - `services/admin.ts`: `setGlobalAdmin` records `global_admin_source = 'manual'`, so a sign-in never clears an admin-console grant.
 - `auth/providers/oidc.ts`: the profile carries the verified payload (`idTokenClaims`); `oidcEndSessionUrl` adds `logout_uri` beside `post_logout_redirect_uri`.
 - UI: `Login.tsx` copy for `no_access`; `People.tsx` shows a "Managed" badge and no controls on `idp` rows.
@@ -65,9 +65,9 @@ IdP-managed tenancy: with `OIDC_MANAGED_TENANCY=true` the OIDC issuer decides wh
    first `expiresAt` the earlier of 30 days and that; `touchSession` sets `expiresAt` to
    `least(<now + 30 days>, coalesce(max_expires_at, 'infinity'))`; `resolveSession` selects
    `u.global_admin_source` and maps it onto the `User` it builds.
-7. In `apps/web/src/api/routes/auth/helpers.ts`, add `'no_access'` to `LoginErrorCode` and the
-   `options: { maxAgeMs?: number }` parameter to `completeLogin`, which passes it to
-   `createSession`.
+7. In `apps/web/src/api/routes/auth/helpers.ts`, add `'no_access'` to `LoginErrorCode`, and have
+   `completeLogin` pass `maxAgeMs: isIdpManaged(cfg) ? cfg.OIDC_SESSION_MAX_AGE_DAYS * DAY_MS :
+   undefined` to `createSession`, so every sign-in is capped.
 8. In `apps/web/src/api/auth/providers/types.ts`, add `idTokenClaims?: Record<string, unknown>` to
    `OAuthProfile`. In `apps/web/src/api/auth/providers/oidc.ts`, return `idTokenClaims: claims` from
    `oidcProfile`, add `isAccessDeniedAtTokenExchange` (arctic `OAuth2RequestError` /
@@ -90,8 +90,8 @@ IdP-managed tenancy: with `OIDC_MANAGED_TENANCY=true` the OIDC issuer decides wh
     resolved, compute `managed = def.id === 'oidc' && isIdpManaged(cfg)` and
     `claims = managed ? readIdpClaims(cfg, profile.idTokenClaims, logger) : null`, pass
     `admittedBy: 'idp'` to `admitUser` when `idpClaimsAdmit(claims)`, run `reconcileIdpClaims` (on
-    failure log and redirect `oauth_failed`) after `upsertProviderLink`, and call `completeLogin`
-    with `{ maxAgeMs: cfg.OIDC_SESSION_MAX_AGE_DAYS * DAY_MS }` when `managed`.
+    failure log and redirect `oauth_failed`) after `upsertProviderLink`, then `completeLogin` as
+    before.
 13. In `apps/web/src/api/services/members.ts`, select `source` in `listMembers` and throw
     `ConflictError(..., ERROR_CODES.idpManaged)` for a `source === 'idp'` target in both
     `changeMemberRole` and `removeMember`, right after the `support` check. A copy that locks the

@@ -87,8 +87,8 @@ are always `tenant`; no audit log beyond `activity_events`; no personal API keys
 ## 2. Auth
 
 - **Sessions are rows**: `user_sessions`, 30-day sliding TTL (`SESSION_TTL_MS`), never past the
-  row's own `max_expires_at` when it has one (an IdP-managed sign-in: sign-in +
-  `OIDC_SESSION_MAX_AGE_DAYS`, the cookie ending with it), cookie `__Host-session` (`HttpOnly`,
+  row's own `max_expires_at` when it has one (any sign-in under IdP-managed tenancy: sign-in +
+  `OIDC_SESSION_MAX_AGE_DAYS`, at most 30 days, the cookie ending with it), cookie `__Host-session` (`HttpOnly`,
   `SameSite=Lax`, `Secure` outside development). `authMiddleware` resolves session → user →
   membership → groups → features in one query. The second strategy is a Bearer tenant API key
   (hashed, expiry, soft revoke).
@@ -132,9 +132,12 @@ are always `tenant`; no audit log beyond `activity_events`; no personal API keys
   new and never given an access request (any pending one is closed once they hold a tenant). The
   global-admin claim sets `is_global_admin` with `global_admin_source = 'idp'`; the claim going
   clears it only when that source is `idp` (the admin console writes `manual`). A person admitted
-  with no org gets the normal no-tenant pages. The session ends `OIDC_SESSION_MAX_AGE_DAYS`
-  (default 7) after sign-in however active it is, so everyone is reconciled from fresh claims at
-  least that often. Tenancy is §1.
+  with no org gets the normal no-tenant pages. Every session, a magic link's or a dev login's as
+  much as an OIDC one, ends `OIDC_SESSION_MAX_AGE_DAYS` (default 7, at most 30) after sign-in
+  however active it is, so everyone is reconciled from fresh claims at least that often. Writes
+  never overwrite a newer change: the reconcile updates a membership only as it read it (an owner
+  promotion or an event in between wins), and a removal deletes a row only if nothing has stamped
+  it since the event. Tenancy is §1.
 - **Identity events (`POST /api/identity/events`)**: between sign-ins the issuer posts signed
   events (Standard Webhooks: `webhook-id`, `webhook-timestamp`, `webhook-signature`, verified
   against `IDENTITY_WEBHOOK_SECRET` over the raw body, five minutes' tolerance, two signatures

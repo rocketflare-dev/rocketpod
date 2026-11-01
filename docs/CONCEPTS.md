@@ -170,7 +170,10 @@ sends (no per-domain rule) — set it only for an issuer that controls the `emai
 is sent as `client_secret_basic` only (no `private_key_jwt`). IdP-managed tenancy: without
 `IDENTITY_WEBHOOK_SECRET` claims are as fresh as the last sign-in, so a removal waits for the next
 sign-in or the session's end; an identity event the issuer gives up on is healed only then too;
-events are applied in the request, not queued; one orgs claim, one role map and no per-org role
+events are applied in the request, not queued; a removal is not remembered once applied (the row
+goes), so a sign-in whose id_token was issued in the second or two before a removal event, or
+before a concurrent sign-in that cleared global admin, can restore what that removed until the next
+sign-in or the session's end; one orgs claim, one role map and no per-org role
 overrides; the app writes nothing back to the issuer; the slug is taken from the claim once and
 never follows a later rename; `person.suspended` revokes no API keys: a key acts as its creator,
 so the keys in the tenants they lost stop working, and those in their manual tenants do not.

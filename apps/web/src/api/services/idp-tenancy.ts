@@ -38,7 +38,7 @@ import {
   type IdpOrgClaim,
   idpOrgsClaimSchema,
 } from '@rocketpod/shared/idp'
-import { and, eq, isNull, lt, notInArray, or, sql } from 'drizzle-orm'
+import { and, eq, isNull, lt, lte, notInArray, or, sql } from 'drizzle-orm'
 import type { AppConfig } from '../../config'
 import { type Database, isUniqueViolation } from '../../db/client'
 import {
@@ -52,6 +52,7 @@ import {
   users,
 } from '../../db/schema'
 import { findProviderLink } from '../auth/oauth-providers'
+import { ConflictError } from '../utils/core/errors'
 import type { Logger } from '../utils/core/logger'
 import { createTenantForUser, uniqueSlug } from '../utils/db/tenant-helpers'
 import { recordActivity } from './activity'
@@ -76,6 +77,11 @@ export interface IdpClaims {
   admit: boolean
   /** `OIDC_GLOBAL_ADMIN_CLAIM` is true. */
   globalAdmin: boolean
+  /**
+   * When the issuer said all this: the token's `iat`, never later than now. A row an identity event
+   * stamped after it keeps the event's word.
+   */
+  issuedAt: Date
 }
 
 /**
@@ -107,10 +113,12 @@ export function readIdpClaims(
     else logger.warn({ orgId: org.id, role: org.role }, 'IdP-managed tenancy: unmapped role')
   }
   const flag = (name: string | undefined) => Boolean(name && payload?.[name] === true)
+  const iat = typeof payload?.iat === 'number' ? payload.iat * 1000 : Number.NaN
   return {
     orgs,
     admit: flag(cfg.OIDC_ADMIT_CLAIM),
     globalAdmin: flag(cfg.OIDC_GLOBAL_ADMIN_CLAIM),
+    issuedAt: new Date(Number.isFinite(iat) ? Math.min(iat, Date.now()) : Date.now()),
   }
 }
 
@@ -135,14 +143,14 @@ export async function reconcileIdpClaims(
   logger: IdpLogger,
   features: readonly string[] = []
 ): Promise<IdpReconcileResult> {
-  const now = new Date()
+  const at = claims.issuedAt
   const tenantIds: string[] = []
   const seen = new Set<string>()
   for (const org of claims.orgs) {
     if (seen.has(org.id)) continue
     seen.add(org.id)
-    const tenant = await ensureOrgTenant(db, user, org, features, logger, now)
-    await upsertIdpMembership(db, tenant.id, user.id, org.appRole, now)
+    const tenant = await ensureOrgTenant(db, user, org, features, logger, at)
+    await upsertIdpMembership(db, tenant.id, user.id, org.appRole, at)
     tenantIds.push(tenant.id)
   }
 
@@ -156,36 +164,46 @@ export async function reconcileIdpClaims(
 }
 
 /** The tenant mirroring `org`: found by `external_org_id`, renamed to the claim, or created. */
+/** How many times a first sign-in tries to create an org's tenant before it gives up. */
+const TENANT_CREATE_ATTEMPTS = 5
+
 async function ensureOrgTenant(
   db: Database,
   user: User,
   org: IdpClaims['orgs'][number],
   features: readonly string[],
   logger: IdpLogger,
-  now: Date
+  at: Date
 ): Promise<Tenant> {
-  const existing = await findOrgTenant(db, org.id)
-  if (existing) {
-    const [synced] = await db
-      .update(tenants)
-      .set(
-        existing.name === org.name
-          ? { idpSyncedAt: now }
-          : { name: org.name, idpSyncedAt: now, updatedAt: now }
-      )
-      .where(eq(tenants.id, existing.id))
-      .returning()
-    return synced ?? existing
-  }
-  try {
-    return await createOrgTenant(db, user, org, features, logger, now)
-  } catch (err) {
-    if (!isUniqueViolation(err)) throw err
-    // Two first sign-ins to the same org at once: the loser finds the winner's tenant.
-    const raced = await findOrgTenant(db, org.id)
-    if (raced) return raced
-    // Two different orgs took the same free slug at once: the loser picks again.
-    return createOrgTenant(db, user, org, features, logger, now)
+  for (let attempt = 1; ; attempt++) {
+    const existing = await findOrgTenant(db, org.id)
+    if (existing) {
+      // An `org.renamed` event newer than the token keeps its name.
+      const [synced] = await db
+        .update(tenants)
+        .set(
+          existing.name === org.name
+            ? { idpSyncedAt: at }
+            : { name: org.name, idpSyncedAt: at, updatedAt: new Date() }
+        )
+        .where(
+          and(
+            eq(tenants.id, existing.id),
+            or(isNull(tenants.idpSyncedAt), lte(tenants.idpSyncedAt, at))
+          )
+        )
+        .returning()
+      return synced ?? existing
+    }
+    try {
+      return await createOrgTenant(db, user, org, features, logger, at)
+    } catch (err) {
+      // Another first sign-in to the same org made it (found on the next pass), or another org
+      // took the same free slug (the next pass picks again).
+      const clash =
+        isUniqueViolation(err) || (err instanceof ConflictError && err.code === 'slug_taken')
+      if (!clash || attempt >= TENANT_CREATE_ATTEMPTS) throw err
+    }
   }
 }
 
@@ -220,56 +238,67 @@ async function findOrgTenant(db: Database, externalOrgId: string): Promise<Tenan
   return db.query.tenants.findFirst({ where: eq(tenants.externalOrgId, externalOrgId) })
 }
 
-/** Insert or update the `idp` row; an `owner` or `support` row is the app's and stays as is. */
+/**
+ * Insert or update the `idp` row; an `owner` or `support` row is the app's and stays as is. Each
+ * write applies only to the row as read and never over an event newer than the token, so an owner
+ * promotion or an identity event in between wins; a row removed in between is inserted again,
+ * since the claims grant it.
+ */
 async function upsertIdpMembership(
   db: Database,
   tenantId: string,
   userId: string,
   role: IdpAppRole,
-  now: Date
+  at: Date
 ): Promise<void> {
-  const current = await db.query.tenantUsers.findFirst({
-    where: and(eq(tenantUsers.tenantId, tenantId), eq(tenantUsers.userId, userId)),
-  })
-  if (!current) {
-    await db
-      .insert(tenantUsers)
-      .values({ tenantId, userId, role, source: 'idp', idpSyncedAt: now })
-      .onConflictDoNothing()
-    await recordActivity(db, {
-      tenantId,
-      userId,
-      type: 'member.joined',
-      subjectType: 'TenantMember',
-      subjectId: userId,
-      metadata: { via: 'idp', role },
-    })
-    return
-  }
-  if (current.role === 'owner' || current.role === 'support') return
-  // Only the row as read: an owner promotion or an event that changed it since wins, and the next
-  // sign-in reconciles from there.
-  const [updated] = await db
-    .update(tenantUsers)
-    .set({ role, source: 'idp', idpSyncedAt: now })
-    .where(
-      and(
-        eq(tenantUsers.tenantId, tenantId),
-        eq(tenantUsers.userId, userId),
-        eq(tenantUsers.role, current.role),
-        eq(tenantUsers.source, current.source)
+  const row = and(eq(tenantUsers.tenantId, tenantId), eq(tenantUsers.userId, userId))
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const current = await db.query.tenantUsers.findFirst({ where: row })
+    if (!current) {
+      const [inserted] = await db
+        .insert(tenantUsers)
+        .values({ tenantId, userId, role, source: 'idp', idpSyncedAt: at })
+        .onConflictDoNothing()
+        .returning({ userId: tenantUsers.userId })
+      if (!inserted) continue
+      await recordActivity(db, {
+        tenantId,
+        userId,
+        type: 'member.joined',
+        subjectType: 'TenantMember',
+        subjectId: userId,
+        metadata: { via: 'idp', role },
+      })
+      return
+    }
+    if (current.role === 'owner' || current.role === 'support') return
+    const [updated] = await db
+      .update(tenantUsers)
+      .set({ role, source: 'idp', idpSyncedAt: at })
+      .where(
+        and(
+          row,
+          eq(tenantUsers.role, current.role),
+          eq(tenantUsers.source, current.source),
+          or(isNull(tenantUsers.idpSyncedAt), lte(tenantUsers.idpSyncedAt, at))
+        )
       )
-    )
-    .returning({ userId: tenantUsers.userId })
-  if (updated && current.role !== role) {
-    await recordActivity(db, {
-      tenantId,
-      userId,
-      type: 'member.role_changed',
-      subjectType: 'TenantMember',
-      subjectId: userId,
-      metadata: { from: current.role, to: role, via: 'idp' },
-    })
+      .returning({ userId: tenantUsers.userId })
+    if (updated) {
+      if (current.role !== role) {
+        await recordActivity(db, {
+          tenantId,
+          userId,
+          type: 'member.role_changed',
+          subjectType: 'TenantMember',
+          subjectId: userId,
+          metadata: { from: current.role, to: role, via: 'idp' },
+        })
+      }
+      return
+    }
+    // Not updated: changed since the read (it stays) or removed since (insert it on the next pass).
+    if (await db.query.tenantUsers.findFirst({ where: row })) return
   }
 }
 

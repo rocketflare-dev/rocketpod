@@ -135,9 +135,11 @@ are always `tenant`; no audit log beyond `activity_events`; no personal API keys
   with no org gets the normal no-tenant pages. Every session, a magic link's or a dev login's as
   much as an OIDC one, ends `OIDC_SESSION_MAX_AGE_DAYS` (default 7, at most 30) after sign-in
   however active it is, so everyone is reconciled from fresh claims at least that often. Writes
-  never overwrite a newer change: the reconcile updates a membership only as it read it (an owner
-  promotion or an event in between wins), and a removal deletes a row only if nothing has stamped
-  it since the event. Tenancy is §1.
+  never overwrite a newer change: a sign-in stamps what it writes with the token's `iat`, never
+  over a row an event stamped later, and updates a membership only as it read it (an owner
+  promotion in between wins; a row removed in between is inserted again, since the claims grant
+  it); a removal deletes a row only if nothing has stamped it since the event. A first sign-in
+  whose new tenant's slug clashes picks again, up to five times. Tenancy is §1.
 - **Identity events (`POST /api/identity/events`)**: between sign-ins the issuer posts signed
   events (Standard Webhooks: `webhook-id`, `webhook-timestamp`, `webhook-signature`, verified
   against `IDENTITY_WEBHOOK_SECRET` over the raw body, five minutes' tolerance, two signatures

@@ -1168,6 +1168,40 @@ describe('OIDC_MANAGED_TENANCY', () => {
     expect((await sessionOf(res, env)).tenants.map(t => t.id)).not.toContain(tenantId)
   })
 
+  it('a token issued before an event never overwrites it, and an event newer than the token stays', async () => {
+    const org = newOrg()
+    const env = eventsEnv()
+    const email = newEmail()
+    const person = { personId: `p-${email}`, email, sub: `sub_${email}` }
+    const minutesAgo = (m: number) => Math.floor(Date.now() / 1000) - m * 60
+    managedToken(email, [org], { iat: minutesAgo(10) })
+    const userId = (await sessionOf(await signIn(env), env)).user.id
+    const tenantId = (await tenantFor(org))?.id as string
+
+    const promoted = event(
+      'membership.role_changed',
+      { ...person, orgId: org.id, role: 'org_admin' },
+      1
+    )
+    expect((await post(env, promoted)).status).toBe(204)
+    const renamed = event('org.renamed', { orgId: org.id, name: 'Renamed By Event' }, 1)
+    expect((await post(env, renamed)).status).toBe(204)
+
+    // A token from before both events, still saying member and the old name.
+    managedToken(email, [org], { iat: minutesAgo(2) })
+    await signIn(env)
+    expect(await membership(tenantId, userId)).toMatchObject({ role: 'admin', source: 'idp' })
+    expect((await tenantFor(org))?.name).toBe('Renamed By Event')
+    // The event still counts as newer than the row, so its retry is applied, not stale.
+    expect((await post(env, promoted)).status).toBe(204)
+    expect(await membership(tenantId, userId)).toMatchObject({ role: 'admin' })
+
+    // A fresh token wins again.
+    managedToken(email, [org])
+    await signIn(env)
+    expect(await membership(tenantId, userId)).toMatchObject({ role: 'member' })
+  })
+
   it('membership.role_changed maps the role, changes only an existing membership, and an unmapped role removes it', async () => {
     const org = newOrg('org_member')
     const env = eventsEnv()

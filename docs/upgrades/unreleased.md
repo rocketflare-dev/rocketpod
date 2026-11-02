@@ -33,6 +33,13 @@ IdP-managed tenancy: with `OIDC_MANAGED_TENANCY=true` the OIDC issuer decides wh
 - `auth/providers/oidc.ts`: the profile carries the verified payload (`idTokenClaims`); `oidcEndSessionUrl` adds `logout_uri` beside `post_logout_redirect_uri`.
 - UI: `Login.tsx` copy for `no_access`; `People.tsx` shows a "Managed" badge and no controls on `idp` rows.
 - Decision: a tenant managed tenancy creates has no owner (`docs/CONCEPTS.md` §1).
+- Admin: a global admin links a tenant to an issuer org, or unlinks it
+  (`PUT /api/admin/tenants/:id/external-org`, `setTenantExternalOrg`, 409 `external_org_taken`,
+  activity `tenant.idp_linked` / `tenant.idp_unlinked`), since a tenant made in the app is never
+  matched by slug; and deletes an organisation (`DELETE /api/admin/tenants/:id`, the owner's
+  `deleteTenant` with its slug confirmation), the only way to remove an ownerless one. The admin
+  tenant DTOs carry `externalOrgId`, the detail `idpManaged`; `TenantDetail.tsx` gains the
+  Identity provider org panel and a danger zone.
 
 ## How to apply
 
@@ -110,7 +117,16 @@ IdP-managed tenancy: with `OIDC_MANAGED_TENANCY=true` the OIDC issuer decides wh
 18. Port the docs: `docs/CONCEPTS.md` §1 (tenants managed by the OIDC issuer) and §2 (IdP-managed
     tenancy, identity events, gaps), `SETUP.md` 2.3c, the config line in `CLAUDE.md` and the
     `identity-events.ts` line in `apps/web/src/api/routes/CLAUDE.md`.
-19. To turn it on for a deployment, follow `SETUP.md` 2.3c.
+19. To turn it on for a deployment, follow `SETUP.md` 2.3c. Before an org's people first sign in,
+    link any tenant made for it by hand (Admin → the organisation → Identity provider org).
+20. Admin linking and deletion: add `externalOrgId` to `adminTenantListItemSchema`, `idpManaged`
+    to `adminTenantDetailSchema` and `setTenantExternalOrgRequestSchema` in
+    `packages/shared/src/admin.ts`, and `externalOrgTaken: 'external_org_taken'` to `ERROR_CODES`.
+    Copy `setTenantExternalOrg` (and `externalOrgTaken`) into `services/admin.ts`, pass `cfg` to
+    `getAdminTenant`, and add the `PUT …/external-org` and `DELETE /tenants/:id` routes to
+    `routes/admin.ts`. Copy `useSetTenantExternalOrg` and `useAdminDeleteTenant` into
+    `useAdminTenants.ts` and the two panels into `pages/admin/TenantDetail.tsx`. Add
+    `externalOrgId: null` to any admin tenant fixture in `tests/ui/`.
 
 ## Conflicts to expect
 
@@ -129,3 +145,4 @@ IdP-managed tenancy: with `OIDC_MANAGED_TENANCY=true` the OIDC issuer decides wh
 5. `POST /auth/logout` with an issuer that advertises `end_session_endpoint` returns an `endSessionUrl` carrying both `post_logout_redirect_uri` and `logout_uri`.
 6. A managed sign-in for a person with one org lands in that org's tenant, `/auth/session` shows `accessRequest: null`, `PATCH /api/members/<their id>` answers 409 `idp_managed`, and their `user_sessions` row has `max_expires_at` seven days out.
 7. With `IDENTITY_WEBHOOK_SECRET` set, an unsigned `POST /api/identity/events` answers 401, and a signed `membership.removed` for that person and org answers 204 and removes the membership.
+8. A global admin links a hand-made tenant to an org id; the next sign-in with that org lands in it, not in a `-2` copy. `DELETE /api/admin/tenants/<id>` with the slug answers 204.

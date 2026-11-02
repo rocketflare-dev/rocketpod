@@ -72,6 +72,8 @@ export const ERROR_CODES = {
    * the app may neither edit nor remove it. Change it at the issuer.
    */
   idpManaged: 'idp_managed',
+  /** 409: another tenant is already linked to that OIDC issuer org (`tenants.external_org_id`). */
+  externalOrgTaken: 'external_org_taken',
   /** 416: the `Range` asked for starts past the end of the object (`Content-Range: bytes *\/n`). */
   rangeNotSatisfiable: 'range_not_satisfiable',
 } as const

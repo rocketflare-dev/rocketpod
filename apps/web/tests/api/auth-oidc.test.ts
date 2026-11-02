@@ -11,6 +11,7 @@ import { exportJWK, generateKeyPair, type JWTPayload, SignJWT } from 'jose'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { OAUTH_STATE_COOKIE_NAME, SESSION_COOKIE_NAME } from '@/api/auth/cookies'
 import { resetOidcCaches } from '@/api/auth/providers/oidc'
+import { setTenantExternalOrg } from '@/api/services/admin'
 import {
   accessRequests,
   oauthProviders,
@@ -736,6 +737,18 @@ describe('OIDC_MANAGED_TENANCY', () => {
     const tenant = await tenantFor(org)
     expect(tenant?.id).not.toBe(squatter.id)
     expect(tenant?.slug).toBe(`${org.slug}-2`)
+  })
+
+  it('a tenant made by hand and linked by an admin is the one the org signs in to', async () => {
+    const org = newOrg()
+    const { user: owner, tenant: made } = await createTestTenantWithUser(db, 'owner')
+    await setTenantExternalOrg(db, made.id, org.id, owner)
+    const email = newEmail()
+    managedToken(email, [org])
+    const userId = await sessionUserId(await signIn(managedEnv()), managedEnv())
+    expect((await tenantFor(org))?.id).toBe(made.id)
+    expect(await membership(made.id, userId)).toMatchObject({ role: 'member', source: 'idp' })
+    expect(await membership(made.id, owner.id)).toMatchObject({ role: 'owner' })
   })
 
   it('an org gone from the claims loses its idp membership; manual ones stay; the session is unpinned', async () => {

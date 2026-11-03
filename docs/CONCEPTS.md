@@ -70,13 +70,14 @@ suites on vitest 4, §9 — never part of the gate).
   the issuer, and `tenant_users.source` (`manual | idp`) says who manages a membership. The
   sign-in reconcile creates a tenant per org in the claims, keeps its name in step, and adds or
   removes the person's `idp` rows; identity events change them between sign-ins.
-  **A tenant made in the app is never matched to an org by slug or name**, since any user may
-  create a tenant and could take a client's slug first. A global admin links it instead (Admin →
-  the organisation → Identity provider org; `PUT /api/admin/tenants/:id/external-org`, 409
-  `external_org_taken` when another tenant holds the org). Link before the org's people sign in,
-  or the first sign-in creates a second tenant (slug `-2`). A global admin can delete that one
-  (`DELETE /api/admin/tenants/:id`, the owner's delete with its slug confirmation), which frees
-  the org for the link.
+  **A tenant made in the app is linked by slug — decided:** on an org's first sign-in, an
+  unlinked tenant whose slug is the claim's `slug` becomes that org's tenant, so a tenant made by
+  hand (or before managed tenancy) is not duplicated. The issuer's slug is trusted to name it; a
+  tenant already linked to another org is never taken. When the slugs differ, a global admin links
+  it (Admin → the organisation → Identity provider org; `PUT /api/admin/tenants/:id/external-org`,
+  409 `external_org_taken` when another tenant holds the org), and can delete a duplicate the
+  org's first sign-in made (`DELETE /api/admin/tenants/:id`, the owner's delete with its slug
+  confirmation), which frees the org for the link.
   `idp_synced_at` on both tables records when the issuer last spoke about the row, so a stale event
   is skipped. **A tenant created this way has no owner — decided:** managed tenancy never writes
   `owner` (or `support`), so the last-owner guard only ever counts owners a person chose, and

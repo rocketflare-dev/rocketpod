@@ -10,8 +10,10 @@
  *
  * What a reconcile does, idempotently:
  * - **Tenants.** Each org in the orgs claim (`OIDC_ORGS_CLAIM`) is the tenant whose
- *   `external_org_id` is the org id — created on first sight (named from the claim, slug from the
- *   claim's slug or name made unique), renamed when the claim's name changes. A tenant created here
+ *   `external_org_id` is the org id. On first sight an unlinked tenant whose slug is the claim's
+ *   slug is linked to the org (a tenant made in the app by hand, or before managed tenancy);
+ *   otherwise one is created (named from the claim, slug from the claim's slug or name made
+ *   unique). It is renamed when the claim's name changes. A tenant created here
  *   has NO owner: `owner` is an app-local decision this module never writes, so the last-owner
  *   guard only ever sees owners a person made.
  * - **Memberships.** `tenant_users` with `source = 'idp'` and the role from `OIDC_ROLE_MAP`; an org
@@ -163,10 +165,13 @@ export async function reconcileIdpClaims(
   return { user: updated, tenantIds, removedTenantIds }
 }
 
-/** The tenant mirroring `org`: found by `external_org_id`, renamed to the claim, or created. */
 /** How many times a first sign-in tries to create an org's tenant before it gives up. */
 const TENANT_CREATE_ATTEMPTS = 5
 
+/**
+ * The tenant mirroring `org`: found by `external_org_id` and renamed to the claim; else the
+ * unlinked tenant whose slug is the claim's, linked to the org; else created.
+ */
 async function ensureOrgTenant(
   db: Database,
   user: User,
@@ -195,6 +200,7 @@ async function ensureOrgTenant(
         .returning()
       return synced ?? existing
     }
+    if (org.slug && (await linkTenantBySlug(db, org.id, org.slug, logger))) continue
     try {
       return await createOrgTenant(db, user, org, features, logger, at)
     } catch (err) {
@@ -232,6 +238,36 @@ async function createOrgTenant(
     'IdP-managed tenancy: created the tenant for an issuer org'
   )
   return created
+}
+
+/**
+ * Link the unlinked tenant whose slug is the org's to the org (decided: the issuer's slug is
+ * trusted to name the tenant made for it in the app, by hand or before managed tenancy). A tenant
+ * already linked to another org is never taken. Returns whether one was linked; a concurrent
+ * sign-in that linked or created the org's tenant first is found by the caller's next pass.
+ */
+async function linkTenantBySlug(
+  db: Database,
+  externalOrgId: string,
+  slug: string,
+  logger: IdpLogger
+): Promise<boolean> {
+  try {
+    const [linked] = await db
+      .update(tenants)
+      .set({ externalOrgId, updatedAt: new Date() })
+      .where(and(eq(tenants.slug, slug), isNull(tenants.externalOrgId)))
+      .returning({ id: tenants.id })
+    if (!linked) return false
+    logger.info(
+      { tenantId: linked.id, externalOrgId, slug },
+      'IdP-managed tenancy: linked the existing tenant with the org slug'
+    )
+    return true
+  } catch (err) {
+    if (isUniqueViolation(err)) return true
+    throw err
+  }
 }
 
 async function findOrgTenant(db: Database, externalOrgId: string): Promise<Tenant | undefined> {

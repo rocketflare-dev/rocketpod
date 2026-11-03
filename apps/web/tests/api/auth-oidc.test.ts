@@ -729,13 +729,35 @@ describe('OIDC_MANAGED_TENANCY', () => {
     })
   })
 
-  it("a taken slug is made unique; an org's tenant is found by its id, never by slug", async () => {
+  it('an unlinked tenant with the org slug becomes the org tenant; its owner stays', async () => {
     const org = newOrg()
-    const squatter = await createTestTenant(db, { slug: org.slug })
+    const { user: owner, tenant: made } = await createTestTenantWithUser(db, 'owner', undefined, {
+      slug: org.slug,
+    })
+    const first = newEmail()
+    managedToken(first, [org])
+    const firstId = await sessionUserId(await signIn(managedEnv()), managedEnv())
+    managedToken(newEmail(), [org])
+    await signIn(managedEnv())
+    expect((await tenantFor(org))?.id).toBe(made.id)
+    expect(
+      await db
+        .select()
+        .from(tenants)
+        .where(eq(tenants.slug, `${org.slug}-2`))
+    ).toEqual([])
+    expect(await membership(made.id, firstId)).toMatchObject({ role: 'member', source: 'idp' })
+    expect(await membership(made.id, owner.id)).toMatchObject({ role: 'owner' })
+  })
+
+  it('a tenant with the slug that is linked to another org is never taken; the slug is made unique', async () => {
+    const org = newOrg()
+    const other = newOrg()
+    const taken = await createTestTenant(db, { slug: org.slug, externalOrgId: other.id })
     managedToken(newEmail(), [org])
     await signIn(managedEnv())
     const tenant = await tenantFor(org)
-    expect(tenant?.id).not.toBe(squatter.id)
+    expect(tenant?.id).not.toBe(taken.id)
     expect(tenant?.slug).toBe(`${org.slug}-2`)
   })
 

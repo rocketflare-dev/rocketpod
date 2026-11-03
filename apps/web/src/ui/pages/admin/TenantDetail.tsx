@@ -1,8 +1,8 @@
 /**
  * Admin → one organisation: members, suspend/reinstate, and "enter as support" — which
  * adds a real `support` membership its owners can see in Settings → People, then switches in.
- * Under IdP-managed tenancy, also the issuer org it mirrors: linking a tenant made by hand is what
- * stops that org's first sign-in creating a second one. And deleting it, which an owner can do from
+ * Under IdP-managed tenancy, also the issuer org it mirrors: linking a tenant made by hand whose
+ * slug differs from the org's is what stops that org's first sign-in creating a second one. And deleting it, which an owner can do from
  * Settings but a tenant with no owner (any IdP-managed tenancy creates) needs an admin for.
  */
 import {
@@ -184,9 +184,10 @@ function IssuerOrgPanel({
   return (
     <SectionPanel title="Identity provider org">
       <p className="text-sm text-secondary mb-3">
-        Sign-ins whose org claim names this id are reconciled into this organisation. Link an
-        organisation made here by hand before its people sign in, or their first sign-in creates a
-        second one. An id is linked to one organisation at a time: unlink the other first.
+        Sign-ins whose org claim names this id are reconciled into this organisation. An unlinked
+        organisation whose slug is the org's is linked at the org's first sign-in; link one whose
+        slug differs before its people sign in, or their first sign-in creates a second one. An id
+        is linked to one organisation at a time: unlink the other first.
       </p>
       <form
         className="flex flex-wrap items-center gap-2"

@@ -7,6 +7,7 @@
 import { BULK_INVITE_MAX, tenantRoleSchema } from '@rocketpod/shared/tenants'
 import { describe, expect, it } from 'vitest'
 import { MAGIC_LINK_TTL_MS } from '@/api/auth/magic-link'
+import { RECIPIENT_MAIL_MAX, RECIPIENT_MAIL_WINDOW_SECONDS } from '@/api/routes/auth/magic-link'
 import {
   GUIDE_FACTS,
   guideFactKeys,
@@ -15,7 +16,7 @@ import {
   thousands,
   UnknownGuideFactError,
 } from '@/api/services/guide-facts'
-import { INVITATION_TTL_MS } from '@/api/services/invitations'
+import { INVITATION_RESEND_COOLDOWN_SECONDS, INVITATION_TTL_MS } from '@/api/services/invitations'
 // The CLI's constants: apps/web never imports the CLI at runtime — only this test reads them,
 // because the facts registry pins their values.
 import {
@@ -42,7 +43,10 @@ const PINNED_FROM_CODE: Record<keyof typeof PINNED_FACTS, string> = {
   'cli.exit.not_logged_in': String(EXIT_NOT_LOGGED_IN),
   'cli.exit.forbidden': String(EXIT_FORBIDDEN),
   'auth.magic_link_minutes': String(MAGIC_LINK_TTL_MS / 60_000),
+  'auth.sign_in_mail_max': String(RECIPIENT_MAIL_MAX),
+  'auth.sign_in_mail_window_minutes': String(RECIPIENT_MAIL_WINDOW_SECONDS / 60),
   'team.invitation_days': String(INVITATION_TTL_MS / (24 * 60 * 60 * 1000)),
+  'team.invitation_resend_minutes': String(INVITATION_RESEND_COOLDOWN_SECONDS / 60),
 }
 
 describe('the Guide facts registry', () => {

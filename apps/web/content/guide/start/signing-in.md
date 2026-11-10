@@ -11,6 +11,7 @@ sources:
   - apps/web/src/api/routes/auth/**
   - apps/web/src/api/auth/magic-link.ts
   - apps/web/src/api/auth/cookies.ts
+  - apps/web/src/api/auth/providers/**
 verified: 790a55b
 ---
 
@@ -24,7 +25,12 @@ these:
 - **Email me a sign-in link** — type your work email address and we send you a link. There is no
   password to remember.
 
-Some organisations use single sign-on only. Then the page shows one button and nothing else.
+Some organisations use single sign-on only. Then the page shows one button and nothing else, and
+email sign-in links are switched off altogether.
+
+With **Continue with Microsoft**, your account is matched on your Microsoft sign-in name (your user
+principal name), not on a separate mail address. If the two differ, sign in the way you did before
+and connect Microsoft from **Profile** first (see below).
 
 Where your company requires its own single sign-on for your email address, the other ways in are
 refused for you: asking for an email link sends you a message pointing to your company's sign-in
@@ -39,12 +45,16 @@ it, then sign in again.
 A link works once, and only for {{fact:auth.magic_link_minutes}} minutes after it is sent. If it
 has expired, or you already used it, go back to the sign-in page and ask for a new one.
 
+At most {{fact:auth.sign_in_mail_max}} links go to one address in
+{{fact:auth.sign_in_mail_window_minutes}} minutes. Past that the page still says a link is on its
+way, but none is sent until the time is up — use the newest link you already have, or wait.
+
 > **IN PRACTICE** — The link signs in whoever opens it, so do not forward the email.
 
 ## How long you stay signed in
 
 A sign-in lasts {{fact:auth.session_days}} days on that browser. Signing out from the user menu ends
-it at once. Where your organisation's identity provider decides who may use the app, a sign-in
+it at once, and closes that browser's live connection to the app. Where your organisation's identity provider decides who may use the app, a sign-in
 through it ends a fixed time after you sign in, however often you visit:
 {{fact:auth.idp_session_days}} days unless your administrator chose otherwise. Each sign-in
 brings your organisations and role up to date.

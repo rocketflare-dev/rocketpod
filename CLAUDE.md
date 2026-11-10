@@ -41,7 +41,7 @@ here.
   Docker locally; Drizzle over postgres.js, the ONE driver (D35, narrowed — Neon's serverless
   driver is gone); `openDatabase(env)` = a view of the Node process pool; raw results only through
   `rows()`/`affected()`
-- **Auth**: arctic (Google, Microsoft, any OIDC issuer — jose-verified `id_token`, off by default) + magic link + dev-login; `__Host-session`; API keys; Postgres rate limit
+- **Auth**: openid-client (Google, Microsoft, any OIDC issuer — jose-verified `id_token`, off by default) + magic link + dev-login; `__Host-session`; API keys; Postgres rate limit
 - **Async / realtime**: pg-boss jobs + cron, `ws` on `/ws` with LISTEN/NOTIFY fan-out (tenant-wide
   nudges, plus registered TOPICS a page subscribes to, gated by `read` on a subject), S3-compatible
   storage (`STORAGE_*`; ranged reads, streamed multipart uploads), OpenWorkflow durable agent runs
@@ -156,8 +156,9 @@ zod-only, no platform APIs) in `src/ai/agui.ts` alone — the AG-UI wire format 
 protocol's own schemas on both sides, which a mirror cannot give. A fifth dependency needs the same
 written justification, and `apps/web/tests/config/shared-imports.test.ts` enforces the list.
 
-**`apps/cli`.** `login` opens `GET /auth/cli?redirect_uri=http://127.0.0.1:<port>/callback`; the server
-mints a tenant API key `cli:<host>` → `?key=&tenant_id=&tenant_name=`; stored `0600` in
+**`apps/cli`.** `login` opens `GET /auth/cli?redirect_uri=http://127.0.0.1:<port>/callback&state=`; the
+server sends the browser to `/cli/confirm`, whose `POST /auth/cli/confirm` mints a tenant API key
+`cli:<host>` → `?key=&tenant_id=&tenant_name=&state=` (the CLI checks its per-login `state`); stored `0600` in
 `~/.rocketpod/config.json` (`ROCKETPOD_API_KEY`/`ROCKETPOD_URL` for CI). Also `logout|whoami|status|config`,
 `members|keys|activity|groups|features list --json`, `groups members`, `traces list|show`,
 `feedback list`, `evals promote`, `agents list|run <key> --input|--batch|runs list` (D39) (`.claude/rules/cli.md`)
@@ -175,7 +176,9 @@ LISTEN; direct or session-mode when PgBouncer runs in transaction mode), `DATABA
 `TRUSTED_PROXY_HOPS` (proxies appending `X-Forwarded-For`, 0) · secret `OAUTH_ENCRYPTION_KEY` ·
 **work**: `JOBS_CONCURRENCY` (2), `JOBS_POLL_INTERVAL_SECONDS` (2), `RUNS_CONCURRENCY` (4),
 `AGENT_INTERRUPT_TIMEOUT`, `AGENT_MAX_OUTPUT_TOKENS`, `AGENT_MAX_TURNS`,
-`AGENT_MAX_ACTIVE_RUNS_PER_TENANT` (50; 429 above), `AGENT_RUN_MAX_TOKENS` / `AGENT_RUN_MAX_COST_USD` /
+`AGENT_MAX_ACTIVE_RUNS_PER_TENANT` (50; 429 above), `MAX_OWNED_TENANTS_PER_USER` (10),
+`INVITATION_EMAILS_PER_USER_PER_DAY` (500), `INVITATION_EMAILS_PER_TENANT_PER_DAY` (1000),
+`AGENT_RUN_MAX_TOKENS` / `AGENT_RUN_MAX_COST_USD` /
 `AGENT_TENANT_DAILY_COST_USD` (D39 budgets, unset = no cap; `meta.budget` overrides per agent) · **storage**: `STORAGE_DRIVER` (`s3`),
 `STORAGE_ENDPOINT`, `STORAGE_REGION`, `STORAGE_BUCKET`, `STORAGE_FORCE_PATH_STYLE`, secrets
 `STORAGE_ACCESS_KEY_ID`/`STORAGE_SECRET_ACCESS_KEY` · **AI**: secrets `ANTHROPIC_API_KEY`,

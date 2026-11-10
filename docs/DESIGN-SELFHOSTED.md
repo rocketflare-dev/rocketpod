@@ -120,6 +120,9 @@ runs on the neutral `Step` API:
   are nudges, well under NOTIFY's 8 KB limit; anything larger goes in a row with the nudge carrying
   its id.
 - Delivery is best effort; the client refetches from the DB.
+- `Broadcaster.closeSockets({ tenantId, userId?, sessionId? })` publishes a close envelope the same
+  way; each process ends the matching local sockets with code 4001 (a removed member, a signed-out
+  session, a blocked person, a suspended tenant).
 
 ### 3.5 Files: S3-compatible object storage
 

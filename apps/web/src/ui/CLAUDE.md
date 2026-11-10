@@ -24,7 +24,7 @@ Built to `dist/ui`, served in production by the Node server (`src/node/assets.ts
   `AbilityProvider` → `WebSocketProvider` → `BrowserRouter` → routes; dev-only
   `ReactQueryDevtools` in a `Suspense`. The header `<WebSocketStatus />` dot and
   `<ConnectionBanner />` above the routed page. Route table in three tiers: public (`/login`,
-  `/magic-link/sent`, `/magic-link/confirm`, `/invite/:token`), signed-in-without-tenant
+  `/magic-link/sent`, `/magic-link/confirm`, `/invite/:token`), signed-in (`/cli/confirm`), signed-in-without-tenant
   (`/select-tenant`, `/pending`, `/no-access` — `ProtectedRoute requireTenant={false}`), and the
   shell (`/*` — `ProtectedRoute`, `Layout` mounted ONCE, nested `<Routes>` beneath it; a second
   `ErrorBoundary` wraps each `<main>`). Installed plugins' routes are mapped per tier inside the

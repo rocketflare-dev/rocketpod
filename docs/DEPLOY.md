@@ -200,8 +200,9 @@ one chat turn or agent run should appear in the backend within a minute.
 | Phoenix | `OBSERVABILITY_PRESET=phoenix`, `OTEL_EXPORTER_OTLP_ENDPOINT=https://phoenix.example.com` (the preset defaults to `http/protobuf`). Auth: secret `OTEL_EXPORTER_OTLP_HEADERS=authorization=Bearer%20<key>` |
 | Any OTLP/HTTP collector | `OBSERVABILITY_PRESET=generic` (the default without Langfuse keys), `OTEL_EXPORTER_OTLP_ENDPOINT` (`/v1/traces` is appended), optionally `OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf` |
 
-`OBSERVABILITY_CAPTURE_CONTENT=false` strips prompts, completions and tool I/O from both the export
-and `ai_spans`. Export failures are logged (`tracing: OTLP export returned a non-OK status`) and
+Prompts, completions and tool I/O are not captured unless `OBSERVABILITY_CAPTURE_CONTENT=true`,
+which records them in both the export and `ai_spans` (names, models, tokens and latency are always
+kept). Export failures are logged (`tracing: OTLP export returned a non-OK status`) and
 never fail a request.
 
 ## Rollback

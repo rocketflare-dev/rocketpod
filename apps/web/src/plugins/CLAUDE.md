@@ -138,7 +138,10 @@ release.
   minted with `signState`, a stored per-subscription secret, the provider's signature; every failure
   the same 401 — then uses only the tenant that proof carried. It re-checks its flag with
   `ctx.features(tenantId)` (a `requireFeature` gate reads `auth.features`, which does not exist here)
-  and answers by `ctx.enqueue` — a provider's webhook timeout is seconds. `JobCtx` and `CronCtx`
+  and answers by `ctx.enqueue` — a provider's webhook timeout is seconds. A callback completing a
+  flow an admin started re-checks them with `memberCan(ctx, { tenantId, userId }, action, subject)`
+  — membership, role, block and tenant status as of now — right after `verifyState`, because a
+  signed state outlives a demotion. `JobCtx` and `CronCtx`
   carry the same `features(tenantId)`, so a fan-out cron skips dark tenants.
   `tests/config/plugins.test.ts` refuses a public mount outside the plugin's own `/api/hooks/<id>`
   and any authed mount under `/api/hooks`. The host's per-IP rate limit and body cap, and the
@@ -147,12 +150,15 @@ release.
   `provisionFor(ctx, '<id>')`** (`api/identity.ts`), **never by writing a session** — no
   `user_sessions` row, cookie, `admitUser` or `tenant_users` write of its own. Both trust the caller
   about the tenant, exactly as `PublicCtx` does — prove it first. `linkByEmail: true` ONLY for a domain the connection proved it owns, or one
-  tenant's IdP can sign in as anyone. `loginMethods(cfg)` feeds `GET /auth/methods`
+  tenant's IdP can sign in as anyone; without it the seam refuses to claim or CREATE any address no
+  link covers (`account_exists`), and a `BOOTSTRAP_ADMIN_EMAILS` address is refused always. A
+  suspended tenant answers 403 `tenant_suspended` from every tenant-taking method. `loginMethods(cfg)` feeds `GET /auth/methods`
   `pluginMethods`; a `startPath` outside `/api/hooks/<id>/` is dropped and logged at runtime and
   fails `tests/config/plugins.test.ts`. Semantics (links, `idp` memberships, leaver vs block,
   `single` mode, error codes): `/rp-plugin` reference § Identity and SSO.
 - **`ssoPolicy`** answers `{ required: true, methodId }` only for a domain your connection proved; a
-  throw fails CLOSED. Host side: **every sign-in path asks the policy before it admits**
+  throw fails CLOSED. A plugin with several tenants' connections sets `connectionId` on the answer
+  and passes the same id to `signIn`, or another tenant's connection satisfies the claim. Host side: **every sign-in path asks the policy before it admits**
   (`../api/routes/CLAUDE.md`) — a new path that skips it is a hole in every customer's SSO
   requirement. Never import `routes/auth/sso` statically from `plugins/api/**` (it reads the barrel;
   `identity.ts` uses `await import`). Worked examples: `example-feature/api/sso.ts` (dev-only),
@@ -178,7 +184,9 @@ release.
   `<id>.verb`; the handler contract is the kit's (own DB client, await everything, throw to retry —
   `../api/queues/CLAUDE.md`).
 - **`agentTools(ctx)` is bound to the run's `AgentToolContext`**, which carries the `AccessScope` —
-  so a plugin tool reads what its REQUESTER may read, never a bare `tenantId` it chose itself.
+  so a plugin tool reads what its REQUESTER may read, never a bare `tenantId` it chose itself. A
+  tool that writes is offered on `ToolCtx.can('manage', YOUR_SUBJECT)`, never on `scope.bypass`,
+  which is row visibility.
   Appended after the kit's three knowledge tools (async allowed, `[]` for a tenant that has not
   turned the tool on, a throw is logged and skipped); a test that pinned the exact tool list must
   become a prefix assertion.

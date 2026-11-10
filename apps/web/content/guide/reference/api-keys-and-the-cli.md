@@ -8,6 +8,7 @@ summary: Sign the command-line tool in through your browser, what it stores, its
 sources:
   - apps/cli/src/**
   - apps/web/src/api/routes/auth/cli.ts
+  - apps/web/src/ui/pages/CliConfirm.tsx
   - apps/web/src/api/routes/keys.ts
   - apps/web/src/ui/pages/settings/ApiKeys.tsx
   - packages/shared/src/api-keys.ts
@@ -25,8 +26,12 @@ signs in with an **API key**: a long secret tied to you and to one organisation.
 {{fact:cli.bin}} login --server https://your-server.example
 ```
 
-Your browser opens on the sign-in page. Sign in if you are not already, pick the organisation, and
-the browser hands a new key back to the CLI. You can close the tab.
+Your browser opens on the sign-in page. Sign in if you are not already and pick the organisation.
+The browser then asks **Sign in to the command line?**, naming the organisation and the key it
+will create. Select **Continue** only if you just ran `login` yourself — the key acts as you.
+**Cancel** creates nothing; stop the waiting command with Ctrl-C. The browser hands
+the new key back to the CLI, which accepts it only from the login it started. You can close the
+tab.
 
 To do this, the CLI listens on your own machine for a moment, on the first free port from
 {{fact:cli.login.port_start}} to {{fact:cli.login.port_end}}. If all of them are busy, or you do
@@ -63,8 +68,9 @@ Every list command takes `--json` for output another program can read.
 
 ## API keys
 
-A key carries scopes, one or more of {{fact:api_keys.scopes}}. The CLI's own key is named after
-your machine and carries `*`.
+A key carries scopes, one or more of {{fact:api_keys.scopes}}. A `read` key can only look:
+anything that changes data answers that the key's scopes do not allow it. `write` or `*` allow
+everything your role allows. The CLI's own key is named after your machine and carries `*`.
 
 Admins see every key of the organisation in **Settings → API keys**. There they can create a key
 for a script and revoke any key. A new key is shown once, when it is created — copy it then.

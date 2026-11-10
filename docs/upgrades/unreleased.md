@@ -12,8 +12,11 @@ migrations:
   - "user_sessions.max_expires_at (timestamptz, nullable)"
   - "agent_runs.batch_id (uuid, nullable); indexes agent_runs (tenant_id, status), partial agent_runs (tenant_id, batch_id) and partial ai_usage (tenant_id, agent_run_id)"
   - "users.blocked_source (text, nullable)"
+  - "team_invitations.last_sent_at (timestamptz, NOT NULL default now())"
+  - "invitation_send_counters table (platform, RLS-excluded)"
 areas: [api, db, config, shared, ui, cli, plugins, skills, docs, ci, scripts]
 touches_surfaces:
+  - feature-chat
   - feature-guide
   - example-guide-pages
   - feature-agents
@@ -173,6 +176,23 @@ A new `/rp-agent-docs` skill audits and fixes the docs an agent loads, the WCAG 
 The kit's `defaultPlugins` stays empty and is now described as an app's own list: a fresh clone installs no plugin, and the docs no longer say the kit installs analytics.
 
 - `.claude/skills/rp-setup/SKILL.md`, `scripts/bootstrap.mjs`, `.rocketflare.json` `$defaultPlugins` and `docs/CONCEPTS.md` §8/§16 describe `defaultPlugins` as empty in the kit (analytics has no Rocketpod-compatible release yet) and the CI gate as `kit.yml`'s.
+
+Sign-in moves to `openid-client`, and a hardening round tightens roles, invitations, sessions and sockets, API key scopes, the CLI login, AI tools and budgets, the plugin identity seam, CLI output and the plugin/upgrade scripts; trace content capture defaults off.
+
+- `apps/web/src/api/auth/providers/openid.ts` is the one `OAuthClient` Google, Microsoft and OIDC return (code + PKCE through `openid-client`); `validateAuthorizationCode(callbackParams, { state, verifier, nonce })` replaces `(code, verifier)` and `toTokenSet` is gone. Microsoft discovers the `common` authority (cached per process) and matches on `userPrincipalName`, never `mail`; OIDC builds its `Configuration` from the cached discovery document (an issuer advertising `authorization_response_iss_parameter_supported` must send `iss`); `isAccessDeniedAtTokenExchange` is async; state, verifier and nonce come from `openid-client`; the flow cookie is `__Host-oauth_state`. `arctic` is removed.
+- `@ag-ui/core`, `@ag-ui/encoder`, `@ag-ui/proto` pinned at `1.0.4`; `pnpm-workspace.yaml` `overrides` pin `@esbuild-kit/core-utils>esbuild` to `0.25.12` and `@tailwindcss/typography>postcss-selector-parser` to `6.1.5`.
+- Invitations: only an owner-level `actor` issues or resends an `owner` invitation (`createInvitation`, `bulkInvite`, `resendInvitation` take a required `actor: RoleView`); a removed member's pending invitations are revoked (a global admin's stay); accepting over an `idp` row leaves it; a five-minute resend cooldown (429) and daily Postgres counters per person and per tenant (`invitation_send_counters`, `INVITATION_EMAILS_PER_USER_PER_DAY` 500, `INVITATION_EMAILS_PER_TENANT_PER_DAY` 1000), pruned nightly.
+- Global admin: `person.suspended` clears an issuer-granted global admin; losing the role by any route deletes the person's `support` rows, unpins their sessions and closes their sockets there.
+- Sockets: `Broadcaster.closeSockets({ tenantId, userId?, sessionId? })` publishes a close envelope through `LISTEN/NOTIFY` and every process ends the matching sockets with 4001 (`SOCKET_REVOKED_CODE`); `services/realtime.ts` gains `closeUserSockets`, `closeSessionSockets`, `closeTenantSockets` and `collectingRealtime(hub)`. Removing a member, signing out, blocking, suspending a tenant and every identity-provider removal call them. `GET /ws` refuses an `Origin` outside the CORS/CSRF allowlist.
+- `POST /api/tenants` answers 403 `pending_approval`, 409 `idp_managed` under managed tenancy, and stops at `MAX_OWNED_TENANTS_PER_USER` (10, 403 `tenant_limit_reached`); a slug change on `PATCH /api/tenant` answers 409 `idp_managed`; a 429 carries `Retry-After`.
+- API key scopes are enforced in `authMiddleware` (`read` = GET/HEAD/OPTIONS, `write`/`*` = everything, else 403 `insufficient_scope`).
+- Sign-in: `AUTH_OIDC_ONLY=true` turns magic links off on the server (`/auth/methods` `magicLink: false`); sign-in mail is limited to 5 per 15 minutes per recipient over `platform.rateLimiter` (still 202); `POST /auth/magic-link/verify` runs the Origin check with no cookie; production never logs a sign-in link and logs `/api/invite/[redacted]`; `isSameOriginPath` (`@rocketpod/shared/paths`) is the one return-path rule.
+- CLI login: `GET /auth/cli` creates nothing and goes to `/cli/confirm` (`CliConfirm.tsx`); `POST /auth/cli/confirm` mints the key and answers `{ redirectTo }`; `rocketpod login` sends and checks a per-login `state`.
+- AI: chat neither offers nor runs a tool with an approval gate; `ToolApproval.approvedCall` binds an approval to the call shown, once per attempt; `POST /api/agents/runs` on a slot held by a run the caller cannot see answers a bare 409 `agent_run_active`; the run token budget counts prompt-cache reads and writes; while a cost cap applies, a platform-key call on an unpriced model is refused (`BudgetLimit` `unpriced_model`); an external-id re-ingest replaces chunks and grants in the upsert's transaction; a stored AI key is kept only while the provider and normalised base URL match; `describeAiError` no longer echoes an upstream message for an unmapped status; Markdown renders images as links (`MarkdownImageLink`, exported from `@/plugins/api/ui`).
+- `OBSERVABILITY_CAPTURE_CONTENT` defaults to `false` (`config.ts`, `.env.example`, Helm `values.yaml`, `docker-compose.yml`).
+- Plugin seam: `linkByEmail: true` is needed to create an account as well as claim one; a `BOOTSTRAP_ADMIN_EMAILS` address is never created or linked; `admitUser` takes a required `proof: 'kit' | 'plugin'`; `requireTenant` answers 403 `tenant_suspended` and `signIn` `no_access` for a suspended tenant; `SsoRequirement` and `signIn` take `connectionId`; `ToolCtx.can` and `memberCan` are new entries; a plugin `apiPrefixes` entry outside `/api` gets the 1 MB JSON body cap.
+- CLI output drops terminal control characters (`neutralise`, a new CLI plugin entry; `Column.style`); `--json` is unchanged.
+- `plugin add|upgrade|remove` and `kit:upgrade` refuse a path outside the repository, under `.git/` or through a symlink before writing (`scripts/lib/repo-paths.mjs`).
 
 ## How to apply
 
@@ -429,6 +449,22 @@ The kit's `defaultPlugins` stays empty and is now described as an app's own list
 64. Nothing to remove: an app's own `defaultPlugins` is its choice. Take the kit's wording for
     `.claude/skills/rp-setup/SKILL.md` steps 0 and 6 and its "after setup" table, and
     `docs/CONCEPTS.md` §8, for any you have not edited.
+65. In `apps/web/package.json`, remove `arctic` and add `"openid-client": "6.8.9"`; set `@ag-ui/core`, `@ag-ui/encoder` and `@ag-ui/proto` to exactly `1.0.4` (and `@ag-ui/core` in `packages/shared/package.json`); add the two `overrides` to `pnpm-workspace.yaml`; run `pnpm install`.
+66. Take the kit's `apps/web/src/api/auth/providers/` (`openid.ts` new; `types.ts`, `google.ts`, `microsoft.ts`, `oidc.ts`) and `apps/web/src/api/routes/auth/oauth.ts`. A provider of your own returns `openidOAuthClient(configuration, redirectUri, { sendsNonce })` from `client()`; a test that mocked `arctic` stubs the token endpoint through `fetch` instead (`tests/api/auth-oauth.test.ts`), and an `OAuthClient` stub's `validateAuthorizationCode` takes `(callbackParams, { state, verifier, nonce })`.
+67. Port the schema: `team_invitations.last_sent_at` and `db/schema/invitation-send-counters.ts`, listed in `RLS_EXCLUDED_TABLES`; run `pnpm db:generate --name invitation-send-limits` (the kit's is `0009_invitation-send-limits.sql`; never copy it into a copy with its own numbering).
+68. Delete `support` rows left by an earlier demotion: `DELETE FROM tenant_users tu USING users u WHERE tu.user_id = u.id AND tu.role = 'support' AND NOT u.is_global_admin`.
+69. Add `closeSockets(target)` to every `Broadcaster` / `RealtimeHub` you implement (a test fake records it; the kit's `RecordingRealtime` keeps `closes`), and take `src/node/realtime.ts`'s close envelope and `SOCKET_REVOKED_CODE`.
+70. Pass `actor: auth` to every `createInvitation`, `bulkInvite` and `resendInvitation` call of your own, and `proof: 'kit'` (or `'plugin'`) to every `admitUser` call.
+71. Decide the trace content setting: leave `OBSERVABILITY_CAPTURE_CONTENT` unset (off) or set it to `true` deliberately where tenant prompts may leave the database; a test asserting span `content` sets `OBSERVABILITY_CAPTURE_CONTENT: 'true'` in its env.
+72. If a cost cap is set, give every model the platform key can serve to an agent a price in `packages/shared/src/ai/pricing.ts`, or unset the cap.
+73. Review API keys created with only the `read` scope that send writes, and replace each with a `write` key.
+74. Move any headless caller of `GET /auth/cli` to `POST /auth/cli/confirm` with `{"redirectUri": "http://127.0.0.1:<port>/callback"}` and a session cookie, reading `redirectTo` from the answer.
+75. Move people who relied on magic links under `AUTH_OIDC_ONLY=true` to the identity provider; under Microsoft sign-in, link the provider from the existing account first for anyone whose user principal name differs from their account email; configure `RESEND_API_KEY` on a production deployment that relied on a sign-in link in its logs.
+76. Set `MAX_OWNED_TENANTS_PER_USER`, `INVITATION_EMAILS_PER_USER_PER_DAY` or `INVITATION_EMAILS_PER_TENANT_PER_DAY` (`.env`, Helm `config`) only if the defaults (10, 500, 1000) are too low.
+77. In a plugin: pass `linkByEmail: true` only for a domain the connection proved and handle `account_exists`; with one connection per tenant set `connectionId` on the `ssoPolicy` answer and pass it to `signIn`; in a public callback completing an admin's flow call `memberCan` after `verifyState`; gate a writing tool on `ctx.can('manage', YOUR_SUBJECT)`, not `scope.bypass`; render Markdown with `components={{ img: MarkdownImageLink }}`; in a CLI command run server text through `neutralise` and move chalk from a column's `value` to its `style`.
+78. Replace any symlinked directory under `apps/web/src/plugins/`, `docs/plugins/` or `.claude/skills/` with the real directory before the next `plugin add`.
+79. Port the 0.29.0 tests: `apps/web/tests/api/security/*` (the socket revocation test boots the Node server and asserts close code 4001 over real sockets; `ws-upgrade-origin` reads `RecordingRealtime.accepted`; `global-admin-lifecycle` reads `closes`), `tests/config/{repo-paths,plugin-path-containment}.test.ts`, `tests/ui/{cli-confirm,markdown-images,safe-return-url}`, `apps/cli/tests/output.test.ts`, and the edits to `auth-cli`, `auth-oauth`, `auth-oidc`, `auth-sso-required`, `invitations`, `jobs-producer`, `tenancy-single-identity`, `traces`, `plugins` and `tests/driver/identity`.
+80. Port the docs: `docs/CONCEPTS.md` §1, §2, §5, §6, §7, §13 and §16, `SETUP.md`, `docs/DEPLOY.md` § Tracing, `docs/RLS.md`, `docs/CONNECTORS.md`, `.claude/rules/{api,cli,ui}.md`, the `CLAUDE.md` files under `apps/web/src/api/{middleware,routes,services/ai}`, `db/schema`, `ui`, `plugins` and `apps/cli`, `rp-plugin/reference.md`, `rp-traces/SKILL.md`, and the Guide's `start/signing-in.md`, `reference/api-keys-and-the-cli.md` and `admin/members-and-invitations.md` (new facts `auth.sign_in_mail_max`, `auth.sign_in_mail_window_minutes`, `team.invitation_resend_minutes`); then run `node scripts/plugin-api-doc.mjs`.
 
 ## Conflicts to expect
 
@@ -453,6 +489,12 @@ The kit's `defaultPlugins` stays empty and is now described as an app's own list
 - `apps/web/src/plugins/api/identity.ts` → `admitUser` and `provisionFor` need the platform → read it as `c.get('platform') ?? resolvePlatform(c.env)`.
 - `apps/web/tests/config/public-mounts.test.ts` → the kit's env carries `RATE_LIMIT_KV` and `cf-connecting-ip` → a `PLATFORM` with `createMemoryRateLimiter(kv)` and `x-forwarded-for`.
 - `apps/web/src/ui/index.css` → two token values changed → keep your own palette's values and let the contrast test judge them.
+- `apps/web/src/api/routes/auth/cli.ts` → GET no longer creates a key → re-apply local changes to the POST handler.
+- `apps/web/src/ui/App.tsx` → new `/cli/confirm` route → keep both.
+- `apps/web/src/api/services/auth.ts` → `AdmitInput.proof` is required → pass `proof` at any local `admitUser` call.
+- `apps/web/tests/api/invitations.test.ts` → `createInvitation` takes `actor`; a resend right after a create must backdate `last_sent_at` → update local tests.
+- `apps/web/src/platform/types.ts` → `Broadcaster.closeSockets` added → a custom hub or fake implements it.
+- A test asserting `content` on spans → the default is off → set `OBSERVABILITY_CAPTURE_CONTENT: 'true'` in that test's env.
 
 ## Verify
 
@@ -483,3 +525,6 @@ The kit's `defaultPlugins` stays empty and is now described as an app's own list
 25. `node .claude/skills/rp-agent-docs/check.mjs` ends `agent docs ok` (or lists `✖` findings and exits 1).
 26. `pnpm web test:ui` passes, including `tests/ui/contrast.test.ts`.
 27. On a fresh clone, `pnpm bootstrap` prints `no defaultPlugins declared — nothing to install` at `6/10 plugins`.
+28. `rg -n "arctic|@oslojs" apps/web/src apps/web/package.json pnpm-lock.yaml` prints nothing, and `pnpm audit` reports no known vulnerabilities.
+29. A `read`-scoped key on `PATCH /api/me` answers 403 `insufficient_scope`; with `AUTH_OIDC_ONLY=true`, `GET /auth/methods` answers `magicLink: false`; `GET /auth/cli` with a session cookie answers 302 to `/cli/confirm` and creates no API key.
+30. `pnpm web test:api -- tests/api/security` passes, including `realtime-socket-revocation` (close code 4001 through `LISTEN/NOTIFY`).

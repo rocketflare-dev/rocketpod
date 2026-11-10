@@ -47,6 +47,8 @@ const run = (over: Partial<AgentRun> = {}): AgentRun => ({
   finishedAt: new Date(),
   cancelRequestedAt: null,
   createdAt: new Date(),
+  exclusive: true,
+  batchId: null,
   ...over,
 })
 

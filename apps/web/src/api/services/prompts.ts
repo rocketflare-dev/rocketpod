@@ -209,11 +209,17 @@ export const CORE_PROMPT_REGISTRY = {
  * Core prompts plus every installed plugin's. A plugin's entries are checked against the
  * prompt keys IT declared (`SharedPlugin.promptKeys`), so a prompt with no key — or a key with no
  * prompt — is a type error in the plugin.
+ *
+ * Typed by assertion rather than inferred: spreading the plugins' merged `PromptRegistry` (a
+ * string-keyed record) leaves an object type a plugin's key cannot index, which stays invisible
+ * until the first plugin declares a prompt. The assertion is safe for the reason above — each
+ * plugin's `prompts` is checked against its own keys where it is written — and the intersection
+ * keeps the core entries' literal types.
  */
 export const PROMPT_REGISTRY = {
   ...CORE_PROMPT_REGISTRY,
   ...(Object.assign({}, ...serverPlugins.map(p => p.prompts ?? {})) as PromptRegistry),
-}
+} as typeof CORE_PROMPT_REGISTRY & Record<RegistryPromptKey, PromptDefinition>
 
 export type RegistryPromptKey =
   | keyof typeof CORE_PROMPT_REGISTRY

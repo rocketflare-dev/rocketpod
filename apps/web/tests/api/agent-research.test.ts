@@ -4,8 +4,8 @@
  * `research-topic` — the agentic agent, driven through the real runtime against Postgres
  * with a `FakeChatClient` scripting the turns and a really-ingested document behind
  * `search_knowledge`: the loop searches, then calls the terminal `submit_answer`; the run succeeds
- * with the answer, the citation resolved to the real document, `ai_usage` summed over both turns
- * and the tool events persisted. Also the two decisions in the agent's header: a citation naming a
+ * with the answer, the citation resolved to the real document, one `ai_usage` row per turn carrying
+ * the run id (the runtime's meter, not the agent, writes them) and the tool events persisted. Also the two decisions in the agent's header: a citation naming a
  * document search never returned is DROPPED, and a loop that ends in prose is salvaged by one
  * forced `submit_answer` call instead of failing.
  *
@@ -77,7 +77,7 @@ async function tenantWithDocument(env: TestEnv) {
 
 /** Enqueue and run the agent through claim → execute (the workflow steps' bodies). */
 async function runResearch(env: TestEnv, tenantId: string, userId: string, topic: string) {
-  const params = await enqueueRun(db, env, {
+  const params = await enqueueRun(db, loadConfig(env), env, {
     tenantId,
     agentKey: 'research-topic',
     input: { topic },
@@ -178,14 +178,14 @@ describe('research-topic agent', () => {
     expect(toolNames).toEqual(['search_knowledge', 'search_knowledge'])
     expect(events.some(e => e.type === 'text')).toBe(false)
 
-    // Usage is the sum of both turns, under the agent's feature key.
+    // One row per turn, each billed to the run under the agent's feature key.
     const usage = await db.query.aiUsage.findMany({ where: eq(aiUsage.tenantId, tenant.id) })
-    expect(usage).toHaveLength(1)
-    expect(usage[0]).toMatchObject({
-      feature: 'agent:research-topic',
-      inputTokens: 100,
-      outputTokens: 30,
-    })
+    expect(usage).toHaveLength(2)
+    expect(usage.every(u => u.feature === 'agent:research-topic' && u.agentRunId === runId)).toBe(
+      true
+    )
+    expect(usage.reduce((n, u) => n + u.inputTokens, 0)).toBe(100)
+    expect(usage.reduce((n, u) => n + u.outputTokens, 0)).toBe(30)
   })
 
   it('drops a citation naming a document the search never returned', async () => {
@@ -238,8 +238,8 @@ describe('research-topic agent', () => {
 
     expect(outcome.status).toBe('succeeded')
     expect(client.calls[1]?.toolChoice).toEqual({ type: 'tool', name: 'submit_answer' })
-    // Two ledger rows: the loop is written as soon as its tokens are spent, the recovery from its
-    // own `onUsage` — so a recovery that FAILED would still leave the loop's tokens recorded.
+    // Two ledger rows, one per call: the loop's turn and the recovery — each written by the meter
+    // as it returned, so a recovery that FAILED would still leave the loop's tokens recorded.
     const usage = await db.query.aiUsage.findMany({ where: eq(aiUsage.tenantId, tenant.id) })
     expect(usage).toHaveLength(2)
     expect(usage.every(u => u.feature === 'agent:research-topic')).toBe(true)
@@ -267,7 +267,7 @@ describe('research-topic agent', () => {
       },
       { error: new AiError('unavailable', 'anthropic_compatible', 'provider overloaded') },
     ])
-    const { run } = await enqueueRun(db, env, {
+    const { run } = await enqueueRun(db, loadConfig(env), env, {
       tenantId: tenant.id,
       agentKey: 'research-topic',
       input: { topic: 'Who reviews access requests?' },
@@ -299,6 +299,16 @@ describe('research-topic agent', () => {
     const output = researchTopicOutputSchema.parse((await getRun(db, tenant.id, run.id))?.output)
     // The document the FIRST attempt found counts as seen on the second.
     expect(output.citations).toEqual([{ documentId: document.id, title: 'Onboarding handbook' }])
+
+    // One row per call that RETURNED, across both attempts: attempt 1's turn was ledgered the
+    // moment it came back, the failed call cost nothing, and the resumed attempt's turn is the
+    // second row — the carried-forward checkpoint usage is never written again.
+    const usage = await db.query.aiUsage.findMany({ where: eq(aiUsage.tenantId, tenant.id) })
+    expect(usage.map(u => [u.inputTokens, u.outputTokens]).sort((a, b) => a[0]! - b[0]!)).toEqual([
+      [40, 10],
+      [60, 20],
+    ])
+    expect(usage.every(u => u.agentRunId === run.id)).toBe(true)
   })
 
   it('ask_human raises a choice interrupt from inside its handler, and the re-entered handler finds the ANSWER', async () => {

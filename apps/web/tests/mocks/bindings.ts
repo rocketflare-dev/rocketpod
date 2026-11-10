@@ -604,11 +604,19 @@ export class RecordingWorkflow {
   /** Make `sendEvent` fail the way a retention-expired or dev-restarted instance does. */
   notFoundOnSendEvent = false
   defaultStatus: FakeInstanceStatus = { status: 'running' }
+  /**
+   * Fail one instance's creation — `create()` throws for it, the way an engine outage does — so a
+   * batch can prove only that input is marked failed.
+   */
+  failCreate: ((options: { id: string; params?: unknown }) => boolean) | null = null
 
   async create(options: { id?: string; params?: unknown } = {}) {
     const id = options.id ?? crypto.randomUUID()
     if (this.created.some(c => c.id === id)) {
       throw new Error(`instance.already_exists: an instance with id ${id} already exists`)
+    }
+    if (this.failCreate?.({ id, params: options.params })) {
+      throw new Error(`workflow.internal_error: could not create ${id}`)
     }
     this.created.push({ id, params: options.params })
     return this.instance(id)
@@ -651,6 +659,7 @@ export class RecordingWorkflow {
 
   clear(): void {
     this.created.length = 0
+    this.failCreate = null
     this.terminated.length = 0
     this.events.length = 0
     this.statusCalls.length = 0

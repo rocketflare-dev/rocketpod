@@ -36,6 +36,14 @@ const optionalPositiveInt = (fallback: number) =>
     z.coerce.number().int().positive()
   )
 
+/** A cap that is OFF unless set: blank or absent → undefined, never 0 (agent budgets). */
+const optionalCap = (kind: 'int' | 'number') =>
+  z.preprocess(
+    value =>
+      value === undefined || value === null || String(value).trim() === '' ? undefined : value,
+    (kind === 'int' ? z.coerce.number().int() : z.coerce.number()).positive().optional()
+  )
+
 /** `[vars]` arrive as strings: `"false"` / `"0"` / `"no"` are false, blank is the default. */
 const optionalBoolean = (fallback: boolean) =>
   z.preprocess(value => {
@@ -182,6 +190,25 @@ const coreConfigSchema = z.object({
   /** Per-call `max_tokens` when a tenant config sets none; and the tool-loop turn cap. */
   AGENT_MAX_OUTPUT_TOKENS: optionalPositiveInt(16384),
   AGENT_MAX_TURNS: optionalPositiveInt(30),
+  /**
+   * Runs one tenant may have queued, running or parked at once, across every agent. The 51st
+   * enqueue is a 429 `agent_runs_limit`. A soft cap — counted, then inserted — so a burst of
+   * simultaneous requests can overshoot it by a few; it exists to stop a runaway loop or a
+   * mistaken batch, not to meter.
+   */
+  AGENT_MAX_ACTIVE_RUNS_PER_TENANT: optionalPositiveInt(50),
+  /**
+   * What one run may spend — tokens (input + output, every call and decision) and USD (priced
+   * calls only). Unset = no cap. An agent's `meta.budget` overrides either. Checked before every
+   * metered call; a run over it fails with event code `agent_budget_exceeded`.
+   */
+  AGENT_RUN_MAX_TOKENS: optionalCap('int'),
+  AGENT_RUN_MAX_COST_USD: optionalCap('number'),
+  /**
+   * What one tenant's agent runs may spend per UTC day, in USD. Unset = no cap. Checked at
+   * enqueue (429 `ai_budget_exceeded`) and before every metered call of a run already going.
+   */
+  AGENT_TENANT_DAILY_COST_USD: optionalCap('number'),
   /**
    * Give the chat box the knowledge tools (`search_knowledge`, `get_document`,
    * `list_documents`), so it answers from the workspace's own material. It costs more tokens per

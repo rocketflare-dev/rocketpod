@@ -123,8 +123,16 @@ The server surface: the context family, and the types a plugin must be able to n
     One forced tool call, zod-validated, one retry with the issues fed back.
   - `decide: AgentDecide`
     Typed questions answered with probabilities: `decide(key, { state, questions })`, `decide.sift(key, …)`, `decide.pick(key, …)`. The tenant's decisions engine answers — TypeSafe's…
+  - `interrupt(ask: AgentInterruptAsk): Promise<AgentInterruptAnswer>`
+    Ask the person a question and park the run until they answer (issue #17) — `approval`, `choice`, `input` or `form`. The SECOND time this line runs (the run resumed after the…
+  - `readonly chatModel: { readonly provider: AiProvider; readonly model: string }`
+    The provider and model this run resolved to (per-agent `agent_models` assignment applied) — what `recordUsage` needs to ledger a `structured` call's `onUsage`. Read-only: the…
 - `interface AgentDecide`
   `ctx.decide` — callable, with the two shapes as properties.
+- `interface AgentInterruptAnswer`
+  The answer. `status` is AG-UI's own `ResumeEntry` vocabulary and there is deliberately no `approved` boolean: two ways to say no is how a UI and a server end up disagreeing.
+- `interface AgentInterruptAsk`
+  What an agent asks a person through {@link AgentContext.interrupt}.
 - `interface AgentTraceContext extends Omit<TraceParams, 'name'>`
 - `class AiNotConfiguredError extends ServiceUnavailableError`
   503 `ai_not_configured`: nothing resolves for the tenant (no config row, no platform key).
@@ -302,7 +310,8 @@ The server surface: the context family, and the types a plugin must be able to n
   Everything a service needs to nudge: how to defer, and the hub (null = no realtime).
 - `function realtimeEvent( type: RealtimeEventType, tenantId: string, payload?: unknown ): RealtimeEvent`
 - `async function recordActivity(db: Database, input: ActivityInput): Promise<void>`
-- `async function recordUsage(db: Database, input: UsageInput): Promise<void>`
+- `async function recordUsage(db: Database, input: UsageInput): Promise<number \| null>`
+  Returns the cost it froze onto the row (null when the model has no price).
 - `function requestCtx(c: AppContext): RequestCtx`
   Build a plugin's request context from the core one.
 - `interface RequestCtx extends PluginContext, PluginAuth`
@@ -1042,7 +1051,11 @@ nothing in the comparison that can throw.
 @/plugins/api :: member :: AgentCtx.toolLoop :: toolLoop(options: PluginToolLoopOptions): Promise<ToolLoopResult>
 @/plugins/api :: member :: AgentCtx.structured :: structured<T>(options: PluginStructuredOptions<T>): Promise<T>
 @/plugins/api :: member :: AgentCtx.decide :: decide: AgentDecide
+@/plugins/api :: member :: AgentCtx.interrupt :: interrupt(ask: AgentInterruptAsk): Promise<AgentInterruptAnswer>
+@/plugins/api :: member :: AgentCtx.chatModel :: readonly chatModel: { readonly provider: AiProvider; readonly model: string }
 @/plugins/api :: interface :: AgentDecide :: interface AgentDecide
+@/plugins/api :: interface :: AgentInterruptAnswer :: interface AgentInterruptAnswer
+@/plugins/api :: interface :: AgentInterruptAsk :: interface AgentInterruptAsk
 @/plugins/api :: interface :: AgentTraceContext :: interface AgentTraceContext extends Omit<TraceParams, 'name'>
 @/plugins/api :: class :: AiNotConfiguredError :: class AiNotConfiguredError extends ServiceUnavailableError
 @/plugins/api :: type :: AnyServerPlugin :: type AnyServerPlugin = ServerPlugin<SharedPlugin>
@@ -1155,7 +1168,7 @@ nothing in the comparison that can throw.
 @/plugins/api :: interface :: Realtime :: interface Realtime
 @/plugins/api :: function :: realtimeEvent :: function realtimeEvent( type: RealtimeEventType, tenantId: string, payload?: unknown ): RealtimeEvent
 @/plugins/api :: function :: recordActivity :: async function recordActivity(db: Database, input: ActivityInput): Promise<void>
-@/plugins/api :: function :: recordUsage :: async function recordUsage(db: Database, input: UsageInput): Promise<void>
+@/plugins/api :: function :: recordUsage :: async function recordUsage(db: Database, input: UsageInput): Promise<number | null>
 @/plugins/api :: function :: requestCtx :: function requestCtx(c: AppContext): RequestCtx
 @/plugins/api :: interface :: RequestCtx :: interface RequestCtx extends PluginContext, PluginAuth
 @/plugins/api :: member :: RequestCtx.scope :: readonly scope: AccessScope

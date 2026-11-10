@@ -1,10 +1,16 @@
 /**
  * `agent_runs` lifecycle service:
- *   enqueueRun  — validate input → insert `queued` (the partial unique index rejects a second
- *                 active run in the same exclusive SLOT — the tenant for an `exclusive` agent, or
- *                 the caller's `concurrencyKey` — → return the existing one, `deduplicated`) →
+ *   enqueueRun  — validate input → (an active run already holds this run's exclusive SLOT — the
+ *                 tenant for an `exclusive` agent, or the caller's `concurrencyKey`? return it,
+ *                 `deduplicated`) → the tenant's active-run cap (429 `agent_runs_limit`) and daily
+ *                 spend (429 `ai_budget_exceeded`) → insert `queued` with the slot (the partial
+ *                 unique index rejects a second active run in it → the existing one) →
  *                 `platform.runs.create({ id: runId })` → store `instanceId`. No run engine →
  *                 `AgentRunsNotConfiguredError` (503) BEFORE any write.
+ *   enqueueRunBatch — up to `AGENT_RUN_BATCH_MAX` inputs of ONE non-exclusive agent, one
+ *                 multi-row insert sharing a `batch_id`, then one engine `create()` per run (the
+ *                 engine has no batch call); only the inputs that really cannot start are marked
+ *                 failed.
  *   claimRun    — `UPDATE … SET running, attempt+1 WHERE status IN (queued,running) RETURNING`:
  *                 the row is the idempotency gate; a retried step re-claims, a settled row is a no-op.
  *   requestCancel — queued → `cancelled` outright; running → `cancelRequestedAt` (the run polls).
@@ -32,7 +38,8 @@ import {
   CLAIMABLE_RUN_STATUSES,
 } from '@rocketpod/shared/ai/agents'
 import { ERROR_CODES } from '@rocketpod/shared/errors'
-import { and, asc, eq, inArray, sql } from 'drizzle-orm'
+import { and, asc, count, eq, inArray, sql } from 'drizzle-orm'
+import type { AppConfig } from '../../../config'
 import { type Database, isUniqueViolation, rows } from '../../../db/client'
 import {
   type AgentRunEventRow,
@@ -43,9 +50,15 @@ import {
 } from '../../../db/schema'
 import type { RunEngine, RunStatus } from '../../../platform/types'
 import { traceIdForRun } from '../../observability/trace-ids'
-import { ServiceUnavailableError, ValidationError } from '../../utils/core/errors'
+import {
+  ApiError,
+  BadRequestError,
+  ServiceUnavailableError,
+  ValidationError,
+} from '../../utils/core/errors'
 import { parseToolLoopCheckpoint, type ToolLoopCheckpoint } from '../ai/agent-loop'
 import { nudge, type Realtime, realtimeEvent } from '../realtime'
+import { assertTenantDailyBudget } from './budget'
 import { expireInterrupts, listInterrupts } from './interrupts'
 import { getAgent } from './registry'
 
@@ -98,6 +111,8 @@ export function toAgentRun(row: AgentRunRow): AgentRun {
     finishedAt: row.finishedAt,
     cancelRequestedAt: row.cancelRequestedAt,
     createdAt: row.createdAt,
+    exclusive: row.concurrencyKey !== null,
+    batchId: row.batchId,
   }
 }
 
@@ -166,16 +181,72 @@ export interface EnqueueRunInput {
 
 export interface EnqueueRunResult {
   run: AgentRunRow
-  /** An active run already held this run's exclusive slot; `run` is THAT run. */
+  /**
+   * An active run already held this run's exclusive slot; `run` is THAT run. Never true for a
+   * non-exclusive agent enqueued without a `concurrencyKey`: it holds no slot, so every enqueue
+   * is a run of its own.
+   */
   deduplicated: boolean
 }
 
+/** 429 `agent_runs_limit`: the tenant has `AGENT_MAX_ACTIVE_RUNS_PER_TENANT` runs active already. */
+export class AgentRunsLimitError extends ApiError {
+  constructor(active: number, max: number) {
+    super(
+      429,
+      `This organisation already has ${active} agent runs queued, running or waiting (the limit is ${max})`,
+      ERROR_CODES.agentRunsLimit,
+      { active, max }
+    )
+    this.name = 'AgentRunsLimitError'
+  }
+}
+
+/** 400 `agent_exclusive`: a batch names an agent that runs one at a time. */
+export class AgentExclusiveError extends BadRequestError {
+  constructor(agentKey: AgentKey) {
+    super(
+      `${agentKey} is exclusive — one run at a time per organisation — so it cannot be batched`,
+      ERROR_CODES.agentExclusive,
+      { agentKey }
+    )
+    this.name = 'AgentExclusiveError'
+  }
+}
+
+/** Runs the tenant has queued, running or parked — what the concurrency cap counts. */
+export async function countActiveRuns(db: Database, tenantId: string): Promise<number> {
+  const [row] = await db
+    .select({ n: count() })
+    .from(agentRuns)
+    .where(and(eq(agentRuns.tenantId, tenantId), inArray(agentRuns.status, [...ACTIVE])))
+  return row?.n ?? 0
+}
+
 /**
- * Validate → insert `queued` → create the run instance (id = run id) → store `instanceId`.
- * A `create()` failure marks the row `failed` (visible, releases the exclusive slot) and rethrows.
+ * The two tenant-wide gates every enqueue passes: the active-run cap, counting the runs this
+ * call would ADD, and the daily agent spend. Both are counted then inserted, not locked — a burst
+ * of simultaneous requests can overshoot the cap by a few, which is fine for a brake.
+ */
+async function assertCapacity(db: Database, cfg: AppConfig, tenantId: string, adding: number) {
+  const active = await countActiveRuns(db, tenantId)
+  if (active + adding > cfg.AGENT_MAX_ACTIVE_RUNS_PER_TENANT) {
+    throw new AgentRunsLimitError(active, cfg.AGENT_MAX_ACTIVE_RUNS_PER_TENANT)
+  }
+  await assertTenantDailyBudget(db, cfg, tenantId)
+}
+
+/**
+ * Validate → (exclusive: return the active run) → capacity → insert `queued` → create the run
+ * instance (id = run id) → store `instanceId`. A `create()` failure marks the row `failed`
+ * (visible, releases the exclusive slot) and rethrows.
+ *
+ * An exclusive agent's active run is looked for BEFORE the capacity check, so asking again for a
+ * run that is already going is never a 429; the unique index still decides a genuine race.
  */
 export async function enqueueRun(
   db: Database,
+  cfg: AppConfig,
   env: AgentRunsEnv,
   input: EnqueueRunInput
 ): Promise<EnqueueRunResult> {
@@ -184,9 +255,15 @@ export async function enqueueRun(
   const agent = getAgent(input.agentKey)
   const parsed = agent.meta.inputSchema.safeParse(input.input)
   if (!parsed.success) throw new ValidationError(parsed.error.issues, 'Invalid agent input')
+  const concurrencyKey = input.concurrencyKey ?? (agent.meta.exclusive ? '' : null)
+
+  if (concurrencyKey !== null) {
+    const existing = await findActiveRun(db, input.tenantId, input.agentKey, concurrencyKey)
+    if (existing) return { run: existing, deduplicated: true }
+  }
+  await assertCapacity(db, cfg, input.tenantId, 1)
 
   const runId = crypto.randomUUID()
-  const concurrencyKey = input.concurrencyKey ?? (agent.meta.exclusive ? '' : null)
   let row: AgentRunRow | undefined
   try {
     ;[row] = await db
@@ -217,18 +294,146 @@ export async function enqueueRun(
       id: row.id,
       params: { runId: row.id, tenantId: input.tenantId },
     })
-    const [updated] = await db
-      .update(agentRuns)
-      .set({ instanceId: instance.id })
-      .where(and(eq(agentRuns.id, row.id), eq(agentRuns.tenantId, input.tenantId)))
-      .returning()
-    row = updated ?? row
+    row = (await storeInstanceId(db, input.tenantId, row.id, instance.id)) ?? row
   } catch (err) {
     await failRun(db, input.tenantId, row.id, `Could not start the workflow: ${errorMessage(err)}`)
     throw err
   }
   nudgeRun(input.realtime, input.tenantId, row.id)
   return { run: row, deduplicated: false }
+}
+
+async function storeInstanceId(
+  db: Database,
+  tenantId: string,
+  runId: string,
+  instanceId: string
+): Promise<AgentRunRow | undefined> {
+  const [updated] = await db
+    .update(agentRuns)
+    .set({ instanceId })
+    .where(and(eq(agentRuns.id, runId), eq(agentRuns.tenantId, tenantId)))
+    .returning()
+  return updated
+}
+
+export interface EnqueueBatchInput {
+  tenantId: string
+  agentKey: AgentKey
+  inputs: unknown[]
+  userId: string | null
+  realtime?: Realtime
+}
+
+/** One input's fate — `row` whenever a row exists, `error` whenever it did not start. */
+export interface EnqueueBatchItem {
+  index: number
+  row: AgentRunRow | null
+  error: { code: string; message: string; details?: unknown } | null
+}
+
+export interface EnqueueBatchResult {
+  batchId: string
+  items: EnqueueBatchItem[]
+}
+
+/**
+ * Many runs of ONE non-exclusive agent. The order of the gates is the contract:
+ *
+ * 1. no run engine → 503; an exclusive agent → 400 `agent_exclusive` (it can only ever run one)
+ * 2. every input is validated against the agent's schema; an invalid one is an item error with no
+ *    row, and the rest carry on
+ * 3. capacity for the VALID inputs only → 429 for the whole batch (never half a batch)
+ * 4. ONE multi-row insert, all sharing a fresh `batch_id`
+ * 5. one `create()` per row — the engine has no batch call, and its `create` is idempotent on the
+ *    run id, so a retry of a call that half-landed starts nothing twice. Only the rows whose
+ *    `create()` really fails are settled `failed`; the rest are queued
+ */
+export async function enqueueRunBatch(
+  db: Database,
+  cfg: AppConfig,
+  env: AgentRunsEnv,
+  input: EnqueueBatchInput
+): Promise<EnqueueBatchResult> {
+  const workflow = env.runs
+  if (!workflow) throw new AgentRunsNotConfiguredError()
+  const agent = getAgent(input.agentKey)
+  if (agent.meta.exclusive) throw new AgentExclusiveError(input.agentKey)
+
+  const batchId = crypto.randomUUID()
+  const items: EnqueueBatchItem[] = []
+  const valid: { index: number; data: unknown }[] = []
+  input.inputs.forEach((raw, index) => {
+    const parsed = agent.meta.inputSchema.safeParse(raw)
+    if (parsed.success) valid.push({ index, data: parsed.data })
+    else {
+      items.push({
+        index,
+        row: null,
+        error: {
+          code: ERROR_CODES.validationFailed,
+          message: 'Invalid agent input',
+          details: parsed.error.issues,
+        },
+      })
+    }
+  })
+  if (valid.length === 0) return { batchId, items }
+  await assertCapacity(db, cfg, input.tenantId, valid.length)
+
+  const ids = valid.map(() => crypto.randomUUID())
+  const inserted = await db
+    .insert(agentRuns)
+    .values(
+      valid.map((v, i) => ({
+        id: ids[i] as string,
+        traceId: traceIdForRun(ids[i] as string),
+        tenantId: input.tenantId,
+        agentKey: input.agentKey,
+        status: 'queued' as const,
+        input: v.data,
+        requestedByUserId: input.userId,
+        batchId,
+      }))
+    )
+    .returning()
+  // Matched by the ids minted above, not by position: nothing promises `RETURNING`'s order.
+  const byId = new Map(inserted.map(row => [row.id, row]))
+  const rowsInOrder = valid.map((v, i) => {
+    const row = byId.get(ids[i] as string)
+    if (!row) throw new Error('agent_runs: batch insert returned fewer rows than it was given')
+    return { index: v.index, row }
+  })
+
+  for (const entry of rowsInOrder) {
+    let instanceId: string | undefined
+    let failure: string | null = null
+    try {
+      instanceId = (
+        await workflow.create({
+          id: entry.row.id,
+          params: { runId: entry.row.id, tenantId: input.tenantId },
+        })
+      ).id
+    } catch (err) {
+      failure = errorMessage(err)
+    }
+    if (instanceId) {
+      const row = (await storeInstanceId(db, input.tenantId, entry.row.id, instanceId)) ?? entry.row
+      items.push({ index: entry.index, row, error: null })
+      nudgeRun(input.realtime, input.tenantId, row.id)
+      continue
+    }
+    const message = `Could not start the workflow: ${failure}`
+    const row = (await failRun(db, input.tenantId, entry.row.id, message)) ?? entry.row
+    items.push({
+      index: entry.index,
+      row,
+      error: { code: 'workflow_create_failed', message: message.slice(0, 500) },
+    })
+  }
+  items.sort((a, b) => a.index - b.index)
+  return { batchId, items }
 }
 
 /**

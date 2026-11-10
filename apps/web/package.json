@@ -41,6 +41,7 @@
     "db:studio": "dotenv -e .env -- drizzle-kit studio",
     "db:check": "dotenv -e .env -- tsx scripts/test-db-connection.ts",
     "seed": "dotenv -e .env -- tsx scripts/seed.ts",
+    "agent:replay": "dotenv -e .env -- tsx scripts/agent-replay.ts",
     "guide:index": "dotenv -e .env -- tsx scripts/guide-index.ts",
     "guide:load": "dotenv -e .env -- tsx scripts/guide-load.ts",
     "guide:shots": "dotenv -e .env -- tsx scripts/guide-shots.ts",

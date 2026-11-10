@@ -49,6 +49,11 @@ walking up from the cwd (`--dir` overrides). It is the one kit command that writ
 repository, and what it writes is tenant data, so it warns and refuses without `--yes` or a
 confirmed TTY prompt (tests inject `confirm`), and refuses a duplicate case id.
 
+Agents (D39): `agents list` (which agents can batch), `agents run <key> --input x.json` (one run)
+or `--batch x.jsonl` (one run per line, sent to `POST /api/agents/runs/batch` in chunks of
+`AGENT_RUN_BATCH_MAX`; every line that did not start is reported by number and the command exits 1
+AFTER the rest have started), and `agents runs list [--batch <id>]`.
+
 Groups (D29) are READ-only here: `groups list` and `groups members <id>`. Creating or deleting a
 group is a decision about who sees what, and the confirmation the web UI gives before a delete
 narrows access has no honest one-line equivalent in a CLI.

@@ -74,6 +74,7 @@
         "apps/web/src/api/services/agents/examples/triage-research.ts",
         "apps/web/src/ui/pages/agents/outputs/triage-research.tsx",
         "apps/web/tests/api/agent-triage-research.test.ts",
+        "apps/web/tests/api/agent-replay.test.ts",
         "apps/evals/suites/agents/triage-research.eval.ts",
         "apps/evals/datasets/triage-research.jsonl",
         "apps/evals/baselines/agents-triage-research.json"
@@ -168,6 +169,10 @@
         "apps/web/src/api/routes/agents.ts",
         "apps/web/src/ui/pages/agents/**",
         "apps/web/tests/api/agui-projection.test.ts",
+        "apps/web/tests/api/agent-volume.test.ts",
+        "apps/web/scripts/agent-replay.ts",
+        "apps/web/tests/config/agent-replay-script.test.ts",
+        ".claude/skills/rp-agent-replay/**",
         "packages/shared/src/ai/agents.ts"
       ],
       "registries": [

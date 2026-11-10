@@ -2,7 +2,7 @@
 version: unreleased
 previous: 0.2.0
 date: null
-breaking: false
+breaking: true
 migrations:
   - "tenants.external_org_id (text, unique, nullable)"
   - "tenants.idp_synced_at (timestamptz, nullable)"
@@ -10,8 +10,15 @@ migrations:
   - "tenant_users.idp_synced_at (timestamptz, nullable)"
   - "users.global_admin_source (text manual|idp, nullable)"
   - "user_sessions.max_expires_at (timestamptz, nullable)"
-areas: [api, db, config, shared, ui, docs]
-touches_surfaces: [feature-guide, example-guide-pages]
+  - "agent_runs.batch_id (uuid, nullable); indexes agent_runs (tenant_id, status), partial agent_runs (tenant_id, batch_id) and partial ai_usage (tenant_id, agent_run_id)"
+areas: [api, db, config, shared, ui, cli, docs]
+touches_surfaces:
+  - feature-guide
+  - example-guide-pages
+  - feature-agents
+  - example-agent-summarize-text
+  - example-agent-research-topic
+  - example-agent-triage-research
 requires_surfaces: []
 manual: true
 ---
@@ -42,7 +49,38 @@ IdP-managed tenancy: with `OIDC_MANAGED_TENANCY=true` the OIDC issuer decides wh
   matched by slug; and deletes an organisation (`DELETE /api/admin/tenants/:id`, the owner's
   `deleteTenant` with its slug confirmation), the only way to remove an ownerless one. The admin
   tenant DTOs carry `externalOrgId`, the detail `idpManaged`; `TenantDetail.tsx` gains the
-  Identity provider org panel and a danger zone.
+  Identity provider org panel and a danger zone.- Agents at volume (Rocketflare 0.21.0): `enqueueRun(db, cfg, platform, input)` enforces
+  `AGENT_MAX_ACTIVE_RUNS_PER_TENANT` (default 50, 429 `agent_runs_limit`) and
+  `AGENT_TENANT_DAILY_COST_USD` (429 `ai_budget_exceeded`); an exclusive agent's active run is found
+  before the cap, so asking again is never a 429. `triage-research` is now `exclusive: false`.
+- `POST /api/agents/runs/batch` (`enqueueRunBatch`, `createAgentRunBatch{Request,Response}Schema`,
+  `AGENT_RUN_BATCH_MAX` = 100): one non-exclusive, startable agent (400 `agent_exclusive`
+  otherwise), per-input errors, one insert under a `batch_id`, then one `platform.runs.create()`
+  per row (OpenWorkflow has no batch call); `GET /api/agents/runs?batchId=`.
+- `ctx.scope(prefix)` and `ctx.map(key, items, fn, { concurrency, keyOf })`
+  (`services/agents/fanout.ts`).
+- The ledger is one `ai_usage` row PER CALL carrying `agent_run_id`, written by the run's meter
+  (`services/agents/budget.ts`) for every call through `ctx.chat.client` and `ctx.decide`; the
+  example and test agents no longer call `recordUsage`; `ctx.recordUsage(call)` is for a client an
+  agent builds itself; `GET /api/agents/runs/:id` returns `usage`. `recordUsage` returns the cost
+  it froze.
+- Budgets: `meta.budget { maxTokens, maxCostUsd }` over `AGENT_RUN_MAX_TOKENS` /
+  `AGENT_RUN_MAX_COST_USD`; over → `failed`, event code `agent_budget_exceeded`, not retried.
+- Policies: `meta.policy { maxTurns, maxToolCalls, maxDurationSeconds, repeatedFailureLimit,
+  onExhaustion }` passed to `runToolLoop` as `policy`; `'final-answer'` forces one call to the
+  terminal tool, `'fail'` throws `ToolLoopExhaustedError` (event code `agent_policy_exhausted`).
+  `research-topic`'s hand-written salvage is now its policy; `GET /api/agents` items carry
+  `policy`, shown on the Agents page. `runToolLoop`'s `authorizeTool(call)` refuses a tool call by
+  rule.
+- Replay: `services/agents/replay.ts` (`replayRun`, `listReplayableRuns`, `liveReplayWarnings`,
+  `diffJson`), `apps/web/scripts/agent-replay.ts` + the `agent:replay` script (`--candidate`,
+  `--live`; an empty platform, the `.env` keys), `ctx.once(key, fn, { replay })`,
+  `decideWithShapes` / `toDecision` exported from `decisions.ts`, the skill `rp-agent-replay`.
+- The plugin `AgentCtx` gains `interrupt(ask)` and `chatModel { provider, model }`;
+  `AgentInterruptAsk` / `AgentInterruptAnswer` are exported from `@/plugins/api`.
+  `PROMPT_REGISTRY` is typed so a plugin's prompt key indexes it.
+- CLI: `rocketpod agents list`, `agents run <key> --input x.json | --batch x.jsonl`,
+  `agents runs list [--batch id]`.
 
 ## How to apply
 
@@ -131,6 +169,40 @@ IdP-managed tenancy: with `OIDC_MANAGED_TENANCY=true` the OIDC issuer decides wh
     `routes/admin.ts`. Copy `useSetTenantExternalOrg` and `useAdminDeleteTenant` into
     `useAdminTenants.ts` and the two panels into `pages/admin/TenantDetail.tsx`. Add
     `externalOrgId: null` to any admin tenant fixture in `tests/ui/`.
+21. Agents at volume: add `batchId` (`uuid('batch_id')`) and the indexes
+    `agent_runs_tenant_status_idx` (`tenant_id, status`) and `agent_runs_tenant_batch_idx`
+    (`tenant_id, batch_id` WHERE `batch_id IS NOT NULL`) to `apps/web/src/db/schema/agent-runs.ts`,
+    and the partial index `ai_usage_tenant_run_idx` (`tenant_id, agent_run_id` WHERE
+    `agent_run_id IS NOT NULL`) to `apps/web/src/db/schema/ai-usage.ts`; run
+    `pnpm db:generate --name agent-volume` and `pnpm db:migrate`. `concurrency_key` and its backfill
+    shipped earlier — nothing to backfill here.
+22. Copy from the kit: `apps/web/src/api/services/agents/{replay,budget,fanout}.ts`,
+    `apps/web/scripts/agent-replay.ts`, `apps/cli/src/commands/agents.ts`,
+    `.claude/skills/rp-agent-replay/`, and the tests `apps/web/tests/api/{agent-replay,agent-volume,agent-runs-non-exclusive}.test.ts`,
+    `apps/web/tests/config/{agent-replay-script,agent-policy}.test.ts`, `apps/cli/tests/agents.test.ts`.
+    Add `agent-volume.test.ts`, the script, its test and `.claude/skills/rp-agent-replay/**` to the
+    `feature-agents` surface's `paths` in `.rocketflare.json`, and `agent-replay.test.ts` (it records
+    a `triage-research` run) to `example-agent-triage-research`'s. The volume and non-exclusive
+    tests drive the test-only agents, and the CLI test installs keys of its own.
+23. Port the diffs to `services/agents/{runs,runtime,registry,decisions}.ts`,
+    `services/agents/examples/*.ts`, `services/ai/{agent-loop,usage}.ts`, `services/prompts.ts`,
+    `routes/agents.ts`, `plugins/api/{ai,index}.ts`, `packages/shared/src/ai/{agents,pricing}.ts`,
+    `packages/shared/src/errors.ts`, `apps/web/src/config.ts`, `ui/pages/agents/AgentsPage.tsx`,
+    `apps/cli/src/cli.ts` and `tests/mocks/bindings.ts` (`RecordingWorkflow.failCreate`).
+24. Add `"agent:replay": "dotenv -e .env -- tsx scripts/agent-replay.ts"` to `apps/web/package.json`.
+25. Add `AGENT_MAX_ACTIVE_RUNS_PER_TENANT=50` and the blank `AGENT_RUN_MAX_TOKENS=`,
+    `AGENT_RUN_MAX_COST_USD=` and `AGENT_TENANT_DAILY_COST_USD=` to `apps/web/.env.example`, and
+    the four keys (empty) under `config` in `deploy/helm/rocketpod/values.yaml` —
+    `packaging.test.ts` fails otherwise.
+26. Change every `enqueueRun(db, platform, …)` in your own code to `enqueueRun(db, cfg, platform, …)`.
+27. In each of your own agents: delete every `recordUsage(...)` and every `onUsage` that writes usage
+    (the runtime writes one row per call; a second write double-counts); add `{ replay: 'rerun' }`
+    to every `ctx.once` whose `fn` is only a model call; set `exclusive: false` where two runs in
+    one organisation never share state; add `budget` to an agent that runs at volume; replace a
+    hand-written turn cap and salvage with `meta.policy` passed as `policy: meta.policy`.
+28. Tell anyone reading `ai_usage` that an agent run is now several rows (one per call), grouped
+    by `agent_run_id`.
+29. Run `node scripts/plugin-api-doc.mjs` to regenerate `docs/plugin-api.md`.
 
 ## Conflicts to expect
 
@@ -139,6 +211,9 @@ IdP-managed tenancy: with `OIDC_MANAGED_TENANCY=true` the OIDC issuer decides wh
 - `apps/web/src/api/auth/sessions.ts` → an app that changed the `resolveSession` SQL (system-tenant filter) → keep the app's joins, add `u.global_admin_source` to the select list only.
 - `apps/web/src/api/utils/db/tenant-helpers.ts` → an app with extra tenant columns → keep them, add `externalOrgId`, `idpSyncedAt` and `source` beside them.
 - `apps/web/migrations/` → the kit's `0006_idp-managed-tenancy.sql` collides with the app's numbering → never copy it; `pnpm db:generate` writes the app's own.
+- `apps/web/src/api/services/agents/runtime.ts` → the `AgentContext` literal is `withFanout({ … })` with `recordUsage`, the client is wrapped by `meterChatClient` → keep your own fields inside the literal.
+- `apps/web/src/api/services/agents/examples/*.ts` → `recordUsage` calls deleted, `research-topic`'s salvage became `meta.policy` → delete yours the same way; never keep both.
+- `apps/web/tests/helpers/test-agents.ts` → the test agents' usage writes deleted → a test counting `ai_usage` rows now sees one per call.
 
 ## Verify
 
@@ -150,3 +225,6 @@ IdP-managed tenancy: with `OIDC_MANAGED_TENANCY=true` the OIDC issuer decides wh
 6. A managed sign-in for a person with one org lands in that org's tenant, `/auth/session` shows `accessRequest: null`, `PATCH /api/members/<their id>` answers 409 `idp_managed`, and their `user_sessions` row has `max_expires_at` seven days out.
 7. With `IDENTITY_WEBHOOK_SECRET` set, an unsigned `POST /api/identity/events` answers 401, and a signed `membership.removed` for that person and org answers 204 and removes the membership.
 8. A tenant made by hand with an org's slug is that org's tenant after its first sign-in (no `-2`). A global admin links a hand-made tenant to an org id; the next sign-in with that org lands in it, not in a `-2` copy. `DELETE /api/admin/tenants/<id>` with the slug answers 204.
+9. `psql "$DATABASE_URL" -c '\d agent_runs'` lists `batch_id uuid` and the two new indexes.
+10. `pnpm web agent:replay triage-research --tenant <slug>` prints one line per settled run and a summary line.
+11. `pnpm cli agents list` marks `triage-research` as batchable, and `pnpm cli agents run triage-research --batch questions.jsonl` prints one run per line.

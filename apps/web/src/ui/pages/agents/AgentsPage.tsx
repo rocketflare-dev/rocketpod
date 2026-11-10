@@ -69,6 +69,14 @@ export default function AgentsPage() {
                         exclusive
                       </span>
                     )}
+                    {agent.policy?.maxTurns && (
+                      <span
+                        className="badge badge-ghost badge-sm"
+                        title={`Up to ${agent.policy.maxTurns} model turns per run; when it runs out: ${agent.policy.onExhaustion ?? 'final-answer'}`}
+                      >
+                        ≤{agent.policy.maxTurns} turns
+                      </span>
+                    )}
                   </div>
                   <p className="text-xs text-secondary">{agent.description}</p>
                   {/* An agent the app starts itself (`startable: false`) has no Run form here. */}

@@ -35,7 +35,7 @@ import { traceStep } from '../../observability/context'
 import { decisionAttributes } from '../../observability/genai-attributes'
 import { hashToken } from '../../utils/core/hash'
 import type { ResolvedDecisions } from '../ai/resolve'
-import { recordUsage } from '../ai/usage'
+import type { RunMeter } from './budget'
 
 /** Most items one `sift` asks about — TypeSafe's per-request question budget, with headroom. */
 export const SIFT_MAX_ITEMS = 100
@@ -110,6 +110,11 @@ export interface DecideDeps {
   agentKey: string
   /** Resolved on first use, not per attempt — an agent that never decides never resolves. */
   resolve: () => Promise<ResolvedDecisions>
+  /**
+   * The run's meter: checked before every FRESH ask (a replayed answer costs nothing) and
+   * written after it — one `ai_usage` row, `agent:<key>:decide`, carrying the run id.
+   */
+  meter: RunMeter
   /** Thin `decision` event into the run's log. */
   emit: (data: unknown) => Promise<void>
 }
@@ -130,7 +135,7 @@ export function createDecide(deps: DecideDeps): AgentDecide {
     return resolved
   }
 
-  const decide = (async (key: string, request: DecisionRequest): Promise<Decision> => {
+  return decideWithShapes(async (key: string, request: DecisionRequest): Promise<Decision> => {
     const parsed = decisionRequestSchema.parse(request)
     const hash = await questionsHash(parsed.questions)
     const questions = Object.keys(parsed.questions).length
@@ -155,6 +160,7 @@ export function createDecide(deps: DecideDeps): AgentDecide {
     }
 
     const { client, model, provider, method } = await engine()
+    await deps.meter.check()
     return traceStep(
       {
         name: `decide ${key}`,
@@ -186,9 +192,7 @@ export function createDecide(deps: DecideDeps): AgentDecide {
           questionsHash: hash,
           latencyMs,
         })
-        await recordUsage(deps.db, {
-          tenantId: deps.tenantId,
-          userId: deps.userId,
+        await deps.meter.record({
           feature: `agent:${deps.agentKey}:decide`,
           provider,
           model: result.model,
@@ -204,7 +208,18 @@ export function createDecide(deps: DecideDeps): AgentDecide {
         attributes: { 'rocketpod.decision.min_confidence': minConfidence(decision.answers) },
       })
     )
-  }) as AgentDecide
+  })
+}
+
+/**
+ * `sift` and `pick` on top of any raw decide — the runtime's, or replay's, which serves
+ * recorded answers. One implementation of the shapes is what lets a replay rebuild the SAME
+ * request, and so the same `questions_hash`, that the run asked.
+ */
+export function decideWithShapes(
+  raw: (key: string, request: DecisionRequest) => Promise<Decision>
+): AgentDecide {
+  const decide = raw as AgentDecide
 
   decide.sift = async <T>(key: string, options: SiftOptions<T>): Promise<SiftResult<T>> => {
     const request = siftRequest(options)
@@ -374,7 +389,7 @@ function stableStringify(value: unknown): string {
   return JSON.stringify(value)
 }
 
-function toDecision(row: AgentRunDecisionRow, replayed: boolean): Decision {
+export function toDecision(row: AgentRunDecisionRow, replayed: boolean): Decision {
   return {
     decisionId: row.id,
     answers: row.answers,

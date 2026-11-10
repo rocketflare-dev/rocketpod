@@ -1,11 +1,10 @@
 /**
  * Agent tools and agents, as a plugin writes them.
  *
- * **Half of this is unexercised.** `ToolCtx` is real — the reference plugin contributes a tool to
- * every agent run — but `AgentCtx` is not: no installed plugin registers an AGENT yet.
- * So `AgentCtx` is derived from the core `AgentContext`
- * (`services/agents/registry.ts`) and from what its two example agents demonstrably use, and
- * nothing speculative is added beyond that. Widen it when a plugin exists to widen it for.
+ * `AgentCtx` is derived from the core `AgentContext` (`services/agents/registry.ts`) and from
+ * what agents demonstrably use, and nothing speculative is added beyond that. It was first widened
+ * for a plugin that holds a conversation with a person (`interrupt`, `chatModel`): widen it again
+ * when a plugin exists to widen it for.
  *
  * Two core rules carry over and matter more inside a plugin, because a plugin's author is
  * further from the runtime that enforces them:
@@ -23,9 +22,15 @@
  * shape a plugin can get subtly wrong.
  */
 
+import type { AiProvider } from '@rocketpod/shared/ai/config'
 import type { AccessScope } from '../../api/services/access-sql'
 import type { AgentDecide } from '../../api/services/agents/decisions'
-import type { AgentContext, AgentDefinition } from '../../api/services/agents/registry'
+import type {
+  AgentContext,
+  AgentDefinition,
+  AgentInterruptAnswer,
+  AgentInterruptAsk,
+} from '../../api/services/agents/registry'
 import type { AgentToolContext } from '../../api/services/agents/tools'
 import type {
   CallStructuredToolOptions,
@@ -47,7 +52,12 @@ export type {
   SiftOptions,
   SiftResult,
 } from '../../api/services/agents/decisions'
-export type { AgentContext, AgentDefinition } from '../../api/services/agents/registry'
+export type {
+  AgentContext,
+  AgentDefinition,
+  AgentInterruptAnswer,
+  AgentInterruptAsk,
+} from '../../api/services/agents/registry'
 export type { AgentToolContext } from '../../api/services/agents/tools'
 export type {
   Tool,
@@ -168,6 +178,25 @@ export interface AgentCtx<Input = unknown> {
    * `key`, so `key` must be stable across attempts, exactly like `once`.
    */
   decide: AgentDecide
+  /**
+   * Ask the person a question and park the run until they answer (issue #17) — `approval`,
+   * `choice`, `input` or `form`. The SECOND time this line runs (the run resumed after the answer,
+   * re-entering `run()` from the top) it returns the answer instead of asking again, which is why
+   * **`key` must be stable across attempts**: derive it from a step or a round number your code
+   * controls, never from model output that may differ on the replay. Everything after the call is
+   * on the far side of a deploy, so a side effect there still goes through `once`.
+   *
+   * A declined `approval` throws (the run is cancelled); a declined `choice` / `input` / `form` comes
+   * back as `status: 'cancelled'` for the agent to handle. Parse `payload` with
+   * `interruptPayloadSchema(spec)` from `@rocketpod/shared/ai/interrupts`.
+   */
+  interrupt(ask: AgentInterruptAsk): Promise<AgentInterruptAnswer>
+  /**
+   * The provider and model this run resolved to (per-agent `agent_models` assignment applied) —
+   * what `recordUsage` needs to ledger a `structured` call's `onUsage`. Read-only: the client
+   * itself stays with the runtime.
+   */
+  readonly chatModel: { readonly provider: AiProvider; readonly model: string }
 }
 
 /** `runToolLoop` minus what the runtime supplies. */
@@ -207,6 +236,8 @@ export function agentCtx<Input>(ctx: AgentContext<Input>): AgentCtx<Input> {
     checkCancelled: () => ctx.checkCancelled(),
     once: (key, fn) => ctx.once(key, fn),
     decide: ctx.decide,
+    interrupt: ask => ctx.interrupt(ask),
+    chatModel: { provider: ctx.chat.client.provider, model: ctx.chat.model },
     toolLoop: options =>
       runToolLoop(ctx.chat.client, {
         ...options,

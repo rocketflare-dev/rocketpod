@@ -594,7 +594,11 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   `kit.document` events produced by a pure mapper, so nothing about a card is stored. The admin
   inspector (`/stats`) is derived per request.
 - **Agents (D7)**: `POST /api/agents/runs` enqueues (row → Workflow instance → 202); the exclusive
-  index dedupes. The Workflow runs `claim → execute#N → (resume#N | expire#N) → finish`, and
+  index dedupes, per (tenant, agent, `agent_runs.concurrency_key`) — the SLOT a run holds: `''`
+  for an exclusive agent (one per tenant), a caller's `enqueueRun({ concurrencyKey })` to narrow it
+  to one active run per key, NULL for an agent declaring `exclusive: false`, whose rows sit outside
+  the index so any number may be active at once. A plugin agent reaches `ctx.interrupt` and the
+  resolved `chatModel` through `AgentCtx` (`@/plugins/api`). The Workflow runs `claim → execute#N → (resume#N | expire#N) → finish`, and
   **every step name carries its round**, because a repeated name replays the recorded result.
   A retry resumes: `ctx.checkpoint` keeps the tool-loop transcript and `ctx.once(key, fn)` gives
   once-per-run effects (a DB unique index; at-least-once with a recorded result).
@@ -622,6 +626,61 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   evals score decisions per question with `DecisionJudge` (`expected.decisions`, accuracy + Brier)
   without a model call. Why: AgentRun-style decomposition — cheap, recorded, separately testable
   judgments instead of a model turn per decision.
+- **Replay (D38)**: `pnpm web agent:replay <agent> --tenant <slug>` runs the agent's CURRENT code
+  over its settled runs and reports what would change — the change you are about to make, checked
+  against a thousand past cases in minutes, not against production. The replay context answers from
+  the record: `decide` from `agent_run_decisions` (same questions about the same state → `served`;
+  reworded → `drift`; same questions about a different state, because upstream code changed what the
+  decision is about → `stale`), `once` from `agent_run_effects`, `interrupt` from
+  `agent_run_interrupts`; anything the record cannot answer is a MISS (`strict`, the default — no
+  model call at all) or asked for real (`--live`, which also re-runs a `ctx.once(key, fn, { replay:
+  'rerun' })` — a pure model call whose prompt may have changed). `--live` reads the tenant's
+  knowledge base, prompts and model choice as they are TODAY, through the server's own resolver —
+  the tenant's configs first, then the platform keys in `.env` — and warns before starting when
+  knowledge search would be unavailable (no embeddings provider resolves). Chunks do not record
+  their model, so run it with the server's `EMBEDDINGS_*`. Each run replays in a READ ONLY
+  transaction on an empty platform (no jobs, storage, realtime or run engine) and `ctx.db` refuses
+  writes before they are sent (listed, not fatal). Per run: a verdict (`match` / `differs` /
+  `incomplete`), the output diff by JSON path, and each decision's status; exit 1 unless every run
+  matches. `--candidate <file>` replays another definition with the same key — how a compiled
+  variant is proven against the full agent's history. Local script only: no route, no UI. Why: D37
+  made the judgments recorded; replay makes the CODE around them testable.
+- **Volume (D39)**: exclusivity is the `concurrency_key` slot above, so a non-exclusive agent
+  (`triage-research`) runs any number at once — how many EXECUTE at once is the workers'
+  `RUNS_CONCURRENCY`. Two tenant-wide gates sit on every enqueue:
+  `AGENT_MAX_ACTIVE_RUNS_PER_TENANT` (default 50, 429 `agent_runs_limit` — a soft cap, counted then
+  inserted) and `AGENT_TENANT_DAILY_COST_USD` (429 `ai_budget_exceeded`).
+  `POST /api/agents/runs/batch` takes up to 100 inputs of one non-exclusive agent (400
+  `agent_exclusive` otherwise), validates each and inserts them under one `batch_id`, then starts
+  each on the run engine with its own `create()` — OpenWorkflow has no batch call, and `create` is
+  idempotent on the run id — so only the rows that really cannot start are failed
+  (`GET /runs?batchId=`, `rocketpod agents run <key> --batch x.jsonl`). Inside a run,
+  `ctx.scope(prefix)` namespaces every keyed primitive (`once`, `decide`, `interrupt`, `artifact`,
+  `step` → `prefix/key`; no checkpoint) and `ctx.map(key, items, fn, { concurrency, keyOf })` runs
+  each item as a `once` in its own scope, at most `min(concurrency ?? 4, 6)` at a time: a retry
+  replays the items that finished, the first error stops scheduling, and asks from several items
+  become ONE park. No parent/child runs. Every call through `ctx.chat.client` and `ctx.decide` is
+  metered — one `ai_usage` row carrying `agent_run_id`, awaited as the call returns, so a run
+  cancelled or failed mid-loop has a row for every turn it paid for — and an agent writes no ledger
+  rows (`ctx.recordUsage` for a client of its own); `GET /runs/:id` returns `usage`. The meter
+  checks the run's budget before each call (`meta.budget` over `AGENT_RUN_MAX_TOKENS` /
+  `AGENT_RUN_MAX_COST_USD`, plus the tenant's daily cap), starting from every earlier attempt's
+  rows; over → `failed`, event code `agent_budget_exceeded`, never retried. Why: "thousands of
+  cases a day" needs many runs, cheap fan-out inside one, and a ledger that can say what each run
+  cost.
+- **Policy (D39, issue #1)**: `meta.policy { maxTurns, maxToolCalls, maxDurationSeconds,
+  repeatedFailureLimit, onExhaustion }`, passed to `runToolLoop` as `policy`, is how far one run's
+  loop may go; `AGENT_MAX_TURNS` stays the ceiling. Every limit counts across attempts — turns and
+  ACTIVE time ride the checkpoint (time parked on a person is not counted), tool calls and the
+  failure streak are read back out of the transcript — and every call in the turn that crosses a
+  budget still gets a result, because the next request must not carry an unanswered `tool_use`.
+  Running out is behaviour the loop owns: `'final-answer'` (the default) makes ONE forced call to
+  the loop's single terminal tool over the transcript (`salvaged: true`; what `research-topic`
+  used to do by hand), and a salvage that fails fails the run; `'fail'` throws
+  `ToolLoopExhaustedError` → `failed`, event code `agent_policy_exhausted`, never retried. No
+  policy, no change. **`authorizeTool(call)`** on the same loop is the deny-by-rule half of #3
+  (`requiresApproval` is the ask-a-person half, #17): a refused call is never gated, never run, and
+  the model is told why.
 - **Reading runs**: `agent_run_events` is the durable log, and AG-UI is a pure read-time
   projection (`/agui`), also streamed live by tailing `seq` (`/agui/stream`, #7). A read-stream
   failure emits no `RUN_ERROR` (clients reconnect); `id:` goes on the last frame of a row's group,
@@ -747,11 +806,25 @@ not derived from the model; sliding window defeats prompt caching on long thread
 does not pre-resolve the client; no
 rerank; HITL asks cannot be amended, have no
 reminders, and parks are bounded by `AGENT_INTERRUPT_TIMEOUT`; runs nobody opens
-stay active-looking; no budgets/quotas over `ai_usage` or prompt versioning. Decisions (D37): no
-replay of an agent's CODE over recorded answers (stored and re-askable, not yet re-runnable), no
-zod-schema → questions compiler, the `llm_self_report` fallback is uncalibrated with no vote/logprob
+stay active-looking; no prompt versioning. Volume (D39): the active-run cap is counted, not locked,
+so a burst can overshoot it; a budget is checked BEFORE a call, so a run overshoots by its last
+call and, under `ctx.map`, by the calls in flight; the daily cap is a UTC day over agent rows only
+(chat spend is not capped) and TypeSafe is unpriced, so decisions count toward tokens alone; `map`
+runs inside one step on one DB client (six in flight is the ceiling, and a tool loop inside a scope
+restarts on a retry — there is no per-scope checkpoint); a budget error raised inside a tool
+handler is reported to the model as a tool error rather than stopping the run; a batch starts its
+runs one `create()` at a time (no batch call on OpenWorkflow); no batch UI, no per-batch cancel,
+and a batch's runs are not grouped on the runs page. Policy (D39): a salvage that succeeds and
+then loses its step is paid for again; `maxDurationSeconds` does not count time between the last
+checkpoint and a crash; a policy reaches a loop only when the agent passes it (`runToolLoop` has
+no registry to read); `authorizeTool` is per loop, not a run- or tenant-wide rule. Decisions
+(D37): no zod-schema → questions compiler, the `llm_self_report` fallback is uncalibrated with no vote/logprob
 mode, TypeSafe calls are unpriced (no published rates), no per-agent decisions provider
-(`agent_models` is chat-only), and a `sift` over 100 items is the caller's to batch. The demo seed's
+(`agent_models` is chat-only), and a `sift` over 100 items is the caller's to batch. Replay (D38):
+a tool loop's model turns are not recorded, so a `runToolLoop` agent (`research-topic`) replays
+only `--live`; steering notes are all handed over at the first call; a run that predates a `once`
+key misses it; no route or UI (a local script over a database URL), and `--live` holds one
+read-only transaction per run. The demo seed's
 vectors are deterministic, so dense search over seeded docs is noise. Tracing: no per-tenant
 backends (BYO keys via `sealSecret`), no native `tracing.enterSpan`, no metrics export, no
 Langfuse/Phoenix MCP; inline ingest from `POST /api/ai/documents/ingest` is untraced (no active
@@ -814,7 +887,9 @@ a second copy of the contract (D26). `api.ts` is the only `fetch` site. Config l
 `~/.rocketpod/config.json` (0600); `ROCKETPOD_API_KEY`/`ROCKETPOD_URL` override it for CI.
 `--json` is available on every read. `traces list|show` reads the local AI trace store (D32);
 `feedback list` is the thumbs queue and `evals promote <id> --dataset <name>` appends a draft eval
-case to `apps/evals/datasets/` (D33, both admin+). Exit codes: 0 ok · 1 error · 2 not logged in ·
+case to `apps/evals/datasets/` (D33, both admin+). `agents list`, `agents run <key> --input x.json |
+--batch x.jsonl` (chunks of 100, failed lines reported, exit 1) and `agents runs list [--batch id]`
+start and follow runs (D39). Exit codes: 0 ok · 1 error · 2 not logged in ·
 3 forbidden.
 No command prints a full key. Plugins register top-level commands named after their id.
 Detail: `.claude/rules/cli.md`.

@@ -132,7 +132,7 @@ export async function compactConversation(
   // The usage write starts the moment the call reports it and is awaited before this returns
   // (whatever happened), so a caller reading `ai_usage` afterwards sees it — and a job's DB client
   // is never closed under a write still in flight.
-  let usageWrite: Promise<void> | undefined
+  let usageWrite: Promise<unknown> | undefined
   const record = (usage: TokenUsage) => {
     usageWrite = recordUsage(db, {
       tenantId,

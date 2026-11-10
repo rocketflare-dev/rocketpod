@@ -19,14 +19,17 @@
  * A retry re-enters `executeRun` from the top, so two pieces of `ctx` exist to make that cheap and
  * safe: `ctx.checkpoint` (the tool loop resumes from `agent_runs.checkpoint` rather than replaying
  * every turn) and `ctx.once` (work with a side effect runs once per run, not once per attempt).
- * Carrying the checkpoint's `usage` forward cannot double-bill: the only retryable faults are an
- * `AiError` unavailable/rate_limit or a DB outage, both of which strike INSIDE the loop, before an
- * agent ledgers anything — so those tokens were never recorded, and resuming recovers spend that
- * would otherwise be lost rather than counting it twice.
+ * The ledger is not the checkpoint's business: every call through `ctx.chat.client` and
+ * `ctx.decide` writes its own `ai_usage` row through the run's meter as it returns, so a resumed
+ * loop's carried-forward `usage` is a tally for the agent, never a second bill. The meter starts
+ * from the rows earlier attempts wrote, which is what makes a budget the RUN's rather than the
+ * attempt's; `AgentBudgetExceededError` settles `failed` with event code `agent_budget_exceeded`
+ * and is never retried.
  */
 import type { AgentRunStatus } from '@rocketpod/shared/ai/agents'
 import type { AgentSteeringNote } from '@rocketpod/shared/ai/interrupts'
 import { rejectionFor, steeringNoteDataSchema } from '@rocketpod/shared/ai/interrupts'
+import { ERROR_CODES } from '@rocketpod/shared/errors'
 import { and, asc, eq, sql } from 'drizzle-orm'
 import type { AppConfig } from '../../../config'
 import type { Database } from '../../../db/client'
@@ -43,6 +46,7 @@ import {
   InterruptRequested,
   StructuredOutputError,
   type ToolApproval,
+  ToolLoopExhaustedError,
 } from '../ai/agent-loop'
 import { AiError, describeAiError, redactSecrets } from '../ai/errors'
 import { DECISIONS_FALLBACK_PROMPT_KEY, resolveChat, resolveDecisions } from '../ai/resolve'
@@ -50,14 +54,16 @@ import { notifyMany } from '../notifications'
 import { type RegistryPromptKey, resolvePrompt } from '../prompts'
 import type { Realtime } from '../realtime'
 import { toAgentArtifact, upsertArtifact } from './artifacts'
+import { AgentBudgetExceededError, budgetFor, createRunMeter, meterChatClient } from './budget'
 import { createDecide } from './decisions'
+import { withFanout } from './fanout'
 import {
   approvalsForRun,
   expireInterrupts,
   interruptExpiryFrom,
   requestInterrupt,
 } from './interrupts'
-import type { AgentContext, AgentEvent } from './registry'
+import type { AgentEvent } from './registry'
 import { getAgent } from './registry'
 import {
   AgentCancelledError,
@@ -155,6 +161,10 @@ export async function claimStep(
 export function isRetryableRunError(err: unknown): boolean {
   if (err instanceof AiError) return err.code === 'unavailable' || err.code === 'rate_limit'
   if (err instanceof StructuredOutputError || err instanceof AgentCancelledError) return false
+  // A budget is spent, not unavailable: a retry would only spend more.
+  if (err instanceof AgentBudgetExceededError) return false
+  // A policy that ran out would run out again: the retry resumes the same transcript.
+  if (err instanceof ToolLoopExhaustedError) return false
   // Neither interrupt type is a fault, and retrying either one re-asks a person who has already
   // been asked — or, worse, one who has already said no. They are handled by their own catch arms
   // above this classification; answering `true` here would let a step retry overtake them.
@@ -284,6 +294,17 @@ export async function executeRun(
       columns: { name: true },
       where: eq(tenants.id, tenantId),
     })
+    // Every model call and decision of this attempt goes through ONE meter, which starts from
+    // what earlier attempts already spent — the budget is the run's, not the attempt's.
+    const meter = await createRunMeter({
+      db,
+      tenantId,
+      runId,
+      userId: run.requestedByUserId,
+      agentKey: agent.meta.key,
+      budget: budgetFor(cfg, agent.meta.budget),
+      logger,
+    })
     const output = await withAgentTrace(
       agent.meta.key,
       {
@@ -302,13 +323,12 @@ export async function executeRun(
         kind: 'span',
       },
       async trace => {
-        const client = traceChatClient(
-          resolved.client,
-          trace,
-          { provider: resolved.provider },
-          tracer
+        // Metered OUTSIDE the trace wrapper, so a call the budget refuses opens no span.
+        const client = meterChatClient(
+          traceChatClient(resolved.client, trace, { provider: resolved.provider }, tracer),
+          meter
         )
-        const ctx: AgentContext = {
+        const ctx = withFanout({
           db,
           cfg,
           env,
@@ -390,6 +410,7 @@ export async function executeRun(
                   traceChatClient(chatClient, trace, { provider, name: 'decide' }, tracer),
               }),
             emit: data => emit({ type: 'decision', data }),
+            meter,
           }),
           artifact: async input => {
             const row = await upsertArtifact(db, tenantId, runId, input)
@@ -407,7 +428,8 @@ export async function executeRun(
             }),
           step: (key, label, status, detail) =>
             emit({ type: 'step', data: { key, label, status, ...(detail ? { detail } : {}) } }),
-        }
+          recordUsage: call => meter.record(call),
+        })
         return agent.meta.outputSchema.parse(await agent.run(ctx))
       }
     )
@@ -484,6 +506,40 @@ export async function executeRun(
       await expireInterrupts(db, tenantId, runId)
       await emit({ type: 'status', data: { status: 'cancelled', reason: 'rejected' } })
       return { runId, status: 'cancelled' }
+    }
+    if (err instanceof AgentBudgetExceededError) {
+      // A failure with a reason a person can act on (raise the budget, or narrow the input), so it
+      // carries the code and the numbers rather than only the sentence.
+      logger.warn({ limit: err.limit, used: err.used, max: err.max }, 'agent-run: budget exceeded')
+      await failRun(db, tenantId, runId, err.message)
+      await emit({
+        type: 'error',
+        data: {
+          message: err.message,
+          attempt: run.attempt,
+          willRetry: false,
+          code: err.code,
+          details: { limit: err.limit, used: err.used, max: err.max },
+        },
+      })
+      await emit({ type: 'status', data: { status: 'failed' } })
+      return { runId, status: 'failed', error: err.message }
+    }
+    if (err instanceof ToolLoopExhaustedError) {
+      // The same shape as a budget: a reason a person can act on (loosen the policy), not a fault.
+      await failRun(db, tenantId, runId, err.message)
+      await emit({
+        type: 'error',
+        data: {
+          message: err.message,
+          attempt: run.attempt,
+          willRetry: false,
+          code: ERROR_CODES.agentPolicyExhausted,
+          details: { reason: err.reason, turns: err.turns },
+        },
+      })
+      await emit({ type: 'status', data: { status: 'failed' } })
+      return { runId, status: 'failed', error: err.message }
     }
     const message = describeRunError(err)
     // A structured-output failure carries the zod issues: the one thing a person needs to see.

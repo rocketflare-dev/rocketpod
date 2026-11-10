@@ -47,6 +47,8 @@ export { sharedWithMyGroups } from './access'
 export type {
   AgentCtx,
   AgentDecide,
+  AgentInterruptAnswer,
+  AgentInterruptAsk,
   Decision,
   PickOptions,
   PickResult,

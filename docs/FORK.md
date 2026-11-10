@@ -31,3 +31,4 @@ The design is in [`DESIGN-SELFHOSTED.md`](DESIGN-SELFHOSTED.md); the milestones 
 |---|---|---|
 | 0.19.0 | 0.1.0 (fork point) | — |
 | 0.20.0 | unreleased | Current models (per-model request rules, `openai` on the Responses API); the Workers AI parts do not apply |
+| 0.21.0 | unreleased | Agents at volume: active-run cap and daily spend gates, `POST /runs/batch` (one `platform.runs.create()` per row — OpenWorkflow has no `createBatch`), `ctx.scope`/`ctx.map`, per-call `ai_usage` metering and budgets, tool-loop policies and `authorizeTool`, replay (`pnpm web agent:replay`, `rp-agent-replay`; live mode uses the `.env` keys, no Workers AI borrowing), plugin `AgentCtx.interrupt`/`chatModel`, CLI `agents list\|run\|runs list`. `concurrency_key` was already ported. Not ported: the `wrangler` toml vars (they are `.env.example` + Helm `config`) |

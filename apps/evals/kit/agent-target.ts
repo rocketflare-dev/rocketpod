@@ -42,7 +42,7 @@ export function agentHarness(agentKey: AgentKey): Harness<EvalCase, JsonValue | 
       const logger = loggerFor(world.cfg, { eval: evalCase.id })
       const started = Date.now()
       const runId = await withEvalScope(async () => {
-        const { run } = await enqueueRun(world.db, world.env, {
+        const { run } = await enqueueRun(world.db, world.cfg, world.env, {
           tenantId: world.tenantId,
           agentKey,
           input: evalCase.input,

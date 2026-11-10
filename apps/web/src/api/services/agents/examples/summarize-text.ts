@@ -1,9 +1,9 @@
 /**
  * `summarize-text` — the single-call example agent, shaped like the simplest real
  * definition: exclusive per tenant, a precheck, ONE terminal tool (`submit_summary`) forced through
- * `callStructuredTool`, output persisted by the runtime, usage recorded under
- * `feature: 'agent:summarize-text'`. Emits `step` / `tool.start` / `tool.end` / `text` events and
- * polls for cancellation before and after the model call. With `input.index: true` it also stores
+ * `callStructuredTool`, output persisted by the runtime, usage ledgered by the runtime's meter under
+ * `feature: 'agent:summarize-text'` (the agent writes no usage row itself). Emits `step` /
+ * `tool.start` / `tool.end` / `text` events and polls for cancellation before and after the model call. With `input.index: true` it also stores
  * the summary as a searchable document through `ingestText` — the reason retrieval is never dead
  * code — wrapped in `ctx.once` so a retried attempt replays the recorded document instead
  * of indexing a second copy. Copy this file to start a real agent.
@@ -31,7 +31,6 @@ import { approvalPayloadSchema } from '@rocketpod/shared/ai/interrupts'
 import { z } from 'zod'
 import { callStructuredTool } from '../../ai/agent-loop'
 import { ingestText } from '../../ai/ingest'
-import { recordUsage } from '../../ai/usage'
 import type { AgentDefinition } from '../registry'
 
 export const SUBMIT_SUMMARY_TOOL = 'submit_summary'
@@ -91,15 +90,6 @@ export const summarizeTextAgent: AgentDefinition<SummarizeTextInput, SummarizeTe
           description: 'Submit the summary and its key points. Call exactly once.',
           schema: submitSummarySchema,
         },
-        onUsage: usage =>
-          void recordUsage(ctx.db, {
-            tenantId: ctx.tenantId,
-            userId: ctx.userId,
-            feature: 'agent:summarize-text',
-            provider: ctx.chat.client.provider,
-            model: ctx.chat.model,
-            usage,
-          }).catch(err => ctx.logger.warn({ err }, 'summarize-text: usage write failed')),
       })
       await ctx.emit({
         type: 'tool.end',

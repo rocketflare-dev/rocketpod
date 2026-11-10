@@ -103,7 +103,7 @@ async function queuedRun(
   input: Record<string, unknown> = { text: 'Volcanoes erupt.' }
 ) {
   const { user, tenant } = await createTestTenantWithUser(db, 'member')
-  const { run } = await enqueueRun(db, env, {
+  const { run } = await enqueueRun(db, loadConfig(env), env, {
     tenantId: tenant.id,
     agentKey: TEST_SUMMARIZE,
     input,

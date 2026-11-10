@@ -144,7 +144,7 @@ const CHECKPOINT = {
 
 async function claimedRun(env: TestEnv, role: 'owner' | 'member' = 'member') {
   const { user, tenant } = await createTestTenantWithUser(db, role)
-  const { run } = await enqueueRun(db, env, {
+  const { run } = await enqueueRun(db, loadConfig(env), env, {
     tenantId: tenant.id,
     agentKey: TEST_SUMMARIZE,
     input: { text: 'anything' },

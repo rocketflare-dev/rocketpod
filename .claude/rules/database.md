@@ -115,7 +115,10 @@ predicate**, not SQL injection — the app role can `set_config` itself.
 - Per-call rows: `ai_usage` (append-only, `(tenant_id, at DESC)`), `ai_spans` (D32 — append-only trace store, unique `(tenant_id, trace_id, span_id)` for `onConflictDoNothing`, `run_id`/`conversation_id`/`user_id` plain uuids with NO foreign key so deleting a run never rewrites its trace; pruned nightly per tenant), `agent_run_events` (`(run_id, seq)`
   unique, numbering continues across attempts). Concurrency is a claim row, never a lock:
   `agent_runs` `UPDATE … WHERE status IN ('queued','running') RETURNING` plus the partial unique index
-  `agent_runs_active_exclusive_idx` — the pattern for any "one active job per key" need
+  `agent_runs_active_exclusive_idx` on `(tenant_id, agent_key, concurrency_key)` over active rows
+  with a key (`''` the tenant-wide slot, a caller's key one per key, NULL no slot) — the pattern
+  for any "one active job per key" need. The predicate reads a COLUMN, never the code: a deploy that
+  flips an agent's exclusivity must not change which in-flight rows the index covers (D39)
 - **The predicate is the guarantee, so it is written once and rendered.** `agent_runs` is the worked
   example. Its exclusive index covers `ACTIVE_RUN_STATUSES` (`queued`, `running`, `awaiting_input` —
   a run parked on a human still holds the slot), and the SQL literal list in `extraConfig` is BUILT

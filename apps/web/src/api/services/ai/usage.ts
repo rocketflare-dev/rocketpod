@@ -1,7 +1,10 @@
 /**
  * AI usage ledger: `recordUsage` writes one `ai_usage` row from a provider's usage report,
  * `tapUsage` wraps a `ChatClient` so every generation reports through one callback (the chat
- * route records; agents will too), and `summarizeUsage` answers `GET /api/ai/usage/summary`.
+ * route records), and `summarizeUsage` answers `GET /api/ai/usage/summary`. An agent run meters
+ * its own client instead (`services/agents/budget.ts`): one row per call, carrying the run
+ * id, awaited — because the next call's budget check has to see it. `runSpend` and
+ * `tenantAgentSpendToday` are the two reads that check runs on.
  *
  * Cost comes from ONE table, `@rocketpod/shared/ai/pricing`: `recordUsage` freezes a row's cost
  * from it at write time (a later price edit cannot rewrite history), and the summary prices rows
@@ -14,7 +17,7 @@ import type { TokenUsage } from '@rocketpod/shared/ai/chat'
 import type { AiProvider } from '@rocketpod/shared/ai/config'
 import { estimateCostMicrocents } from '@rocketpod/shared/ai/pricing'
 import type { AiUsageRowSummary, AiUsageSummary } from '@rocketpod/shared/ai/usage'
-import { and, eq, gte, lt, sql } from 'drizzle-orm'
+import { and, eq, gte, isNotNull, lt, sql } from 'drizzle-orm'
 import type { Database } from '../../../db/client'
 import { aiUsage } from '../../../db/schema'
 import type { ChatClient, ChatResult } from './types'
@@ -27,14 +30,18 @@ export interface UsageInput {
   model: string
   usage: TokenUsage
   costMicrocents?: number | null
+  /** The agent run this call was billed to — set by the run's meter, never by an agent. */
+  agentRunId?: string | null
 }
 
-export async function recordUsage(db: Database, input: UsageInput): Promise<void> {
+/** Returns the cost it froze onto the row (null when the model has no price). */
+export async function recordUsage(db: Database, input: UsageInput): Promise<number | null> {
   const cost =
     input.costMicrocents ?? estimateCostMicrocents(input.provider, input.model, input.usage)
   await db.insert(aiUsage).values({
     tenantId: input.tenantId,
     userId: input.userId ?? null,
+    agentRunId: input.agentRunId ?? null,
     feature: input.feature,
     provider: input.provider,
     model: input.model,
@@ -44,6 +51,54 @@ export async function recordUsage(db: Database, input: UsageInput): Promise<void
     cacheWriteTokens: input.usage.cacheWriteTokens ?? 0,
     costMicrocents: cost,
   })
+  return cost
+}
+
+/** What a run has spent so far, over every attempt — one row per metered call. */
+export interface RunSpend {
+  calls: number
+  inputTokens: number
+  outputTokens: number
+  /** Priced calls only; an unpriced call (a TypeSafe decision) counts in the tokens alone. */
+  costMicrocents: number
+}
+
+export async function runSpend(db: Database, tenantId: string, runId: string): Promise<RunSpend> {
+  const [row] = await db
+    .select({
+      calls: sql<number>`count(*)::int`,
+      inputTokens: sql<number>`coalesce(sum(${aiUsage.inputTokens}), 0)::bigint`,
+      outputTokens: sql<number>`coalesce(sum(${aiUsage.outputTokens}), 0)::bigint`,
+      costMicrocents: sql<number>`coalesce(sum(${aiUsage.costMicrocents}), 0)::bigint`,
+    })
+    .from(aiUsage)
+    .where(and(eq(aiUsage.tenantId, tenantId), eq(aiUsage.agentRunId, runId)))
+  return {
+    calls: Number(row?.calls ?? 0),
+    inputTokens: Number(row?.inputTokens ?? 0),
+    outputTokens: Number(row?.outputTokens ?? 0),
+    costMicrocents: Number(row?.costMicrocents ?? 0),
+  }
+}
+
+/**
+ * What a tenant's agent runs have spent since the start of the UTC day `now` falls in, in
+ * microcents (`AGENT_TENANT_DAILY_COST_USD`). Agent rows only — chat has its own surface — and
+ * priced rows only, so an unpriced model never trips the cap.
+ */
+export async function tenantAgentSpendToday(
+  db: Database,
+  tenantId: string,
+  now: Date = new Date()
+): Promise<number> {
+  const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+  const [row] = await db
+    .select({ cost: sql<number>`coalesce(sum(${aiUsage.costMicrocents}), 0)::bigint` })
+    .from(aiUsage)
+    .where(
+      and(eq(aiUsage.tenantId, tenantId), gte(aiUsage.at, dayStart), isNotNull(aiUsage.agentRunId))
+    )
+  return Number(row?.cost ?? 0)
 }
 
 export type UsageTap = (usage: TokenUsage, result: ChatResult) => void | Promise<void>

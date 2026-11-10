@@ -479,7 +479,9 @@ badged `Jev`.
 Agent runs run on OpenWorkflow in the worker (`pnpm dev` runs mode `all`, so the worker is
 in-process). Verify (from the Agents page in the nav, or by hand):
 `POST /api/agents/runs` `{ "agentKey": "summarize-text", "input": { "text": "<a paragraph>" } }` →
-202; `GET /api/agents/runs/<id>` reaches `succeeded` with `output.summary`.
+202; `GET /api/agents/runs/<id>` reaches `succeeded` with `output.summary` and `usage`.
+A batch takes a non-exclusive agent: `pnpm cli agents run triage-research --batch q.jsonl`
+with one `{ "question": "…" }` per line, then `pnpm cli agents runs list --batch <id>`.
 
 **Human-in-the-loop walkthrough** (`docs/CONCEPTS.md` §9). A run can stop and ask a person — the
 park is OpenWorkflow's `waitForSignal` behind the kit's `step.waitForEvent`. Nothing extra to

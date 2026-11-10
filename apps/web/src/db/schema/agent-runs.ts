@@ -92,6 +92,8 @@ export const agentRuns = pgTable(
      * `exclusive` agent), `<caller key>` = one active run per key, NULL = none (runs freely).
      */
     concurrencyKey: text('concurrency_key'),
+    /** The `POST /runs/batch` call that created the row — `GET /runs?batchId=`. */
+    batchId: uuid('batch_id'),
     ...timestamps(),
   },
   table => [
@@ -108,6 +110,11 @@ export const agentRuns = pgTable(
       .where(
         sql`${table.status} IN (${sql.raw(ACTIVE_STATUS_LITERALS)}) AND ${table.concurrencyKey} IS NOT NULL`
       ),
+    // The per-tenant concurrency cap counts active rows on every enqueue.
+    index('agent_runs_tenant_status_idx').on(table.tenantId, table.status),
+    index('agent_runs_tenant_batch_idx')
+      .on(table.tenantId, table.batchId)
+      .where(sql`${table.batchId} IS NOT NULL`),
     tenantIsolation('agent_runs'),
   ]
 )

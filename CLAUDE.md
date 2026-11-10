@@ -11,7 +11,7 @@ here.
 > **Setup**: asked for setup help → run `/rp-setup` (it drives `scripts/bootstrap.sh --no-dev`, then
 > starts the server): show each `✔ n/10` line, stop on failure. By hand: `SETUP.md` Part 1.
 > **Fresh copy?** `/rp-adapt <slug>`, then `docs/ADAPTING.md`. `/rp-setup`, `/rp-adapt`, `/rp-preflight`,
-> `/rp-traces`, `/rp-evals` and `/rp-plugin` you may run yourself. **Deploying** (image, Compose,
+> `/rp-traces`, `/rp-evals`, `/rp-agent-replay` and `/rp-plugin` you may run yourself. **Deploying** (image, Compose,
 > Helm — `docs/DEPLOY.md`) is `/rp-deploy`: it renders and checks locally, and asks the user before
 > it pushes an image, touches a cluster or creates anything billed.
 > **The Guide** (`docs/CONCEPTS.md` §18): in-app user docs at `/guide` + "Ask the Guide". Pages in
@@ -84,6 +84,7 @@ pnpm gate [step…] · pnpm gate --list [--json]  # THE gate: lint → typecheck
 pnpm test  # every package; starts the test DB (:5533) + S3 gateway (:7433); the whole suite, driver conformance included
 TEST_DATABASE_BRANCH=gate-… pnpm test  # a sandbox gate: no Docker, the whole suite on a gate branch over TCP (CONCEPTS §4)
 pnpm eval [suite] [--model x] [--compare] · pnpm eval:baseline · pnpm eval:view  # real-model evals (D33, docs/EVALS.md)
+pnpm web agent:replay <agent> --tenant <slug> [--candidate f] [--live]  # today's agent code over past runs, read-only
 pnpm lint · pnpm typecheck · pnpm build  # workspace-wide
 pnpm web <script>  # any apps/web script (test:api, db:check…)
 pnpm web docs:stale · pnpm web guide:index [--dry-run] · pnpm web guide:shots [--stale]  # the Guide: stale pages / re-embed (needs EMBEDDINGS_API_KEY, costs) / screenshots (Playwright, on demand)
@@ -143,6 +144,7 @@ docs/upgrades/     one porting note per kit release (+ unreleased.md, kit repo o
                    rp-traces (debug a run from its span tree; pick a tracing backend, D32) ·
                    rp-doc-sync (keep the Guide's pages true to the code; docs:stale + the Stop hook) ·
                    rp-evals (+ reference.md — author, run, compare, harvest, baseline, improve; D33) ·
+                   rp-agent-replay (replay an agent's past runs with today's code, no model calls; D38) ·
                    rp-deploy (Compose or Helm, the secrets checklist, never prints a secret) ·
                    example-feature (demo the reference plugin)
 ```
@@ -157,7 +159,7 @@ written justification, and `apps/web/tests/config/shared-imports.test.ts` enforc
 mints a tenant API key `cli:<host>` → `?key=&tenant_id=&tenant_name=`; stored `0600` in
 `~/.rocketpod/config.json` (`ROCKETPOD_API_KEY`/`ROCKETPOD_URL` for CI). Also `logout|whoami|status|config`,
 `members|keys|activity|groups|features list --json`, `groups members`, `traces list|show`,
-`feedback list`, `evals promote` (`.claude/rules/cli.md`)
+`feedback list`, `evals promote`, `agents list|run <key> --input|--batch|runs list` (D39) (`.claude/rules/cli.md`)
 
 ## Config model
 
@@ -171,7 +173,9 @@ LISTEN; direct or session-mode when PgBouncer runs in transaction mode), `DATABA
 (`postgres` only) · **server**: `SERVER_MODE`/first arg (`web|worker|all`), `PORT` (3001),
 `TRUSTED_PROXY_HOPS` (proxies appending `X-Forwarded-For`, 0) · secret `OAUTH_ENCRYPTION_KEY` ·
 **work**: `JOBS_CONCURRENCY` (2), `JOBS_POLL_INTERVAL_SECONDS` (2), `RUNS_CONCURRENCY` (4),
-`AGENT_INTERRUPT_TIMEOUT`, `AGENT_MAX_OUTPUT_TOKENS`, `AGENT_MAX_TURNS` · **storage**: `STORAGE_DRIVER` (`s3`),
+`AGENT_INTERRUPT_TIMEOUT`, `AGENT_MAX_OUTPUT_TOKENS`, `AGENT_MAX_TURNS`,
+`AGENT_MAX_ACTIVE_RUNS_PER_TENANT` (50; 429 above), `AGENT_RUN_MAX_TOKENS` / `AGENT_RUN_MAX_COST_USD` /
+`AGENT_TENANT_DAILY_COST_USD` (D39 budgets, unset = no cap; `meta.budget` overrides per agent) · **storage**: `STORAGE_DRIVER` (`s3`),
 `STORAGE_ENDPOINT`, `STORAGE_REGION`, `STORAGE_BUCKET`, `STORAGE_FORCE_PATH_STYLE`, secrets
 `STORAGE_ACCESS_KEY_ID`/`STORAGE_SECRET_ACCESS_KEY` · **AI**: secrets `ANTHROPIC_API_KEY`,
 `AI_API_KEY` (+ `AI_BASE_URL`, `AI_MODEL` — OpenAI-compatible), `EMBEDDINGS_API_KEY` (+

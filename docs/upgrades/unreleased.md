@@ -223,6 +223,11 @@ Plugins can declare and emit tenant-scoped events that queue one delivery per su
 - `@testkit/integration` gains `deliverEvents(env, db)`; `example-feature` emits `example-feature.note.created` from `POST /notes`, audits it in `events/note-created.ts`, and ships the `note-stats` agent (no model call, eval-exempt) triggered by it and bindable to it.
 - `pnpm plugin check` validates the manifest's `events` against the name rule, against other installed plugins and against the plugin's shared source. The `rp-plugin` reference gains "Events and agent triggers", and `rp-how-do-i` gains "Start an agent when X happens".
 
+Two fixes to plugin events and platform documents.
+
+- `EventPayloadOf<S, E>` distributes over a union of plugins, so an event's payload type is found whichever plugin in the union declares it.
+- `documentCardsFromToolResult` (`@rocketpod/shared/ai/embeddings`) skips a document marked `platform: true`, so chat and agent runs show no card that the documents page could not open.
+
 ## How to apply
 
 1. Add six columns to the Drizzle schema in `apps/web/src/db/schema/`:
@@ -518,6 +523,7 @@ Plugins can declare and emit tenant-scoped events that queue one delivery per su
 102. Port `EVENT_NAME_RE`, `eventNameProblem`, `eventClashes`, `undeclaredManifestEvents` and the `events` check in `pluginManifestProblems` (`scripts/lib/plugin-lib.mjs`), plus the two event checks in `cmdCheck` (`scripts/plugin.mjs`); then list each plugin's declared events in its `plugin.json` `"events"`.
 103. Port the 0.32.0 tests: `tests/api/plugin-events.test.ts` (no jobs queue is `createTestEnv({ jobs: null })`), `tests/helpers/{events,fixture-events}.ts`, the cases added to `tests/config/{plugins,plugin-lib,unscoped-allowlist}.test.ts`, `tests/driver/driver.test.ts` and `tests/api/agui-projection.test.ts`, `emit` in `tests/kit/unit.ts`'s `makeRequestCtx`, and the example-feature tests; give the note-stats prompt and agent an `evalCoverage` exemption.
 104. Port the docs: `docs/CONCEPTS.md` §16 (and the D42 decision table), the `CLAUDE.md` files in `apps/web/src/api/queues`, `db/schema`, `plugins` and `plugins/example-feature`, `rp-plugin/reference.md`, `rp-how-do-i/SKILL.md` and `example-feature/SKILL.md`; then run `node scripts/plugin-api-doc.mjs`.
+105. Port the distributive `EventPayloadOf` in `packages/shared/src/plugins/types.ts` and the `platform` skip in `documentCardsFromToolResult` (`packages/shared/src/ai/embeddings.ts`), with the cases in `tests/config/{plugins,document-helpers}.test.ts`.
 
 ## Conflicts to expect
 
@@ -599,3 +605,4 @@ Plugins can declare and emit tenant-scoped events that queue one delivery per su
 37. `psql "$DATABASE_URL" -c '\d plugin_events'` lists `plugin_events_tenant_name_key_idx`, and `\d agent_runs` lists `trigger_event` and `trigger_event_id`.
 38. `pnpm web test:api -- plugin-events` and `pnpm web test -- src/plugins/example-feature` pass; `node scripts/plugin.mjs check` passes.
 39. Creating a note in the example feature records an `example-feature.note.created` row, and once the worker delivers it a `note-stats` run appears on `/agents` showing the event as who asked.
+40. `pnpm web test:config -- plugins document-helpers` passes.

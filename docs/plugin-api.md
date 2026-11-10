@@ -1048,8 +1048,8 @@ What a plugin's CONTRACT module imports: the error envelope, pagination, `Shared
   The event names one plugin (or a union of plugins) declares.
 - `function eventNameProblem(pluginId: string, name: string): string \| null`
   `null` when `name` is an event `pluginId` may declare, else the sentence saying why not: it must be `<pluginId>.<something>`, well formed, and never in the core `kit.` namespace.…
-- `type EventPayloadOf = EventsOf<S> extends infer R ? R extends Record<E, infer Schema> ? Schema extends ZodTypeAny ? TypeOf<Schema> : never : never : never`
-  The parsed payload of event `E`, from whichever plugin in `S` declares it.
+- `type EventPayloadOf = E extends unknown ? EventsOf<S> extends infer R ? R extends Record<E, infer Schema> ? Schema extends ZodTypeAny ? TypeOf<Schema> : never : never : never : never`
+  The parsed payload of event `E`, from whichever plugin in `S` declares it. A union of names gives the union of their payloads, so a handler list typed over every event still…
 - `type EventsOf = NonNullable<DeclaredBy<S, 'events'>>`
   The events one plugin declares — its `events` record. Distributive, so over a UNION of plugins it is a union of records; `EventNameOf` / `EventPayloadOf` read names and payloads…
 - `interface FeatureDefinition`
@@ -1895,7 +1895,7 @@ nothing in the comparison that can throw.
 @rocketpod/shared/plugins/api :: const :: EVENT_NAME_RE :: const EVENT_NAME_RE: RegExp
 @rocketpod/shared/plugins/api :: type :: EventNameOf :: type EventNameOf = Extract< EventsOf<S> extends infer R ? (R extends unknown ? keyof R : never) : never, string >
 @rocketpod/shared/plugins/api :: function :: eventNameProblem :: function eventNameProblem(pluginId: string, name: string): string | null
-@rocketpod/shared/plugins/api :: type :: EventPayloadOf :: type EventPayloadOf = EventsOf<S> extends infer R ? R extends Record<E, infer Schema> ? Schema extends ZodTypeAny ? TypeOf<Schema> : never : never : never
+@rocketpod/shared/plugins/api :: type :: EventPayloadOf :: type EventPayloadOf = E extends unknown ? EventsOf<S> extends infer R ? R extends Record<E, infer Schema> ? Schema extends ZodTypeAny ? TypeOf<Schema> : never : never : never : never
 @rocketpod/shared/plugins/api :: type :: EventsOf :: type EventsOf = NonNullable<DeclaredBy<S, 'events'>>
 @rocketpod/shared/plugins/api :: interface :: FeatureDefinition :: interface FeatureDefinition
 @rocketpod/shared/plugins/api :: type :: FeatureFlagState :: type FeatureFlagState = z.infer<typeof featureFlagStateSchema>

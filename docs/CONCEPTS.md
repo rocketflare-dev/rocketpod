@@ -861,7 +861,8 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   reports `semantic: 'used' | 'unavailable'`. Every tenant document view (the list, viewer,
   `/search`, `get_document`, `list_documents`, delete) keeps `tenant_id = $t` and never shows one;
   `search_knowledge` includes them for the sources `ServerPlugin.knowledgeSources` names, marked
-  `platform`. The core Guide (§18) keeps its own `guide_chunks` index rather than this corpus.
+  `platform`, and chat and agent runs show no document card for one (the documents page cannot
+  open it). The core Guide (§18) keeps its own `guide_chunks` index rather than this corpus.
 - **Usage**: one `ai_usage` row per call, costed at write time from the one price table
   (`shared/ai/pricing`, longest prefix wins; an unknown model gets `null` and is counted as
   unpriced). The two `*_compatible` providers are priced only for VENDOR-QUALIFIED ids — Fireworks'

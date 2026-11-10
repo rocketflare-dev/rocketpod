@@ -178,6 +178,14 @@ release.
   requirement. Never import `routes/auth/sso` statically from `plugins/api/**` (it reads the barrel;
   `identity.ts` uses `await import`). Worked examples: `example-feature/api/sso.ts` (dev-only),
   `sso-policy.ts`.
+- **Events are declared, then emitted after the write.** Declare `events: { '<id>.x.y':
+  schema }` in the shared entry AND list the names in `plugin.json` `"events"`; `await ctx.emit(name,
+  { payload, idempotencyKey: '<thing>:<id>' })` once the row is stored (a request/run context is
+  tenant-bound; a background one takes `tenantId`). Keep the payload to ids and what subscribers
+  need, and never log it. Subscribe with `eventHandlers` (`eventCtx(ctx)`; idempotent on
+  `event.id` — delivery is at-least-once); start agents with `triggers` / `bindable` on the agent
+  (`eventTrigger` / `eventBinding`), and a picker's stored choice with `eventCtx(ctx).startBoundAgent`
+  — never an agent key from a visitor's payload. Worked example: `example-feature/events/`.
 - **`ctx.startAgentRun`** (`JobCtx`, `CronCtx`, `PublicCtx`): `{ agentKey, tenantId, input,
   idempotencyKey?, concurrencyKey?, triggeredBy? }` → `{ runId, status, deduplicated }`, through the
   route's own `enqueueRun`, so every gate applies and each refusal is a throw (a job retries). **A

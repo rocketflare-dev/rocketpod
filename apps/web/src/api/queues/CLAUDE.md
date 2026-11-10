@@ -39,8 +39,12 @@ run (`../services/agents/CLAUDE.md`).
 ## The kit's jobs
 
 - Queued in the kit: `tenant.purge`, invitation (create/bulk/resend) and access-request-decided
-  emails (`email.send`), `activity.record`, `document.index`, `document.convert`, `chat.compact`.
-  The **magic-link email stays inline** — a person is waiting on it
+  emails (`email.send`), `activity.record`, `document.index`, `document.convert`, `chat.compact`,
+  `event.deliver`. The **magic-link email stays inline** — a person is waiting on it
+- `event.deliver` is ONE subscriber of one `plugin_events` row: `{ tenantId, eventId,
+  subscriber }`, never the payload. It re-reads the row under the tenant, re-validates, and calls
+  that subscriber only; a missing row (pruned, other tenant) or subscriber is acked, a 4xx
+  `ApiError` is acked, anything else throws and retries. Queued by `emitEvent`, never by hand
 - **`tenant.purge` is the out-of-database half of deleting a tenant.** The FK cascade is complete
   inside Postgres and reaches nothing else, so `deleteTenant` proves the jobs queue BEFORE the
   `DELETE`, then enqueues with the tenant id and slug — the row is gone, so the payload is all the

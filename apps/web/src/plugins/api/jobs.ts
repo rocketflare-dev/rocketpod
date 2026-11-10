@@ -25,6 +25,7 @@ import { realtimeEvent } from '../../api/services/realtime'
 import type { StorageService } from '../../api/services/storage'
 import type { Platform } from '../../platform/types'
 import { agentRunStarter, type StartAgentRunInput, type StartedAgentRun } from './agent-runs'
+import { type Emit, eventEmitter } from './emit'
 import { createStepRealtimeFor } from './realtime-step'
 import { filesStorage } from './storage'
 
@@ -80,6 +81,12 @@ export interface BackgroundMethods {
    * no such method.
    */
   startAgentRun(input: StartAgentRunInput): Promise<StartedAgentRun>
+  /**
+   * Emit a declared plugin event for one organisation: validated against the declaration
+   * (400), recorded in `plugin_events`, one delivery queued per subscriber; never runs a handler.
+   * Pass an `idempotencyKey` naming the thing (`submission:<id>`) so a redelivered job emits once.
+   */
+  emit: Emit
 }
 
 /**
@@ -92,7 +99,7 @@ export interface JobCtx extends PluginContext, BackgroundMethods {
   /**
    * Which background context this is. A brand as much as a field: the few methods that only a
    * job or a cron task may call (`ingestPlatformDocument`) take `JobCtx | CronCtx`, and the
-   * structurally identical `EmailCtx` / `PublicCtx` carry no `kind`, so passing one is a type error.
+   * structurally identical `PublicCtx` carries no `kind`, so passing one is a type error.
    */
   readonly kind: 'job'
 }
@@ -129,6 +136,7 @@ export function backgroundMethods(
     features: tenantId => tenantFeatures(db, config, tenantId),
     storage: () => filesStorage(platform),
     startAgentRun: agentRunStarter({ db, config, logger, platform }),
+    emit: eventEmitter({ db, config, logger, env: {}, platform }),
   }
 }
 

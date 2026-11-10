@@ -214,6 +214,15 @@ Plugins can write knowledge about the app itself (platform documents, readable b
 - UI: `UiPlugin.header` items in `PluginHeaderSlot` (`Layout` gains `headerCenter`), `useNavigationEntries()` / `navigationEntries()`, the core settings tabs as data (`pages/settings/tabs.ts`), `UiPlugin.extensions` with `uiExtensions(key)`, and `listAgents()` from `@/plugins/api`. `CORE_NAVIGATION`, `isNavGroup` and `CORE_QUICK_LINKS` are exported.
 - `pnpm plugin` installs `claudeHooks` into `.claude/settings.json` and seeds `hostFiles` (under `docs/<id>/`, `apps/web/src/ui/public/<id>/` or `apps/web/src/host/<id>/`); `plugin check` audits the hooks both ways; `tests/helpers/plugins.ts` allows a plugin's own `@/host/<id>/` import and checks `UiPlugin.header` items (`headerItemIssues`); `docs/plugin-api.md` gains a section on host files and manifest writes outside a plugin's roots.
 
+Plugins can declare and emit tenant-scoped events that queue one delivery per subscriber, and agents can be triggered by an event or offered as bindable to it.
+
+- `SharedPlugin.events` maps `<id>.<name>` event names (never `kit.`) to zod payload schemas, and `plugin.json` lists them in `"events"`. `tests/config/plugins.test.ts` and `pnpm plugin check` refuse a mis-prefixed, colliding or undeclared name. `EventNameOf`, `EventPayloadOf`, `EVENT_NAME_RE` and `eventNameProblem` come from `@rocketpod/shared/plugins`.
+- `ctx.emit(name, { payload, idempotencyKey? })` on `RequestCtx`, `AgentCtx` and the new `EventCtx` (tenant-bound), and `ctx.emit(name, { tenantId, payload, idempotencyKey? })` on `JobCtx`, `CronCtx` and `PublicCtx`, validate the payload (400 `validation_failed`, 400 `event_unknown`), record one `plugin_events` row deduplicated per (tenant, name, key), and queue one `event.deliver` job per subscriber on `platform.jobs`, carrying ids only (no jobs queue: 503 `jobs_not_configured`, nothing recorded).
+- `plugin_events` rows are pruned nightly after `EVENTS_RETENTION_DAYS` (default 7; Helm `config.EVENTS_RETENTION_DAYS`) by the `pruneEvents` task on the `0 4 * * *` pg-boss schedule, and cascade with the tenant. Migration `0011_kit-plugin-events` adds the table and `agent_runs.trigger_event` / `trigger_event_id`.
+- Subscribers: `ServerPlugin.eventHandlers` (adapted with `eventCtx(ctx)`), the app-owned `APP_EVENT_HANDLERS` in `apps/web/src/api/services/events/app-handlers.ts` (listed in `.rocketflare.json` `manual`), and agents: `AgentDefinition.triggers: [eventTrigger(...)]` starts a run per matching event (run key `event:<eventId>`), `bindable: [eventBinding(...)]` opts in to `EventCtx.startBoundAgent(key)` (403 `agent_not_bindable` otherwise). `GET /api/agents/bindable?event=` and `listBindableAgents(event)` list them; the runs list and run page show the triggering event.
+- `@testkit/integration` gains `deliverEvents(env, db)`; `example-feature` emits `example-feature.note.created` from `POST /notes`, audits it in `events/note-created.ts`, and ships the `note-stats` agent (no model call, eval-exempt) triggered by it and bindable to it.
+- `pnpm plugin check` validates the manifest's `events` against the name rule, against other installed plugins and against the plugin's shared source. The `rp-plugin` reference gains "Events and agent triggers", and `rp-how-do-i` gains "Start an agent when X happens".
+
 ## How to apply
 
 1. Add six columns to the Drizzle schema in `apps/web/src/db/schema/`:
@@ -503,6 +512,12 @@ Plugins can write knowledge about the app itself (platform documents, readable b
 96. Port the `claudeHooks` and `hostFiles` blocks of `scripts/lib/plugin-lib.mjs` and the add/upgrade/remove/check changes in `scripts/plugin.mjs` (public root `apps/web/src/ui/public/<id>/`), `Surface.hostFiles` in `upgrade-lib.d.mts`, `headerItemIssues` and the `@/host/<id>` rule in `tests/helpers/plugins.ts`, and the `hostFiles` line in `tests/kit-only/kit-manifest.test.ts`.
 97. Port the 0.31.0 tests: `tests/api/{platform-knowledge,plugin-stream-chat}.test.ts`, `tests/config/{knowledge-sources,plugin-api-load-order,plugin-list-agents,plugin-host-seams}.test.ts`, `tests/ui/{navigation-entries,plugin-header}.test.tsx`, and the cases added to `tests/api/rls-coverage.test.ts`, `tests/driver/driver.test.ts` and `tests/config/plugins.test.ts`.
 98. Port the docs: `docs/CONCEPTS.md` §9 and §16, `docs/RLS.md`, `.claude/rules/{api,database,testing,ui}.md`, `CLAUDE.md`, the `CLAUDE.md` files in `apps/web/src/api/services/{ai,agents}`, `plugins` and `ui`, and `rp-plugin/{SKILL,reference}.md`; then run `node scripts/plugin-api-doc.mjs`.
+99. Run `pnpm db:generate --name kit-plugin-events` after porting `apps/web/src/db/schema/plugin-events.ts` (exported from the schema index) and the `triggerEvent` / `triggerEventId` columns of `agent-runs.ts`; then `pnpm db:migrate`.
+100. Port `apps/web/src/api/services/events/*`, `api/queues/handlers/event-deliver.ts` (with `event.deliver` in `CORE_JOB_VARIANTS` and the consumer's handler map), `services/agents/triggers.ts`, `pruneEvents` in `api/scheduled.ts`, `EVENTS_RETENTION_DAYS` in `config.ts`, and `GET /api/agents/bindable` in `routes/agents.ts`; `emitEvent` takes the platform (`platform.jobs`) and `startForEvent` builds its `Realtime` from `platform.realtime`.
+101. Port `apps/web/src/plugins/api/emit.ts` (`eventEmitter`, `tenantEmitter`, `EventCtx`, `eventCtx`), `emit` on `RequestCtx`, `AgentCtx` and the background methods, `eventHandlers` on `ServerPlugin`, `triggers` / `bindable` on `AgentDefinition`, `listBindableAgents` / `eventTrigger` / `eventBinding` in `plugins/api/agent-runs.ts`, and `events` with the `Event*Of` helpers in `packages/shared/src/plugins/types.ts`.
+102. Port `EVENT_NAME_RE`, `eventNameProblem`, `eventClashes`, `undeclaredManifestEvents` and the `events` check in `pluginManifestProblems` (`scripts/lib/plugin-lib.mjs`), plus the two event checks in `cmdCheck` (`scripts/plugin.mjs`); then list each plugin's declared events in its `plugin.json` `"events"`.
+103. Port the 0.32.0 tests: `tests/api/plugin-events.test.ts` (no jobs queue is `createTestEnv({ jobs: null })`), `tests/helpers/{events,fixture-events}.ts`, the cases added to `tests/config/{plugins,plugin-lib,unscoped-allowlist}.test.ts`, `tests/driver/driver.test.ts` and `tests/api/agui-projection.test.ts`, `emit` in `tests/kit/unit.ts`'s `makeRequestCtx`, and the example-feature tests; give the note-stats prompt and agent an `evalCoverage` exemption.
+104. Port the docs: `docs/CONCEPTS.md` §16 (and the D42 decision table), the `CLAUDE.md` files in `apps/web/src/api/queues`, `db/schema`, `plugins` and `plugins/example-feature`, `rp-plugin/reference.md`, `rp-how-do-i/SKILL.md` and `example-feature/SKILL.md`; then run `node scripts/plugin-api-doc.mjs`.
 
 ## Conflicts to expect
 
@@ -540,6 +555,8 @@ Plugins can write knowledge about the app itself (platform documents, readable b
 - `apps/web/src/api/services/ai/retrieval.ts` → rewritten around one leg per corpus → re-apply local changes to `searchKnowledgeChunks`; keep `SearchChunksOptions.documents` if you use it.
 - `apps/web/src/ui/pages/settings/SettingsLayout.tsx` → core tabs come from `tabs.ts` → move a tab you added to `CORE_SETTINGS_TABS` and `CONTENT`.
 - `apps/web/src/ui/App.tsx` → `PluginHeaderSlot` in `headerCenter` and `headerEnd` → keep your own header widgets beside it.
+- `apps/web/src/plugins/api/{http,ai,jobs}.ts` → each context gains `emit` → keep your own context members beside it.
+- `apps/web/src/api/scheduled.ts` → `pruneEvents` on `0 4 * * *` → keep your own tasks on that expression.
 
 ## Verify
 
@@ -579,3 +596,6 @@ Plugins can write knowledge about the app itself (platform documents, readable b
 34. `psql "$DATABASE_URL" -c '\d documents'` lists `documents_platform_source_external_uq` and the CHECK `documents_platform_needs_source`, and `tenant_id` is nullable.
 35. `pnpm web test:api -- platform-knowledge plugin-stream-chat rls-coverage` passes.
 36. `pnpm web test:ui -- navigation-entries plugin-header` and `pnpm web test:config -- knowledge-sources plugin-api-load-order plugin-host-seams` pass.
+37. `psql "$DATABASE_URL" -c '\d plugin_events'` lists `plugin_events_tenant_name_key_idx`, and `\d agent_runs` lists `trigger_event` and `trigger_event_id`.
+38. `pnpm web test:api -- plugin-events` and `pnpm web test -- src/plugins/example-feature` pass; `node scripts/plugin.mjs check` passes.
+39. Creating a note in the example feature records an `example-feature.note.created` row, and once the worker delivers it a `note-stats` run appears on `/agents` showing the event as who asked.

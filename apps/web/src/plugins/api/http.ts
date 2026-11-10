@@ -34,6 +34,7 @@ import { can as canDo, guardPermission } from '../../api/middleware/permissions'
 import type { SetResourceGroupsInput } from '../../api/services/access'
 import type { AccessScope } from '../../api/services/access-sql'
 import { accessScopeOf } from '../../api/services/access-sql'
+import type { TenantEmit } from '../../api/services/events/types'
 import { enqueueJob, enqueueJobs } from '../../api/services/jobs'
 import type { Realtime } from '../../api/services/realtime'
 import type { StorageService } from '../../api/services/storage'
@@ -51,6 +52,7 @@ import { uuidParam, withAuthAndDb } from '../../api/utils/routes/route-helpers'
 import { createRouter } from '../../api/utils/routes/router'
 import { validate } from '../../api/utils/routes/validate'
 import { isAdminLevel, isGlobalAdmin, isOwnerLevel, type PluginAuth } from './auth'
+import { tenantEmitter } from './emit'
 import { nudgeEntity, nudgeEntityTopic } from './events'
 import { filesStorage } from './storage'
 import type { PluginContext } from './types'
@@ -196,6 +198,12 @@ export interface RequestCtx extends PluginContext, PluginAuth {
   nudgeTopic(topic: string, entity: string, id?: string): void
   /** Object storage, or a 503 `storage_not_configured` — loud, because a silently absent store loses bytes. */
   storage(): StorageService
+  /**
+   * Emit a declared plugin event in THIS organisation: validated (400), recorded, one
+   * delivery queued per subscriber — awaited, because the row is the durable half and a 400 must
+   * reach the caller. The handlers run in jobs, never in the request.
+   */
+  emit: TenantEmit
 
   // ---- failing -----------------------------------------------------------------------------
 
@@ -334,6 +342,16 @@ export function requestCtx(c: AppContext): RequestCtx {
     nudgeTopic: (topic, entity, id) =>
       nudgeEntityTopic(route.realtime, route.tenantId, topic, entity, id),
     storage: () => filesStorage(c.get('platform')),
+    emit: tenantEmitter(
+      {
+        db: route.db,
+        config: route.cfg,
+        logger: route.logger,
+        env: c.env,
+        platform: c.get('platform'),
+      },
+      route.tenantId
+    ),
 
     notFound: (message = 'Not found', code = ERROR_CODES.notFound) => {
       throw new NotFoundError(message, code)

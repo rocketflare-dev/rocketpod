@@ -184,6 +184,10 @@
         "apps/web/src/plugins/types.ts#ServerPlugin.agents",
         "apps/web/src/plugins/api/jobs.ts#BackgroundMethods.startAgentRun",
         "apps/web/src/plugins/api/index.ts#StartAgentRun",
+        "apps/web/src/plugins/api/index.ts#listBindableAgents",
+        "apps/web/src/plugins/api/emit.ts#EventCtx.startAgentRun",
+        "apps/web/src/plugins/api/emit.ts#EventCtx.startBoundAgent",
+        "apps/web/src/api/services/events/subscribers.ts#agentTriggerSubscribers",
         "apps/web/tests/kit/unit.ts#recordingAgentRuns"
       ]
     },
@@ -338,7 +342,8 @@
     ".github/workflows/**",
     "apps/web/src/ui/components/shared/LogoMark.tsx",
     "deploy/helm/*/Chart.yaml",
-    "deploy/helm/*/values.yaml"
+    "deploy/helm/*/values.yaml",
+    "apps/web/src/api/services/events/app-handlers.ts"
   ],
   "core": [
     "apps/web/src/**",

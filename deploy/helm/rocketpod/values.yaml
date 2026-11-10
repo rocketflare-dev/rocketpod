@@ -51,6 +51,8 @@ config:
   OBSERVABILITY_CAPTURE_CONTENT: ""
   OBSERVABILITY_TRACE_URL: ""
   OBSERVABILITY_SPAN_RETENTION_DAYS: ""
+  # Days of recorded plugin events kept (default 7); payloads may hold personal data.
+  EVENTS_RETENTION_DAYS: ""
   AGENT_MAX_OUTPUT_TOKENS: ""
   AGENT_MAX_TURNS: ""
   AGENT_MAX_ACTIVE_RUNS_PER_TENANT: ""

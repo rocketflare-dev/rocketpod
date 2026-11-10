@@ -42,9 +42,11 @@ import type {
 import { callStructuredTool, runToolLoop, toolInputSchema } from '../../api/services/ai/agent-loop'
 import { AiNotConfiguredError } from '../../api/services/ai/errors'
 import { recordUsage } from '../../api/services/ai/usage'
+import type { TenantEmit } from '../../api/services/events/types'
 import { tenantFeatures } from '../../api/services/features'
 import type { StorageService } from '../../api/services/storage'
 import type { AbilityCheck } from './auth'
+import { tenantEmitter } from './emit'
 import { filesStorage } from './storage'
 import type { Database, PluginConfig, PluginContext, PluginPlatform } from './types'
 
@@ -179,6 +181,11 @@ export interface AgentCtx<Input = unknown> {
    * write is a side effect, so it goes through `once` like any other.
    */
   storage(): StorageService
+  /**
+   * Emit a declared plugin event in the run's organisation. A side effect: wrap it in
+   * `once`, and derive its `idempotencyKey` from `runId`, so a retried step emits once.
+   */
+  emit: TenantEmit
   /** A durable timeline row. Never throws — progress must not be able to fail a run. */
   step(
     key: string,
@@ -263,6 +270,10 @@ export function agentCtx<Input>(ctx: AgentContext<Input>): AgentCtx<Input> {
     userId: ctx.userId,
     input: ctx.input,
     tools: ctx.tools,
+    emit: tenantEmitter(
+      { db: ctx.db, config: ctx.cfg, logger: ctx.logger, env: {}, platform: ctx.env },
+      ctx.tenantId
+    ),
     prompt: vars => ctx.prompt(vars),
     step: (key, label, status, detail) => ctx.step(key, label, status, detail),
     checkCancelled: () => ctx.checkCancelled(),

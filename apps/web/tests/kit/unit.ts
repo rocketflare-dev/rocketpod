@@ -46,6 +46,7 @@ import type { AccessScope } from '@/plugins/api'
 import { nudgeEntity, nudgeEntityTopic } from '@/plugins/api'
 import type { ToolCtx } from '@/plugins/api/ai'
 import { toolCtx } from '@/plugins/api/ai'
+import { tenantEmitter } from '@/plugins/api/emit'
 import type { RequestCtx } from '@/plugins/api/http'
 import type {
   CronCtx,
@@ -272,6 +273,9 @@ export function makeRequestCtx(options: RequestCtxOptions): FakeRequestCtx {
       }
       return storage
     },
+    // The REAL emitter over the real handle: a test of a route that emits proves the row and the
+    // queued deliveries (`stubs(env).queue.messages`), not a recording.
+    emit: tenantEmitter({ db, config, logger, env, platform: env }, options.tenantId),
 
     notFound: (message = 'Not found', code?: string) => {
       throw new NotFoundError(message, code)

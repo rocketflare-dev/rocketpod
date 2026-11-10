@@ -24,6 +24,8 @@ import {
   toolInputSchema,
 } from '../ai/agent-loop'
 import type { ChatClient } from '../ai/types'
+import type { EventName } from '../events/registry'
+import type { AgentEventBinding, AgentEventTrigger } from '../events/types'
 import type { RegistryPromptKey } from '../prompts'
 import type { MeteredCall } from './budget'
 import type { AgentDecide } from './decisions'
@@ -226,6 +228,21 @@ export interface AgentContext<Input = unknown> {
 export interface AgentDefinition<Input = unknown, Output = unknown> {
   meta: AgentMeta<Input, Output>
   run(ctx: AgentContext<Input>): Promise<Output>
+  /**
+   * Plugin events that START this agent on their own — `eventTrigger(event, { where?, input })`
+   * from `@/plugins/api`. Each matching event is one run through `enqueueRun` (input validated, the
+   * exclusive slot, the active-run cap, the daily budget), idempotent per (event, agent), with no
+   * requester (`requestedByUserId` NULL, so the knowledge tools read tenant-visible documents only)
+   * and `triggerEvent` naming the event on the run and its activity row.
+   */
+  triggers?: readonly AgentEventTrigger<EventName, Input>[]
+  /**
+   * Plugin events this agent OPTS IN to being started by when a subject names it — an editor
+   * pointing a form block at it. Never started by the event alone: the subject's own handler calls
+   * `EventCtx.startBoundAgent(key)`, which re-checks this list. `GET /api/agents/bindable?event=`
+   * is the picker's source.
+   */
+  bindable?: readonly AgentEventBinding<EventName, Input>[]
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: the catalog mixes agent input/output types.

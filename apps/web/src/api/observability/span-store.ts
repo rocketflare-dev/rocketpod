@@ -10,10 +10,15 @@
  *   short-lived client per non-empty flush (a view of the process pool), so that is cheap.
  * `onConflictDoNothing` on `(tenant_id, trace_id, span_id)`: a run's root is recorded by
  * `finishStep`, which runs twice on the expiry path.
+ *
+ * Every string a row carries goes through `stripControlChars` first: span content is converted
+ * document text and model output, which can hold a NUL, and Postgres refuses one in `text` (22021)
+ * and in `jsonb` (22P05) — one such span would otherwise fail the whole batch.
  */
 import type { AppConfig } from '../../config'
 import { type Database, openDatabase } from '../../db/client'
 import { aiSpans, type NewAiSpanRow } from '../../db/schema/ai-spans'
+import { stripControlChars, stripControlCharsDeep } from '../utils/core/text'
 import { CONTENT_MAX_CHARS } from './genai-attributes'
 import type { RecordedSpan, SpanSink } from './recorder'
 
@@ -32,15 +37,17 @@ function clip(value: unknown): unknown {
 export function toSpanRow(span: RecordedSpan): NewAiSpanRow | null {
   const tenantId = asUuid(span.tenantId)
   if (!tenantId) return null
+  const text = (value: string | undefined): string | null =>
+    value === undefined ? null : stripControlChars(value)
   return {
     tenantId,
     traceId: span.traceId,
     spanId: span.spanId,
     parentSpanId: span.parentSpanId ?? null,
-    name: span.name.slice(0, 300),
+    name: stripControlChars(span.name).slice(0, 300),
     kind: span.kind,
     status: span.status,
-    statusMessage: span.statusMessage ?? null,
+    statusMessage: text(span.statusMessage),
     startedAt: span.startTime,
     endedAt: span.endTime,
     durationMs: Math.max(0, span.endTime.getTime() - span.startTime.getTime()),
@@ -51,12 +58,16 @@ export function toSpanRow(span: RecordedSpan): NewAiSpanRow | null {
     provider: span.provider ?? null,
     inputTokens: span.inputTokens ?? null,
     outputTokens: span.outputTokens ?? null,
-    toolName: span.toolName ?? null,
-    attributes: span.attributes,
+    toolName: text(span.toolName),
+    attributes: stripControlCharsDeep(span.attributes),
     content: span.content
       ? {
-          ...(span.content.input !== undefined && { input: clip(span.content.input) }),
-          ...(span.content.output !== undefined && { output: clip(span.content.output) }),
+          ...(span.content.input !== undefined && {
+            input: clip(stripControlCharsDeep(span.content.input)),
+          }),
+          ...(span.content.output !== undefined && {
+            output: clip(stripControlCharsDeep(span.content.output)),
+          }),
         }
       : null,
   }

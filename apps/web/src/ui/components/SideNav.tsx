@@ -115,16 +115,23 @@ export const DEFAULT_NAV_ANCHOR = 'Organisation'
  * reasoned about: a group is placed BEFORE the core group whose label it names, and appended when
  * that label is not there — which is what an app that deleted the anchor group gets, rather than a
  * plugin whose pages have no way in. Several groups naming the same anchor keep their declared
- * order. The core config is never mutated.
+ * order. An UNLABELLED group landing straight after another unlabelled group joins it rather than
+ * opening a new block: a label is what earns a group its own heading and gap, so four plugins with
+ * one page each read as one list, not four spaced-out islands. The core config is never mutated.
  */
 export function composeNav(core: NavConfig, plugins: readonly PluginNavGroup[] = []): NavConfig {
   const out: NavConfig = [...core]
   for (const group of plugins) {
     const anchor = group.before ?? DEFAULT_NAV_ANCHOR
     const entry: NavGroup = { label: group.label, items: group.items }
-    const at = out.findIndex(item => isNavGroup(item) && item.label === anchor)
-    if (at === -1) out.push(entry)
-    else out.splice(at, 0, entry)
+    const found = out.findIndex(item => isNavGroup(item) && item.label === anchor)
+    const at = found === -1 ? out.length : found
+    const previous = out[at - 1]
+    if (!entry.label && previous && isNavGroup(previous) && !previous.label) {
+      out[at - 1] = { ...previous, items: [...previous.items, ...entry.items] }
+    } else {
+      out.splice(at, 0, entry)
+    }
   }
   return out
 }

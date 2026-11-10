@@ -89,6 +89,9 @@ const EXPANDED = new Set([
   'PluginNavGroup',
   'StepRealtime',
   'StepOptions',
+  'BackgroundMethods',
+  'StartAgentRunInput',
+  'StartedAgentRun',
 ])
 
 const expands = name => EXPANDED.has(name) || /Ctx$/.test(name)

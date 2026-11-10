@@ -386,7 +386,10 @@ the whole rule, and it is why neither half duplicates the other.
   entries, split by what a test needs: `@testkit/integration` is the harness (`setupTestDatabase`,
   `request` / `json`, `createTestEnv` / `stubs`, the auth factories, `renderWithProviders`) and
   `@testkit/unit` the context builders (`makeRequestCtx`, `makeJobCtx`, `makeCronCtx`,
-  `makeWorkflowCtx`, `makeToolCtx`). Both are re-exports, so a plugin and a kit test run the same
+  `makeWorkflowCtx`, `makeToolCtx`). The two background builders record every
+  `ctx.startAgentRun` call in `startedRuns` (`{ input, result?, error? }`), run the REAL starter
+  by default (a row on the test database, a run on `stubs(env).workflow`) and take a
+  `startAgentRun` option to answer without one. Both are re-exports, so a plugin and a kit test run the same
   code. The alias is in `tsconfig.json` and `vitest.config.ts` and **deliberately not in
   `vite.config.ts`**, so a `src/` file importing it fails `build:ui` rather than shipping the
   harness into a browser bundle — `tests/config/testkit-alias.test.ts` pins all three halves and

@@ -597,8 +597,13 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   index dedupes, per (tenant, agent, `agent_runs.concurrency_key`) — the SLOT a run holds: `''`
   for an exclusive agent (one per tenant), a caller's `enqueueRun({ concurrencyKey })` to narrow it
   to one active run per key, NULL for an agent declaring `exclusive: false`, whose rows sit outside
-  the index so any number may be active at once. A plugin agent reaches `ctx.interrupt` and the
-  resolved `chatModel` through `AgentCtx` (`@/plugins/api`). The Workflow runs `claim → execute#N → (resume#N | expire#N) → finish`, and
+  the index so any number may be active at once. `enqueueRun({ idempotencyKey })` goes further —
+  at most one run EVER per (tenant, agent, key): the run id is derived from the three
+  (`idempotentRunId`, a SHA-256-shaped v8 UUID), so the primary key is the gate and a repeat
+  answers the first run, settled or not; a failed `create()` deletes the row rather than failing
+  it, so the retry can start it. A plugin starts a run from a job, cron or public handler with
+  `ctx.startAgentRun` (§16), the same `enqueueRun`. A plugin agent reaches `ctx.interrupt`, the
+  resolved `chatModel` and `storage()` through `AgentCtx` (`@/plugins/api`). The Workflow runs `claim → execute#N → (resume#N | expire#N) → finish`, and
   **every step name carries its round**, because a repeated name replays the recorded result.
   A retry resumes: `ctx.checkpoint` keeps the tool-loop transcript and `ctx.once(key, fn)` gives
   once-per-run effects (a DB unique index; at-least-once with a recorded result).
@@ -693,7 +698,10 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   uploads go to storage, then the platform `converter` (`src/node/converter.ts`: `unpdf` for PDF,
   `mammoth` for .docx → markdown, HTML stripped to text, XML/text decoded), then the same indexer.
   The converter declares its `contentTypes`, and an upload it cannot convert is 415
-  `unsupported_media_type` before anything is stored. Search is hybrid dense + lexical
+  `unsupported_media_type` before anything is stored. Every text write strips NUL and the other C0
+  controls except tab / LF / CR (`stripControlChars`, `api/utils/core/text.ts`) — some PDFs
+  convert with NULs, which Postgres refuses (22021); the span store does the same over `ai_spans`
+  (jsonb refuses `\u0000`, 22P05). Search is hybrid dense + lexical
   (the lexical half matches ANY query word, ranked by `ts_rank_cd` — `anyTermTsquery` — so a
   sentence's filler words cannot veto it — over `chunks.search_vector`, a STORED generated
   `to_tsvector(SEARCH_TEXT_CONFIG, text)` behind a GIN index) with RRF, scoped by `AccessScope`
@@ -1147,7 +1155,18 @@ Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
   (`platform.storage`, the same service `RequestCtx.storage()` returns, 503
   `storage_not_configured` without one; keys under `tenants/<id>/<plugin id>/…` are purged with the
   tenant) and `features(tenantId)` — the same resolution as `auth.features`, with no user, so a cron that fans
-  out across tenants can skip the ones whose flag is off.
+  out across tenants can skip the ones whose flag is off. `AgentCtx` and `ToolCtx` carry the same
+  `storage()` (one `filesStorage(platform)` behind every context's), keyed under the run's tenant.
+- **Starting agent runs from the background**: the same three contexts carry
+  `startAgentRun({ agentKey, tenantId, input, idempotencyKey?, concurrencyKey?, triggeredBy? })`
+  → `{ runId, status, deduplicated }` — `POST /api/agents/runs` without a request, through the
+  same `enqueueRun` (validation, exclusive slot, active-run cap, daily budget, the run-engine
+  start; each refusal a throw, so a job retries). A job passes an `idempotencyKey` naming the WORK
+  (`receipt:<documentId>`), so a redelivery answers the first run instead of starting a second
+  (§9). `triggeredBy` is the requester whose access the run's tools read; omitted, a system run.
+  It is part of `feature-agents` and reaches the runtime by a function-scope import (the agent
+  registry reads the plugin barrel). `@testkit/unit`'s `makeJobCtx` / `makeCronCtx` record every
+  call in `startedRuns` and take a `startAgentRun` replacement.
 - **Knowledge ingest (D34)**: `ingestDocument` / `ingestDocumentFile` / `deleteIngestedDocument`
   over the kit's ingest paths (§9). With an `externalId`, the same `(tenant, source, externalId)`
   UPDATES the row — text, owner, visibility, grants, chunks, the stored original — so a sync can
@@ -1200,6 +1219,8 @@ Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
 | 21 | `plugin check` is an exhaustive, untiered oracle that reads comment-free code |
 | 22 | Table prefixes are convention; collisions are the check |
 | 23 | A plugin ships agent skills: `skills/<dir>/` → `.claude/skills/<dir>/`, namespaced by id, replaced on upgrade |
+| 24 | (Rocketflare's inbound-email slot — not ported, see the known gaps) |
+| 25 | A background context starts an agent run through the route's own `enqueueRun`; idempotency is a derived run id, not a new column |
 
 **Known gaps:** no sandbox, review or signing; no rename migrations (expand/contract only); no
 cross-plugin FK tooling or `many()` onto core tables; `grants` is additive by convention only;
@@ -1207,7 +1228,10 @@ a plugin cannot register a durable workflow or a Node service of its own (only j
 routes, agents and tools); `defaultPlugins` is empty until the analytics plugin has a release
 without Cloudflare bindings; no inbound email — Rocketflare's `emailHandlers` slot rides
 Cloudflare Email Routing, which has no Rocketpod equivalent (a plugin can take a provider's inbound
-webhook on a `publicRoute` instead);
+webhook on a `publicRoute` instead); `startAgentRun`'s `idempotencyKey` is forever per (tenant,
+agent, key) — there is no expiry, so a plugin that wants to re-run the same work later must vary
+the key; `RequestCtx` has no `startAgentRun` (a route calls `POST /api/agents/runs`, or enqueues a
+job that does);
 the ledger judges only ledgered entries, ignores namespace imports, truncates types over 300
 chars, and `uses` is only as fresh as the last export; table collisions are caught by `check`, not
 refused at `add`; the isolation check proves a test exists, not that it is right; no database-free

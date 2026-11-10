@@ -42,6 +42,8 @@ import { callStructuredTool, runToolLoop, toolInputSchema } from '../../api/serv
 import { AiNotConfiguredError } from '../../api/services/ai/errors'
 import { recordUsage } from '../../api/services/ai/usage'
 import { tenantFeatures } from '../../api/services/features'
+import type { StorageService } from '../../api/services/storage'
+import { filesStorage } from './storage'
 import type { Database, PluginConfig, PluginPlatform } from './types'
 
 export type {
@@ -94,6 +96,12 @@ export interface ToolCtx {
    * feature costs no prompt tokens and the model never sees a tool it could only fail with.
    */
   features(): Promise<readonly string[]>
+  /**
+   * The platform's object store, or a 503 `storage_not_configured` — the same service every other
+   * context's `storage()` returns. Read and write under `tenants/<ctx.tenantId>/<plugin id>/…`;
+   * the tenant is the RUN's, never one the model named.
+   */
+  storage(): StorageService
 }
 
 /** Adapt the runtime's tool context. The only place a plugin's tools name a core internal. */
@@ -105,6 +113,7 @@ export function toolCtx(ctx: AgentToolContext): ToolCtx {
     scope: ctx.scope,
     tenantId: ctx.scope.tenantId,
     features: () => tenantFeatures(ctx.db, ctx.cfg, ctx.scope.tenantId),
+    storage: () => filesStorage(ctx.env),
     ...(ctx.maxDocumentChars !== undefined && { maxDocumentChars: ctx.maxDocumentChars }),
   }
 }
@@ -147,6 +156,12 @@ export interface AgentCtx<Input = unknown> {
   tools: Tool[]
   /** The system prompt for this agent's `promptKey`, with `appName`/`tenantName` filled in. */
   prompt(vars?: Record<string, string | undefined>): Promise<string>
+  /**
+   * The platform's object store, or a 503 `storage_not_configured` — the same service every other
+   * context's `storage()` returns. Read and write under `tenants/<ctx.tenantId>/<plugin id>/…`. A
+   * write is a side effect, so it goes through `once` like any other.
+   */
+  storage(): StorageService
   /** A durable timeline row. Never throws — progress must not be able to fail a run. */
   step(
     key: string,
@@ -238,6 +253,7 @@ export function agentCtx<Input>(ctx: AgentContext<Input>): AgentCtx<Input> {
     decide: ctx.decide,
     interrupt: ask => ctx.interrupt(ask),
     chatModel: { provider: ctx.chat.client.provider, model: ctx.chat.model },
+    storage: () => filesStorage(ctx.env),
     toolLoop: options =>
       runToolLoop(ctx.chat.client, {
         ...options,

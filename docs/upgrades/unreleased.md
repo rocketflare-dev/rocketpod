@@ -19,6 +19,7 @@ touches_surfaces:
   - example-agent-summarize-text
   - example-agent-research-topic
   - example-agent-triage-research
+  - feature-knowledge
 requires_surfaces: []
 manual: true
 ---
@@ -81,6 +82,22 @@ IdP-managed tenancy: with `OIDC_MANAGED_TENANCY=true` the OIDC issuer decides wh
   `PROMPT_REGISTRY` is typed so a plugin's prompt key indexes it.
 - CLI: `rocketpod agents list`, `agents run <key> --input x.json | --batch x.jsonl`,
   `agents runs list [--batch id]`.
+
+Plugins start agent runs from jobs and crons (`ctx.startAgentRun`, with an idempotency key),
+agents and tools get `storage()`, converted text with NUL bytes now indexes, and unlabelled plugin
+nav groups share one block.
+
+- `ctx.startAgentRun({ agentKey, tenantId, input, idempotencyKey?, concurrencyKey?, triggeredBy? })`
+  → `{ runId, status, deduplicated }` on `JobCtx`, `CronCtx` and `PublicCtx` (`BackgroundMethods`,
+  `apps/web/src/plugins/api/agent-runs.ts`), through the route's own `enqueueRun`.
+- `enqueueRun({ idempotencyKey })`: the run id is derived from (tenant, agent, key) by
+  `idempotentRunId`, so a repeat answers the first run, settled or not; no migration.
+- `@testkit/unit`: `makeJobCtx` and `makeCronCtx` return `Fake{Job,Cron}Ctx` with `startedRuns`
+  and accept a `startAgentRun` replacement.
+- `AgentCtx` and `ToolCtx` gain `storage()` (`filesStorage(platform)`).
+- `stripControlChars` / `stripControlCharsDeep` (`apps/web/src/api/utils/core/text.ts`) clean
+  `documents.content`, `chunks.text` and every `ai_spans` string before the write.
+- `composeNav` folds an unlabelled plugin nav group into the unlabelled group right before it.
 
 ## How to apply
 
@@ -214,6 +231,29 @@ IdP-managed tenancy: with `OIDC_MANAGED_TENANCY=true` the OIDC issuer decides wh
     `jobs.ts` (its `platform` parameter widens to `Pick<Platform, 'jobs' | 'realtime' | 'storage'>`),
     and re-export `StorageService`, `StoredObject` and `StoredObjectMeta` from `@/plugins/api`.
     Regenerate `docs/plugin-api.md`.
+32. Copy `apps/web/src/api/utils/core/text.ts` and `tests/config/strip-control-chars.test.ts`, and
+    strip in `services/ai/ingest.ts` (converted text, decoded upload text, `ingestText`'s text,
+    each `chunks.text`) and `observability/span-store.ts` (`toSpanRow`'s strings and attributes).
+33. Port `idempotencyKey` into `services/agents/runs.ts` (`idempotentRunId`, `ensureInstance`, the
+    delete-on-create-failure branch). The engine's `create` is already idempotent on the run id, so
+    there is no "already exists" handling to port.
+34. Copy `apps/web/src/plugins/api/agent-runs.ts`; add `startAgentRun` to `BackgroundMethods` and
+    `backgroundMethods()` (which now takes the context's `logger` and the whole `Platform`), and
+    re-export `StartAgentRun`, `StartAgentRunInput` and `StartedAgentRun` from `@/plugins/api`.
+    Add `storage()` to `ToolCtx` and `AgentCtx` in `plugins/api/ai.ts`.
+35. Add `agent-runs.ts` and `tests/api/plugin-agent-runs.test.ts` to `feature-agents`' `paths`,
+    and `jobs.ts#BackgroundMethods.startAgentRun`, `index.ts#StartAgentRun` and
+    `tests/kit/unit.ts#recordingAgentRuns` to its `registries`.
+36. Port the background builders in `apps/web/tests/kit/unit.ts` (`BackgroundCtxOptions`,
+    `RecordedAgentRun`, `RecordsAgentRuns`, `recordingAgentRuns`, `Fake{Job,Cron}Ctx`), and make
+    `RecordingWorkflow.create` in `tests/mocks/bindings.ts` idempotent on the id, as the engine is
+    (it used to throw "already exists", which the concurrent-redelivery test trips over).
+37. Port `composeNav`'s fold in `ui/components/SideNav.tsx` and its case in `tests/ui/sidenav.test.tsx`.
+38. Add `'BackgroundMethods'`, `'StartAgentRunInput'` and `'StartedAgentRun'` to `EXPANDED` in
+    `scripts/plugin-api-doc.mjs`, then run `node scripts/plugin-api-doc.mjs`.
+39. In your own plugins, replace a job's workaround for starting a run (an HTTP call, a direct
+    `agent_runs` insert) with `ctx.startAgentRun({ …, idempotencyKey: '<what>:<id>' })`, and a
+    hand-built `platform.storage` read in an agent or tool with `ctx.storage()`.
 
 ## Conflicts to expect
 
@@ -225,6 +265,8 @@ IdP-managed tenancy: with `OIDC_MANAGED_TENANCY=true` the OIDC issuer decides wh
 - `apps/web/src/api/services/agents/runtime.ts` → the `AgentContext` literal is `withFanout({ … })` with `recordUsage`, the client is wrapped by `meterChatClient` → keep your own fields inside the literal.
 - `apps/web/src/api/services/agents/examples/*.ts` → `recordUsage` calls deleted, `research-topic`'s salvage became `meta.policy` → delete yours the same way; never keep both.
 - `apps/web/tests/helpers/test-agents.ts` → the test agents' usage writes deleted → a test counting `ai_usage` rows now sees one per call.
+- `apps/web/src/ui/components/SideNav.tsx` → `composeNav` merges unlabelled groups → keep any nav ordering of your own beside the new branch.
+- `apps/web/tests/kit/unit.ts` → the background builders return `Fake*Ctx` and take `BackgroundCtxOptions` → keep any builder options you added.
 - `apps/web/src/api/services/ai/agent-loop.ts` → an app that edited `executeToolUses` (extra approval rules) → move the per-call rules into `executeSingleToolUse`; the pool owns ordering.
 
 ## Verify
@@ -242,3 +284,5 @@ IdP-managed tenancy: with `OIDC_MANAGED_TENANCY=true` the OIDC issuer decides wh
 11. `pnpm cli agents list` marks `triage-research` as batchable, and `pnpm cli agents run triage-research --batch questions.jsonl` prints one run per line.
 12. `pnpm web test:config -- tests/config/agent-concurrent-tools.test.ts` passes.
 13. A plugin job handler's `ctx.storage().put('tenants/<id>/<plugin>/x', …)` writes to the configured object store; with no `STORAGE_*` it throws 503 `storage_not_configured`.
+14. `pnpm web test:api -- plugin-agent-runs document-convert-job traces` passes, including "a redelivered job answers the first run — even after it settled — and starts nothing".
+15. `pnpm web test:ui -- sidenav` includes "folds unlabelled groups into the unlabelled group above them".

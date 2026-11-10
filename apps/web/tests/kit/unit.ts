@@ -47,7 +47,13 @@ import { nudgeEntity, nudgeEntityTopic } from '@/plugins/api'
 import type { ToolCtx } from '@/plugins/api/ai'
 import { toolCtx } from '@/plugins/api/ai'
 import type { RequestCtx } from '@/plugins/api/http'
-import type { CronCtx, JobCtx } from '@/plugins/api/jobs'
+import type {
+  CronCtx,
+  JobCtx,
+  StartAgentRun,
+  StartAgentRunInput,
+  StartedAgentRun,
+} from '@/plugins/api/jobs'
 import { cronCtx, jobCtx } from '@/plugins/api/jobs'
 import type { PluginLogger } from '@/plugins/api/types'
 import type { WorkflowCtx } from '@/plugins/api/workflow'
@@ -311,6 +317,61 @@ export function makeRequestCtx(options: RequestCtxOptions): FakeRequestCtx {
 
 // ---- JobCtx and CronCtx ------------------------------------------------------------------------
 
+/** One `ctx.startAgentRun` call, as a background builder recorded it. */
+export interface RecordedAgentRun {
+  input: StartAgentRunInput
+  /** What the call answered; absent when it threw. */
+  result?: StartedAgentRun
+  /** What it threw (a 400, a 429, a 503); absent when it answered. */
+  error?: unknown
+}
+
+/** What every background builder accepts beyond the base. */
+export interface BackgroundCtxOptions extends BaseOptions {
+  /**
+   * Replace the run starter. By default `startAgentRun` is the REAL one — it validates, inserts the
+   * `agent_runs` row on the test database and creates the run on the env's `RecordingWorkflow`
+   * (`stubs(env).workflow.created`) — so a job test proves the run it asked for really starts.
+   * Pass a function to answer without one: the agent is not installed in this suite, or the test
+   * is about what the handler does with a refusal.
+   */
+  startAgentRun?: StartAgentRun
+}
+
+/**
+ * What a fake background context carries beyond the real one: every `startAgentRun` call, in
+ * order, with what it answered or threw — so "the job started exactly one run, with this input and
+ * this idempotency key" is one assertion.
+ */
+export interface RecordsAgentRuns {
+  readonly startedRuns: readonly RecordedAgentRun[]
+}
+
+export type FakeJobCtx = JobCtx & RecordsAgentRuns
+export type FakeCronCtx = CronCtx & RecordsAgentRuns
+
+/** Wrap a built context's `startAgentRun` so every call is recorded. */
+function recordingAgentRuns<C extends JobCtx | CronCtx>(
+  ctx: C,
+  replacement: StartAgentRun | undefined
+): C & RecordsAgentRuns {
+  const startedRuns: RecordedAgentRun[] = []
+  const start = replacement ?? ctx.startAgentRun
+  return Object.assign(ctx, {
+    startedRuns,
+    startAgentRun: async (input: StartAgentRunInput) => {
+      try {
+        const result = await start(input)
+        startedRuns.push({ input, result })
+        return result
+      } catch (error) {
+        startedRuns.push({ input, error })
+        throw error
+      }
+    },
+  })
+}
+
 /**
  * One queue message's context, through the host's own `jobCtx` adapter.
  *
@@ -318,27 +379,33 @@ export function makeRequestCtx(options: RequestCtxOptions): FakeRequestCtx {
  * PAYLOAD. If a handler under test reaches for one on the context, that is the bug the missing
  * field exists to catch, and no option here will supply it.
  */
-export function makeJobCtx(options: BaseOptions): JobCtx {
+export function makeJobCtx(options: BackgroundCtxOptions): FakeJobCtx {
   const { db, env, config, logger } = baseParts(options, 'makeJobCtx')
-  return jobCtx({ db, env, platform: env, config, logger: logger as Logger })
+  return recordingAgentRuns(
+    jobCtx({ db, env, platform: env, config, logger: logger as Logger }),
+    options.startAgentRun
+  )
 }
 
-export interface CronCtxOptions extends BaseOptions {
+export interface CronCtxOptions extends BackgroundCtxOptions {
   /** Defaults to collecting; a cron invocation genuinely has a `waitUntil`, unlike a queue one. */
   waitUntil?: (promise: Promise<unknown>) => void
 }
 
-export function makeCronCtx(options: CronCtxOptions): CronCtx {
+export function makeCronCtx(options: CronCtxOptions): FakeCronCtx {
   const { db, env, config, logger } = baseParts(options, 'makeCronCtx')
   const pending: Promise<unknown>[] = []
-  return cronCtx({
-    db,
-    env,
-    platform: env,
-    config,
-    logger: logger as Logger,
-    waitUntil: options.waitUntil ?? (p => pending.push(p)),
-  })
+  return recordingAgentRuns(
+    cronCtx({
+      db,
+      env,
+      platform: env,
+      config,
+      logger: logger as Logger,
+      waitUntil: options.waitUntil ?? (p => pending.push(p)),
+    }),
+    options.startAgentRun
+  )
 }
 
 // ---- WorkflowCtx -------------------------------------------------------------------------------

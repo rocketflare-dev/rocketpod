@@ -610,11 +610,13 @@ export class RecordingWorkflow {
    */
   failCreate: ((options: { id: string; params?: unknown }) => boolean) | null = null
 
+  /**
+   * Idempotent on the id, as the OpenWorkflow engine is (`idempotencyKey: id`): a second create
+   * with an id already created answers that instance and records nothing new.
+   */
   async create(options: { id?: string; params?: unknown } = {}) {
     const id = options.id ?? crypto.randomUUID()
-    if (this.created.some(c => c.id === id)) {
-      throw new Error(`instance.already_exists: an instance with id ${id} already exists`)
-    }
+    if (this.created.some(c => c.id === id)) return this.instance(id)
     if (this.failCreate?.({ id, params: options.params })) {
       throw new Error(`workflow.internal_error: could not create ${id}`)
     }

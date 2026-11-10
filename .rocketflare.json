@@ -173,13 +173,18 @@
         "apps/web/scripts/agent-replay.ts",
         "apps/web/tests/config/agent-replay-script.test.ts",
         ".claude/skills/rp-agent-replay/**",
-        "packages/shared/src/ai/agents.ts"
+        "packages/shared/src/ai/agents.ts",
+        "apps/web/src/plugins/api/agent-runs.ts",
+        "apps/web/tests/api/plugin-agent-runs.test.ts"
       ],
       "registries": [
         "apps/web/src/node/runs.ts",
         "apps/web/src/api/index.ts",
         "apps/web/src/ui/App.tsx",
-        "apps/web/src/plugins/types.ts#ServerPlugin.agents"
+        "apps/web/src/plugins/types.ts#ServerPlugin.agents",
+        "apps/web/src/plugins/api/jobs.ts#BackgroundMethods.startAgentRun",
+        "apps/web/src/plugins/api/index.ts#StartAgentRun",
+        "apps/web/tests/kit/unit.ts#recordingAgentRuns"
       ]
     },
     {

@@ -118,6 +118,36 @@ describe('/api/traces', () => {
     expect((await json<{ code: string }>(cross)).code).toBe('trace_not_found')
   })
 
+  it('records a span whose content holds NUL and control characters (Postgres refuses them raw)', async () => {
+    const a = await actor()
+    const tracer = tracerFor(cfg, { store: databaseSpanStore(db) })
+    let traceId = ''
+    await withAgentTrace(
+      'chat',
+      { tracer, tenantId: a.tenant.id, userId: a.user.id, input: 'pdf\u0000 text' },
+      async trace => {
+        traceId = trace.traceId
+        trace.toolCall({
+          name: 'read_document',
+          input: { query: 'in\u0000voice', ['k\u0001ey']: ['a\u0007b'] },
+          output: 'Total:\u0000 42\tEUR\r\nPaid\u001F',
+          startTime: new Date(),
+          endTime: new Date(),
+        })
+      }
+    )
+    await tracer.flush()
+
+    const detail = traceDetailSchema.parse(
+      await json(await request(`/api/traces/${traceId}`, { headers: a.cookie }))
+    )
+    expect(detail.spans).toHaveLength(2)
+    expect(detail.spans.find(s => s.kind === 'tool')).toMatchObject({
+      toolName: 'read_document',
+      content: { input: { query: 'invoice', key: ['ab'] }, output: 'Total: 42\tEUR\r\nPaid' },
+    })
+  })
+
   it('resolves an agent run id to the run trace, steps under the derived root', async () => {
     const a = await actor()
     const [run] = await db

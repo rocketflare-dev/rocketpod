@@ -24,8 +24,12 @@ import { enqueueJob, enqueueJobs } from '../../api/services/jobs'
 import { realtimeEvent } from '../../api/services/realtime'
 import type { StorageService } from '../../api/services/storage'
 import type { Platform } from '../../platform/types'
+import { agentRunStarter, type StartAgentRunInput, type StartedAgentRun } from './agent-runs'
 import { createStepRealtimeFor } from './realtime-step'
 import { filesStorage } from './storage'
+
+export type { StartAgentRun, StartAgentRunInput, StartedAgentRun } from './agent-runs'
+
 import type { PluginContext } from './types'
 
 export type { JobEnvelope, JobInput, JobOf, JobType } from '@rocketpod/shared/jobs'
@@ -66,6 +70,16 @@ export interface BackgroundMethods {
    * `tenants/<tenantId>/<plugin id>/…` so the `tenant.purge` job removes the objects with the tenant.
    */
   storage(): StorageService
+  /**
+   * Start an agent run for one organisation and return its id — `POST /api/agents/runs` from a
+   * job, through the same `enqueueRun`: input validation (400), the exclusive slot, the active-run
+   * cap (429 `agent_runs_limit`), the daily budget (429 `ai_budget_exceeded`), the engine start
+   * (503 `agent_runs_not_configured` without `platform.runs`). Pass an `idempotencyKey` naming the
+   * work (`receipt:<documentId>`) so a redelivered message answers the first run, `deduplicated`,
+   * instead of starting a second. Part of `feature-agents`: an app without the agent runtime has
+   * no such method.
+   */
+  startAgentRun(input: StartAgentRunInput): Promise<StartedAgentRun>
 }
 
 /**
@@ -86,8 +100,8 @@ export interface CronCtx extends PluginContext, BackgroundMethods {
  * runtime — the queue and the realtime hub come from it, never from a value on `env`.
  */
 export function backgroundMethods(
-  { db, config }: Pick<PluginContext, 'db' | 'config'>,
-  platform: Pick<Platform, 'jobs' | 'realtime' | 'storage'>
+  { db, config, logger }: Pick<PluginContext, 'db' | 'config' | 'logger'>,
+  platform: Platform
 ): BackgroundMethods {
   return {
     enqueue: (input, options) => enqueueJob(platform.jobs, input, options),
@@ -105,6 +119,7 @@ export function backgroundMethods(
     },
     features: tenantId => tenantFeatures(db, config, tenantId),
     storage: () => filesStorage(platform),
+    startAgentRun: agentRunStarter({ db, config, logger, platform }),
   }
 }
 

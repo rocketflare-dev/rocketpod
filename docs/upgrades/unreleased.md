@@ -170,6 +170,10 @@ A new `/rp-agent-docs` skill audits and fixes the docs an agent loads, the WCAG 
 - `.claude/rules/api.md` (56 KB, past the 40,000-char load cap) and `apps/web/src/ui/CLAUDE.md` (42 KB) are split: new nested `CLAUDE.md` in `api/services/`, `api/queues/`, `ui/lib/`, `ui/pages/{agents,documents,chat,settings,guide}/`; `apps/web/src/plugins/CLAUDE.md` owns every plugin rule, with install/check detail and the public-mount and identity semantics in `.claude/skills/rp-plugin/reference.md`.
 - `.claude/skills/rp-how-do-i/example-orders.md` carries an `agent-docs-check: hypothetical` marker; the Vite config's comments describe `coreEdits`.
 
+The kit's `defaultPlugins` stays empty and is now described as an app's own list: a fresh clone installs no plugin, and the docs no longer say the kit installs analytics.
+
+- `.claude/skills/rp-setup/SKILL.md`, `scripts/bootstrap.mjs`, `.rocketflare.json` `$defaultPlugins` and `docs/CONCEPTS.md` §8/§16 describe `defaultPlugins` as empty in the kit (analytics has no Rocketpod-compatible release yet) and the CI gate as `kit.yml`'s.
+
 ## How to apply
 
 1. Add six columns to the Drizzle schema in `apps/web/src/db/schema/`:
@@ -422,6 +426,9 @@ A new `/rp-agent-docs` skill audits and fixes the docs an agent loads, the WCAG 
 63. Take the kit's `.claude/rules/{api,ui}.md`, every `CLAUDE.md` under `apps/web/src/` and
     `.claude/skills/rp-plugin/{SKILL,reference}.md` for any you have not edited; for one you
     have, keep yours and run `/rp-agent-docs` on it.
+64. Nothing to remove: an app's own `defaultPlugins` is its choice. Take the kit's wording for
+    `.claude/skills/rp-setup/SKILL.md` steps 0 and 6 and its "after setup" table, and
+    `docs/CONCEPTS.md` §8, for any you have not edited.
 
 ## Conflicts to expect
 
@@ -475,3 +482,4 @@ A new `/rp-agent-docs` skill audits and fixes the docs an agent loads, the WCAG 
 24. `pnpm web test:driver -- identity` and `pnpm web test:api -- auth-sso-required tenancy-single-identity` pass.
 25. `node .claude/skills/rp-agent-docs/check.mjs` ends `agent docs ok` (or lists `✖` findings and exits 1).
 26. `pnpm web test:ui` passes, including `tests/ui/contrast.test.ts`.
+27. On a fresh clone, `pnpm bootstrap` prints `no defaultPlugins declared — nothing to install` at `6/10 plugins`.

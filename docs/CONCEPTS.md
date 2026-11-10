@@ -573,8 +573,8 @@ is hard-coded.
 
 ## 8. Analytics
 
-**The `analytics` PLUGIN (D31) — not installed by default (see gaps).** Repository
-`rocketflare-dev/rocketflare-plugin-analytics`. Once installed, its docs are its own `CLAUDE.md`
+**The `analytics` PLUGIN (D31) — opt-in, and not installable yet (see gaps).** `plugins/analytics`
+in `rocketflare-dev/rocketflare-plugins`. Once installed, its docs are its own `CLAUDE.md`
 files. drizzle-cube cubes scope every `sql()` by tenant, dashboards are jsonb `DashboardConfig`s
 restrictable to groups, fact tables rebuild on the `:15` cron, and its cube-isolation test is
 mandatory. The kit core knows nothing about drizzle-cube, and other plugins extend it through
@@ -1178,7 +1178,7 @@ Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
   HOST's kit version (`hostKitVersion` in `scripts/lib/manifest.mjs`): `.rocketflare.json`
   `kit.version` in a copy, whose root `package.json` is the app's own, and the root `package.json`
   version only in the kit itself. `requires.kit` /
-  `requires.pluginApi` are refused by name. CI proves both ends: `ci.yml` runs the gate with
+  `requires.pluginApi` are refused by name. CI proves both ends: `kit.yml` runs the gate with
   `defaultPlugins` installed (in the kit's own repository only), and plugin repos call
   `plugin-ci.yml` (floor + newest kit), which installs a plugin's `requires.plugins` from the
   same checkout first and takes the highest `minKit` across the set as the floor.
@@ -1324,10 +1324,10 @@ Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
 | # | Choice |
 |---|---|
 | 1 | First-party only; the install plan waits for a human |
-| 2 | The kit is bare; `defaultPlugins` + a bootstrap step keep a fresh clone unchanged |
+| 2 | The kit is bare; `defaultPlugins` + a bootstrap step install an app's own set on its fresh clones (empty in the kit) |
 | 3 | `example-feature` is the reference plugin |
 | 4 | A plugin is recorded as a `kind: 'plugin'` surface; `readManifest()` is the one kit-vs-app predicate |
-| 5 | Compatibility is proved in CI from both ends (`ci.yml` with defaults installed; `plugin-ci.yml`; `kit:release` refusal) |
+| 5 | Compatibility is proved in CI from both ends (`kit.yml` with `defaultPlugins` installed; `plugin-ci.yml`; `kit:release` refusal) |
 | 5b | *(reversed)* a `PLUGIN_API` integer beside `requires.kit` |
 | 5c | Compatibility is observed: derived `uses` against the emitted ledger, plus a `minKit` floor |
 | 6 | Cubes/fact tables/dashboards are plugin-owned registries via `extensions`, narrowed by the owner |

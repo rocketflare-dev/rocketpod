@@ -23,8 +23,8 @@ SETUP.md Part 1 end to end and is **idempotent** — re-running after a fix is a
   verification line. Do not summarise a failure away — quote it.
 - The `plugins` step (6) installs code from other repositories into this one. **Name them before
   you run the bootstrap**, the same way you name the Postgres container — the kit's own
-  `defaultPlugins` is `analytics` (dashboards, cubes, the drizzle-cube API), and an app's copy may
-  list more. `--no-plugins` skips the step and gives a working app without them; `/rp-plugin` is the
+  `defaultPlugins` is empty (analytics is a plugin with no Rocketpod-compatible release yet —
+  `SETUP.md`), and an app's copy may list its own. `--no-plugins` skips the step and gives a working app without them; `/rp-plugin` is the
   skill for installing one afterwards, where the plan is read before anything is written.
 
 ## 0. Is this a copy, or the kit itself?
@@ -125,8 +125,8 @@ open "want me to do anything else?". Offer these, in this order, with the first 
 
 | Option | What you do when it is chosen |
 |---|---|
-| **Show me around** | Walk the seeded app: **Chat** (streams a reply — needs `ANTHROPIC_API_KEY` or `AI_API_KEY` in `apps/web/.env`), **Agents** (`summarize-text`, watch the timeline fill), **Knowledge → Search** (the demo documents are indexed), **Analytics** (the seeded Organisation Overview). Drive it with them; one screen at a time |
-| **Check it really works** | `pnpm test:db:up && pnpm test` (ephemeral Postgres on :5533) — which runs the analytics plugin's own tests too, including the two-tenant cube isolation one — then the SETUP.md 1.6 analytics check, `pnpm cli analytics check-facts` |
+| **Show me around** | Walk the seeded app: **Chat** (streams a reply — needs `ANTHROPIC_API_KEY` or `AI_API_KEY` in `apps/web/.env`), **Agents** (`summarize-text`, watch the timeline fill), **Knowledge → Search** (the demo documents are indexed), **Analytics** (the seeded Organisation Overview — only if the analytics plugin is installed). Drive it with them; one screen at a time |
+| **Check it really works** | `pnpm test:db:up && pnpm test` (ephemeral Postgres on :5533) — which runs every installed plugin's own tests too (with analytics installed, the two-tenant cube isolation one, then `pnpm cli analytics check-facts`) |
 | **Make it mine** | `/rp-adapt <slug>` — the rename (package scope, image, database, CLI, theme). Ask for the slug if they have not said one |
 | **Add a capability** | `/rp-plugin` — install a plugin (a git repository copied in, with a plan you read first), or audit what is installed with `pnpm plugin list` / `pnpm plugin check` |
 | **Deploy it** | `/rp-deploy` — the container image on Docker Compose (`docker-compose.yml`, `deploy/compose.single.yml`) or the Helm chart (`deploy/helm/rocketpod`), runbook `docs/DEPLOY.md`; it stops for the user before any push, paid resource or live cluster |
@@ -147,7 +147,7 @@ prerequisite lines, then hands over to `scripts/bootstrap.mjs` for the ten steps
 | 3 | `secrets` | `apps/web/.env` exists with `DATABASE_URL`, `OAUTH_ENCRYPTION_KEY` (generated, git-ignored) and `DATABASE_DRIVER=postgres` (D35, the only driver — a stale `neon` is rewritten, and a note says so). With `--db-url` it notes `DATABASE_URL set from --db-url` |
 | 4 | `database` | this checkout's Postgres container is up and healthy on the port it chose (5432 unless taken; the step says so and writes it to `.env`), and so is its S3 gateway (Versity, from :7070), whose `STORAGE_*` lines land in `.env` too; the `Connected to … (postgres driver)` part names the driver. With `--db-url` there is no container: the line reads `external <host>/<db> · Connected to …` once `db:check` answers |
 | 5 | `migrate` | role → migrations → grants applied, plus the `pgboss` (jobs, cron) and `openworkflow` (agent runs) schemas; the pgvector extension is installed |
-| 6 | `plugins` | every plugin in `.rocketflare.json`'s `defaultPlugins` is installed, its tables generated and migrated. The kit declares ONE — `analytics`, which is where dashboards, cubes and the fact table live from 0.6.0 (`docs/CONCEPTS.md` §8) — so this step is what makes **Analytics** appear in the nav. Skipped with `--no-plugins`, which is a perfectly good app with no analytics in it and no drizzle-cube in either bundle |
+| 6 | `plugins` | every plugin in `.rocketflare.json`'s `defaultPlugins` is installed, its tables generated and migrated. The kit declares none, so in the kit the line reads `no defaultPlugins declared — nothing to install` and there is no **Analytics** nav item — dashboards, cubes and fact tables are the `analytics` plugin, which has no Rocketpod-compatible release yet (`docs/CONCEPTS.md` §8). Skipped with `--no-plugins` |
 | 7 | `seed` | demo tenant, owner/admin/member users, one API key (printed once), plus the populated demo workspace unless `--no-demo`. The seed prints `seeding <host>/<db>` first; with `--db-url` it runs with `SEED_ALLOW_REMOTE=1` |
 | 8 | `ai` | which AI providers `apps/web/.env` configures (`chat … · embeddings …`) — informational, never a failure; with none, chat/agents/uploads answer 503 until a key is set (SETUP.md 2.5) |
 | 9 | `cli` | `pnpm cli whoami` with the seeded key — deferred/skipped with `--no-dev` (needs the server) |

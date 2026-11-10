@@ -12,7 +12,7 @@ migrations:
   - "user_sessions.max_expires_at (timestamptz, nullable)"
   - "agent_runs.batch_id (uuid, nullable); indexes agent_runs (tenant_id, status), partial agent_runs (tenant_id, batch_id) and partial ai_usage (tenant_id, agent_run_id)"
   - "users.blocked_source (text, nullable)"
-areas: [api, db, config, shared, ui, cli, plugins, docs, ci, scripts]
+areas: [api, db, config, shared, ui, cli, plugins, skills, docs, ci, scripts]
 touches_surfaces:
   - feature-guide
   - example-guide-pages
@@ -161,6 +161,14 @@ Plugins get an identity seam: `identityFor(c, id).signIn` signs a person a plugi
 - Public mounts (`/api/hooks/<id>`) take an optional third tuple element `{ rateLimit?: { max, windowSeconds } | false; bodyLimitBytes? }` (`PluginPublicMountOptions`): `mountPublicRoutes` (`api/middleware/public-mounts.ts`) puts a per-IP limiter over `platform.rateLimiter` in front of each (bucket `hooks:<prefix>`, default 120 / 60 s), and `apiBodyLimit(publicBodyLimitOverrides(…))` at step 5 lets a mount replace the 1 MB cap (≤ `MAX_PUBLIC_MOUNT_BODY_BYTES`, 10 MB).
 - `example-feature`: a development-only example SSO (`api/sso.ts`, `api/sso-policy.ts` claiming `@sso-required.example.test`, a login method) with its tests; scheduled tests let a plugin append tasks to a core cron.
 - The Standard Webhooks verifier refuses a secret or signature that is not valid base64 (`atob`) instead of reading it leniently. A porting note over 150 lines now prints a warning from `release-check --unreleased` and `kit:release` (`noteLengthWarning`) rather than being a target only.
+
+A new `/rp-agent-docs` skill audits and fixes the docs an agent loads, the WCAG contrast gate the UI docs promised now exists (two theme tokens that failed it were adjusted), and the oversized agent docs are split into per-directory `CLAUDE.md` files.
+
+- `.claude/skills/rp-agent-docs/` — `SKILL.md` and `check.mjs` (zero-dependency mechanical check; exit 1 on a `✖`).
+- `apps/web/tests/ui/contrast.test.ts` asserts the floors `src/ui/index.css` states over both themes; light `--tone-primary-surface` `#dbeafe` → `#eff6ff`, dark `--text-muted` `#a1a1aa` → `#acacb4`.
+- `pnpm plugin add` refuses the id `api` (`pluginIdProblem`): it would install into `apps/web/src/plugins/api/`.
+- `.claude/rules/api.md` (56 KB, past the 40,000-char load cap) and `apps/web/src/ui/CLAUDE.md` (42 KB) are split: new nested `CLAUDE.md` in `api/services/`, `api/queues/`, `ui/lib/`, `ui/pages/{agents,documents,chat,settings,guide}/`; `apps/web/src/plugins/CLAUDE.md` owns every plugin rule, with install/check detail and the public-mount and identity semantics in `.claude/skills/rp-plugin/reference.md`.
+- `.claude/skills/rp-how-do-i/example-orders.md` carries an `agent-docs-check: hypothetical` marker; the Vite config's comments describe `coreEdits`.
 
 ## How to apply
 
@@ -402,6 +410,18 @@ Plugins get an identity seam: `identityFor(c, id).signIn` signs a person a plugi
     `.claude/rules/api.md` (steps 5 and 10, the two identity bullets),
     `apps/web/src/plugins/CLAUDE.md`, `apps/web/src/api/middleware/CLAUDE.md`, and the Guide's
     `start/signing-in.md`; then run `node scripts/plugin-api-doc.mjs`.
+59. Copy `.claude/skills/rp-agent-docs/` (both files), and add it to root `CLAUDE.md`'s skills
+    list and "you may run yourself" list and to `README.md`'s skills row.
+60. Add `<!-- agent-docs-check: hypothetical -->` under the title of
+    `.claude/skills/rp-how-do-i/example-orders.md` if your copy still has it.
+61. Copy `apps/web/tests/ui/contrast.test.ts`; if you kept the kit's palette, set the light
+    theme's `--tone-primary-surface` to `#eff6ff` and the dark theme's `--text-muted` to `#acacb4`
+    in `apps/web/src/ui/index.css`, else run `pnpm web test:ui` and fix the pairs it names.
+62. In `scripts/lib/plugin-lib.mjs` `pluginIdProblem`, after the barrel-filename check, return a
+    problem for `id === 'api'`.
+63. Take the kit's `.claude/rules/{api,ui}.md`, every `CLAUDE.md` under `apps/web/src/` and
+    `.claude/skills/rp-plugin/{SKILL,reference}.md` for any you have not edited; for one you
+    have, keep yours and run `/rp-agent-docs` on it.
 
 ## Conflicts to expect
 
@@ -425,6 +445,7 @@ Plugins get an identity seam: `identityFor(c, id).signIn` signs a person a plugi
 - `apps/web/src/api/routes/auth/magic-link.ts` → the `admitUser` call takes `platform.jobs` → keep it; add the SSO check before it and move `requested` above it.
 - `apps/web/src/plugins/api/identity.ts` → `admitUser` and `provisionFor` need the platform → read it as `c.get('platform') ?? resolvePlatform(c.env)`.
 - `apps/web/tests/config/public-mounts.test.ts` → the kit's env carries `RATE_LIMIT_KV` and `cf-connecting-ip` → a `PLATFORM` with `createMemoryRateLimiter(kv)` and `x-forwarded-for`.
+- `apps/web/src/ui/index.css` → two token values changed → keep your own palette's values and let the contrast test judge them.
 
 ## Verify
 
@@ -452,3 +473,5 @@ Plugins get an identity seam: `identityFor(c, id).signIn` signs a person a plugi
 22. In development `POST /auth/dev-login` with `{"email":"a@sso-required.example.test"}` answers 403 `sso_required` with `details.method: "example-feature:demo-sso"`.
 23. `pnpm web test:config -- tests/config/public-mounts.test.ts` passes, and the 121st request in a minute from one IP to `/api/hooks/<id>/…` answers 429 `rate_limited`.
 24. `pnpm web test:driver -- identity` and `pnpm web test:api -- auth-sso-required tenancy-single-identity` pass.
+25. `node .claude/skills/rp-agent-docs/check.mjs` ends `agent docs ok` (or lists `✖` findings and exits 1).
+26. `pnpm web test:ui` passes, including `tests/ui/contrast.test.ts`.

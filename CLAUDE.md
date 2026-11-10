@@ -10,8 +10,8 @@ here.
 > before assuming a capability exists; update it when you change one.**
 > **Setup**: asked for setup help → run `/rp-setup` (it drives `scripts/bootstrap.sh --no-dev`, then
 > starts the server): show each `✔ n/10` line, stop on failure. By hand: `SETUP.md` Part 1.
-> **Fresh copy?** `/rp-adapt <slug>`, then `docs/ADAPTING.md`. `/rp-setup`, `/rp-adapt`, `/rp-preflight`,
-> `/rp-traces`, `/rp-evals`, `/rp-agent-replay` and `/rp-plugin` you may run yourself. **Deploying** (image, Compose,
+> **Fresh copy?** `/rp-adapt <slug>`, then `docs/ADAPTING.md`. `/rp-setup`, `/rp-adapt`, `/rp-preflight`, `/rp-how-do-i`,
+> `/rp-upgrade`, `/rp-traces`, `/rp-evals`, `/rp-agent-replay`, `/rp-agent-docs`, `/rp-doc-sync` and `/rp-plugin` you may run yourself. **Deploying** (image, Compose,
 > Helm — `docs/DEPLOY.md`) is `/rp-deploy`: it renders and checks locally, and asks the user before
 > it pushes an image, touches a cluster or creates anything billed.
 > **The Guide** (`docs/CONCEPTS.md` §18): in-app user docs at `/guide` + "Ask the Guide". Pages in
@@ -146,6 +146,7 @@ docs/upgrades/     one porting note per kit release (+ unreleased.md, kit repo o
                    rp-evals (+ reference.md — author, run, compare, harvest, baseline, improve; D33) ·
                    rp-agent-replay (replay an agent's past runs with today's code, no model calls; D38) ·
                    rp-deploy (Compose or Helm, the secrets checklist, never prints a secret) ·
+                   rp-agent-docs (+ check.mjs — audit and fix CLAUDE.md, rules and skills) ·
                    example-feature (demo the reference plugin)
 ```
 

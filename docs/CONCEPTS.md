@@ -1159,7 +1159,13 @@ Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
   realtime TOPIC registry the same way (§5): a plugin declares `{ prefix: '<id>.<kind>', subject }`,
   publishes with `ctx.nudgeTopic(tenantTopic(…), entity, id)` (`JobCtx.nudgeTopic` in a handler)
   and its page subscribes with `useRealtimeTopic` from `@/plugins/api/ui`.
-- **Namespacing**: the id is `^[a-z][a-z0-9-]*$` and namespaces jobs (`<id>.x`), query keys
+- **Core edits**: a line a plugin needs in a core file outside the barrels (a Vite dev proxy
+  prefix, a resolve alias) is a `coreEdits` entry in its manifest (`{ file, after, lines[] }`) —
+  `add` inserts it after the anchor, `remove` reverts it byte for byte, `upgrade` applies the new
+  release's list. Never a hand edit. A cron needs no edit at all: pg-boss schedules every
+  expression `scheduledTasks` names.
+- **Namespacing**: the id is `^[a-z][a-z0-9-]*$` (never a reserved barrel or host directory name —
+  `api` included) and namespaces jobs (`<id>.x`), query keys
   (`<id>:`), `/api/<id>`, CLI commands and CUSTOM events. Never `kit.`. Table prefixes are a human
   convention; **two plugins declaring the same table is a `plugin check` failure**.
 - **Record**: a `kind: 'plugin'` surface (`source: {repo, subdir, version, commit}`). In the kit or

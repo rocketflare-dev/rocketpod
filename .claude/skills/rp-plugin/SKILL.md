@@ -82,7 +82,9 @@ tables exist.**
 
 The script does not do these, and each says which KIND it is. An **agent** step is an instruction
 plus a check — run the command, then run the assertion. A **human** step is a decision: stop, and
-ask. Each appears only when the plugin declares the thing it is about.
+ask — a secret's VALUE (and where the deployment keeps it), a migration containing `DROP`,
+`--archive`, deleting state outside Postgres. Each appears only when the plugin declares the thing
+it is about.
 
 Nothing about the barrel lines, the crons or the route prefixes is here any more: those are
 **declarative**, written by `plugin add`, and a step that has become declarative is removed rather than reworded.
@@ -163,8 +165,11 @@ pnpm plugin remove <id> --archive --apply     # --archive first copies each tabl
 pnpm db:generate --name plugin-<id>-remove    # → DROP TABLE …; read it, then pnpm db:migrate
 ```
 
-Ask about `--archive` **before** applying — after the drop it is not a choice any more. `pnpm
-remove` on a dependency is printed rather than run.
+Ask about `--archive` **before** applying — after the drop it is not a choice any more. Orphaned
+tables are not a stable state — the `db:generate` above is part of the removal, not optional, and
+its `DROP TABLE`s are correct here (the warning against copied migrations is about importing a
+foreign SNAPSHOT, not about your own barrel shrinking). `pnpm remove` on a dependency is printed
+rather than run.
 
 ## 6. Authoring a plugin
 
@@ -199,11 +204,9 @@ exists in one place. It folds `docs/upgrades/unreleased.md` into
 `docs/upgrades/X.Y.Z.md` and prepends the `CHANGELOG.md` section — the same four headings and
 `previous` chain `pnpm plugin upgrade` walks, which is what makes the release portable at all.
 
-Everything the plugin keys carries its id: tables prefixed with the id's first hyphen-separated
-segment (`example-feature` → `example_*`; `pnpm plugin check` fails when two installed plugins
-declare one table name), job types `<id>.verb`, the API prefix
-`/api/<id>`, query-key roots `<id>:…`, the CLI command `<id>`, feature/prompt/agent keys, and AG-UI
-CUSTOM events under `<id>.`. Two manifest keys carry its compatibility, and only one of them is
+What the plugin's code may and may not do — namespacing, the declared import entries, the
+module-evaluation trap, each `ServerPlugin` slot, the isolation test it owns — is
+`apps/web/src/plugins/CLAUDE.md`; read it before writing plugin code. Two manifest keys carry its compatibility, and only one of them is
 written by a person: a top-level **`minKit`** — one bare `X.Y.Z`, the oldest kit release it
 supports, a floor with no ceiling — and **`uses`**, the host symbols it imports. **Never hand-write
 `uses`**: `pnpm plugin export` derives it from the plugin's own imports, and a hand-written one is

@@ -4,6 +4,17 @@ What `pnpm plugin` reads, what it refuses, and what each command proves. The des
 reasons are `docs/CONCEPTS.md` §16; the seam is `apps/web/src/plugins/CLAUDE.md`. This file is for
 looking things up mid-run.
 
+**Contents:** [Exit codes](#exit-codes-pnpm-plugin---help-is-authoritative) ·
+[The manifest](#the-manifest--rocketflare-pluginjson-in-the-repo-pluginjson-in-the-host) ·
+[How `add` classifies each file](#how-add-classifies-each-file-of-the-source-repo) ·
+[What `check` verifies](#what-check-verifies) ·
+[Version clashes, at `add` time](#version-clashes-at-add-time) ·
+[Dependencies, at `upgrade` time](#dependencies-at-upgrade-time) ·
+[Where an install is recorded](#where-an-install-is-recorded) · [`defaultPlugins`](#defaultplugins) ·
+[Public mounts — the host's guard](#public-mounts--the-hosts-guard) ·
+[Identity and SSO](#identity-and-sso) ·
+[Two things nothing else will catch](#two-things-nothing-else-will-catch)
+
 ## Exit codes (`pnpm plugin --help` is authoritative)
 
 | Code | Meaning | What it usually is |
@@ -108,6 +119,11 @@ Field notes, in the order they bite:
   at INSTALL (`pluginPlatformProblems`): it has nothing to bind them to. A plugin reaches jobs, storage, realtime and runs through `ctx.platform`.
 - **`vars[]`** is `{ key, example?, secret? }`: an environment variable of the server, declared in
   `.env.example`; `secret: true` adds a human step to set its value wherever the server runs.
+- **`coreEdits`** are `{ file, after, lines[] }` — lines a CORE file needs (a prefix outside `/api`
+  needs its dev-proxy line in `apps/web/vite.config.ts`, after `'/ws': proxyTo(`). `add` inserts
+  `lines` after the first line containing `after`, at its indentation, idempotently; `remove`
+  reverts them byte for byte; `upgrade` follows the new release's list. Anchored on text, never a
+  line number; a missing anchor THROWS naming the file. The plugin still edits nothing.
 - **`skills`** are the agent skills the plugin ships, one directory name each. The plugin keeps
   them at `skills/<dir>/SKILL.md` (plus any companion files — `reference.md`, one file per
   provider…) in its OWN tree, and `add` copies each to **`.claude/skills/<dir>/`**, where Claude
@@ -135,9 +151,9 @@ declares** — so an install stays reversible by deleting a directory.
 | `copy` (skill) | `skills/<dir>/**` for a `<dir>` listed in `"skills"` | copied to `.claude/skills/<dir>/**`, translated like code; an UNdeclared `skills/<dir>` is `refused` |
 | `note` | `docs/upgrades/*` | copied to `docs/plugins/<id>/upgrades/` — the release chain `plugin upgrade` walks |
 | `fragment` | `migrations/**` | **never copied**; printed as a `pnpm db:generate --custom` step |
-| `meta` | `rocketflare-plugin.json`, `README.md`, `CHANGELOG.md`, `LICENSE`, `SECURITY.md` | read, not copied |
-| `repo-only` | `.github/`, `.git/`, `node_modules/`, `.claude/`, `package.json`, `pnpm-lock.yaml`, `biome.json`, the dotfiles | the plugin repository's own; never copied |
-| `refused` | anything else | the install stops. A plugin that edits `api/index.ts` on the way in is an install nobody can reverse |
+| `meta` | `rocketflare-plugin.json`, `README.md`, `CHANGELOG.md`, `LICENSE`, `LICENSE.md`, `SECURITY.md` | read, not copied |
+| `repo-only` | `.github/`, `.git/`, `node_modules/`, `.claude/`, `scripts/` (its release shim — a plugin repo cuts a release with a copy of the kit's `release.mjs`, taken from a kit checkout), `package.json`, `pnpm-lock.yaml`, `biome.json`, `.gitignore` and the other root dotfiles | the plugin repository's own tooling (a CI workflow, a release entry point); never copied, never refused |
+| `refused` | anything else | the install stops — a refusal, not a warning. A plugin that edits `api/index.ts` on the way in is an install nobody can reverse |
 
 ## What `check` verifies
 
@@ -194,7 +210,14 @@ faults in a plugin at all — a plugin declaring no `minKit`, or a vendored one.
 
 `pnpm plugin check --json` prints the same audit as data: `{ ok, plugins, failures, warnings,
 notes }`. `failures` and `warnings` are separate lists so `ok` keeps meaning "this exits 0", and
-each entry carries `file`, `line`, `problem`, `fix`, `kind` and `assert` as fields.
+each entry carries `file`, `line`, `problem`, `fix`, `kind` and `assert` as fields. CI runs the same
+command a person runs, so the local oracle and the gating oracle cannot disagree.
+
+**Deliberately NOT checked**, because each would fail a plugin whose code is correct: the anchor's
+version against the surface's (`plugin add` writes the anchor from the source manifest, so they
+cannot differ), and the installed version against the `defaultPlugins` pin (the gate already
+installs each default plugin at its pinned ref and runs the whole suite on the result, which is the
+real proof — below).
 
 ## Version clashes, at `add` time
 
@@ -268,6 +291,55 @@ it shipped, so the comparison failed every plugin release that had moved past it
 until a kit shipped pinning the new one — which cannot happen before the plugin is released. In the
 kit itself the entry is ordinarily *declared and not installed*, which is exactly the state
 `bash scripts/bootstrap.sh` resolves on a fresh clone.
+
+## Public mounts — the host's guard
+
+`ServerPlugin.publicMounts` entries are `['/api/hooks/<id>/…', router, options?]`. The host
+(`apps/web/src/api/middleware/public-mounts.ts`) wraps each in a per-IP rate limit over
+`platform.rateLimiter` (the `rate_limits` table) — a bucket named after the prefix, default 120
+requests / 60 s — and the 1 MB body cap. `options` changes either: `{ rateLimit: { max,
+windowSeconds } | false, bodyLimitBytes }`. `false` is for a sender with fixed IPs that batches,
+whose signature is the gate; `bodyLimitBytes` (≤ 10 MB — `tests/config/plugins.test.ts` refuses
+more) REPLACES the 1 MB cap beneath the prefix for every content type (JSON, form-encoded SAML
+POST, `application/scim+json`). The same test refuses a public mount outside the plugin's own
+`/api/hooks/<id>` and any authed mount under `/api/hooks`.
+
+## Identity and SSO
+
+The contract is in `apps/web/src/plugins/CLAUDE.md` (never write a session; prove the tenant first;
+`linkByEmail` only for a proved domain). The semantics, from `apps/web/src/plugins/api/identity.ts`:
+
+- **`identityFor(c, '<id>').signIn({ subject, email, emailVerified, name, tenantId?, role? })`**,
+  returned from a public handler that has PROVED a person (a verified SAML assertion, an
+  id_token). The kit links the identity under provider `plugin:<id>` — the plugin namespaces
+  `subject` itself, `<connection>|<nameId>` — admits, upserts an `idp` membership (`source =
+  'idp'`, through `upsertIdpMembership` / `removeIdpMembership` in `services/idp-tenancy.ts`, shared
+  with the OIDC reconcile), mints the session and answers the redirect, refusals included. An existing account with the same email is
+  attached only with `linkByEmail: true`, else `account_exists`.
+- **`provisionFor(ctx, '<id>')`** is the cookie-free half for SCIM or a sync job: `findUser`,
+  `upsertUser`, `setMembership`, `removeMembership`, `deprovision`, `listMembers`.
+  `removeMembership` drops the `idp` row and unpins sessions. `deprovision` is a LEAVER (SCIM
+  `active: false`, `deprovisionIdpMember`): the same plus deleting the sessions pinned to that
+  tenant — in `multi` never a block and never another tenant (their other tenants, sessions and
+  keys survive).
+- **Under `TENANCY_MODE=single`** the one tenant is the deployment: every method takes only ITS id
+  (another is a missing tenant), and `deprovision` BLOCKS the leaver (`blocked: true`,
+  `blocked_source = 'plugin:<id>'`, every session ended) — reactivate with `setMembership`, the only
+  call that lifts YOUR block (never an admin's); `upsertUser` and `signIn` do not.
+- **`ServerPlugin.loginMethods(cfg)`** puts a button on the login page whose `startPath` must be
+  under `/api/hooks/<id>/`. Its `errors` give the login page copy for the plugin's own
+  `?error=<id>.<name>` codes: redirect a failed sign-in navigation to `/login?error=<id>.x&email=`
+  rather than answering JSON to a browser.
+- **`ServerPlugin.ssoPolicy(db, email, { config })`** answers `{ required: true, methodId }` (one of
+  the plugin's own `loginMethods` ids) for an address whose domain its connection proved it owns,
+  else `null`. The kit then refuses that address a magic link, Google, Microsoft, OIDC, dev login
+  and every other plugin's `signIn`, and routes the person to the method; the plugin's own `signIn`
+  passes. Asked once per sign-in attempt — keep it one indexed lookup. A throw fails CLOSED for that
+  email; `BOOTSTRAP_ADMIN_EMAILS` are exempt (break-glass).
+- Host side, for a NEW sign-in path: `apps/web/src/api/routes/CLAUDE.md` (`ssoDecisionFor` →
+  `ssoAllows` → `ssoRequiredRedirect`).
+
+Worked examples: `apps/web/src/plugins/example-feature/api/sso.ts` (dev-only) and `sso-policy.ts`.
 
 ## Two things nothing else will catch
 

@@ -256,6 +256,9 @@ from that one fact:
   and `filterNavConfig` is unchanged — plugin items obey the same guards
 - `settingsTabs(ctx)` appends tabs after the kit's (`ctx.can` is the caller's ability);
   `agentForms` is the plugin's half of `AGENT_FORMS`
+- A plugin's top-bar control is a `UiPlugin.header` item rendered by `PluginHeaderSlot`, never an
+  edit to `Layout` or `App.tsx`: each item sits behind its own guard, `Suspense` and error boundary,
+  so a header item that throws must render nothing rather than break the shell
 - **`queryKeys` roots must start with `<id>:`** (checked by `plugins.test.ts`), so one plugin's
   invalidation can never reach another's cache. **The `entity` string of a nudge IS a query-key
   family root**, so declare it once (the plugin's `shared.ts`) — `example-feature`'s

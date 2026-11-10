@@ -240,7 +240,8 @@ code-quality.md · runtime.md. Runbooks: `docs/DEPLOY.md` · `docs/RLS.md`
   prefixed from it — `example-feature` → `example_*`, and `plugin check` fails a collision — job
   types `<id>.x`, query-key roots `<id>:…`, `/api/<id>`, CUSTOM events `<id>.` — **never `kit.`**),
   reaches core only through the five barrels, its own four published entries and the DECLARED import
-  entries (`@/plugins/api`, `@/db/schema/kit`, `@testkit/*` — `docs/plugin-api.md`), and ships
+  entries (`@/plugins/api`, `@/db/schema/kit`, `@testkit/*`, its own `@/host/<id>/*` —
+  `docs/plugin-api.md`), and ships
   no migration — the host generates the DDL — and declares no Cloudflare `bindings` or
   `workerExports` (`pnpm plugin` refuses them; capabilities come through `ctx.platform`)
 - **Released history is never rewritten**: an adopted copy pins a kit commit in `.rocketflare.json`;

@@ -75,7 +75,9 @@ Rules:
   (`tapUsage`) are client wrappers; a new cross-cutting concern is another wrapper, never a fork of
   the adapter.
 - **Streaming (`chat-turn.ts` is the ONE implementation; `routes/chat.ts` and `routes/agui.ts` are
-  wrappers around it).** Resolve, authorise, validate and write anything that can fail as JSON
+  wrappers around it; a plugin's conversation is `streamChat` in `plugins/api/chat.ts`, over the
+  same pieces — the tool events are `aguiToolEvents` in `agui.ts`, shared by both, so neither
+  inlines them).** Resolve, authorise, validate and write anything that can fail as JSON
   **before** the stream opens — after the first frame a failure can only be a `RUN_ERROR`. Inside
   the stream use `streamDatabase(c)` (`utils/routes/route-helpers.ts`) for every write and close it
   in the stream's `finally`: `databaseMiddleware` ends the request's `db` in deferred work
@@ -140,5 +142,18 @@ Rules:
   additionally sets `hnsw.iterative_scan = relaxed_order` `SET LOCAL` inside a transaction WHEN a
   visibility predicate is in play — an approximate index can otherwise exhaust its candidate list
   before filling the pool and hand back an empty dense half to a reader who may see very little.
+- **Platform documents** (`platform-documents.ts`): `tenant_id` NULL, readable by every tenant.
+  `ingestPlatformText` resolves `resolvePlatformEmbeddings(cfg)` (the `EMBEDDINGS_*` key, else
+  null; never a tenant's row) BEFORE anything else, so no embedder means
+  `PlatformEmbeddingsError` and nothing written. It embeds every chunk before its transaction
+  opens, so a provider failure leaves the old revision, and it is a no-op for the same title, text
+  and model. `prunePlatformText` deletes what a sync no longer has. Only `@/plugins/api` calls them
+  (Job/Cron contexts). `searchChunks(…, { sources?, platformSources?, signal? })` reaches them by
+  named source only, with a platform dense leg ranked by the PLATFORM query vector and limited to
+  documents embedded by that model. It shares one leg with the tenant corpus when both models
+  match, else uses one leg per model (`fuseDenseLegs`, in the leaf `fusion.ts`).
+  `searchKnowledgeChunks` adds provenance and `semantic`, and `lexicalFallback` turns a missing
+  tenant embedder into keyword-only search. Without the new params `searchChunks` answers exactly
+  as before. The core Guide (`routes/guide.ts`) keeps its own `guide_chunks` index
 - `DELETE /api/ai/documents/:id` deletes the stored original too (`deleteStoredFile`); `/api/files`
   refuses a `documents`-scope delete with 409 `owned_by_document`

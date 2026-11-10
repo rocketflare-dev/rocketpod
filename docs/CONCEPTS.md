@@ -713,6 +713,13 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   `compactConversation` (`services/ai/chat-compaction.ts`), callable on any thread. Document cards come from
   `kit.document` events produced by a pure mapper, so nothing about a card is stored. The admin
   inspector (`/stats`) is derived per request.
+- **A plugin's chat turn**: `streamChat` (`plugins/api/chat.ts`, §16) streams a conversation the
+  PLUGIN owns — no `conversations` row, no compaction, only the plugin's tools — over the same
+  pieces as chat: `resolveChat` (its `promptKey` may carry an `agent_models` assignment),
+  `runStreamingChat`, `aguiTextSegmenter` + `aguiToolEvents` (the tool half, shared with
+  `chat-turn.ts`), `withAgentTrace`, and `recordUsage` under the plugin's `feature`. Its CUSTOM
+  events are `<plugin id>.…`, checked at emit time. Tests script the platform model with
+  `scriptPlatformChat` (the env's fake model endpoint) rather than mocking the resolver.
 - **Agents (D7)**: `POST /api/agents/runs` enqueues (row → Workflow instance → 202); the exclusive
   index dedupes, per (tenant, agent, `agent_runs.concurrency_key`) — the SLOT a run holds: `''`
   for an exclusive agent (one per tenant), a caller's `enqueueRun({ concurrencyKey })` to narrow it
@@ -840,6 +847,21 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   re-index never serves the replaced text), a replaced original removed from storage — so a
   connector's re-sync never
   duplicates. Plugins reach it through `ingestDocument` (§16).
+  **Platform documents**: a `documents` / `chunks` row with `tenant_id` NULL is knowledge about the
+  APP itself (a plugin's user guide), readable by EVERY tenant by design. RLS pairs
+  `tenantIsolation()` with a SELECT-only `platformReadable()` policy (`tenant_id IS NULL`), so a
+  scoped connection reads platform rows and can never insert, update or delete one; they are
+  written only on the owner connection by `ingestPlatformDocument` from a job or cron (§16). A CHECK
+  requires `source` + `externalId`, unique among platform rows. They are always embedded, by
+  `resolvePlatformEmbeddings(cfg)` (the `EMBEDDINGS_*` key, else none, and then nothing is
+  written — there is no keyless binding to fall back on), so every tenant's query meets vectors of
+  one model. `searchChunks` reaches them only when a caller names their sources
+  (`platformSources`, never from a request body). The query is embedded once per model when the
+  tenant's embedder differs, with one dense leg per corpus fused by the same RRF, and the answer
+  reports `semantic: 'used' | 'unavailable'`. Every tenant document view (the list, viewer,
+  `/search`, `get_document`, `list_documents`, delete) keeps `tenant_id = $t` and never shows one;
+  `search_knowledge` includes them for the sources `ServerPlugin.knowledgeSources` names, marked
+  `platform`. The core Guide (§18) keeps its own `guide_chunks` index rather than this corpus.
 - **Usage**: one `ai_usage` row per call, costed at write time from the one price table
   (`shared/ai/pricing`, longest prefix wins; an unknown model gets `null` and is counted as
   unpriced). The two `*_compatible` providers are priced only for VENDOR-QUALIFIED ids — Fireworks'
@@ -948,7 +970,10 @@ stream cursor; a cancelled chat stream closes silently rather than with AG-UI 1.
 `cancelled` outcome (the client that cancelled cannot read it); no token-level streaming for runs; char-based history budget
 not derived from the model; sliding window defeats prompt caching on long threads; `enqueueRun`
 does not pre-resolve the client; no
-rerank; HITL asks cannot be amended, have no
+rerank; platform documents cannot be opened with `get_document` (a search hit is all a model
+reads of one), are not re-embedded automatically when the platform embedder changes (the next
+`ingestPlatformDocument` re-indexes; until then they are found lexically), and have no admin view;
+HITL asks cannot be amended, have no
 reminders, and parks are bounded by `AGENT_INTERRUPT_TIMEOUT`; runs nobody opens
 stay active-looking; no prompt versioning. Volume (D39): the active-run cap is counted, not locked,
 so a burst can overshoot it; a budget is checked BEFORE a call, so a run overshoots by its last
@@ -1291,6 +1316,19 @@ Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
   `ToolCtx.can(action, subject)` is the requester's CASL grant, read at build time from their
   current membership (false for a run with no requester): gate a tool that writes on your own
   subject's `manage`, not on `scope.bypass`, which is row visibility and true for `support` too.
+- **A streamed chat turn (`streamChat`)**: `streamChat(c, { promptKey, feature, message, history?,
+  system?, variables?, tools?, maxTurns?, signal?, threadId?, onFinish? })` from `@/plugins/api` is
+  a plugin route's whole answer — the kit's resolve seam, streaming tool loop, AG-UI encoder (SSE or
+  protobuf), GenAI trace and `recordUsage`, with none of chat's conversation rows. `promptKey` must
+  be one the plugin registered in `ServerPlugin.prompts` (`promptOwner`), and that plugin's id is
+  the namespace: `feature` is `<id>`, `<id>:…` or `<id>.…`, and `emit(name, value)` — on the tool
+  context and in `onFinish(result, { emit })` — sends a CUSTOM event only when it is `<id>.…`
+  (never `kit.`); any other name ends the run with `RUN_ERROR` `invalid_custom_event`. Tools are
+  the plugin's own, built inside the stream on its database client; gated tools are withheld.
+  Budgets are chat's: `AGENT_MAX_OUTPUT_TOKENS`, `maxTurns` clamped to `CHAT_MAX_TOOL_TURNS`,
+  history trimmed to `CHAT_HISTORY_MAX_CHARS` (`kit.notice history_truncated`), not counted against
+  `AGENT_TENANT_DAILY_COST_USD`. No provider is the JSON 503 before any frame. A plugin test drives
+  it with `scriptPlatformChat` from `@testkit/integration` (§9).
 - **Credentials**: a plugin stores a tenant's key with `sealSecret` / `openSecret` from
   `@/plugins/api`. That is the kit's AES-GCM under `OAUTH_ENCRYPTION_KEY`, with a 503 when the key
   is unset. Store the sealed value in a `*_enc` column and answer `hasCredential`.
@@ -1365,6 +1403,32 @@ Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
   the 56 px header (`h-full` in a plugin page), scrolling only its own panes. The other tiers are
   `shell` (the default), `noTenant` and `public`. `Breadcrumbs` (from `@/plugins/api/ui`) is the
   trail on its own, for a surface with no page title.
+- **Header items (`UiPlugin.header`)**: `{ id, Component, guard?, order?, placement? }[]` adds
+  controls to the top bar — `placement: 'center'` (a search box, in `Layout`'s `headerCenter`) or
+  `'end'` (the default, ahead of the kit's status, Guide help, bell and user menu). `App.tsx`
+  renders them with `PluginHeaderSlot` for every shell and workspace page, ordered by `order`, then
+  plugin id, then item id; each behind its guard (the same `useNavGuard` semantics as nav and
+  routes), inside its own `Suspense` and error boundary, so a slow or throwing item renders nothing
+  and the shell stands. `Component` is `lazy(() => import(...))` like a page. The host reserves no
+  width and collapses nothing on a narrow screen: an item is a compact control and opens anything
+  large as its own lazy chunk. `headerItemIssues` (`plugins.test.ts`) refuses a duplicate id or an
+  unknown placement.
+- **Destinations (`useNavigationEntries()`)**, from `@/plugins/api/ui`: every place the reader may
+  open as one flat list of `{ id, label, to, group, icon?, keywords?, source }` — the side nav as
+  `SideNav` composes it (`composeNav` over `CORE_NAVIGATION` and every plugin's `nav`), the
+  `/settings?tab=` tabs (the core list in `pages/settings/tabs.ts`, which `SettingsLayout` renders,
+  plus every plugin's `settingsTabs({ can })`, all behind the page's `admin`), and the Home quick
+  links (plugins' `homeLinks`, then the core ones). Each is filtered by `useNavGuard`, the first
+  entry for a path wins, and `source` is `kit` or the contributing plugin's id. It is what a
+  command palette searches; `navigationEntries(plugins, checks)` is the pure half.
+- **UI registries (`UiPlugin.extensions`)**: the browser twin of `ServerPlugin.extensions` — plain
+  data under a key the OWNING plugin names (`global-search.commands`), read with `uiExtensions(key)`
+  (and `uiExtensionSources(key)` for the error message) from `@/plugins/api/ui` and narrowed by
+  that owner's schema. It ships in the main bundle with the UI entry, so data only.
+- **`listAgents()`** from `@/plugins/api`: every registered agent (the kit's and each plugin's) as
+  `{ key, title, description }` — the catalogue `GET /api/agents` serves, for a plugin that lists
+  or searches agents. Loaded at call time, off the API's load path; the caller applies the guard
+  (`read AgentRun`).
 - **`resolveOwnerTenant(db, config, ownerSlug?)`** from `@/plugins/api` finds the tenant that owns a
   public surface: `getSingleTenant` under `single`, by slug under `multi`. It returns null for a
   missing slug under `multi`, an unknown slug, and any tenant whose `status` is not `active`. This
@@ -1455,6 +1519,18 @@ Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
   UPDATES the row — text, owner, visibility, grants, chunks, the stored original — so a sync can
   replay safely. Group ids are checked against the tenant first. This file belongs to the
   `feature-knowledge` surface; a plugin that ingests requires it.
+- **Platform knowledge**: `ingestPlatformDocument(ctx, { source, externalId, title, text })` /
+  `prunePlatformDocuments(ctx, { source, keepExternalIds })` write the tenant-less corpus (§9).
+  They take ONLY `JobCtx | CronCtx`, which now carry `kind: 'job' | 'cron'`, so the structurally
+  identical `PublicCtx` is a type error, and they check at run time too. The
+  `source` must be `<installed plugin id>:<kind>` (never `kit:`). Ingest embeds synchronously with
+  the platform embedder, throws `PlatformEmbeddingsError` (503) with nothing written when there is
+  none, and returns `unchanged` for the same title and text. `searchKnowledge(ctx, { query, limit,
+  sources?, platformSources?, signal? })` → `{ hits, semantic }` works from any context with a
+  `scope` and falls back to keyword search. `ServerPlugin.knowledgeSources?(scope)` adds platform
+  sources to the kit's `search_knowledge` tool (unioned; an unnamespaced source is dropped, a throw
+  skipped). `fuseByRank` / `anyTermTsquery` / `candidatePoolSize` are exported for a plugin's own
+  corpus. **Never put tenant data in a platform document**: every organisation can read it.
 - **Skills**: a plugin ships agent skills at `skills/<dir>/` in its own tree and declares them in
   `"skills"`; `add` copies each to `.claude/skills/<dir>/` (the one place outside its roots a
   plugin may write) and records it on the surface, `upgrade` REPLACES it (never patches — an agent's
@@ -1463,6 +1539,27 @@ Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
   directory is a refusal. `plugin check` fails a declared skill that is missing, misnamed or
   undescribed, and a directory in the plugin's namespace it does not declare. `.claude/` in a
   plugin repository stays that repository's own tooling. `example-feature` ships one.
+- **Claude Code hooks** (`claudeHooks`): `{ "<Event>": [{ command, matcher?, timeout? }] }`, merged
+  by `add` into the host's `.claude/settings.json` (created if absent) as one matcher group per hook
+  at the end of its event; `upgrade` replaces them and `remove` takes out exactly them, so a round
+  trip is byte-identical (and deletes a file `add` created). The command may only be
+  `node "$CLAUDE_PROJECT_DIR/.claude/skills/<dir>/<script>"` plus plain flags, over a script one of
+  its declared skills ships: a hook runs in the developer's coding agent, so it can run nothing the
+  plugin does not ship and `remove` does not delete. That skill directory is also what identifies
+  the plugin's entries (the longer id wins on a shared prefix). `plugin check` fails a declared hook
+  missing from the file, an undeclared one in the plugin's namespace, a missing script and a
+  settings file that is not valid JSON. **Known gap:** `.claude/settings.json` is `manual` in
+  `.rocketflare.json`, so an upstream release changing the host's own hooks arrives as a hand merge.
+- **Host files** (`hostFiles`): `[{ path, from }]`, a file or directory the plugin SEEDS for the
+  developer under `docs/<id>/`, `apps/web/src/ui/public/<id>/` (Vite's `publicDir`, served from
+  `dist/ui`) or `apps/web/src/host/<id>/` (nowhere else; `apps/web/public/<id>/` is also accepted
+  so a Rocketflare plugin that declares it installs, but nothing serves that directory). `add`
+  copies only what is absent; `upgrade` never touches one, and seeds only an entry the release
+  adds; `remove` leaves them and lists them. The surface records them in `hostFiles`, outside
+  `paths`, so the file classification knows whose they are and `remove` deletes none. A plugin
+  imports its own `apps/web/src/host/<id>/` as `@/host/<id>/…` (the existing `@/*` alias), and only
+  its own id's (`tests/helpers/plugins.ts`). **Known gap:** `plugin export` does not write host
+  files back to `from` — they are the app's content, not the plugin's.
 - **Hooks** (`onTenantCreated`, `onTenantDeleted`, `seedDemo`) run post-commit, are idempotent,
   and are try/caught. State a plugin keeps outside Postgres (its own storage prefix, an external
   system) is purged in `onTenantDeleted`, addressed by names **derived** from the tenant id.
@@ -1515,7 +1612,11 @@ Cloudflare Email Routing, which has no Rocketpod equivalent (a plugin can take a
 webhook on a `publicRoute` instead); `startAgentRun`'s `idempotencyKey` is forever per (tenant,
 agent, key) — there is no expiry, so a plugin that wants to re-run the same work later must vary
 the key; `RequestCtx` has no `startAgentRun` (a route calls `POST /api/agents/runs`, or enqueues a
-job that does);
+job that does); `streamChat` stores no turn (the plugin owns its history and sends it back), has
+no feedback thumbs (its STATE_SNAPSHOT says `feedback: false`), no summary of a trimmed history
+and no daily cost cap, and a CUSTOM name a TOOL refuses still reaches the model as that tool's
+error result before the run ends; header items get no overflow menu — on a narrow screen each
+plugin keeps its own control compact;
 the ledger judges only ledgered entries, ignores namespace imports, truncates types over 300
 chars, and `uses` is only as fresh as the last export; table collisions are caught by `check`, not
 refused at `add`; the isolation check proves a test exists, not that it is right; no database-free

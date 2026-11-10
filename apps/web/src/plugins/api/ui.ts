@@ -78,6 +78,17 @@ export {
 /** Who is signed in, what they may do, and which groups they are in. */
 export { useAuth, useTenancyMode } from '../../ui/hooks/useAuth'
 export { useGroups, useGroupTypes, useMyGroups } from '../../ui/hooks/useGroups'
+/**
+ * Every destination the reader may open — the composed side nav, the settings tabs (core and
+ * plugin) and the Home quick links — each already filtered by `useNavGuard`. For a "go to"
+ * surface; `navigationEntries` is the pure half, for tests.
+ */
+export type { NavigationChecks, NavigationEntry } from '../../ui/hooks/useNavigationEntries'
+export {
+  navigationEntries,
+  UNLABELLED_NAV_GROUP,
+  useNavigationEntries,
+} from '../../ui/hooks/useNavigationEntries'
 export { useFeature, usePermissions } from '../../ui/hooks/usePermissions'
 /** Hear one row's realtime TOPIC while mounted — a kind the plugin declared in `realtimeTopics`. */
 export { useRealtimeTopic } from '../../ui/hooks/useRealtimeTopic'
@@ -101,5 +112,10 @@ export {
   initials,
   timeAgo,
 } from '../../ui/lib/format'
+/**
+ * The UI twin of `extensions()` in `@/plugins/api/peers`: every installed plugin's
+ * `UiPlugin.extensions[key]`, unparsed — the plugin owning the key narrows them.
+ */
+export { uiExtensionSources, uiExtensions } from '../../ui/lib/plugin-extensions'
 /** A page may also want the wiring vocabulary — a guard on a sub-route, say. */
 export type { NavGuard } from './ui-wiring'

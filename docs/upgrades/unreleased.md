@@ -206,6 +206,14 @@ Plugins can serve whole public hosts (`publicSites`), with a strict per-site CSP
 - The CLI's `ApiClient` gains `getBytes`, `postForm`, and `PUT`/`PATCH` (`HttpMethod`).
 - `pnpm plugin`: a manifest may declare `appOwned` paths (inside `paths`) that `upgrade` leaves alone and `remove` deletes only with `--force-app-owned` (exit 6 without it, a symlink compared by its target); `upgrade` rewrites the anchor `plugin.json` from the release it installs and refuses a release whose manifest fails `plugin check`'s manifest rules before writing anything; `"publicSites": { "hostsVar": "<KEY>" }` must name a declared non-secret var, and `add`/`remove` print a human step for the hosts. `rename` rewrites colours in `theme-tokens.css` too.
 
+Plugins can write knowledge about the app itself (platform documents, readable by every tenant), stream a chat turn of their own, add top-bar controls, list every destination and agent, and seed host files and Claude Code hooks.
+
+- Platform documents: `documents.tenant_id` / `chunks.tenant_id` are nullable (`platformTenantRef`), with a SELECT-only `platformReadable()` policy beside `tenantIsolation()`, a CHECK that a platform row carries `source` + `external_id`, and the unique index `documents_platform_source_external_uq` (migration `0010_kit-platform-knowledge`). `ingestPlatformDocument` / `prunePlatformDocuments` (from `@/plugins/api`, `JobCtx | CronCtx` only — both now carry `kind`) embed with the `EMBEDDINGS_*` key and throw `PlatformEmbeddingsError` with nothing written without one.
+- `searchChunks` takes `sources` / `platformSources` / `signal` (and Rocketpod's own `documents` corpus option, next to `lexicalFallback`), embeds the query once per model when the tenant's embedder differs, and fuses one dense leg per corpus (`services/ai/fusion.ts`, a leaf). `searchKnowledge(ctx, …)` and `ServerPlugin.knowledgeSources(scope)` reach it from a plugin; `search_knowledge` marks platform hits `platform: true`.
+- `streamChat(c, …)` (`plugins/api/chat.ts`) streams a plugin's own chat turn over the kit's resolve seam, loop and AG-UI encoder; `aguiToolEvents` is the tool half shared with `chat-turn.ts`; `promptOwner(key)` names a prompt's plugin. `scriptPlatformChat(env, turns)` in `@testkit/integration` scripts the env's fake model endpoint.
+- UI: `UiPlugin.header` items in `PluginHeaderSlot` (`Layout` gains `headerCenter`), `useNavigationEntries()` / `navigationEntries()`, the core settings tabs as data (`pages/settings/tabs.ts`), `UiPlugin.extensions` with `uiExtensions(key)`, and `listAgents()` from `@/plugins/api`. `CORE_NAVIGATION`, `isNavGroup` and `CORE_QUICK_LINKS` are exported.
+- `pnpm plugin` installs `claudeHooks` into `.claude/settings.json` and seeds `hostFiles` (under `docs/<id>/`, `apps/web/src/ui/public/<id>/` or `apps/web/src/host/<id>/`); `plugin check` audits the hooks both ways; `tests/helpers/plugins.ts` allows a plugin's own `@/host/<id>/` import and checks `UiPlugin.header` items (`headerItemIssues`); `docs/plugin-api.md` gains a section on host files and manifest writes outside a plugin's roots.
+
 ## How to apply
 
 1. Add six columns to the Drizzle schema in `apps/web/src/db/schema/`:
@@ -488,6 +496,13 @@ Plugins can serve whole public hosts (`publicSites`), with a strict per-site CSP
 89. Port the 0.30.0 tests: `tests/api/{public-sites,spa-catch-all,plugin-resolve-owner-tenant}.test.ts`, `tests/config/{deployment-features,ui-shell-csp}.test.ts`, `tests/ui/plugin-route-tiers.test.tsx`, the cases added to `tests/config/{plugins,public-mounts,packaging}.test.ts`, `tests/api/node-server.test.ts` and `apps/cli/tests/api.test.ts`, and the `theme-tokens.css` read in `tests/ui/contrast.test.ts`.
 90. Port the `appOwned` helpers, `declaresPublicSites` and `publicSitesProblems` in `scripts/lib/plugin-lib.mjs` (with `plugin-lib.d.mts`), the `cmdRemove`/`cmdUpgrade` changes in `scripts/plugin.mjs`, and the `theme-tokens.css` colour rewrite in `scripts/rename.mjs`, with the cases in `tests/config/{plugin-path-containment,plugin-skills,plugin-lib}.test.ts`.
 91. Port the docs: `docs/CONCEPTS.md` §1, §7, §15 and §16, `docs/DEPLOY.md` § Public site hosts, `.claude/rules/ui.md`, `rp-plugin/{SKILL,reference}.md`, the `CLAUDE.md` files in `apps/web/src/api/middleware`, `ui` and `plugins`; then run `node scripts/plugin-api-doc.mjs`.
+92. Run `pnpm db:generate --name kit-platform-knowledge` after porting `platformTenantRef` (`db/schema/_helpers.ts`), `platformReadable` (`db/schema/rls.ts`) and their use in `db/schema/{documents,chunks}.ts`; then `pnpm db:migrate`. Code reading `DocumentRow.tenantId` now gets `string | null` — narrow it with `documentTenantId(row)` from `services/ai/ingest.ts`.
+93. Port `apps/web/src/api/services/ai/{platform-documents,fusion}.ts`, the `sources`/`platformSources` half of `retrieval.ts` (keep your `documents` corpus option and the `search_vector` lexical half), `kind` on `JobCtx`/`CronCtx`, and `ingestPlatformDocument`/`prunePlatformDocuments`/`searchKnowledge` in `apps/web/src/plugins/api/knowledge.ts`, with `knowledgeSources` on `ServerPlugin` and `pluginKnowledgeSources` in `services/agents/tools/index.ts`.
+94. Port `apps/web/src/plugins/api/chat.ts` (`streamChat`; `resolveChat` takes `c.get('platform')`), `aguiToolEvents` in `services/ai/agui.ts` (and use it in `chat-turn.ts`), `promptOwner` in `services/prompts.ts`, and `scriptPlatformChat` in `tests/helpers/ai.ts` re-exported from `tests/kit/integration.ts`.
+95. Port `PluginHeaderSlot`, `useNavigationEntries`, `lib/plugin-extensions.ts` and `pages/settings/tabs.ts` (with a `group` per tab for the vertical rail), render `SettingsLayout`'s core tabs from `CORE_SETTINGS_TABS`, add `headerCenter` to `Layout` and both slots to `App.tsx`, and re-export the new hooks from `apps/web/src/plugins/api/ui.ts`.
+96. Port the `claudeHooks` and `hostFiles` blocks of `scripts/lib/plugin-lib.mjs` and the add/upgrade/remove/check changes in `scripts/plugin.mjs` (public root `apps/web/src/ui/public/<id>/`), `Surface.hostFiles` in `upgrade-lib.d.mts`, `headerItemIssues` and the `@/host/<id>` rule in `tests/helpers/plugins.ts`, and the `hostFiles` line in `tests/kit-only/kit-manifest.test.ts`.
+97. Port the 0.31.0 tests: `tests/api/{platform-knowledge,plugin-stream-chat}.test.ts`, `tests/config/{knowledge-sources,plugin-api-load-order,plugin-list-agents,plugin-host-seams}.test.ts`, `tests/ui/{navigation-entries,plugin-header}.test.tsx`, and the cases added to `tests/api/rls-coverage.test.ts`, `tests/driver/driver.test.ts` and `tests/config/plugins.test.ts`.
+98. Port the docs: `docs/CONCEPTS.md` §9 and §16, `docs/RLS.md`, `.claude/rules/{api,database,testing,ui}.md`, `CLAUDE.md`, the `CLAUDE.md` files in `apps/web/src/api/services/{ai,agents}`, `plugins` and `ui`, and `rp-plugin/{SKILL,reference}.md`; then run `node scripts/plugin-api-doc.mjs`.
 
 ## Conflicts to expect
 
@@ -521,6 +536,10 @@ Plugins can serve whole public hosts (`publicSites`), with a strict per-site CSP
 - `apps/web/src/api/index.ts` → one middleware after `databaseMiddleware` and the catch-all rewritten → keep your own order and mounts; place it directly after `databaseMiddleware`.
 - `apps/web/src/node/assets.ts` → root files no longer served before the app → an app that serves its own root files from `dist/ui` keeps working through `ASSETS.fetch`.
 - `apps/web/src/ui/index.css` → the token blocks moved out → keep your palette and move it with them.
+
+- `apps/web/src/api/services/ai/retrieval.ts` → rewritten around one leg per corpus → re-apply local changes to `searchKnowledgeChunks`; keep `SearchChunksOptions.documents` if you use it.
+- `apps/web/src/ui/pages/settings/SettingsLayout.tsx` → core tabs come from `tabs.ts` → move a tab you added to `CORE_SETTINGS_TABS` and `CONTENT`.
+- `apps/web/src/ui/App.tsx` → `PluginHeaderSlot` in `headerCenter` and `headerEnd` → keep your own header widgets beside it.
 
 ## Verify
 
@@ -557,3 +576,6 @@ Plugins can serve whole public hosts (`publicSites`), with a strict per-site CSP
 31. With no plugin declaring `publicSites`, `curl -i http://localhost:3001/api/health` answers from the app, and `curl -i -H 'Accept: text/html' http://localhost:3001/settings` answers the shell while `curl -i http://localhost:3001/assets/missing.js` answers 404.
 32. `pnpm web test:api -- public-sites spa-catch-all node-server` passes.
 33. `helm template x deploy/helm/rocketpod --set config.APP_URL=https://app.example.com --set ingress.enabled=true --set publicSites.hostsVar=SITES_HOSTS --set 'publicSites.hosts={www.example.com}'` renders `SITES_HOSTS: "www.example.com"` in the ConfigMap and an ingress rule for `www.example.com`.
+34. `psql "$DATABASE_URL" -c '\d documents'` lists `documents_platform_source_external_uq` and the CHECK `documents_platform_needs_source`, and `tenant_id` is nullable.
+35. `pnpm web test:api -- platform-knowledge plugin-stream-chat rls-coverage` passes.
+36. `pnpm web test:ui -- navigation-entries plugin-header` and `pnpm web test:config -- knowledge-sources plugin-api-load-order plugin-host-seams` pass.

@@ -5,7 +5,8 @@
  * dimension is a NEW table, not an `ALTER`. Dense retrieval is cosine (`<=>`) over the HNSW index; the lexical half
  * reads `search_vector`, the stored `to_tsvector('english', text)` behind a GIN index (computed at
  * query time it ran over every row twice, for the match and the rank — measured at 444 ms over
- * 3,400 chunks). Every query carries the tenant predicate first.
+ * 3,400 chunks). Every query carries the tenant predicate first — `tenant_id = $t`, or
+ * `tenant_id is null` for a PLATFORM document's chunks (read by every tenant, `platformReadable`).
  */
 import { EMBEDDING_DIM, SEARCH_TEXT_CONFIG } from '@rocketpod/shared/ai/config'
 import { relations, sql } from 'drizzle-orm'
@@ -19,9 +20,9 @@ import {
   uuid,
   vector,
 } from 'drizzle-orm/pg-core'
-import { tenantRef, timestamps } from './_helpers'
+import { platformTenantRef, timestamps } from './_helpers'
 import { documents } from './documents'
-import { tenantIsolation } from './rls'
+import { platformReadable, tenantIsolation } from './rls'
 import { tenants } from './tenants'
 
 /** A Postgres `tsvector` (drizzle has no built-in): read only inside SQL, never selected. */
@@ -34,7 +35,8 @@ export const chunks = pgTable(
     documentId: uuid('document_id')
       .notNull()
       .references(() => documents.id, { onDelete: 'cascade' }),
-    tenantId: tenantRef(tenants),
+    /** The document's tenant, copied; NULL exactly when the document is a platform one. */
+    tenantId: platformTenantRef(tenants),
     /** Position within the document, from 0. */
     seq: integer('seq').notNull(),
     text: text('text').notNull(),
@@ -57,6 +59,7 @@ export const chunks = pgTable(
     index('chunks_embedding_idx').using('hnsw', table.embedding.op('vector_cosine_ops')),
     index('chunks_search_vector_idx').using('gin', table.searchVector),
     tenantIsolation('chunks'),
+    platformReadable('chunks'),
   ]
 )
 

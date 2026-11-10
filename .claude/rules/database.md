@@ -33,12 +33,26 @@ Rocketpod): `postgres.js`** — the Node entry's process pool. Never add `pg`. *
   (`and(eq(t.tenantId, tenantId), inScope(scope))`) rather than allow-listing a correct query
 - `users` is global (a person belongs to many tenants); visibility is through `tenant_users`
 - `TENANCY_MODE=single` changes nothing here: the schema is identical in both modes (D25)
+- **Platform rows** are the one sanctioned null tenant: `documents` and `chunks` use
+  `platformTenantRef()` (nullable) instead of `tenantRef()`, and a row with `tenant_id` NULL is the
+  app describing itself, readable by EVERY tenant. Never give another table a nullable tenant
+  without the same review. A CHECK makes a platform document carry `source` + `external_id`
+  (`documents_platform_source_external_uq` is their identity), and only
+  `services/ai/platform-documents.ts` writes them, on the owner connection, from a job or cron.
+  Every tenant read keeps `tenant_id = $t`; platform rows are reached only by `tenant_id IS NULL
+  AND source = ANY(…)` in `searchChunks`. Code reading `DocumentRow.tenantId` gets
+  `string | null`; `documentTenantId(row)` is the narrowing that throws on a platform row
 
 ## Row-level security — shipped inert (D1, docs/RLS.md)
 
 Every table with a `tenantId` MUST include `tenantIsolation('<table>')` in its `extraConfig`; a table
 without one goes in `RLS_EXCLUDED_TABLES` (`apps/web/src/db/schema/rls.ts`) with the reason.
-`apps/web/tests/api/rls-coverage.test.ts` fails CI either way until you do. The policies are `FOR ALL TO
+`apps/web/tests/api/rls-coverage.test.ts` fails CI either way until you do. `documents` and
+`chunks` also carry `platformReadable('<table>')`, a second permissive policy `FOR SELECT … USING
+(tenant_id IS NULL)` with no `WITH CHECK`. Policies OR, so a scoped read sees its tenant's rows plus
+the platform rows, and writes stay under `tenantIsolation` alone, whose `WITH CHECK` refuses a
+null tenant. `rls-coverage` pins the pair and the exact table list: a new platform-readable table
+is a design decision. The policies are `FOR ALL TO
 rocketpod_app` with `USING` and `WITH CHECK` on `tenant_id = nullif(current_setting('app.tenant_id',
 true), '')::uuid`. `apps/web/scripts/db-roles.ts` creates `rocketpod_app` `NOLOGIN`, `NOBYPASSRLS`
 via SQL, so policies resolve while nothing can connect as the role.

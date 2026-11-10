@@ -71,6 +71,13 @@
       "when": 1794335146497,
       "tag": "0009_invitation-send-limits",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1794337405529,
+      "tag": "0010_kit-platform-knowledge",
+      "breakpoints": true
     }
   ]
 }

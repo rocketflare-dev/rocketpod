@@ -75,12 +75,14 @@ import {
   isolationEvidence,
   isVendored,
   jsonKeyLine,
+  manifestPathProblems,
   missingDependencies,
   newlyAddedDependencies,
   nextAddedDependencies,
   PLUGIN_MANIFEST_FILE,
   parsePluginRequirement,
   pinDeclaredRanges,
+  pluginAnchor,
   pluginIdProblem,
   pluginManifestProblems,
   pluginPlatformProblems,
@@ -105,6 +107,7 @@ import {
   withoutDependencies,
 } from './lib/plugin-lib.mjs'
 import { applyReplacements, deriveNames, isBinary } from './lib/rename-lib.mjs'
+import { containedPath, writePathProblem } from './lib/repo-paths.mjs'
 import { missingFrom, readLedger, usesOf } from './lib/surface.mjs'
 import {
   compareVersions,
@@ -489,10 +492,42 @@ function materialise(buffer, names) {
 }
 
 function writeInto(rel, content) {
-  const file = abs(rel)
+  const file = containedPath(REPO_ROOT, rel)
   mkdirSync(path.dirname(file), { recursive: true })
   writeFileSync(file, content)
 }
+
+/**
+ * Stop, before a single byte moves, if any path a manifest or a release steers is one this command
+ * may not touch: a manifest path outside the plugin or the repository, or a target that passes
+ * through a symlink. Each `targets` entry is a repo-relative path about to be written or removed.
+ */
+function refuseUnsafePaths(id, manifests, targets) {
+  const lines = manifests
+    .flatMap(m => manifestPathProblems(m, id))
+    .map(p => `  ${p.field}: ${p.path} ${p.problem}`)
+  if (lines.length === 0) {
+    for (const rel of new Set(targets)) {
+      const problem = writePathProblem(REPO_ROOT, rel)
+      if (problem) lines.push(`  ${rel} ${problem}`)
+    }
+  }
+  if (lines.length === 0) return
+  stop(
+    1,
+    `error: ${id} names paths this command may not touch:`,
+    ...lines,
+    '',
+    `A plugin writes only inside its own roots (${pluginRoots(id).join(', ')}), its declared`,
+    'skills and the core edits it declares, never through a symlink. Nothing has been written.'
+  )
+}
+
+/** Every repo-relative path `add` or `upgrade` writes for one manifest, the release's files aside. */
+const manifestWriteTargets = m => [
+  ...coreEditsByFile(m).keys(),
+  ...Object.keys(m.dependencies ?? {}).map(pkg => `${pkg}/package.json`),
+]
 
 // ---------------------------------------------------------------- add
 
@@ -595,6 +630,17 @@ function cmdAdd(args, host) {
     )
   }
 
+  const anchorPath = pluginAnchor(m)
+  refuseUnsafePaths(
+    m.id,
+    [m],
+    [
+      ...files.filter(f => f.role === 'copy' || f.role === 'note').map(f => f.target),
+      anchorPath,
+      ...manifestWriteTargets(m),
+    ]
+  )
+
   // Target collisions. Both halves matter: a directory that is already there, and an id already
   // recorded — the second is how a re-run of `--apply` would otherwise silently reinstall.
   if (host.plugins.some(s => s.id === m.id)) {
@@ -686,7 +732,6 @@ function cmdAdd(args, host) {
   // one and not the other: every install of `analytics` 2.0.1 then failed the audit with "plugin.json
   // says X and the surface says Y", over code that was perfectly correct. Writing it from the source
   // manifest here makes that state unrepresentable.
-  const anchorPath = m.anchor ?? `apps/web/src/plugins/${m.id}/plugin.json`
   writeInto(anchorPath, materialise(source.read(PLUGIN_MANIFEST_FILE), host.names))
   if (!targets.includes(anchorPath)) targets.push(anchorPath)
   for (const kind of barrels) {
@@ -965,6 +1010,17 @@ function cmdUpgrade(args, host) {
       ...refused.map(f => `  ${f.path}`)
     )
   }
+  refuseUnsafePaths(
+    id,
+    [targetManifest ?? {}, installedManifest, { anchor: surface.anchor, paths: surface.paths }],
+    [
+      ...files
+        .filter(f => (f.role === 'copy' || f.role === 'note') && f.change !== 'deleted')
+        .map(f => f.target),
+      ...manifestWriteTargets(targetManifest ?? {}),
+      ...manifestWriteTargets(installedManifest),
+    ]
+  )
 
   // Every note's `requires_kit` is checked against THIS kit, because a plugin release may raise
   // its floor and the whole point of the range is that nobody finds out at the gate.
@@ -1349,6 +1405,11 @@ function cmdRemove(args, host) {
   const anchorManifest = existsSync(abs(surface.anchor))
     ? JSON.parse(readFileSync(abs(surface.anchor), 'utf8'))
     : {}
+  refuseUnsafePaths(
+    id,
+    [{ anchor: surface.anchor, paths: surface.paths, coreEdits: anchorManifest.coreEdits }],
+    [...directories, ...coreEditsByFile(anchorManifest).keys()]
+  )
   const tables = anchorManifest.schema?.tables ?? []
 
   const say = (...lines) => {

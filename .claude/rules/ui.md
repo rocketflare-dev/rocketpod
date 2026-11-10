@@ -17,16 +17,18 @@ Dev: Vite on :3000 proxies `/api`, `/auth`, `/ws` — plus every prefix an insta
 
 ## Design tokens, not raw colours
 
-- Themes are two `@plugin "daisyui/theme"` blocks in `apps/web/src/ui/index.css`
-  (`rocketpod-light` default, `rocketpod-dark` prefersdark). The brand variables at the top of that
-  file are the ONLY place a hex appears (rebrand steps: its header comment). Components use DaisyUI
+- Themes are two `@plugin "daisyui/theme"` blocks in `apps/web/src/shared/theme-tokens.css`
+  (`rocketpod-light` default, `rocketpod-dark` prefersdark), imported by `ui/index.css` and by any
+  public-site stylesheet. Its brand variables are the ONLY place a hex appears (rebrand steps: the
+  header comment in `ui/index.css`). Components use DaisyUI
   semantic classes (`bg-base-200`, `text-primary`, `badge-warning`) or the kit's surface/border/
   text tokens (`--surface-panel`, `--border-subtle`, `.text-muted`, `.surface-panel`); **never
   `bg-blue-50`-style palette utilities**
 - `apps/web/tests/ui/contrast.test.ts` gates the emitted tokens (WCAG AA: text 4.5:1, controls and
   focus ring 3:1); if you change a colour, run it
 - `ThemeToggle` sets `data-theme` on `<html>`; the DOM attribute is the state, mirrored to
-  `localStorage['theme']` and validated on read (`index.html` pre-hydration script)
+  `localStorage['theme']` and validated on read (`public/assets/theme-init.js`, the pre-hydration
+  script — a file, because the shell's CSP refuses inline script; it also sets zod's `jitless`)
 - Tailwind v4 content scanning: `index.css` starts with `@import "tailwindcss" source(none)` and
   then explicit `@source "./index.html"` / `@source "./**/*.{ts,tsx}"` — scoped to
   `apps/web/src/ui`. **Lesson**: without `source(none)` v4 auto-detects sources from the package

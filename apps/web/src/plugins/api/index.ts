@@ -66,6 +66,7 @@ export type {
 export {
   AiNotConfiguredError,
   agentCtx,
+  chatModelAvailable,
   defineTool,
   recordUsage,
   toolCtx,
@@ -94,6 +95,9 @@ export type {
   PluginMount,
   PluginPublicMount,
   PluginPublicMountOptions,
+  PublicSiteCsp,
+  PublicSiteFormPath,
+  PublicSitesDeclaration,
   RequestCtx,
   RequestVisibility,
 } from './http'
@@ -109,7 +113,7 @@ export type {
   PluginSignInInput,
   SsoRequirement,
 } from './identity'
-export { identityFor, provisionFor } from './identity'
+export { identityFor, provisionFor, resolveOwnerTenant } from './identity'
 export type {
   BackgroundMethods,
   CronCtx,
@@ -147,7 +151,7 @@ export {
   withAgentTrace,
 } from './observability'
 export type { PublicCtx } from './public'
-export { memberCan, PUBLIC_MOUNT_ROOT, publicCtx } from './public'
+export { memberCan, PUBLIC_MOUNT_ROOT, PUBLIC_SITE_PAGE_CSP_HEADER, publicCtx } from './public'
 export type { StepRealtime } from './realtime-step'
 export { createStepRealtimeFor } from './realtime-step'
 export { openSecret, sealSecret, signState, verifyState } from './secrets'

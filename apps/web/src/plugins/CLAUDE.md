@@ -146,6 +146,20 @@ release.
   `tests/config/plugins.test.ts` refuses a public mount outside the plugin's own `/api/hooks/<id>`
   and any authed mount under `/api/hooks`. The host's per-IP rate limit and body cap, and the
   overrides: `/rp-plugin` reference § Public mounts.
+- **`publicSites` answers whole hosts** for anonymous readers: its router takes everything on a
+  host from `hosts(config)`, so the app's `/api/*` and `/auth/*` do not exist there. Return `null`
+  from `hosts` on bad config (dormant, plain 503). `cache.generation` and `csp` never touch
+  Postgres; `csp` also gets the pathname, for a path that must carry less than the rest of the
+  host, and one page that embeds something adds its own sources with
+  `PUBLIC_SITE_PAGE_CSP_HEADER` (JSON, `PublicSiteCsp`; it can only add). A `connectSrc` or
+  `formAction` entry that is a path is pinned to the request's origin. Find the owner with
+  `resolveOwnerTenant(db, config, slug)`, and branch on `TENANCY_MODE` only there and in the config
+  parser. Declare the hosts var in the manifest (`"publicSites": { "hostsVar": "SITES_HOSTS" }`);
+  routing the hosts to the server is the deployment's (`docs/DEPLOY.md` § Public site hosts). Site
+  scripts and styles load from `/site-assets/` only: the admin bundle in `/assets/` is outside the
+  public CSP. `docs/CONCEPTS.md` §16 has the rules.
+- **`appOwned` manifest paths are the developer's**: `plugin upgrade` leaves them alone, and
+  `plugin remove` needs `--force-app-owned` to delete files changed or added there.
 - **It signs people in through `identityFor(c, '<id>').signIn(...)` and provisions through
   `provisionFor(ctx, '<id>')`** (`api/identity.ts`), **never by writing a session** — no
   `user_sessions` row, cookie, `admitUser` or `tenant_users` write of its own. Both trust the caller

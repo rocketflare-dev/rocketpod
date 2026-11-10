@@ -122,6 +122,57 @@ replicas share the pg-boss queue (`JOBS_CONCURRENCY` jobs each) and OpenWorkflow
 there are. Size Postgres `max_connections` for roughly
 `(web + worker replicas) × (DATABASE_POOL_MAX + 8)`.
 
+## Public site hosts
+
+A plugin declaring `publicSites` (`docs/CONCEPTS.md` §16) answers whole websites on hosts of its
+own: on a claimed host its router answers every path, and `/api/*`, `/auth/*` and `/ws` do not exist
+there. Its manifest names the var that lists those hosts (`"publicSites": { "hostsVar":
+"SITES_HOSTS" }`), and the plugin's `hosts(config)` reads it. Nothing in Rocketpod routes by host
+before the app: the Node server receives every host the ingress or proxy sends it, and
+`middleware/public-sites.ts` (after the database middleware, before every mount) picks the plugin
+from the request URL's own host, never a forwarded header. So a site host needs three things, per
+environment:
+
+- **The var.** Set the plugin's hosts var (`SITES_HOSTS=www.example.com,docs.example.com`, in the
+  plugin's own format) in `.env`, the Compose environment or the Helm values below.
+- **The proxy accepts the host and passes `Host` through.** With the chart, list the hosts once:
+
+  ```yaml
+  publicSites:
+    hostsVar: SITES_HOSTS        # the manifest's publicSites.hostsVar
+    hosts: [www.example.com, docs.example.com]
+  ingress:
+    tls:
+      - secretName: sites-tls
+        hosts: [www.example.com, docs.example.com]
+  ```
+
+  The chart sets `SITES_HOSTS` to the list, comma-separated, in the ConfigMap, and gives every host
+  an ingress rule for `/` to the same Service; the render fails on `hosts` with no `hostsVar`. If
+  the plugin's var carries more than bare hosts (`www.example.com=www`), leave `hostsVar` empty, set
+  the var under `config` yourself and add the hosts to `ingress.hosts`. With Compose, or any proxy
+  of your own, route the hosts to the `web` service and keep the `Host` header (Caddy and
+  ingress-nginx do by default; nginx needs `proxy_set_header Host $host`).
+- **DNS and a certificate** for each host, pointing at the ingress, and the hosts in the TLS
+  secret. An apex host is allowed; redirecting `example.com` to `www` belongs in the proxy.
+
+The app's own host (`APP_URL`'s) can never be claimed, and a claim the gate refuses (a duplicate,
+an uppercase host, a port) fails `tests/config/plugins.test.ts` (`publicSiteIssues`). While a
+plugin's `hosts` answers null (its config is bad), every host other than the app's and loopback
+gets a plain, uncached 503, so a site host never falls through to the admin app.
+
+Static files on a site host: the server serves `/assets/*` (the admin bundle) and `/site-assets/*`
+(a public site's own scripts and styles) from the UI build before the app runs, on every host; any
+other path, root files such as `/robots.txt` included, goes through the app, so on a site host the
+plugin answers it. A site's CSP loads scripts and styles from `<origin>/site-assets/` only, so a
+site page cannot load the admin bundle. A missing file under either prefix is a 404, never the
+shell. `Strict-Transport-Security` carries `includeSubDomains` only on `APP_URL`'s host, so a site
+on an apex domain does not pin its subdomains.
+
+**No response cache.** Rocketflare stores a site's cacheable pages in the Workers Cache API
+(`publicSites.cache`); a Node process has none, so Rocketpod accepts the declaration and every page
+request reaches the plugin's router. Put a CDN in front of the site hosts for shared caching.
+
 ## Secrets checklist
 
 | Key | Needed for |

@@ -22,6 +22,8 @@ const VALUES = read(`${CHART}/values.yaml`)
 const WEB = read(`${CHART}/templates/web.yaml`)
 const WORKER = read(`${CHART}/templates/worker.yaml`)
 const MIGRATE = read(`${CHART}/templates/migrate.yaml`)
+const INGRESS = read(`${CHART}/templates/ingress.yaml`)
+const CONFIGMAP = read(`${CHART}/templates/configmap.yaml`)
 
 /** `src/config.ts`'s schema keys, split where the file marks the secrets half. */
 function configKeys(): { vars: string[]; secrets: string[] } {
@@ -142,5 +144,11 @@ describe('the Helm chart', () => {
     expect(WEB).toContain('path: /readyz')
     expect(WEB).toContain('path: /healthz')
     expect(WORKER).toContain('path: /healthz')
+  })
+
+  it('routes every public site host to the app and hands the list to the plugin var', () => {
+    expect(VALUES).toMatch(/^publicSites:\n {2}hostsVar: ""\n {2}hosts: \[\]/m)
+    expect(INGRESS).toContain('range .Values.publicSites.hosts')
+    expect(CONFIGMAP).toContain('{{ .hostsVar }}: {{ join "," .hosts | quote }}')
   })
 })

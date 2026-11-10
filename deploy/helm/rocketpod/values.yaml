@@ -179,6 +179,16 @@ ingress:
   #  - secretName: rocketpod-tls
   #    hosts: [app.example.com]
 
+# Public site hosts: an installed plugin declaring `publicSites` answers whole websites on hosts of
+# their own (docs/DEPLOY.md § Public site hosts). `hostsVar` is the var its manifest names
+# (`publicSites.hostsVar`, e.g. SITES_HOSTS); the chart sets it to `hosts`, comma-separated, and
+# gives every host an ingress rule to the same Service. Add the hosts to `ingress.tls` too.
+publicSites:
+  hostsVar: ""
+  hosts: []
+  #  - www.example.com
+  #  - example.com
+
 serviceAccount:
   create: true
   name: ""

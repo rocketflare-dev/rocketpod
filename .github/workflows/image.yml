@@ -70,7 +70,9 @@ jobs:
           set -euo pipefail
           args=(--set config.APP_URL=https://app.example.com
                 --set secrets.DATABASE_URL=postgresql://u:p@db:5432/app
-                --set ingress.enabled=true)
+                --set ingress.enabled=true
+                --set publicSites.hostsVar=SITES_HOSTS
+                --set 'publicSites.hosts={www.example.com}')
           helm lint deploy/helm/rocketpod "${args[@]}"
           helm template ci deploy/helm/rocketpod "${args[@]}" > "$RUNNER_TEMP/rendered.yaml"
           helm template ci deploy/helm/rocketpod --set config.APP_URL=https://app.example.com \

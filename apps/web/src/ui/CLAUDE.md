@@ -28,7 +28,8 @@ Built to `dist/ui`, served in production by the Node server (`src/node/assets.ts
   (`/select-tenant`, `/pending`, `/no-access` — `ProtectedRoute requireTenant={false}`), and the
   shell (`/*` — `ProtectedRoute`, `Layout` mounted ONCE, nested `<Routes>` beneath it; a second
   `ErrorBoundary` wraps each `<main>`). Installed plugins' routes are mapped per tier inside the
-  same `Suspense`.
+  same `Suspense`; a `workspace`-tier route lives in the shell, and `Layout`'s `workspace` prop
+  gives it the icon rail, no padding and the full height.
 - `index.css` — the design system: themes `rocketpod-light`/`rocketpod-dark`, semantic tokens
   (`--surface-*`, `--border-*`, `--text-*`, `--tone-*`), primitives (`.surface-panel`,
   `.data-table`, `.status-badge`, `.nav-item`), `@source` lines, safelist. Rebrand instructions are

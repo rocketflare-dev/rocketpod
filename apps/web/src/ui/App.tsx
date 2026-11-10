@@ -7,12 +7,13 @@
  *
  * Route tiers: public (`/login`, `/magic-link/sent`, `/magic-link/confirm`, `/invite/:token`);
  * signed-in-without-tenant (`/select-tenant`, `/pending`, `/no-access` — `ProtectedRoute
- * requireTenant={false}`); and the shell (`/*` — `ProtectedRoute`, `Layout` mounted ONCE, nested
- * routes swap beneath it).
+ * requireTenant={false}`); the shell (`/*` — `ProtectedRoute`, `Layout` mounted ONCE, nested
+ * routes swap beneath it), which also renders a plugin's `workspace` routes: the same guards, but
+ * `Layout` is told to give the page the whole space under the header.
  */
 import { QueryClientProvider } from '@tanstack/react-query'
 import { lazy, Suspense } from 'react'
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router'
+import { BrowserRouter, matchRoutes, Navigate, Route, Routes, useLocation } from 'react-router'
 import type { PluginRouteTier } from '@/plugins/types'
 import { uiPlugins } from '@/plugins/ui'
 import { ConnectionBanner } from '@/ui/components/ConnectionBanner'
@@ -104,6 +105,8 @@ function pluginRoutes(tier: PluginRouteTier) {
           element={
             tier === 'noTenant' ? (
               <NoTenantRoute>{guarded}</NoTenantRoute>
+            ) : tier === 'workspace' ? (
+              <WorkspaceRoute>{guarded}</WorkspaceRoute>
             ) : tier === 'public' ? (
               <Suspense fallback={<LoadingIndicator size="lg" centered />}>{guarded}</Suspense>
             ) : (
@@ -113,6 +116,20 @@ function pluginRoutes(tier: PluginRouteTier) {
         />
       )
     })
+}
+
+/**
+ * Whether a path inside the shell is a plugin `workspace` route. Matched against the plugin routes
+ * `Layout` renders (`shell` and `workspace`) with the router's own ranking, so a shell route that
+ * out-ranks a dynamic workspace path stays a shell route.
+ */
+const SHELL_PLUGIN_ROUTES = uiPlugins
+  .flatMap(p => p.routes)
+  .filter(r => r.tier === undefined || r.tier === 'shell' || r.tier === 'workspace')
+  .map(r => ({ path: r.path, tier: r.tier ?? 'shell' }))
+
+function isWorkspacePath(pathname: string): boolean {
+  return matchRoutes(SHELL_PLUGIN_ROUTES, pathname)?.at(-1)?.route.tier === 'workspace'
 }
 
 /** Sidebar footer: which org (and as what) the reader is acting in. */
@@ -143,8 +160,10 @@ function ShellRoutes() {
 }
 
 function ShellLayout() {
+  const workspace = isWorkspacePath(useLocation().pathname)
   return (
     <Layout
+      workspace={workspace}
       headerStart={<OrgSwitcher />}
       headerEnd={
         <>
@@ -156,8 +175,8 @@ function ShellLayout() {
       }
       sidebarFooter={<TenantFooter />}
     >
-      <ConnectionBanner className="mb-4" />
-      <PendingInvitationsBanner className="mb-6" />
+      <ConnectionBanner className={workspace ? 'rounded-none' : 'mb-4'} />
+      <PendingInvitationsBanner className={workspace ? 'rounded-none' : 'mb-6'} />
       <Suspense fallback={<LoadingIndicator fullPage />}>
         <Routes>
           <Route path="/" element={<Home />} />
@@ -253,6 +272,7 @@ function ShellLayout() {
             <Route path="feature-flags" element={<FeatureFlags />} />
           </Route>
           {pluginRoutes('shell')}
+          {pluginRoutes('workspace')}
           <Route path="*" element={<NotFound />} />
         </Routes>
       </Suspense>
@@ -266,6 +286,18 @@ function NoTenantRoute({ children }: { children: React.ReactNode }) {
     <ProtectedRoute requireTenant={false}>
       <Suspense fallback={<LoadingIndicator size="lg" centered />}>{children}</Suspense>
     </ProtectedRoute>
+  )
+}
+
+/**
+ * A plugin `workspace` page: the flex child of `Layout`'s `<main>` that the page sizes itself
+ * against. Its own `Suspense`, so the spinner sits in the space the page will fill.
+ */
+function WorkspaceRoute({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="min-h-0 flex-1">
+      <Suspense fallback={<LoadingIndicator fullPage />}>{children}</Suspense>
+    </div>
   )
 }
 

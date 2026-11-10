@@ -86,6 +86,7 @@ import type { PluginContext } from './types'
 export type { IdpAppRole } from '@rocketpod/shared/idp'
 export type { PluginLoginMethodDeclaration } from '../../api/auth/plugin-login-methods'
 export type { SsoRequirement } from '../../api/auth/sso-policy'
+export { resolveOwnerTenant } from '../../api/utils/db/tenant-helpers'
 
 /** A person as this module answers them: plain fields, never the row. */
 export interface PluginIdentityUser {

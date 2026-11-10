@@ -1,6 +1,9 @@
 {{- if not .Values.config.APP_URL }}
 {{- fail "config.APP_URL is required: the public origin, e.g. https://app.example.com" }}
 {{- end }}
+{{- if and .Values.publicSites.hosts (not .Values.publicSites.hostsVar) }}
+{{- fail "publicSites.hosts needs publicSites.hostsVar: the var the plugin's manifest names" }}
+{{- end }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -11,5 +14,10 @@ data:
   {{- range $key, $value := .Values.config }}
   {{- if ne (toString $value) "" }}
   {{ $key }}: {{ toString $value | quote }}
+  {{- end }}
+  {{- end }}
+  {{- with .Values.publicSites }}
+  {{- if and .hostsVar .hosts }}
+  {{ .hostsVar }}: {{ join "," .hosts | quote }}
   {{- end }}
   {{- end }}

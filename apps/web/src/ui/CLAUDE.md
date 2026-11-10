@@ -1,6 +1,6 @@
 # UI (React SPA)
 
-React 18 + Vite + React Router 6 + TanStack Query 5 + zustand; DaisyUI 5 on Tailwind v4. Dev: Vite on
+React 19 + Vite + React Router 7 + TanStack Query 5 + zustand; DaisyUI 5 on Tailwind v4. Dev: Vite on
 :3000 proxies `/api`,`/auth`,`/ws` (+ an installed plugin's own prefixes) → :3001 (`DEV_UI_PORT` / `DEV_API_PORT` move them, `scripts/lib/dev-ports.mjs`). Prod: `dist/ui` served by the Node server (`src/node/assets.ts`).
 
 ## Layout
@@ -19,7 +19,7 @@ React 18 + Vite + React Router 6 + TanStack Query 5 + zustand; DaisyUI 5 on Tail
   Guards: `ProtectedRoute` (session + tenant → `noTenantRoute`; a global admin with NO tenant is
   let through to `/admin/*` only — `isAdminPath`), `RequireGuard` (any `NavGuard`),
   `AdminRoute`/`GlobalAdminRoute` (sugar over it). `components/permissions/` — `AbilityProvider`
-  (unpacks `session.permissions`), `Can`, `IfCan`/`IfCannot`. Realtime: `WebSocketProvider`
+  (unpacks `session.permissions`), `IfCan`/`IfCannot`. Realtime: `WebSocketProvider`
   (connects the singleton once authenticated with a tenant, `useQueryClient()` →
   `invalidateQueries` per root from `invalidationsFor(event)`, toasts `notification.created`),
   `WebSocketStatus` (header dot), `ConnectionBanner` (after 5 s away from `open`).

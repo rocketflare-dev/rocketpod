@@ -11,7 +11,7 @@ migrations:
   - "users.global_admin_source (text manual|idp, nullable)"
   - "user_sessions.max_expires_at (timestamptz, nullable)"
   - "agent_runs.batch_id (uuid, nullable); indexes agent_runs (tenant_id, status), partial agent_runs (tenant_id, batch_id) and partial ai_usage (tenant_id, agent_run_id)"
-areas: [api, db, config, shared, ui, cli, docs]
+areas: [api, db, config, shared, ui, cli, docs, ci, scripts]
 touches_surfaces:
   - feature-guide
   - example-guide-pages
@@ -98,6 +98,52 @@ nav groups share one block.
 - `stripControlChars` / `stripControlCharsDeep` (`apps/web/src/api/utils/core/text.ts`) clean
   `documents.content`, `chunks.text` and every `ai_spans` string before the write.
 - `composeNav` folds an unlabelled plugin nav group into the unlabelled group right before it.
+
+Every dependency is current and the runtime is Node 26, in the image too: React 19, React Router 7,
+vitest 5, Vite 8, postgres.js 4, CASL 7, the Anthropic SDK 1.x (API version `2026-10-21`), AG-UI
+1.0.3; workflows pin every Action by SHA, with timeouts and least-privilege permissions.
+
+- **Node 26**: `.nvmrc`, `engines.node` `>=26`, `@types/node` 26, the server bundle's esbuild
+  target `node26`, and the `Dockerfile`'s `NODE_VERSION` (both stages). Node 26 ships no corepack,
+  so the build stage installs the `packageManager` pnpm with `npm install -g`, and the docs, skills
+  and bootstrap hints say `npm i -g pnpm@10`. `packageManager` is `pnpm@10.34.9`.
+- **Versions only**: every dependency at the newest release its range allows (`pnpm update -r`,
+  24 h publish delay), `jsdom` 30, `@testing-library/jest-dom` 7, `chalk` 6, `esbuild` 0.28 (web and
+  cli), `@hono/zod-validator` 0.9, Biome 2.6 (`biome.json` migrated: `"preset": "recommended"`;
+  `noComponentHookFactories` off for tests, suppressed on `schemaForm`'s `Component`), and the
+  runtime's own: `pg-boss` 12.38.1, `openworkflow` 0.11.0, `ws` 8.22.2, `@aws-sdk/*` 3.1164.0,
+  `unpdf` 2.1.0 (ESM only; `extractText` unchanged), `pixelmatch` 8. `apps/web` drops `dotenv`
+  (nothing imports it, and 18's bin displaces `dotenv-cli`'s).
+- `apps/cli/src/auth.ts`: the callback server's 404 sends `Connection: close` — a kept-alive socket
+  outlived `close()` and the next server on that port got `ECONNRESET` (deterministic on Node 26).
+- vitest 5 (`apps/web`, `apps/cli`; `apps/evals` stays on 4 for `vitest-evals`): `maxWorkers`
+  replaces `poolOptions.forks`, `coverage.all` is gone, the configs use `import.meta.dirname` and
+  extensioned imports. Behaviour your tests may meet: `clearMocks` defaults to `true`, an unawaited
+  `.resolves`/`.rejects` fails, `-t` matches the `>`-joined full name.
+- AG-UI `1.0.3` exact (`@ag-ui/core`, `encoder`, `proto`); `TOOL_CALL_RESULT.content` is read as
+  `string | object` in the evals transcript.
+- postgres.js 4: same API on a new pool and protocol; a `Date` sent to a `timestamp`/`date` column
+  without a fixed type goes as UTC (every table here is `withTimezone: true`). OpenWorkflow 0.11
+  still declares a `postgres@^3` peer; the pool Rocketpod hands it is v4 and its suites pass on it.
+- CASL 7; `@casl/react` removed. `IfCan`, `IfCannot` and `usePermissions` are the UI's only gates;
+  `AbilityContext` and `Can` are no longer exported.
+- `@anthropic-ai/sdk` 1.x sends API version `2026-10-21` and the key as `Authorization: Bearer` to
+  both `anthropic` and `anthropic_compatible` (one client constructor). The `anthropic` adapter never
+  sends `temperature`; a compatible vendor still gets it where its model takes one. A proxy that
+  reads `X-Api-Key` must change.
+- `withRollingCacheBreakpoints` skips a `system`-role message.
+- Vite 8 + `@vitejs/plugin-react` 6: Rolldown builds and Oxc minifies (`build.minify: 'esbuild'`
+  dropped), `HttpProxy.ProxyServer`. `MagicLinkSentCard` moves to `ui/components/`, so
+  `/magic-link/sent` splits into its own chunk.
+- React 19 and React Router 7: the app imports `react-router`; `react-router-dom` 7 stays installed
+  for plugins. No `future` prop on the routers; the vitest `ui` project resolves with Vite's
+  `defaultClientConditions` (`tests/ui/router-instance.test.tsx`). React 19's ref types widen the
+  Guide's `RefObject` props to `RefObject<T | null>`.
+- CI hardening: every Action pinned as `owner/repo@<sha> # vX.Y.Z` (the Docker and Helm actions
+  too), `persist-credentials: false` on every checkout, `timeout-minutes` on every job,
+  `permissions: contents: read` at the top of `evals.yml`, `kit.yml` and `notify-plugins.yml`,
+  gitleaks checked by SHA-256, `evals.yml`'s suite filter quoted, and `image.yml`'s `publish` job
+  rebuilds without `cache-from: type=gha` (a cache any run can write never reaches a pushed image).
 
 ## How to apply
 
@@ -255,6 +301,50 @@ nav groups share one block.
     `agent_runs` insert) with `ctx.startAgentRun({ …, idempotencyKey: '<what>:<id>' })`, and a
     hand-built `platform.storage` read in an agent or tool with `ctx.storage()`.
 
+40. Write `26` to `.nvmrc`, set the root `engines.node` to `">=26"` and `packageManager` to
+    `"pnpm@10.34.9"`, `nvm install`, then `pnpm update -r --config.minimum-release-age=1440`. In
+    the `Dockerfile` set `ARG NODE_VERSION=26` and replace `RUN corepack enable` with
+    `RUN npm install -g "$(node -p "require('./package.json').packageManager")"` after the manifests
+    are copied; in `apps/web/scripts/build-server.mjs` set `target: 'node26'`.
+41. Run Rocketflare 0.25.0's step 10 with `@rocketpod` for the scope (shared, web, cli, evals; leave
+    `apps/evals` on vitest 4), then `pnpm --filter @rocketpod/web remove @casl/react dotenv` (keep
+    `dotenv` on `^17` if your own code imports it) and `pnpm install`.
+42. Take the runtime's own current releases: `pnpm --filter @rocketpod/web add --save-exact
+    pg-boss@12.38.1 openworkflow@0.11.0 ws@8.22.2 @aws-sdk/client-s3@3.1164.0
+    @aws-sdk/lib-storage@3.1164.0 unpdf@2.1.0` and `-D esbuild@^0.28.2 pixelmatch@^8.0.0`.
+43. In `apps/cli/src/auth.ts` `handleCallback`, add `Connection: 'close'` to the 404's headers.
+44. `apps/web/vitest.config.ts`: `maxWorkers: MAX_WORKERS` for `poolOptions`, no `coverage.all`,
+    `import.meta.dirname` for `__dirname`, `.ts` on the two `./tests/helpers/` imports, and the `ui`
+    project's `resolve: { alias, conditions: [...defaultClientConditions] }`; `import.meta.dirname`
+    in `vite.config.ts` and `apps/evals/vitest*.config.ts` too, and in `vite.config.ts` drop
+    `minify: 'esbuild'` and type `onProxyError`'s parameter `HttpProxy.ProxyServer`.
+45. `pnpm exec biome migrate --write`, then add the `noComponentHookFactories: "off"` override for
+    `apps/*/tests/**` and `apps/web/src/plugins/*/tests/**`; hoist or `biome-ignore` what `src/`
+    still reports.
+46. In `services/ai/client.ts`, send `temperature` only for `anthropic_compatible` and build both
+    providers' SDK client as `new Anthropic({ apiKey, baseURL: baseUrl || undefined, fetch,
+    maxRetries: 2 })`; in `agent-loop.ts` `withRollingCacheBreakpoints`, skip `system` messages.
+    Remove any `temperature`/`top_p`/`top_k` your own code sends to Claude.
+47. Delete `createContextualCan`, `Can` and the `AbilityContext` export from
+    `ui/components/permissions/`; replace your own `<Can>` with `<IfCan>`/`<IfCannot>` or
+    `usePermissions().can(...)`.
+48. Import `'react-router'` instead of `'react-router-dom'` everywhere under `apps/web` except an
+    installed plugin's tree; drop the routers' `future` prop and the future-flag filter in
+    `tests/ui/setup.ts`; copy `tests/ui/router-instance.test.tsx` and
+    `tests/ui/permission-gates.test.tsx`; move `MagicLinkSentCard` to `ui/components/`.
+49. `pnpm typecheck` and fix React 19's types: `useRef<T>(null)` is `RefObject<T | null>`, so widen
+    the props that receive one.
+50. In `.github/workflows/`, pin every Action by SHA (the SHAs in Rocketflare 0.25.0's step 2, and
+    for `image.yml` `docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1`,
+    `docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0`,
+    `docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0`,
+    `docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0`,
+    `azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5.1.0`); add
+    `persist-credentials: false` under every checkout, `timeout-minutes` on every job, the top-level
+    `permissions: contents: read`, the gitleaks SHA-256 check (Rocketflare 0.25.0's step 8), quote
+    `${SUITE:+"$SUITE"}` in `evals.yml`, and drop `cache-from: type=gha` from `image.yml`'s
+    `publish` step.
+
 ## Conflicts to expect
 
 - `apps/web/src/api/auth/providers/oidc.ts` → `logout_uri` already added by hand in the app → keep one `searchParams.set('logout_uri', …)`.
@@ -268,6 +358,12 @@ nav groups share one block.
 - `apps/web/src/ui/components/SideNav.tsx` → `composeNav` merges unlabelled groups → keep any nav ordering of your own beside the new branch.
 - `apps/web/tests/kit/unit.ts` → the background builders return `Fake*Ctx` and take `BackgroundCtxOptions` → keep any builder options you added.
 - `apps/web/src/api/services/ai/agent-loop.ts` → an app that edited `executeToolUses` (extra approval rules) → move the per-call rules into `executeSingleToolUse`; the pool owns ordering.
+
+- `Dockerfile` → `corepack enable` gone, `NODE_VERSION` 26 → an image that pins its own base keeps it, but needs a pnpm installed without corepack on Node 26.
+- Every `package.json` and `pnpm-lock.yaml` → versions, `engines`, `packageManager` → apply steps 40–42 instead of the hunks.
+- `.github/workflows/**` → pins, timeouts, permissions → apply step 50 by hand.
+- `apps/web/vitest.config.ts`, `vite.config.ts`, `biome.json` → apply steps 44–45 by hand if you edited them.
+- `apps/web/src/ui/components/permissions/{AbilityContext.tsx,index.ts}` → `Can` and the context export removed → step 47.
 
 ## Verify
 
@@ -286,3 +382,7 @@ nav groups share one block.
 13. A plugin job handler's `ctx.storage().put('tenants/<id>/<plugin>/x', …)` writes to the configured object store; with no `STORAGE_*` it throws 503 `storage_not_configured`.
 14. `pnpm web test:api -- plugin-agent-runs document-convert-job traces` passes, including "a redelivered job answers the first run — even after it settled — and starts nothing".
 15. `pnpm web test:ui -- sidenav` includes "folds unlabelled groups into the unlabelled group above them".
+16. `node -v` prints `v26.`, `pnpm -v` prints `10.34.9`, and `pnpm --filter @rocketpod/web list zod postgres @anthropic-ai/sdk vitest vite jsdom react react-router --depth 0` shows `zod@4.`, `postgres@4.`, `@anthropic-ai/sdk@1.`, `vitest@5.`, `vite@8.`, `jsdom@30.`, `react@19.`, `react-router@7.`.
+17. `grep -rnE 'uses: [^@]+@v[0-9]' .github/workflows` prints nothing, and each workflow has one `persist-credentials: false` per checkout.
+18. `rg -n "@casl/react|<Can[ >]|from 'zod-to-json-schema'|future=\{\{" apps packages` prints nothing.
+19. `docker build -t rocketpod:local .` succeeds and `docker compose up -d` answers `/healthz` with `{"status":"ok"}` (`docker run --rm --entrypoint node rocketpod:local -v` prints `v26.`).

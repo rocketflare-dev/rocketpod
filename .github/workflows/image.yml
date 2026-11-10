@@ -28,6 +28,7 @@ jobs:
     name: CI passed on this commit
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-24.04
+    timeout-minutes: 35
     permissions:
       actions: read
       contents: read
@@ -54,11 +55,14 @@ jobs:
   chart:
     name: Helm chart
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v7
-      - uses: azure/setup-helm@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5.1.0
         with:
           version: v3.16.4
       - name: Lint and render
@@ -80,14 +84,17 @@ jobs:
   image:
     name: Image
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v7
-      - uses: docker/setup-buildx-action@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Tags
         id: meta
-        uses: docker/metadata-action@v6
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ghcr.io/${{ github.repository_owner }}/rocketpod
           tags: |
@@ -95,7 +102,7 @@ jobs:
             type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/') }}
             type=sha
       - name: Build (never pushed here)
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           push: false
@@ -106,22 +113,25 @@ jobs:
           cache-to: type=gha,mode=max
 
   # A tag only, after CI passed AND the build above succeeded: the same build (same context and
-  # args) from the warm gha cache, pushed. Any input that differed would rebuild that layer here
-  # rather than push something CI did not see.
+  # args), rebuilt from scratch and pushed. It reads no gha cache: any workflow run on the repository
+  # can write that cache, and a poisoned layer would otherwise reach a published image.
   publish:
     name: Push the image
     needs: [ci, image]
     if: ${{ startsWith(github.ref, 'refs/tags/') && needs.ci.result == 'success' && needs.image.result == 'success' }}
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v7
-      - uses: docker/setup-buildx-action@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Tags
         id: meta
-        uses: docker/metadata-action@v6
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ghcr.io/${{ github.repository_owner }}/rocketpod
           tags: |
@@ -129,17 +139,16 @@ jobs:
             type=raw,value=latest
             type=sha
       - name: Log in to ghcr.io
-        uses: docker/login-action@v4
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Push (from the cache the build job wrote)
-        uses: docker/build-push-action@v7
+      - name: Build and push
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: RELEASE_VERSION=${{ github.ref_name }}
-          cache-from: type=gha

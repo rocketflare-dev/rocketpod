@@ -6,7 +6,7 @@
  * example when a copy deletes it.
  */
 import { fireEvent, screen, waitFor } from '@testing-library/react'
-import { Route, Routes } from 'react-router-dom'
+import { Route, Routes } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import AgentsPage from '@/ui/pages/agents/AgentsPage'
 import RunPage from '@/ui/pages/agents/RunPage'

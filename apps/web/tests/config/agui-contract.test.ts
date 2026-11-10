@@ -309,6 +309,12 @@ describe('the protobuf transport', () => {
     // When upstream gains the missing message, this fails and the list shrinks deliberately.
     expect(unsupported.sort()).toEqual([...PROTO_UNSUPPORTED_EVENTS].sort())
   })
+
+  it('carries a TOOL_CALL_RESULT whole, now that protobuf writes it', () => {
+    expect(decodeProto(encodeProto(SAMPLES.TOOL_CALL_RESULT as never))).toMatchObject(
+      SAMPLES.TOOL_CALL_RESULT as object
+    )
+  })
 })
 
 describe('RunAgentInput', () => {

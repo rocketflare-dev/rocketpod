@@ -208,7 +208,7 @@ async function stepToolchain(plan) {
   const pnpmV = pnpmVersion.output.trim().split('\n').pop() ?? ''
   if (pnpmVersion.code !== 0 || !pnpmV.startsWith('10.')) {
     throw new StepError(`pnpm 10.x not found (${pnpmV || 'missing'})`, {
-      hint: 'corepack enable   (reads packageManager from package.json)',
+      hint: 'npm i -g pnpm@10   (Node 26 ships no corepack; pnpm follows packageManager)',
       output: pnpmVersion.output,
       exitCode: EXIT.prerequisite,
     })

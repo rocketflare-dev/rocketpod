@@ -9,7 +9,7 @@
 import { BookOpenIcon, QuestionMarkCircleIcon, XMarkIcon } from '@heroicons/react/24/outline'
 import { GUIDE_PATH } from '@rocketpod/shared/guide'
 import { lazy, Suspense, useEffect, useRef } from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 import { LoadingIndicator } from '../LoadingIndicator'
 import { useGuideChat } from './GuideChatProvider'
 

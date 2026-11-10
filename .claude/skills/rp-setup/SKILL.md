@@ -88,7 +88,7 @@ postgres.js — the one driver (D35); don't pass `--driver` (`postgres` is accep
 | 0 | every step passed | go to step 3 |
 | 1 | a step failed | show the tail of the output, fix the cause, re-run the same command (idempotent). A failing `6/10 plugins` is the one worth reading closely: re-run with `--no-plugins` to get a working app, then install the plugin with `/rp-plugin`, where the plan is shown before anything is written |
 | 2 | usage error | check `$ARGUMENTS` against the hint above and re-run |
-| 3 | a prerequisite is missing | install it, then re-run: Node 24 via `nvm install` (reads `.nvmrc`) or `fnm use`; pnpm via `corepack enable`; Docker via Docker Desktop, or `brew install colima docker && colima start` on macOS, or Docker Engine + the `docker` group on Linux. If Docker can't run here (a sandbox), ask the user for a Postgres URL (any reachable Postgres with pgvector) and re-run with `--db-url` |
+| 3 | a prerequisite is missing | install it, then re-run: Node 26 via `nvm install` (reads `.nvmrc`) or `fnm use`; pnpm via `npm i -g pnpm@10` (Node 26 ships no corepack); Docker via Docker Desktop, or `brew install colima docker && colima start` on macOS, or Docker Engine + the `docker` group on Linux. If Docker can't run here (a sandbox), ask the user for a Postgres URL (any reachable Postgres with pgvector) and re-run with `--db-url` |
 | 4 | a dev port is held by another checkout | the DATABASE port is chosen automatically (`scripts/dev-db.mjs` takes the next free one), so this is :3000/:3001 (or `DEV_UI_PORT`/`DEV_API_PORT`): run `pnpm dev:status` and `pnpm dev:db:status`, show the user the other path/pid, and let THEM decide — stop it there, or move this checkout with `DEV_UI_PORT`/`DEV_API_PORT` in `apps/web/.env` plus `APP_URL` on the new UI port (SETUP.md 1.6) — never kill another checkout's processes |
 
 
@@ -142,7 +142,7 @@ prerequisite lines, then hands over to `scripts/bootstrap.mjs` for the ten steps
 
 | Step | Name | What it proved |
 |---|---|---|
-| 1 | `toolchain` | Node 24, pnpm 10, Docker daemon and `docker compose` reachable. With `--db-url` it reads `docker skipped (external database <host>/<db>)` |
+| 1 | `toolchain` | Node 26, pnpm 10, Docker daemon and `docker compose` reachable. With `--db-url` it reads `docker skipped (external database <host>/<db>)` |
 | 2 | `install` | `pnpm install` done; `tsx` resolves in `apps/web` |
 | 3 | `secrets` | `apps/web/.env` exists with `DATABASE_URL`, `OAUTH_ENCRYPTION_KEY` (generated, git-ignored) and `DATABASE_DRIVER=postgres` (D35, the only driver — a stale `neon` is rewritten, and a note says so). With `--db-url` it notes `DATABASE_URL set from --db-url` |
 | 4 | `database` | this checkout's Postgres container is up and healthy on the port it chose (5432 unless taken; the step says so and writes it to `.env`), and so is its S3 gateway (Versity, from :7070), whose `STORAGE_*` lines land in `.env` too; the `Connected to … (postgres driver)` part names the driver. With `--db-url` there is no container: the line reads `external <host>/<db> · Connected to …` once `db:check` answers |

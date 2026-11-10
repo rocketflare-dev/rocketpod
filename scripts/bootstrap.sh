@@ -68,7 +68,7 @@ if ! command -v pnpm >/dev/null 2>&1 || ! pnpm -v 2>/dev/null | grep -q '^10\.';
     npm i -g "pnpm@$PNPM_VERSION" >/dev/null || fail "npm i -g pnpm failed" "install pnpm 10: https://pnpm.io/installation"
   fi
 fi
-pnpm -v 2>/dev/null | grep -q '^10\.' || fail "pnpm 10.x not found ($(pnpm -v 2>/dev/null || echo missing))" "corepack enable  (or npm i -g pnpm@$PNPM_VERSION)"
+pnpm -v 2>/dev/null | grep -q '^10\.' || fail "pnpm 10.x not found ($(pnpm -v 2>/dev/null || echo missing))" "npm i -g pnpm@$PNPM_VERSION"
 ok "pnpm $(pnpm -v)"
 
 exec node scripts/bootstrap.mjs ${1+"$@"}

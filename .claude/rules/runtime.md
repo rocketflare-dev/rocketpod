@@ -12,7 +12,7 @@ paths:
 
 # The runtime (Node in a container)
 
-One image, one Node 24 process per container, in one of three modes (`src/node/server.ts`):
+One image, one Node 26 process per container, in one of three modes (`src/node/server.ts`):
 `web` (Hono on `@hono/node-server`, the UI from `dist/ui`, `/ws`, `/healthz` + `/readyz`),
 `worker` (pg-boss jobs and cron, OpenWorkflow agent runs) or `all` (both — dev and small installs).
 Every runtime capability comes through the `Platform` (D41) — never a binding read off an env or an

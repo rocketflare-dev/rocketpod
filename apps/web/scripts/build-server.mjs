@@ -3,7 +3,7 @@
  * `pnpm build:server`: bundle the Node entry (`src/node/server.ts`) into ONE file,
  * `dist/server.js`, so the runtime image needs Node and that file plus `dist/ui` — no
  * `node_modules`. The migrate one-shot (`scripts/migrate-all.ts`) is bundled the same way into
- * `dist/migrate.js`; it reads the drizzle SQL from `migrations/` at run time. ESM for Node 24; the banner gives bundled CommonJS dependencies the `require`,
+ * `dist/migrate.js`; it reads the drizzle SQL from `migrations/` at run time. ESM for Node 26; the banner gives bundled CommonJS dependencies the `require`,
  * `__filename` and `__dirname` an ES module lacks.
  */
 import path from 'node:path'
@@ -12,7 +12,7 @@ import { build } from 'esbuild'
 
 const WEB_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
-/** Entry → bundle. Both run on Node 24 with no `node_modules` beside them (the image). */
+/** Entry → bundle. Both run on Node 26 with no `node_modules` beside them (the image). */
 export const SERVER_BUNDLES = Object.freeze({
   'src/node/server.ts': 'dist/server.js',
   'scripts/migrate-all.ts': 'dist/migrate.js',
@@ -31,7 +31,7 @@ async function bundle(entry, outfile) {
     bundle: true,
     platform: 'node',
     format: 'esm',
-    target: 'node24',
+    target: 'node26',
     sourcemap: true,
     legalComments: 'none',
     logLevel: 'warning',

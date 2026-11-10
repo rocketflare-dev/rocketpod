@@ -6,7 +6,7 @@ how each runtime mechanism works, and the decisions behind them (§6). The worki
 
 ## 1. Decision
 
-**The shape.** Rocketpod is one Node 24 image run under Docker Compose or Kubernetes, with Postgres
+**The shape.** Rocketpod is one Node 26 image run under Docker Compose or Kubernetes, with Postgres
 (+ pgvector) as the only platform service. Jobs, cron, durable agent runs, realtime fan-out, rate
 limits and locks all live in Postgres. Two external dependencies stay, by decision (§6): an
 **object store reached through the S3 API** (AWS S3, MinIO, Ceph, GCS in interoperability mode,
@@ -163,7 +163,7 @@ runs on the neutral `Step` API:
 ## 4. Deploy and tooling
 
 - A multi-stage `Dockerfile`: `pnpm build` (Vite UI + server bundle) → `node dist/server.js` on a
-  non-root `node:24-alpine` base; `node dist/migrate.js` is the one-shot migrate.
+  non-root `node:26-alpine` base; `node dist/migrate.js` is the one-shot migrate.
 - `docker-compose.yml`: `postgres` (pgvector 17), the S3 gateway (+ bucket init), `migrate`
   (one-shot), `web`, `worker`; `deploy/compose.single.yml` runs one `all` process.
 - A Helm chart (`deploy/helm/rocketpod`): `web` and `worker` Deployments, a migrate `Job` as a

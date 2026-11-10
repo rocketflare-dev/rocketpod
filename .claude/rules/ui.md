@@ -7,7 +7,7 @@ paths:
 
 # UI Patterns
 
-React 18 + Vite, DaisyUI 5 on Tailwind v4, React Router v6, TanStack Query 5, zustand only for the
+React 19 + Vite, DaisyUI 5 on Tailwind v4, React Router 7, TanStack Query 5, zustand only for the
 websocket store. Served from `dist/ui` by the same Node server as the API (SPA fallback).
 Dev: Vite on :3000 proxies `/api`, `/auth`, `/ws` — plus every prefix an installed plugin declares
 (the analytics plugin's `/cubejs-api` and `/mcp`, added by hand on install) — to the Node server on :3001.
@@ -163,7 +163,7 @@ resent on every reconnect), whose events still arrive through the provider's inv
   single-tenant deployments hide `OrgSwitcher`, `/select-tenant` and org create/delete (D25)
 - One guard primitive, `RequireGuard` (`components/RequireGuard.tsx`), composed into coarse role
   guards (authenticated, owner/admin, global admin) and fine ability guards (`RequireAbility`,
-  `<Can I="manage" a="Tenant">` from `components/permissions/`). `SideNav` item flags use the SAME
+  `<IfCan action="manage" subject="Tenant">` / `<IfCannot>` from `components/permissions/`). `SideNav` item flags use the SAME
   guard as the page they open; `ProtectedRoute` requires a tenant for the whole shell EXCEPT
   `/admin/*` for a global admin (no membership needed — `useNavGuard` then passes only
   `'globalAdmin'` guards, so nothing tenant-scoped is linked)

@@ -33,7 +33,7 @@ here.
 
 ## Stack
 
-- **Runtime**: Node 24 — `src/node/server.ts` serves the Hono app on `@hono/node-server`
+- **Runtime**: Node 26 — `src/node/server.ts` serves the Hono app on `@hono/node-server`
   (`SERVER_MODE` `web|worker|all`; `/healthz`, `/readyz`; one Postgres pool per process; SIGTERM
   drains), bundled to `dist/server.js`. Every runtime capability is a `Platform` member
   (`src/platform/types.ts`, `.claude/rules/runtime.md`). pnpm 10
@@ -61,7 +61,7 @@ here.
   feedback → `rocketpod evals promote`
 - **Analytics**: not core — the `analytics` PLUGIN (D31), not installed by default until a
   Rocketpod-compatible release exists (`defaultPlugins` is empty)
-- **UI**: React 18 + Vite, DaisyUI 5 / Tailwind v4, React Router 6, TanStack Query 5; served by the Node server from `dist/ui`
+- **UI**: React 19 + Vite, DaisyUI 5 / Tailwind v4, React Router 7, TanStack Query 5; served by the Node server from `dist/ui`
 - **CLI**: commander + chalk + open; `tsx` in dev, esbuild → `dist/cli.js` (bin `rocketpod`)
 - **Tests**: vitest projects `api` · `api-isolated` · `driver` · `ui` · `config` · `kit-only` (the kit's own
   tests, `apps/web/tests/kit-only/`, deleted by the rename — never in a copy) (Postgres :5533, the

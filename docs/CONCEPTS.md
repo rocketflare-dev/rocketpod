@@ -1,6 +1,6 @@
 # CONCEPTS — what is built, and why
 
-> **Rocketpod (D41).** A Node 24 server in containers: Postgres (+ pgvector) for everything stateful,
+> **Rocketpod (D41).** A Node 26 server in containers: Postgres (+ pgvector) for everything stateful,
 > an S3-compatible store for files, a model provider key for AI. Jobs and cron run on pg-boss,
 > durable agent runs on OpenWorkflow, realtime on `ws` + LISTEN/NOTIFY — all in Postgres. Why it
 > runs this way: `docs/DESIGN-SELFHOSTED.md`.
@@ -558,8 +558,8 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   unpriced. Defaults: `claude-haiku-5-5`, `gpt-6-luna`.
 - **The request body is per MODEL, not per provider** (`shared/src/ai/models.ts`). Claude 4.5 and
   earlier take a thinking budget. 4.6+ take `adaptive`. "Off" is `disabled`, Sonnet 5.5's
-  `between_tools`, or no field on models that always think (Opus 5.5, Fable). 4.7+ refuse any
-  `temperature`. Opus/Sonnet 5.5 and Fable 5.1 refuse a forced tool, so a forced tool becomes a
+  `between_tools`, or no field on models that always think (Opus 5.5, Fable). The Claude API takes
+  no `temperature` (API version `2026-10-21`); an `anthropic_compatible` vendor still gets it. Opus/Sonnet 5.5 and Fable 5.1 refuse a forced tool, so a forced tool becomes a
   prompt instruction. First-party `openai` speaks the **Responses API** (`store: false`), because
   Chat Completions cannot call tools on GPT-6 Astra/6.1 Sol, nor on Luna while it reasons.
   Thinking off there means the lowest `reasoning.effort` the model takes. `openai_compatible` stays
@@ -744,7 +744,7 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   content capture is on by default, with a flag to disable · agent context comes from the CLI
   reading our own Postgres, not a backend REST adapter.
 - **Evals (D33)**: `apps/evals`, its own workspace package because vitest-evals needs vitest 4 and
-  the kit's suites are on vitest 3. `pnpm eval [suite] [--model x] [--judge-model y] [--compare]`
+  the kit's suites are on vitest 5. `pnpm eval [suite] [--model x] [--judge-model y] [--compare]`
   runs `suites/**/*.eval.ts` against the TEST database with real models (the platform
   `ANTHROPIC_API_KEY` from `.env`; no key → every suite skips and says why). **Targets are
   in-process and go through the product's own code**: the chat target drives the real
@@ -810,9 +810,9 @@ from the Models API; no `effort` setting (thinking is on/off — on means the mo
 5.5's > 100k-token price tier is not modelled (`pricing.ts` uses the ≤ 100k rate); OpenAI tools are
 sent non-strict; an assistant message's `phase` is not replayed to the Responses API;
 no Excel or OpenDocument conversion (refused at upload); no document summary or thumbnail (the card is an excerpt);
-`charOffset` does not map to PDF pages; no image input in chat or uploads (the `image` block is for callers that build their own turns), and the tracer records image bytes like any other content (redact them yourself, or turn `OBSERVABILITY_CAPTURE_CONTENT` off); no frontend tools in chat, no `STATE_DELTA`; protobuf drops
-`TOOL_CALL_RESULT` and has no stream cursor; `@ag-ui/core` is 0.0.x (pin + contract test are the
-mitigation); no token-level streaming for runs; char-based history budget
+`charOffset` does not map to PDF pages; no image input in chat or uploads (the `image` block is for callers that build their own turns), and the tracer records image bytes like any other content (redact them yourself, or turn `OBSERVABILITY_CAPTURE_CONTENT` off); no frontend tools in chat, no `STATE_DELTA`; protobuf has no
+stream cursor; a cancelled chat stream closes silently rather than with AG-UI 1.0's `RUN_FINISHED`
+`cancelled` outcome (the client that cancelled cannot read it); no token-level streaming for runs; char-based history budget
 not derived from the model; sliding window defeats prompt caching on long threads; `enqueueRun`
 does not pre-resolve the client; no
 rerank; HITL asks cannot be amended, have no
@@ -860,7 +860,7 @@ writes one; `--compare` against a provisional baseline with no cases compares no
 **One image, three modes, configured by environment (D41).** Runbook: `docs/DEPLOY.md`; the
 `rp-deploy` skill drives it.
 
-- **The image** (root `Dockerfile`): `pnpm build` in a build stage, then `node:24-alpine` with the
+- **The image** (root `Dockerfile`): `pnpm build` in a build stage, then `node:26-alpine` with the
   two bundles (`dist/server.js`, `dist/migrate.js`), `dist/ui` and `migrations/` — no
   `node_modules`. Non-root, `ENTRYPOINT ["node","dist/server.js"]`, `CMD ["web"]`, a `/healthz`
   `HEALTHCHECK`. `node dist/migrate.js` is the one-shot (role → drizzle migrations → pgboss and

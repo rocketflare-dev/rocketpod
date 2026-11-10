@@ -2,7 +2,7 @@
 
 ## Where it stands
 
-Rocketpod runs as **Node 24 in Docker or Kubernetes**, with **Postgres** (+ pgvector) for everything
+Rocketpod runs as **Node 26 in Docker or Kubernetes**, with **Postgres** (+ pgvector) for everything
 stateful and **S3-compatible storage** for files: tenancy, auth, CASL, contracts-first, jobs (pg-boss),
 agents with durable runs (OpenWorkflow), realtime (`ws` + LISTEN/NOTIFY), knowledge/RAG, tracing,
 evals, plugins and the CLI. Deploys are Compose and Helm, with multiple replicas, cross-process

@@ -9,7 +9,7 @@ import { ChatBubbleLeftRightIcon } from '@heroicons/react/24/outline'
 import { GUIDE_PART_LABELS, type GuideTocEntry, guideHref } from '@rocketpod/shared/guide'
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useMemo, useRef } from 'react'
-import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
+import { useLocation, useNavigate, useSearchParams } from 'react-router'
 import GuideChat from '@/ui/components/guide/GuideChat'
 import { useGuideChat } from '@/ui/components/guide/GuideChatProvider'
 import { EmptyState, LoadingIndicator } from '@/ui/components/shared'
@@ -107,7 +107,7 @@ function GuidePageView({
   path: string
   heading: string | null
   entries: GuideTocEntry[]
-  scrollRef: React.RefObject<HTMLDivElement>
+  scrollRef: React.RefObject<HTMLDivElement | null>
   onSelect: (path: string) => void
 }) {
   const bodyRef = useRef<HTMLDivElement>(null)

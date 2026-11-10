@@ -24,8 +24,8 @@ history, and make it your own — you will rename, delete and rewrite freely, an
 here. Cut loose is not cut off: your copy keeps a `.rocketflare.json` saying where it came from, and
 `/rp-upgrade` ports later kit releases into it without recreating anything you deleted.
 
-**Requirements.** macOS or Linux (Windows through WSL2), Node 24 (`.nvmrc`), pnpm 10 (`corepack
-enable`), Docker with Compose for the local Postgres and S3 gateway — or `--db-url` to use a
+**Requirements.** macOS or Linux (Windows through WSL2), Node 26 (`.nvmrc`), pnpm 10 (`npm i -g
+pnpm@10` — Node 26 ships no corepack), Docker with Compose for the local Postgres and S3 gateway — or `--db-url` to use a
 Postgres you already run. Deployed, any Postgres 17 with pgvector and any S3-compatible bucket.
 
 **Ask your coding agent.** Open the copy in Claude Code and type **`/rp-setup`** — it checks the
@@ -49,7 +49,7 @@ git clone https://github.com/rocketflare-dev/rocketpod.git myapp && cd myapp
 rm -rf .git && git init && git add -A && git commit -m "Start from Rocketpod"   # your history starts here
 git remote add origin git@github.com:<you>/myapp.git                              # your own repo, when ready
 
-bash scripts/bootstrap.sh          # checks Node 24 / pnpm 10 / Docker, generates the local secret,
+bash scripts/bootstrap.sh          # checks Node 26 / pnpm 10 / Docker, generates the local secret,
                                    # starts Postgres + an S3 gateway, migrates, seeds demo data, starts
                                    # the app and opens the browser signed in as the demo owner.
                                    # Re-runnable.
@@ -82,14 +82,14 @@ you removed. [`CHANGELOG.md`](CHANGELOG.md) is what you would be catching up on.
 
 | Layer | Choice |
 |---|---|
-| Runtime | Node 24: one server (`web` / `worker` / `all` modes) — Hono on `@hono/node-server`, pg-boss jobs + cron, OpenWorkflow agent runs |
+| Runtime | Node 26: one server (`web` / `worker` / `all` modes) — Hono on `@hono/node-server`, pg-boss jobs + cron, OpenWorkflow agent runs |
 | API | Hono 4, zod contracts, CASL abilities, JSON error envelope everywhere |
 | Database | Postgres 17 + pgvector — Docker locally, any Postgres deployed, over `postgres.js` with one pool per process; Drizzle |
-| UI | React 18 + Vite, DaisyUI 5 on Tailwind v4, React Router 6, TanStack Query 5; served by the Node server |
+| UI | React 19 + Vite, DaisyUI 5 on Tailwind v4, React Router 7, TanStack Query 5; served by the Node server |
 | CLI | commander + chalk; browser login → tenant API key; `--json` on every list command |
 | Async / realtime | pg-boss jobs and cron, OpenWorkflow durable runs, WebSockets with LISTEN/NOTIFY fan-out, S3-compatible storage |
 | AI | Anthropic / OpenAI-compatible chat streamed as AG-UI, agents on OpenWorkflow, OpenAI-compatible embeddings → pgvector, local PDF/Word conversion, OTLP tracing (Langfuse, Phoenix, any backend), evals (vitest-evals) with thumbs feedback |
-| Deploy | one `node:24-alpine` image (`web` / `worker` / `all` + a migrate one-shot), Docker Compose, a Helm chart |
+| Deploy | one `node:26-alpine` image (`web` / `worker` / `all` + a migrate one-shot), Docker Compose, a Helm chart |
 | Analytics | optional plugin: drizzle-cube semantic layer, fact tables on a cron, dashboards (not installed by default yet) |
 | Quality | Biome 2, strict TypeScript, vitest against real Postgres, gitleaks, one CI gate |
 
@@ -98,7 +98,7 @@ you removed. [`CHANGELOG.md`](CHANGELOG.md) is what you would be catching up on.
 ### Tenancy and access
 - **Multi- or single-tenant from one schema** — `TENANCY_MODE=multi|single`. Every domain row carries a `tenant_id`; single mode auto-joins users to the one organisation and hides the org switcher. Flip later with no migration.
 - **Sign-up policy as configuration** — `SIGNUP_MODE=open|invite_only|approval`: personal tenants, invite-only, or an access-request queue that global admins approve into a new or existing tenant, with an optional email-domain allow-list.
-- **Roles and abilities** — `owner | admin | member` per tenant plus a platform `support` role and global admins; CASL abilities are computed server-side and shipped to the UI (`<Can>`, `RequireAbility`) so pages and nav use the same guard as the route.
+- **Roles and abilities** — `owner | admin | member` per tenant plus a platform `support` role and global admins; CASL abilities are computed server-side and shipped to the UI (`<IfCan>`, `RequireAbility`) so pages and nav use the same guard as the route.
 - **Invitations and members** — create, bulk-invite, resend, revoke, accept; change roles, remove members, transfer ownership; activity log of everything.
 - **Admin area** — `/admin` for global admins: tenants, users, access requests; "enter" a customer tenant as `support` with a real membership row, so the single "must be a member" invariant never bends.
 - **Isolation by predicate, RLS in reserve** — every query filters by the session's tenant; every tenant table also ships a row-level-security policy, inert until `TENANT_SCOPE_MODE=enforce` (`docs/RLS.md`), with a catalog test that fails CI if a table is missed.

@@ -15,7 +15,7 @@
  *   returns the sum as `usage`; the projection stays a pure fold over `(run, events)` and does not
  *   read the ledger. A `kit.usage` CUSTOM event is the place to add it if an AG-UI client needs it.
  * - **An errored tool result keeps its JSON.** `ToolCallResultEvent` has no error flag (still none
- *   in `@ag-ui/core@1.0.2`); add `kit.tool.error` to the CUSTOM union only if a screen needs the
+ *   in AG-UI 1.0); add `kit.tool.error` to the CUSTOM union only if a screen needs the
  *   red state.
  */
 import type { AgentRun, AgentRunEvent } from '@rocketpod/shared/ai/agents'

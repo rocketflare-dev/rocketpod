@@ -2,19 +2,20 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import react from '@vitejs/plugin-react'
+import { defaultClientConditions } from 'vite'
 import { defineConfig } from 'vitest/config'
-import { isMarkedIsolated, apiTestFiles as listApiTestFiles } from './tests/helpers/isolation'
-import { latencyFactor } from './tests/helpers/latency'
+import { isMarkedIsolated, apiTestFiles as listApiTestFiles } from './tests/helpers/isolation.ts'
+import { latencyFactor } from './tests/helpers/latency.ts'
 
 const alias = {
-  '@': path.resolve(__dirname, './src'),
+  '@': path.resolve(import.meta.dirname, './src'),
   /**
    * The test kit (D31): `@testkit/integration` is the harness, `@testkit/unit` the context
    * builders. It is registered HERE and in `tsconfig.json`, and deliberately NOT in
    * `vite.config.ts` — so a `src/` file importing it fails the build instead of shipping the
    * harness into the browser bundle. `tests/config/testkit-alias.test.ts` pins all three halves.
    */
-  '@testkit': path.resolve(__dirname, './tests/kit'),
+  '@testkit': path.resolve(import.meta.dirname, './tests/kit'),
 }
 
 /**
@@ -46,7 +47,7 @@ const MAX_WORKERS =
   Number.parseInt(process.env.TEST_MAX_WORKERS ?? '', 10) ||
   (EPHEMERAL ? 2 : Math.min(6, Math.max(3, (os.availableParallelism?.() ?? 4) - 2)))
 
-const API_TEST_DIR = path.resolve(__dirname, './tests/api')
+const API_TEST_DIR = path.resolve(import.meta.dirname, './tests/api')
 
 /**
  * The kit's OWN tests (`docs/CONCEPTS.md` §13): release notes, the version chain, the release and
@@ -55,8 +56,8 @@ const API_TEST_DIR = path.resolve(__dirname, './tests/api')
  * and a copy's gate has nothing kit-only to run (a stray `--project kit-only` then matches nothing,
  * which vitest ignores).
  */
-const KIT_ONLY_DIR = path.resolve(__dirname, './tests/kit-only')
-const PLUGINS_DIR = path.resolve(__dirname, './src/plugins')
+const KIT_ONLY_DIR = path.resolve(import.meta.dirname, './tests/kit-only')
+const PLUGINS_DIR = path.resolve(import.meta.dirname, './src/plugins')
 
 /**
  * A plugin (D31) keeps its tests inside its own directory — `src/plugins/<id>/tests/{api,ui,config}`
@@ -93,14 +94,7 @@ export default defineConfig({
     globals: true,
     watch: false,
     pool: 'forks',
-    poolOptions: {
-      forks: {
-        maxForks: MAX_WORKERS,
-        // Pinned EQUAL to maxForks: with `isolate: false` vitest 3 may terminate an idle
-        // worker mid-promise ("Terminating worker thread", vitest-dev/vitest#8564).
-        minForks: MAX_WORKERS,
-      },
-    },
+    maxWorkers: MAX_WORKERS,
     testTimeout: 5_000 * LATENCY_FACTOR,
     hookTimeout: 10_000 * LATENCY_FACTOR,
     teardownTimeout: 5_000 * LATENCY_FACTOR,
@@ -114,14 +108,13 @@ export default defineConfig({
         'src/db/**/*.ts',
       ],
       exclude: ['src/ui/**', '**/*.test.ts', '**/types.ts', '**/schema/**'],
-      all: true,
       clean: true,
       reportsDirectory: './coverage',
     },
     projects: [
       {
         // Shared module registry. Isolation is turned off on the command line
-        // (`vitest run --project api --no-isolate`) — vitest 3 ignores a per-project `isolate`.
+        // (`vitest run --project api --no-isolate`).
         extends: true,
         test: {
           name: 'api',
@@ -200,7 +193,9 @@ export default defineConfig({
             'src/plugins/*/tests/ui/**/*.{test,spec}.{ts,tsx}',
           ],
         },
-        resolve: { alias },
+        // Without the browser's conditions `react-router` loads as CJS here and an ESM importer such
+        // as `react-router-dom` gets a second copy, so the two halves share no router context.
+        resolve: { alias, conditions: [...defaultClientConditions] },
       },
     ],
   },

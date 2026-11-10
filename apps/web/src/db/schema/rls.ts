@@ -104,13 +104,16 @@ export const RLS_REVOKED_TABLES = [
  * the resolver for any tenant that decided nothing for that key. `guide_chunks` is excluded for
  * the same kind of reason: the Guide is static product documentation shared by every tenant, with
  * no tenant column and no tenant data (`schema/guide-chunks.ts`); the guide route decides access
- * and retrieval applies the reader's audience.
+ * and retrieval applies the reader's audience. `invitation_send_counters` has no tenant column
+ * either: its rows are daily counters keyed by a `user:` or `tenant:` scope (a person's count spans
+ * tenants), holding numbers and no tenant data.
  */
 export const RLS_EXCLUDED_TABLES = [
   ...RLS_REVOKED_TABLES,
   'feature_flags',
   'platform_agent_models',
   'guide_chunks',
+  'invitation_send_counters',
 ] as const
 
 /**

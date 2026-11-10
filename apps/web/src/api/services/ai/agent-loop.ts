@@ -13,6 +13,7 @@ import { aiProviderSchema } from '@rocketpod/shared/ai/config'
 import type { AgentInterruptSpec, JsonSchema } from '@rocketpod/shared/ai/interrupts'
 import { type ZodType, z } from 'zod'
 import { traceToolCall } from '../../observability/context'
+import { stableStringify } from '../../utils/core/stable-stringify'
 import { AiError } from './errors'
 import {
   addUsage,
@@ -88,6 +89,9 @@ export function withRollingCacheBreakpoints(
 
 // ---- Tools ---------------------------------------------------------------------------------
 
+/** JSON as the database stores it, with keys in a fixed order: what makes two inputs comparable. */
+const canonicalJson = (value: unknown) => stableStringify(JSON.parse(JSON.stringify(value ?? null)))
+
 /** A tool the model may call. `handler` runs it; a tool WITHOUT a handler is terminal (its input is the answer). */
 export interface Tool<Input = unknown> {
   name: string
@@ -99,7 +103,8 @@ export interface Tool<Input = unknown> {
   /**
    * Gate this call on a person: the loop stops, asks, and runs the handler only on a
    * `resolved` answer. Enforced by {@link runToolLoop}, never by the handler — a handler that
-   * checks for itself is a handler that has already run.
+   * checks for itself is a handler that has already run. {@link runStreamingChat} cannot ask, so
+   * chat never offers or runs a tool with a gate.
    */
   requiresApproval?: boolean
   /**
@@ -233,6 +238,8 @@ export interface ToolApproval {
   note?: string
   /** What this rejection means — `rejectionFor(spec)`, resolved once by the runtime. */
   onReject: 'cancel_run' | 'tell_model'
+  /** The call the person was shown (`spec.tool`). A go-ahead runs only a call that matches it. */
+  approvedCall: { name: string; input: unknown } | null
 }
 
 /**
@@ -851,6 +858,19 @@ export async function runToolLoop(
       ? rawCap
       : defaultConcurrency
 
+  // An approval is good for one execution per attempt. A retried attempt starts a fresh set and
+  // replays the recorded effect through `runApproved`.
+  const spentApprovals = new Set<string>()
+
+  /** Is this block the very call the person approved? Stored input is parsed, so compare parsed. */
+  const isApprovedCall = (tool: Tool | undefined, block: ToolUseBlock, shown: ToolApproval) => {
+    const call = shown.approvedCall
+    if (!tool || !call || call.name !== block.name) return false
+    const parsed = tool.schema.safeParse(block.input)
+    if (!parsed.success) return false
+    return canonicalJson(parsed.data) === canonicalJson(call.input)
+  }
+
   const executeSingleToolUse = async (
     block: ToolUseBlock
   ): Promise<{ text: string; isError: boolean }> => {
@@ -870,6 +890,13 @@ export async function runToolLoop(
       }
     }
     if (approval) {
+      if (spentApprovals.has(approval.interruptId) || !isApprovedCall(tool, block, approval)) {
+        return {
+          text: 'This call is not the one a person approved. It did not run.',
+          isError: true,
+        }
+      }
+      spentApprovals.add(approval.interruptId)
       // An approver may have edited the arguments; the route re-validated them against the tool's
       // own schema before storing them, and `runHandler` validates once more here.
       const input = approval.input !== undefined ? approval.input : block.input
@@ -1200,7 +1227,9 @@ export async function runStreamingChat(
   opts: RunStreamingChatOptions
 ): Promise<StreamingChatResult> {
   const maxTurns = opts.maxTurns ?? 8
-  const tools = opts.tools ?? []
+  // Chat cannot park a turn for a person's answer, so a tool that declares a gate is withheld: the
+  // model is not offered it, and naming it anyway finds no tool and gets an error result.
+  const tools = (opts.tools ?? []).filter(t => !t.requiresApproval && !t.requiresApprovalWhen)
   const byName = new Map(tools.map(t => [t.name, t]))
   const definitions = tools.map(toToolDefinition)
   const messages: ChatMessage[] = [...opts.messages]
@@ -1248,8 +1277,9 @@ export async function runStreamingChat(
     }
     messages.push({ role: 'assistant', content: result.content })
     const results: ContentBlock[] = []
-    // No interrupt gate here, deliberately. Chat has no host that can park a turn — there is
-    // no run step to unwind and no `agent_runs` row to hold the answer — so a tool raising
+    // No interrupt gate here, deliberately: gated tools were withheld above. Chat has no host that
+    // can park a turn — there is no run step to unwind and no `agent_runs` row to hold the answer —
+    // so a tool raising
     // `InterruptRequested` in a chat is a BUG, and `runHandler` turning it into an `isError` result
     // is what we want to see: a visible wrong answer rather than a stream that never terminates.
     // Chat HITL is Part 3 and arrives as `onInterrupt: 'return'` plus a conversation checkpoint.

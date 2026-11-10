@@ -19,7 +19,7 @@ import { TEST_SUMMARIZE } from '../helpers/test-agents-shared'
 import { createTestEnv } from '../mocks/bindings'
 
 const db = setupTestDatabase()
-const cfg = loadConfig(createTestEnv())
+const cfg = loadConfig(createTestEnv({ OBSERVABILITY_CAPTURE_CONTENT: 'true' }))
 
 async function actor(role: 'owner' | 'admin' | 'member' = 'admin') {
   const { user, tenant } = await createTestTenantWithUser(db, role)

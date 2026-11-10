@@ -13,7 +13,9 @@
  * `canSubscribeTopic` reads nothing else. They are fixed for the socket's life: a role change takes
  * effect on the next connect.
  *
- * A non-upgrade GET gets a JSON 426 envelope; CSRF needs no exemption (GET is a safe method).
+ * A non-upgrade GET gets a JSON 426 envelope. The handshake is a GET, so the CSRF middleware does
+ * not look at it, and CORS does not apply to upgrades: this route checks `Origin` itself, against the
+ * same allowlist, before anything else (a client with no `Origin` header is not a browser).
  */
 import { ERROR_CODES } from '@rocketpod/shared/errors'
 import type { Subjects } from '@rocketpod/shared/permissions'
@@ -22,6 +24,8 @@ import { and, eq } from 'drizzle-orm'
 import { tenants, tenantUsers } from '../../db/schema'
 import { buildAbility } from '../../permissions/abilities'
 import { resolveCookieAuth } from '../middleware/auth'
+import { allowedOrigins } from '../middleware/cors'
+import { isAllowedOrigin } from '../middleware/csrf'
 import {
   ApiError,
   ForbiddenError,
@@ -37,6 +41,11 @@ export const UPGRADE_REQUIRED_CODE = 'upgrade_required'
 wsRouter.get('/', async c => {
   if (c.req.header('Upgrade')?.toLowerCase() !== 'websocket') {
     throw new ApiError(426, 'Expected a WebSocket upgrade', UPGRADE_REQUIRED_CODE)
+  }
+
+  const origin = c.req.header('Origin')
+  if (origin && !isAllowedOrigin(origin, allowedOrigins(c.get('config'), c.req.url))) {
+    throw new ForbiddenError('Invalid request origin', ERROR_CODES.csrf)
   }
 
   const auth = await resolveCookieAuth(c)

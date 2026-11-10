@@ -6,6 +6,10 @@
  *
  * `Broadcaster` (`src/platform/types.ts`) is the seam; the implementation publishes through
  * Postgres NOTIFY to every pod's local sockets (`src/node/realtime.ts`).
+ *
+ * Revocation goes the same way: `close{User,Session,Tenant}Sockets` end the sockets a removed
+ * member, a signed-out session or a suspended tenant still holds (close code 4001), after the
+ * change has committed.
  */
 import type { RealtimeEvent, RealtimeEventType } from '@rocketpod/shared/realtime'
 import type { Broadcaster, Defer } from '../../platform/types'
@@ -38,6 +42,56 @@ export function nudgeUser(rt: Realtime | undefined, userId: string, event: Realt
   const hub = rt?.hub
   if (!rt || !hub) return
   rt.defer(() => hub.toUser(event.tenantId, userId, event))
+}
+
+/** Where a close cannot wait for the request's `defer`: run it and let the caller await `flush`. */
+export function collectingRealtime(hub: Broadcaster | null): Realtime & { flush(): Promise<void> } {
+  const pending: Promise<unknown>[] = []
+  return {
+    hub,
+    defer: work => {
+      pending.push(work())
+    },
+    flush: async () => {
+      await Promise.allSettled(pending)
+    },
+  }
+}
+
+/**
+ * Close a person's sockets in the listed tenants (close code 4001). Call after the change has
+ * committed: the database has already refused them, and a socket is the only thing still open.
+ */
+export function closeUserSockets(
+  rt: Realtime | undefined,
+  tenantIds: string | readonly string[],
+  userId: string
+): void {
+  const hub = rt?.hub
+  if (!rt || !hub) return
+  for (const tenantId of typeof tenantIds === 'string' ? [tenantIds] : tenantIds) {
+    rt.defer(() => hub.closeSockets({ tenantId, userId }))
+  }
+}
+
+/** Close the sockets of one session, which may have connected to any of the person's tenants. */
+export function closeSessionSockets(
+  rt: Realtime | undefined,
+  tenantIds: readonly string[],
+  sessionId: string
+): void {
+  const hub = rt?.hub
+  if (!rt || !hub) return
+  for (const tenantId of tenantIds) {
+    rt.defer(() => hub.closeSockets({ tenantId, sessionId }))
+  }
+}
+
+/** Close every socket in a tenant (it was suspended). */
+export function closeTenantSockets(rt: Realtime | undefined, tenantId: string): void {
+  const hub = rt?.hub
+  if (!rt || !hub) return
+  rt.defer(() => hub.closeSockets({ tenantId }))
 }
 
 export function nudgeUsers(

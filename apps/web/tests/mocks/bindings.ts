@@ -26,6 +26,7 @@ import type {
   RealtimeHub,
   RealtimeMember,
   RunEngine,
+  SocketCloseTarget,
   StorageBody,
   StorageService,
   StoredObjectMeta,
@@ -329,11 +330,12 @@ export interface RecordedAccept {
  * A recording `RealtimeHub` (D8): every send records `{ tenantId, args: [method, ...args] }` in
  * `broadcasts`, so route tests can assert "a nudge was sent to tenant X" without sockets. `accept`
  * records the upgrade in `accepted` and answers 501 — the socket side is exercised against the
- * real hub (`node-realtime.test.ts`).
+ * real hub (`node-realtime.test.ts`). `closeSockets` records its target in `closes`.
  */
 export class RecordingRealtime implements RealtimeHub {
   readonly broadcasts: RecordedBroadcast[] = []
   readonly accepted: RecordedAccept[] = []
+  readonly closes: SocketCloseTarget[] = []
 
   private record(tenantId: string, args: unknown[]) {
     this.broadcasts.push({ tenantId, args })
@@ -357,6 +359,10 @@ export class RecordingRealtime implements RealtimeHub {
     return this.record(event.tenantId, ['broadcastToTopic', topic, event])
   }
 
+  async closeSockets(target: SocketCloseTarget): Promise<void> {
+    this.closes.push(target)
+  }
+
   async accept(request: Request, member: RecordedAccept['member']): Promise<Response> {
     this.accepted.push({ request, member })
     return new Response('realtime stub', { status: 501 })
@@ -365,6 +371,7 @@ export class RecordingRealtime implements RealtimeHub {
   clear(): void {
     this.broadcasts.length = 0
     this.accepted.length = 0
+    this.closes.length = 0
   }
 }
 

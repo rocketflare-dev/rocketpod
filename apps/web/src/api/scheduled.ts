@@ -13,7 +13,7 @@ import { resolvePlatform } from '../platform'
 import type { Platform, WaitUntil } from '../platform/types'
 import { serverPlugins } from '../plugins/server'
 import { pruneMagicLinkTokens } from './auth/magic-link'
-import { pruneInvitations } from './services/invitations'
+import { pruneInvitationSendCounters, pruneInvitations } from './services/invitations'
 import type { AppBindings } from './types'
 import { type Logger, loggerFor } from './utils/core/logger'
 
@@ -54,6 +54,7 @@ export async function runPruneExpired(db: Database) {
   ).length
   const magicLinks = await pruneMagicLinkTokens(db)
   const invitations = await pruneInvitations(db)
+  const invitationSendCounters = await pruneInvitationSendCounters(db)
   // The platform's limiter and locks: a key whose newest hit left its window, a lock whose
   // holder never released it.
   const rateLimitKeys = affected(
@@ -62,7 +63,14 @@ export async function runPruneExpired(db: Database) {
   const operationLockKeys = affected(
     await db.delete(operationLocks).where(lt(operationLocks.expiresAt, sql`now()`))
   )
-  return { sessions, magicLinks, invitations, rateLimitKeys, operationLockKeys }
+  return {
+    sessions,
+    magicLinks,
+    invitations,
+    invitationSendCounters,
+    rateLimitKeys,
+    operationLockKeys,
+  }
 }
 
 /** Nightly prune of expired rows: counts are logged so the run is auditable. */

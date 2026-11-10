@@ -221,6 +221,8 @@ The server surface: the context family, and the types a plugin must be able to n
 - `type JobType = JobEnvelope['type']`
   Every job type this app knows, derived from the variants rather than kept beside them.
 - `type Logger = pino.Logger`
+- `async function memberCan( ctx: PluginContext, who: { tenantId: string; userId: string }, action: Actions, subject: Subjects ): Promise<boolean>`
+  Does this person hold this grant in this tenant RIGHT NOW? For a public callback completing something a signed state started — an OAuth connection, a consent — where the state…
 - `type MembershipRole = z.infer<typeof membershipRoleSchema>`
 - `const noopTracer: Tracer`
   What a context carries when no sink is reachable (a unit test, a bare router).
@@ -520,6 +522,8 @@ The server surface: the context family, and the types a plugin must be able to n
   - `scope: AccessScope`
   - `tenantId: string`
     The run's tenant — `scope.tenantId`, surfaced because every query needs it.
+  - `can: AbilityCheck`
+    Does the requester hold this CASL grant now? Offer a tool that writes only when they hold your subject's manage (`ctx.can('manage', MY_SUBJECT)`) — never decide that from…
   - `maxDocumentChars?: number`
     The CALLER's budget for one document window, in characters. An agent run's is far larger than a chat turn's.
   - `features(): Promise<readonly string[]>`
@@ -684,6 +688,7 @@ Components and hooks, for a lazy PAGE. Never for the UI entry.
   DaisyUI spinner in the primary colour.
 - `function LogoMark({ className = 'w-7 h-7' }: { className?: string })`
   The Rocketpod mark — a rocket launching from a cloud — inlined so it needs no request and scales with `className`. The fills are the brand illustration colours, fixed on purpose…
+- `function MarkdownImageLink({ src, alt }: Pick<ComponentProps<'img'>, 'src' \| 'alt'>)`
 - `function Modal({ open, onClose, title, children, actions, closeButton = true, className = '', }: ModalProps)`
   `<dialog>`-based modal: native focus trap, Escape and backdrop close, `aria-modal` for free. Controlled — the caller owns `open`. Falls back to the `open` attribute where…
 - `interface ModalProps`
@@ -870,6 +875,8 @@ What a plugin's CONTRACT module imports: the error envelope, pagination, `Shared
 - `type FeatureRolloutUnit = z.infer<typeof featureRolloutUnitSchema>`
 - `type GroupRef = z.infer<typeof groupRefSchema>`
 - `function isPluginId(value: string): boolean`
+- `function isSameOriginPath(value: string): boolean`
+  True only for a same-origin path: `/settings`, `/search?q=a#x`; never `//host` or `https://…`.
 - `type JobInput = z.infer<typeof jobInputSchema>`
 - `type JobOf = Extract<JobEnvelope, { type: T }>`
   The envelope narrowed to one `type` — what a handler receives.
@@ -960,6 +967,8 @@ The CLI half: the one `fetch` site, the exit codes, the output helpers.
 - `function formatJson(value: unknown): string`
 - `function formatPagination(meta: { page: number totalPages: number total: number pageSize: number }): string`
   `Page 2/5 · 113 items` — footer for paginated lists.
+- `function neutralise(text: string): string`
+  Text that came from a server or another user, made inert for a terminal: C0 controls (a carriage return becomes a line break, a tab and a line break stay), DEL and C1 are removed,…
 - `class NotLoggedInError extends CliError`
 - `type OpenLike = (url: string) => Promise<unknown>`
 - `interface Output`
@@ -1192,6 +1201,7 @@ nothing in the comparison that can throw.
 @/plugins/api :: type :: JobOf :: type JobOf = Extract<JobEnvelope, { type: T }>
 @/plugins/api :: type :: JobType :: type JobType = JobEnvelope['type']
 @/plugins/api :: type :: Logger :: type Logger = pino.Logger
+@/plugins/api :: function :: memberCan :: async function memberCan( ctx: PluginContext, who: { tenantId: string; userId: string }, action: Actions, subject: Subjects ): Promise<boolean>
 @/plugins/api :: type :: MembershipRole :: type MembershipRole = z.infer<typeof membershipRoleSchema>
 @/plugins/api :: const :: noopTracer :: const noopTracer: Tracer
 @/plugins/api :: function :: notify :: async function notify(db: Database, input: NotifyInput, realtime?: Realtime): Promise<void>
@@ -1376,6 +1386,7 @@ nothing in the comparison that can throw.
 @/plugins/api :: member :: ToolCtx.platform :: platform: PluginPlatform
 @/plugins/api :: member :: ToolCtx.scope :: scope: AccessScope
 @/plugins/api :: member :: ToolCtx.tenantId :: tenantId: string
+@/plugins/api :: member :: ToolCtx.can :: can: AbilityCheck
 @/plugins/api :: member :: ToolCtx.maxDocumentChars :: maxDocumentChars?: number
 @/plugins/api :: member :: ToolCtx.features :: features(): Promise<readonly string[]>
 @/plugins/api :: member :: ToolCtx.storage :: storage(): StorageService
@@ -1467,6 +1478,7 @@ nothing in the comparison that can throw.
 @/plugins/api/ui :: function :: initials :: function initials(name: string | null | undefined, email?: string): string
 @/plugins/api/ui :: function :: LoadingIndicator :: function LoadingIndicator({ size = 'md', centered = false, fullPage = false, className = '', }: LoadingIndicatorProps)
 @/plugins/api/ui :: function :: LogoMark :: function LogoMark({ className = 'w-7 h-7' }: { className?: string })
+@/plugins/api/ui :: function :: MarkdownImageLink :: function MarkdownImageLink({ src, alt }: Pick<ComponentProps<'img'>, 'src' | 'alt'>)
 @/plugins/api/ui :: function :: Modal :: function Modal({ open, onClose, title, children, actions, closeButton = true, className = '', }: ModalProps)
 @/plugins/api/ui :: interface :: ModalProps :: interface ModalProps
 @/plugins/api/ui :: type :: NavGuard :: type NavGuard = | 'admin' | 'globalAdmin' | { action: string; subject: string } | { feature: string } | readonly NavGuard[]
@@ -1571,6 +1583,7 @@ nothing in the comparison that can throw.
 @rocketpod/shared/plugins/api :: type :: FeatureRolloutUnit :: type FeatureRolloutUnit = z.infer<typeof featureRolloutUnitSchema>
 @rocketpod/shared/plugins/api :: type :: GroupRef :: type GroupRef = z.infer<typeof groupRefSchema>
 @rocketpod/shared/plugins/api :: function :: isPluginId :: function isPluginId(value: string): boolean
+@rocketpod/shared/plugins/api :: function :: isSameOriginPath :: function isSameOriginPath(value: string): boolean
 @rocketpod/shared/plugins/api :: type :: JobInput :: type JobInput = z.infer<typeof jobInputSchema>
 @rocketpod/shared/plugins/api :: type :: JobOf :: type JobOf = Extract<JobEnvelope, { type: T }>
 @rocketpod/shared/plugins/api :: type :: JobType :: type JobType = JobEnvelope['type']
@@ -1626,6 +1639,7 @@ nothing in the comparison that can throw.
 '../api' (apps/cli/src/plugins/api.ts) :: function :: formatDate :: function formatDate(value: Date | string | null | undefined): string
 '../api' (apps/cli/src/plugins/api.ts) :: function :: formatJson :: function formatJson(value: unknown): string
 '../api' (apps/cli/src/plugins/api.ts) :: function :: formatPagination :: function formatPagination(meta: { page: number totalPages: number total: number pageSize: number }): string
+'../api' (apps/cli/src/plugins/api.ts) :: function :: neutralise :: function neutralise(text: string): string
 '../api' (apps/cli/src/plugins/api.ts) :: class :: NotLoggedInError :: class NotLoggedInError extends CliError
 '../api' (apps/cli/src/plugins/api.ts) :: type :: OpenLike :: type OpenLike = (url: string) => Promise<unknown>
 '../api' (apps/cli/src/plugins/api.ts) :: interface :: Output :: interface Output

@@ -19,6 +19,7 @@ import { type EvalCase, evalCaseSchema, evalExportResponseSchema } from '@rocket
 import { CliApiError } from '../api'
 import { type CommandContext, requireClient } from '../context'
 import { CliError } from '../errors'
+import { neutralise } from '../utils/output'
 
 export const DATASETS_DIR = path.join('apps', 'evals', 'datasets')
 const DATASET_NAME_RE = /^[a-z0-9][a-z0-9._-]*$/
@@ -131,7 +132,8 @@ export async function runEvalsPromote(
         hint: 'Re-run with --yes once you have decided the case belongs in the repository.',
       })
     }
-    if (!(await ask(`Append "${evalCase.id}" to ${path.relative(process.cwd(), file) || file}?`))) {
+    const target = path.relative(process.cwd(), file) || file
+    if (!(await ask(`Append "${neutralise(evalCase.id)}" to ${target}?`))) {
       ctx.log.info('Nothing written.')
       return
     }
@@ -139,7 +141,10 @@ export async function runEvalsPromote(
 
   await mkdir(dir, { recursive: true })
   await appendFile(file, `${JSON.stringify(evalCase)}\n`, 'utf8')
-  ctx.out.data({ ...(raw as object), file, id: evalCase.id }, () => `${file}  +${evalCase.id}`)
+  ctx.out.data(
+    { ...(raw as object), file, id: evalCase.id },
+    () => `${file}  +${neutralise(evalCase.id)}`
+  )
   ctx.log.success(`Added ${evalCase.id} to ${options.dataset}.jsonl`)
   ctx.log.hint(
     'Next: draft the expected output and rubric with the rp-evals skill, then run pnpm eval.'

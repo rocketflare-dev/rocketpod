@@ -86,6 +86,19 @@ export function undeclaredSkillDirs(
  * means installable. This kit has no Cloudflare runtime to bind them on.
  */
 export function pluginPlatformProblems(manifest: PluginManifest): string[]
+export function publicSitesProblems(manifest: {
+  publicSites?: { hostsVar?: unknown }
+  vars?: unknown[]
+}): string[]
+export function declaresPublicSites(manifest: { publicSites?: unknown } | null | undefined): boolean
+export function pluginAppOwned(manifest: { appOwned?: unknown } | null | undefined): string[]
+export function isAppOwnedPath(file: string, owned: readonly string[]): boolean
+export function appOwnedProblems(manifest: {
+  id?: string
+  anchor?: string
+  paths?: string[]
+  appOwned?: unknown
+}): string[]
 
 /** A required peer plugin: an id alone asks for presence, `minVersion` adds a FLOOR. */
 export type PluginRequirement = string | { id: string; minVersion?: string | null }

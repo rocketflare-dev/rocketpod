@@ -583,6 +583,65 @@ export function pluginPlatformProblems(manifest) {
   return problems
 }
 
+// ---------------------------------------------------------------- appOwned and publicSites
+
+/** The paths a manifest hands to the developer: `remove` and `upgrade` treat them as theirs. */
+export function pluginAppOwned(manifest) {
+  return Array.isArray(manifest?.appOwned)
+    ? manifest.appOwned.filter(p => typeof p === 'string')
+    : []
+}
+
+/** Is this host-relative file one of the developer's? */
+export const isAppOwnedPath = (file, owned) =>
+  owned.some(p => file === p || file.startsWith(`${p}/`))
+
+/** Everything wrong with a manifest's `appOwned`. Each entry is a path inside its `paths`. */
+export function appOwnedProblems(manifest) {
+  const declared = manifest.appOwned
+  if (declared === undefined) return []
+  if (!Array.isArray(declared) || declared.some(p => typeof p !== 'string')) {
+    return ['appOwned must be an array of paths']
+  }
+  const roots = surfaceDirectories({
+    paths: manifest.paths ?? pluginRoots(manifest.id).map(r => `${r}**`),
+  })
+  const anchor = manifest.anchor ?? `apps/web/src/plugins/${manifest.id}/plugin.json`
+  return declared.flatMap(p => {
+    if (p === '' || /[*?]|\/\/|\/$|^\/|(^|\/)\.\.?(\/|$)/.test(p)) {
+      return [`appOwned entry ${JSON.stringify(p)} must be a plain relative path, with no glob`]
+    }
+    if (!isAppOwnedPath(p, roots)) {
+      return [`appOwned entry ${JSON.stringify(p)} is outside the plugin's paths`]
+    }
+    return isAppOwnedPath(anchor, [p])
+      ? [`appOwned entry ${JSON.stringify(p)} covers the anchor ${anchor}`]
+      : []
+  })
+}
+
+/** Does this manifest serve public sites? Its presence is the whole switch. */
+export const declaresPublicSites = manifest => Boolean(manifest?.publicSites)
+
+/**
+ * Everything wrong with a manifest's `publicSites`. The hosts var has to be a declared, non-secret
+ * `vars[]` entry: it is the environment variable the deployment sets to the site hosts, and the
+ * same list is what the ingress (or proxy) in front has to accept (`docs/DEPLOY.md` § Public site
+ * hosts).
+ */
+export function publicSitesProblems(manifest) {
+  const declared = manifest.publicSites
+  if (declared === undefined) return []
+  const hostsVar = declared?.hostsVar
+  if (typeof hostsVar !== 'string' || !/^[A-Z][A-Z0-9_]*$/.test(hostsVar)) {
+    return [`publicSites.hostsVar ${JSON.stringify(hostsVar)} must name a var (A_B_C)`]
+  }
+  const entry = (manifest.vars ?? []).find(v => (v?.key ?? v?.name ?? v) === hostsVar)
+  if (!entry) return [`publicSites.hostsVar ${hostsVar} is not declared in vars[]`]
+  if (entry.secret === true) return [`publicSites.hostsVar ${hostsVar} is marked secret`]
+  return []
+}
+
 // ---------------------------------------------------------------- requirements
 
 /**
@@ -1035,6 +1094,21 @@ export function planSteps(m, { fragments = [], clashes = [] } = {}) {
       )
     )
   }
+  if (declaresPublicSites(m)) {
+    const hostsVar = m.publicSites.hostsVar
+    // HUMAN: which hostnames point here is a DNS and ingress decision per environment, and the
+    // server only answers a host the ingress or proxy in front lets through.
+    steps.push(
+      mkStep(
+        'human',
+        'site-hosts',
+        `Accept every host in ${hostsVar}, per environment`,
+        `list the hosts in Helm \`publicSites.hosts\` with \`publicSites.hostsVar: ${hostsVar}\` (with Compose or a proxy of your own: set ${hostsVar} and route the hosts to the web service), point their DNS here — docs/DEPLOY.md § Public site hosts`,
+        `each ${hostsVar} host resolves to the deployment and reaches the server with its own Host header`,
+        'a person owns the DNS and the certificates for those hosts'
+      )
+    )
+  }
   for (const v of m.vars ?? []) {
     const key = varKey(v)
     // A var is an environment variable: the KEY is declared where every environment reads its
@@ -1096,6 +1170,18 @@ export function removeSteps(m, { archive = false } = {}) {
         `pnpm db:generate --name plugin-${m.id}-remove   # read the SQL, then: pnpm db:migrate`,
         `DROP TABLE for ${tables.join(', ')} and nothing else`,
         'a person reads a migration containing DROP before it runs'
+      )
+    )
+  }
+  if (declaresPublicSites(m)) {
+    steps.push(
+      mkStep(
+        'human',
+        'site-hosts',
+        `Stop sending the hosts in ${m.publicSites.hostsVar} here`,
+        `remove them from Helm \`publicSites\` (or from ${m.publicSites.hostsVar} and the proxy in front of Compose) and from their DNS, then deploy — docs/DEPLOY.md § Public site hosts`,
+        "the app's own host is the only one the ingress accepts",
+        'a host still pointed here answers with the app; whether it goes elsewhere is a decision'
       )
     )
   }
@@ -1475,6 +1561,22 @@ export function pluginManifestProblems(manifest) {
         'use the plugin context (ctx.platform) — this kit installs no Cloudflare-only plugin'
       )
     }
+  }
+
+  for (const problem of appOwnedProblems(m)) {
+    bad(
+      'appOwned',
+      problem,
+      'list paths inside "paths", e.g. "apps/web/src/plugins/<id>/app", and never the anchor'
+    )
+  }
+
+  for (const problem of publicSitesProblems(m)) {
+    bad(
+      'publicSites',
+      problem,
+      'set "publicSites" to { "hostsVar": "<KEY>" } and declare <KEY> in "vars"'
+    )
   }
 
   if (m.crons !== undefined && !Array.isArray(m.crons)) {

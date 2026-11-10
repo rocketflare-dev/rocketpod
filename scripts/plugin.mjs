@@ -33,9 +33,11 @@
 import { spawnSync } from 'node:child_process'
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
   readdirSync,
   readFileSync,
+  readlinkSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -72,6 +74,7 @@ import {
   describeClash,
   floorOf,
   hasBarrelLine,
+  isAppOwnedPath,
   isolationEvidence,
   isVendored,
   jsonKeyLine,
@@ -83,6 +86,7 @@ import {
   parsePluginRequirement,
   pinDeclaredRanges,
   pluginAnchor,
+  pluginAppOwned,
   pluginIdProblem,
   pluginManifestProblems,
   pluginPlatformProblems,
@@ -176,6 +180,8 @@ export const USAGE = `usage: node scripts/plugin.mjs <command> [options]
   remove <id>             uninstall: delete its directories, its barrel lines and its surface
     --apply / --allow-dirty
     --archive             first write a --custom migration copying its tables into schema 'archive'
+    --force-app-owned     with --apply, also delete files under the plugin's appOwned paths that
+                          you changed or added; without it such a removal stops
 
   list                    the installed plugins, one line each
   check                   audit every installed plugin; one line per failure, exit 1 on any.
@@ -204,6 +210,7 @@ export function parseArgs(argv) {
     apply: false,
     local: false,
     archive: false,
+    forceAppOwned: false,
     fetch: true,
     allowDirty: false,
     json: false,
@@ -221,6 +228,7 @@ export function parseArgs(argv) {
     if (a === '--apply') args.apply = true
     else if (a === '--local') args.local = true
     else if (a === '--archive') args.archive = true
+    else if (a === '--force-app-owned') args.forceAppOwned = true
     else if (a === '--no-fetch') args.fetch = false
     else if (a === '--allow-dirty') args.allowDirty = true
     else if (a === '--json') args.json = true
@@ -988,6 +996,18 @@ function cmdUpgrade(args, host) {
       stop(1, `error: ${pluginManifestPath} at ${to} is not valid JSON — a bug in the plugin.`)
     }
   }
+  // Checked as `plugin check` checks the installed one, before a byte of the release is written.
+  const targetProblems = targetManifest
+    ? pluginManifestProblems(targetManifest).map(p => `${p.field}: ${p.problem}`)
+    : []
+  if (targetProblems.length > 0) {
+    stop(
+      1,
+      `error: ${pluginManifestPath} at ${to} cannot be installed — a bug in the plugin:`,
+      ...targetProblems.map(p => `  ${p}`),
+      'Nothing has been written.'
+    )
+  }
   const installedManifest = existsSync(abs(surface.anchor))
     ? JSON.parse(readFileSync(abs(surface.anchor), 'utf8'))
     : {}
@@ -997,6 +1017,11 @@ function cmdUpgrade(args, host) {
   // below rather than refused as a stranger or left to rot.
   const targetSkills = pluginSkillDirs(targetManifest ?? installedManifest)
   const droppedSkills = pluginSkillDirs(installedManifest).filter(d => !targetSkills.includes(d))
+  // Both sides: a release that adds the field is already protected, and one that drops it has not
+  // made the developer's files the plugin's again.
+  const appOwned = [
+    ...new Set([...pluginAppOwned(installedManifest), ...pluginAppOwned(targetManifest)]),
+  ]
   const changes = collectChanges(m, from, to, { relative })
   const files = changes.map(c => ({
     ...c,
@@ -1033,7 +1058,12 @@ function cmdUpgrade(args, host) {
   const added = []
   const warnings = []
   const skillDeletes = []
+  const appOwnedLeft = []
   for (const f of files) {
+    if (f.target && isAppOwnedPath(f.target, appOwned)) {
+      appOwnedLeft.push(f.target)
+      continue
+    }
     // **A skill is REPLACED, never patched.** It is instructions for an agent that the plugin
     // owns outright — nobody is meant to edit it in place — so the release's bytes are the answer,
     // and a file the release deleted is deleted rather than "left in place" like code.
@@ -1144,6 +1174,7 @@ function cmdUpgrade(args, host) {
     to: { ref: to, commit: m.commitOf(to), version: toVersion },
     files,
     notes: noteFacts,
+    appOwnedLeft,
     warnings,
     dependencies: deps.changes,
     dependencyClashes: deps.clashes,
@@ -1170,6 +1201,13 @@ function cmdUpgrade(args, host) {
           say(`    ${key}: ${Array.isArray(v) ? v.join('; ') : v}`)
       }
     }
+  }
+  if (appOwnedLeft.length > 0) {
+    say(
+      '',
+      'Left alone (appOwned paths are yours; the release changed these upstream):',
+      ...appOwnedLeft.map(f => `  ${f}`)
+    )
   }
   say('', ...renderDependencyDelta(deps))
   // Two sources for one question: a release may raise its floor in a NOTE, or simply by changing
@@ -1300,7 +1338,8 @@ function cmdUpgrade(args, host) {
   out(
     '',
     `✔ ${added.length} added, ${patches.length - rejected} patched` +
-      (rejected > 0 ? `, ${rejected} with rejects (*.rej beside the file)` : ''),
+      (rejected > 0 ? `, ${rejected} with rejects (*.rej beside the file)` : '') +
+      (appOwnedLeft.length > 0 ? `, ${appOwnedLeft.length} appOwned left alone` : ''),
     ...(coreEditFiles.length > 0 ? [`✔ core edit(s) applied to ${coreEditFiles.join(', ')}`] : []),
     ...coreEditWarnings.map(w => `  warning: ${w}`),
     ...(installs + removals > 0
@@ -1338,6 +1377,10 @@ function cmdUpgrade(args, host) {
     // `kit:upgrade` and `kit:release` all read the surface, so all three would keep agreeing with
     // a statement that is no longer true. Nothing ELSE on the entry is rewritten here.
     if (targetManifest) {
+      // The same copy `add` writes. `remove` and the next upgrade read this file, so a stale one
+      // would have them act on the manifest of the release before this.
+      writeInto(surface.anchor, materialise(m.showRaw(to, pluginManifestPath), host.names))
+      formatWritten([surface.anchor])
       entry.minKit = floorOf(targetManifest)
       entry.requires = {
         surfaces: targetManifest.requires?.surfaces ?? [],
@@ -1378,6 +1421,66 @@ function cmdUpgrade(args, host) {
 
 // ---------------------------------------------------------------- remove
 
+/** Every file on disk under a host-relative path. */
+function filesUnder(rel) {
+  if (!existsSync(abs(rel))) return []
+  if (!lstatSync(abs(rel)).isDirectory()) return [rel]
+  return readdirSync(abs(rel), { withFileTypes: true }).flatMap(e =>
+    e.isDirectory() ? filesUnder(`${rel}/${e.name}`) : [`${rel}/${e.name}`]
+  )
+}
+
+/** What `add` would have left on disk for these bytes: it runs biome over what it copies. */
+function formattedLikeAdd(rel, bytes) {
+  const r = spawnSync('pnpm', ['exec', 'biome', 'check', '--write', `--stdin-file-path=${rel}`], {
+    cwd: REPO_ROOT,
+    input: bytes,
+    stdio: ['pipe', 'pipe', 'ignore'],
+  })
+  return r.status === 0 && r.stdout?.length > 0 ? r.stdout : bytes
+}
+
+/**
+ * Files under a plugin's appOwned paths that a developer changed or added since the pinned commit.
+ * When the pinned commit cannot be read every file is reported `unverified`: a removal must not
+ * assume a file it could not compare is safe to delete.
+ */
+function changedAppOwnedFiles(manifest, surface, host, args) {
+  const owned = pluginAppOwned(manifest)
+  if (owned.length === 0) return []
+  const onDisk = owned.flatMap(filesUnder)
+  const source = surface.source ?? {}
+  const subdir = (source.subdir ?? '').replace(/^\/|\/$/g, '')
+  const inRepo = rel => (subdir === '' ? rel : `${subdir}/${rel}`)
+  let m = null
+  try {
+    m = source.commit
+      ? ensureMirror(source.repo, pluginMirrorDir(source.repo), {
+          fetch: args.fetch,
+          cwd: REPO_ROOT,
+          warn,
+        })
+      : null
+  } catch {
+    m = null
+  }
+  if (!m?.resolves(source.commit)) {
+    return onDisk.map(file => ({ path: file, reason: 'unverified' }))
+  }
+  const pinned = new Set(owned.flatMap(p => m.listFiles(source.commit, inRepo(p))))
+  return onDisk.flatMap(rel => {
+    if (!pinned.has(inRepo(rel))) return [{ path: rel, reason: 'added' }]
+    // A symlink is its target, as git stores it; reading through one to a directory throws.
+    const disk = lstatSync(abs(rel)).isSymbolicLink()
+      ? Buffer.from(readlinkSync(abs(rel)))
+      : readFileSync(abs(rel))
+    const pristine = Buffer.from(materialise(m.showRaw(source.commit, inRepo(rel)), host.names))
+    return disk.equals(pristine) || disk.equals(Buffer.from(formattedLikeAdd(rel, pristine)))
+      ? []
+      : [{ path: rel, reason: 'changed' }]
+  })
+}
+
 function cmdRemove(args, host) {
   const id = args.positional[0]
   if (!id) stop(2, 'error: remove needs a plugin id', '', USAGE)
@@ -1411,6 +1514,7 @@ function cmdRemove(args, host) {
     [...directories, ...coreEditsByFile(anchorManifest).keys()]
   )
   const tables = anchorManifest.schema?.tables ?? []
+  const appOwnedEdits = changedAppOwnedFiles(anchorManifest, surface, host, args)
 
   const say = (...lines) => {
     if (!args.json) out(...lines)
@@ -1421,6 +1525,13 @@ function cmdRemove(args, host) {
     'Deletes',
     ...directories.map(d => `  ${d}`),
     ...(directories.length === 0 ? ['  (no directories — already gone)'] : []),
+    ...(appOwnedEdits.length > 0
+      ? [
+          '',
+          'Your files under appOwned paths (deleted only with --force-app-owned)',
+          ...appOwnedEdits.map(e => `  ${e.reason.padEnd(11)}${e.path}`),
+        ]
+      : []),
     '',
     'Barrel lines removed',
     ...barrels.map(k => `  ${BARRELS[k].file}  —  ${barrelLines(k, id).join('  +  ')}`),
@@ -1437,6 +1548,7 @@ function cmdRemove(args, host) {
         {
           plugin: { id, version: surface.source?.version ?? null },
           deletes: { directories, barrels: barrels.map(k => BARRELS[k].file), tables },
+          appOwned: appOwnedEdits,
           steps,
         },
         null,
@@ -1449,7 +1561,17 @@ function cmdRemove(args, host) {
 
   if (!args.apply) {
     say('', 'Nothing written. Re-run with --apply to remove it.')
+    if (appOwnedEdits.length > 0) say('That also needs --force-app-owned; see the list above.')
     return 0
+  }
+
+  if (appOwnedEdits.length > 0 && !args.forceAppOwned) {
+    warn(
+      '',
+      `error: ${appOwnedEdits.length} file(s) under ${id}'s appOwned paths are yours, and removing the plugin would delete them.`,
+      'Nothing written. Copy out what you want to keep, then re-run with --apply --force-app-owned.'
+    )
+    return 6
   }
 
   if (args.archive && tables.length > 0) writeArchiveMigration(id, tables)

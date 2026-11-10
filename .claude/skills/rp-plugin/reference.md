@@ -159,6 +159,10 @@ declares** — so an install stays reversible by deleting a directory.
 | `repo-only` | `.github/`, `.git/`, `node_modules/`, `.claude/`, `scripts/` (its release shim — a plugin repo cuts a release with a copy of the kit's `release.mjs`, taken from a kit checkout), `package.json`, `pnpm-lock.yaml`, `biome.json`, `.gitignore` and the other root dotfiles | the plugin repository's own tooling (a CI workflow, a release entry point); never copied, never refused |
 | `refused` | anything else | the install stops — a refusal, not a warning. A plugin that edits `api/index.ts` on the way in is an install nobody can reverse |
 
+A manifest may list `"appOwned"` paths inside `paths`: `upgrade` leaves them alone, and `remove` lists files changed or added there and needs `--force-app-owned` (exit 6 without it).
+
+A manifest serving public sites declares `"publicSites": { "hostsVar": "<KEY>" }`, and `<KEY>` must be a non-secret entry of `vars[]`. The plan then carries a human step: list the site hosts in Helm `publicSites.hosts` with `publicSites.hostsVar: <KEY>`, which sets `<KEY>` and an ingress rule per host (with Compose or a proxy of your own, set `<KEY>` and route the hosts to the web service), and point their DNS here (`docs/DEPLOY.md` § Public site hosts); `remove` carries the inverse. `upgrade` rewrites the anchor `plugin.json` from the release it installs, and refuses a release whose manifest fails these rules before writing anything.
+
 ## What `check` verifies
 
 One `✖` line per failure and exit 1 on any; silence plus `✔ n plugin(s) check out` otherwise.

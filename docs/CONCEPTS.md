@@ -89,7 +89,8 @@ suites on vitest 4, §9 — never part of the gate).
   plus a junction table. **The column decides and the rows only grant**, so an empty grant list
   means "owner and admins only". It never falls back to "public". The predicate is SQL in
   `services/access.ts` (`accessScopeOf` → `visibleDocuments` / plugin predicates), **ANDed with the
-  tenant predicate, never substituted for it**. Admin-level roles bypass it. Groups grant READ only.
+  tenant predicate, never substituted for it**. Admin-level roles bypass it. On kit resources groups grant READ only; a plugin may define its own
+  grants over its own resources (`edit`, `publish`) and enforces them itself.
   Deleting a group that still grants something is 409 `group_in_use` (`?force=1` narrows).
   `access.changed` nudges the affected users.
 - **Tenants managed by the OIDC issuer (IdP-managed tenancy, `OIDC_MANAGED_TENANCY`, §2).**
@@ -608,7 +609,8 @@ calls `putStream` yet (uploads are multipart forms under `MAX_UPLOAD_BYTES`).
 
 ## 7. UI shell
 
-- **Design tokens (D20)**: two DaisyUI themes in `ui/index.css`, where the brand hexes are the only
+- **Design tokens (D20)**: two DaisyUI themes in `shared/theme-tokens.css` (read by `ui/index.css`
+  and by public-site stylesheets), where the brand hexes are the only
   hex values; `contrast.test.ts` gates them. Tailwind scanning is `source(none)` + explicit
   `@source` lines. A plugin's pages get the `../plugins/**/ui/**` line, and precompiled dependency
   CSS gets none.
@@ -1186,8 +1188,10 @@ The full gate stays green at every step. `SETUP.md` is the walkthrough.
 **array** (`hasFeature`, `requireFeature`, `{ feature }` nav guards), never CASL. A global admin's
 `manage all` would satisfy `access Feature:x` and expose unreleased surfaces.
 
-- **Two layers**: `FEATURES_ENABLED` in `[vars]` is the fail-closed release gate, consulted only for
-  `environmentGated` flags. Then the admin rollout: tenant override → `on`/`off` → `rollout`
+- **Two layers**: `FEATURES_ENABLED` is the fail-closed release gate, consulted only for
+  `environmentGated` flags, plus whatever an installed plugin's own config switches on
+  (`ServerPlugin.deploymentFeatures`; `deploymentFeatures(cfg)` is the union, so `resolveFeatures`
+  is async). Then the admin rollout: tenant override → `on`/`off` → `rollout`
   percentage → registry default.
 - **Keys are code** (`FEATURES` + metadata). No migration is needed to add one; orphaned rows are
   inert. The kit ships **no** flag — `example-feature`'s belongs to its plugin — so
@@ -1308,6 +1312,69 @@ Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
   is neither refused nor unbounded. Both are the optional third tuple element,
   `[prefix, router, { rateLimit?, bodyLimitBytes? }]`; a path is throttled by the longest public
   prefix it falls under only.
+- **Public sites**: `ServerPlugin.publicSites` serves whole hosts from a plugin's router, for
+  anonymous readers. `hosts(config)` lists the hosts it answers (lowercase, no port); `null` means
+  the plugin's config is bad and it is **dormant**, so every host other than `APP_URL`'s and
+  loopback gets a plain, uncached 503. `api/middleware/public-sites.ts` runs after
+  `databaseMiddleware` and before every mount, and reads the host from the request URL, which
+  `@hono/node-server` builds from the `Host` the ingress passes (no forwarded header is trusted).
+  There is no host routing in front of the app: the Node server receives every host the proxy
+  sends, and the ingress, DNS and the plugin's hosts var are the deployment's (`docs/DEPLOY.md`
+  § Public site hosts; the Helm chart's `publicSites.hosts`). On a matching host the plugin's
+  router answers everything, so `/api/*`, `/auth/*` and `/ws` are never reached there. GET and
+  HEAD are allowed, plus POST on a path declared in `forms`; anything else is 405. Page requests
+  are never rate limited; a form POST bypasses the cache and has its own body limit (default
+  64 KiB, at most `MAX_PUBLIC_MOUNT_BODY_BYTES`) and rate-limit bucket. Two plugins claiming one
+  host, or a claim on `APP_URL`'s host, fail the gate (`publicSiteIssues`); at runtime the claim is
+  ignored and logged. A site host always gets the strict public CSP from
+  `api/middleware/security-headers.ts`: no script, frame, connection or form target unless
+  `csp(host, config, pathname)` declares one (`pathname` lets one path carry less than the rest of
+  the host; a `connectSrc` or `formAction` path such as `/submit` is pinned to the request's
+  origin), and a page may add its own through `PUBLIC_SITE_PAGE_CSP_HEADER` (JSON
+  `PublicSiteCsp`, stripped before the browser sees it); `style-src <request origin>/site-assets/`
+  (the same source joins `script-src` once a site declares any script, so a page cannot load the
+  admin bundle from `/assets/*`; `publicSiteIssues` refuses a declared script source reaching that
+  path, including `'self'`, and at runtime it is dropped) and `frame-ancestors 'none'`. Inline
+  script stays banned: a declared source containing `'unsafe-inline'`, `'unsafe-eval'`, `*`,
+  `data:` or `;` fails `publicSiteIssues` and is dropped at runtime. The server serves only
+  `/assets/*` and `/site-assets/*` before the app (`node/assets.ts`), so a root file on a site host
+  is the plugin's, and the SPA catch-all serves `index.html` for a browser navigation only — a
+  missing file is a 404. HSTS carries `includeSubDomains` on `APP_URL`'s host only.
+  `ServerPlugin.uploadPaths` (under `/api/<id>/`) skip the 1 MB body cap, and each such route mounts
+  its own limit. **Known gap:** `publicSites.cache` (generation, TTL, variants) is accepted and
+  inert — Rocketflare stores pages in the Workers Cache API and a Node process has no `caches`
+  global, so every page request reaches the router; put a CDN in front of the site hosts.
+- **The `publicSites` manifest field**: `"publicSites": { "hostsVar": "SITES_HOSTS" }` in
+  `rocketflare-plugin.json` names a declared, non-secret var holding the plugin's hosts.
+  `plugin check` refuses a hosts var that is not one; `plugin add` prints the human step of
+  routing those hosts to the app (ingress hosts, DNS, TLS) and `remove` its inverse. Rocketflare's
+  toml half (`run_worker_first`, `not_found_handling`, one route per host, the `images` binding)
+  has no Rocketpod equivalent: every request already reaches the server.
+- **`appOwned` paths** (`"appOwned": ["apps/web/src/plugins/<id>/app"]`, inside `paths`): the
+  developer's. `plugin upgrade` never touches them, and `plugin remove` lists a file changed or
+  added since the pinned commit (a symlink compared by its target) and needs `--force-app-owned` to
+  delete it. `plugin upgrade` also rewrites the anchor `plugin.json` from the release it installs,
+  and refuses a release whose manifest fails `plugin check`'s manifest rules before writing
+  anything.
+- **`workspace` route tier**: a `UiPlugin` route with `tier: 'workspace'` renders inside `Layout`,
+  in the shell's route table, for a page that needs the whole space under the app header (an
+  editor canvas). It requires sign-in and a tenant, and its `guard` is honoured, as on `shell`. On a
+  workspace route from `lg` up the sidebar collapses to its icon rail whatever the reader saved,
+  the saved preference is untouched and returns on leaving, and the collapse toggle is hidden;
+  below `lg` the drawer is unchanged. `<main>` has no padding and the page fills the viewport under
+  the 56 px header (`h-full` in a plugin page), scrolling only its own panes. The other tiers are
+  `shell` (the default), `noTenant` and `public`. `Breadcrumbs` (from `@/plugins/api/ui`) is the
+  trail on its own, for a surface with no page title.
+- **`resolveOwnerTenant(db, config, ownerSlug?)`** from `@/plugins/api` finds the tenant that owns a
+  public surface: `getSingleTenant` under `single`, by slug under `multi`. It returns null for a
+  missing slug under `multi`, an unknown slug, and any tenant whose `status` is not `active`. This
+  and the plugin's config parser are the only places a plugin should branch on `TENANCY_MODE`.
+  **Known gap:** under `multi` it matches a slug, and a slug can be renamed or reused, so a tenant
+  that renames or is deleted frees a public host for whoever registers that slug next. Bind by id
+  before tenants can own public sites themselves.
+- **`chatModelAvailable(ctx, tenantId, promptKey)`** from `@/plugins/api` answers whether
+  `resolveChat` would find a model (a tenant row or the `.env` platform keys) without building a
+  client, so a plugin can say "no model" before it starts a run.
 - **Identity (the identity seam)**: a public handler that has proved a person signs them in with
   `identityFor(c, id).signIn(...)` — the kit links, admits, applies an `idp` membership and mints
   the session (§2) and the plugin returns the redirect it answers; it never touches

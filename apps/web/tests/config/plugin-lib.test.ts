@@ -60,6 +60,7 @@ import {
   pluginIdProblem,
   pluginManifestProblems,
   pluginPlatformProblems,
+  publicSitesProblems,
   rangeWithin,
   removeBarrelLine,
   removeSteps,
@@ -552,6 +553,42 @@ const fixtureManifest = {
   ],
   schema: { tables: ['orders_orders', 'orders_lines'], rlsExcluded: [] },
 }
+
+describe('publicSites in a manifest', () => {
+  const vars = [{ key: 'SITES_HOSTS' }]
+
+  it('names a declared, non-secret var', () => {
+    expect(publicSitesProblems({})).toEqual([])
+    expect(publicSitesProblems({ publicSites: { hostsVar: 'SITES_HOSTS' }, vars })).toEqual([])
+  })
+
+  it('refuses a malformed, undeclared or secret hosts var', () => {
+    expect(publicSitesProblems({ publicSites: { hostsVar: 'sites' }, vars })[0]).toMatch(/A_B_C/)
+    expect(publicSitesProblems({ publicSites: {}, vars })[0]).toMatch(/must name a var/)
+    expect(publicSitesProblems({ publicSites: { hostsVar: 'SITES_HOSTS' } })[0]).toMatch(
+      /not declared in vars/
+    )
+    expect(
+      publicSitesProblems({
+        publicSites: { hostsVar: 'SITES_HOSTS' },
+        vars: [{ key: 'SITES_HOSTS', secret: true }],
+      })[0]
+    ).toMatch(/marked secret/)
+  })
+
+  it('reaches pluginManifestProblems, with appOwned, as their own fields', () => {
+    const fields = pluginManifestProblems({
+      id: 'orders',
+      version: '1.0.0',
+      minKit: '0.1.0',
+      uses: {},
+      publicSites: { hostsVar: 'NOPE' },
+      appOwned: ['../escape'],
+    }).map(p => p.field)
+    expect(fields).toContain('publicSites')
+    expect(fields).toContain('appOwned')
+  })
+})
 
 describe('platform declarations', () => {
   /**

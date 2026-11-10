@@ -194,6 +194,18 @@ Sign-in moves to `openid-client`, and a hardening round tightens roles, invitati
 - CLI output drops terminal control characters (`neutralise`, a new CLI plugin entry; `Column.style`); `--json` is unchanged.
 - `plugin add|upgrade|remove` and `kit:upgrade` refuse a path outside the repository, under `.git/` or through a symlink before writing (`scripts/lib/repo-paths.mjs`).
 
+Plugins can serve whole public hosts (`publicSites`), with a strict per-site CSP, form posts, plugin upload paths, a `workspace` UI route tier and a tenant resolver; an app with no such plugin sees no routing change. The shell's theme script moves out of `index.html`, so the shell's own `script-src 'self'` no longer blocks it.
+
+- `ServerPlugin.publicSites` (`hosts`, `router`, `csp`, `forms`, `cache`) is served by `apps/web/src/api/middleware/public-sites.ts`, after `databaseMiddleware` and before every mount; on a claimed host the plugin's router answers every path. A dormant plugin (`hosts` → null) makes every host but `APP_URL`'s and loopback a plain 503. `cache` is accepted and inert (no Cache API in a Node process).
+- `security-headers.ts`: the strict public CSP on a site host (`publicSiteCsp`, `isForbiddenCspSource`, `reachesAdminBundle`, `SITE_ASSETS_PATH`), path-pinned `connectSrc`/`formAction`, `PUBLIC_SITE_PAGE_CSP_HEADER` (exported from `@/plugins/api`), and HSTS `includeSubDomains` only on `APP_URL`'s host. `publicSiteIssues` / `uploadPathIssues` in `tests/helpers/plugins.ts` fail the gate on a bad claim or upload path.
+- `src/node/assets.ts` serves only `/assets/*` and `/site-assets/*` before the app; a root file of the UI build (`/robots.txt`) is served by `ASSETS.fetch` through the app, which 404s anything missing, and the SPA catch-all fetches `index.html` for a browser navigation only (`Sec-Fetch-Mode: navigate` or `Accept: text/html`).
+- `ServerPlugin.uploadPaths` skip the 1 MB cap (`apiBodyLimit`'s second argument); `ServerPlugin.deploymentFeatures` lets a plugin's config switch on an `environmentGated` flag; `resolveFeatures` is async and `availableInEnvironment` takes the deployed list (`deploymentFeatures(cfg)`).
+- Helm: `publicSites.hostsVar` + `publicSites.hosts` set the plugin's hosts var in the ConfigMap and add one ingress rule per host (`docs/DEPLOY.md` § Public site hosts).
+- The brand tokens and DaisyUI themes moved to `apps/web/src/shared/theme-tokens.css`; the theme script is `apps/web/src/ui/public/assets/theme-init.js`, which also sets zod's `jitless`.
+- `PluginRouteTier` gains `workspace` (`Layout workspace`, `SideNav forceCollapsed`); `Breadcrumbs` is exported from `components/shared` and `@/plugins/api/ui`; `resolveOwnerTenant(db, config, ownerSlug?)` and `chatModelAvailable(ctx, tenantId, promptKey)` from `@/plugins/api`.
+- The CLI's `ApiClient` gains `getBytes`, `postForm`, and `PUT`/`PATCH` (`HttpMethod`).
+- `pnpm plugin`: a manifest may declare `appOwned` paths (inside `paths`) that `upgrade` leaves alone and `remove` deletes only with `--force-app-owned` (exit 6 without it, a symlink compared by its target); `upgrade` rewrites the anchor `plugin.json` from the release it installs and refuses a release whose manifest fails `plugin check`'s manifest rules before writing anything; `"publicSites": { "hostsVar": "<KEY>" }` must name a declared non-secret var, and `add`/`remove` print a human step for the hosts. `rename` rewrites colours in `theme-tokens.css` too.
+
 ## How to apply
 
 1. Add six columns to the Drizzle schema in `apps/web/src/db/schema/`:
@@ -465,6 +477,17 @@ Sign-in moves to `openid-client`, and a hardening round tightens roles, invitati
 78. Replace any symlinked directory under `apps/web/src/plugins/`, `docs/plugins/` or `.claude/skills/` with the real directory before the next `plugin add`.
 79. Port the 0.29.0 tests: `apps/web/tests/api/security/*` (the socket revocation test boots the Node server and asserts close code 4001 over real sockets; `ws-upgrade-origin` reads `RecordingRealtime.accepted`; `global-admin-lifecycle` reads `closes`), `tests/config/{repo-paths,plugin-path-containment}.test.ts`, `tests/ui/{cli-confirm,markdown-images,safe-return-url}`, `apps/cli/tests/output.test.ts`, and the edits to `auth-cli`, `auth-oauth`, `auth-oidc`, `auth-sso-required`, `invitations`, `jobs-producer`, `tenancy-single-identity`, `traces`, `plugins` and `tests/driver/identity`.
 80. Port the docs: `docs/CONCEPTS.md` §1, §2, §5, §6, §7, §13 and §16, `SETUP.md`, `docs/DEPLOY.md` § Tracing, `docs/RLS.md`, `docs/CONNECTORS.md`, `.claude/rules/{api,cli,ui}.md`, the `CLAUDE.md` files under `apps/web/src/api/{middleware,routes,services/ai}`, `db/schema`, `ui`, `plugins` and `apps/cli`, `rp-plugin/reference.md`, `rp-traces/SKILL.md`, and the Guide's `start/signing-in.md`, `reference/api-keys-and-the-cli.md` and `admin/members-and-invitations.md` (new facts `auth.sign_in_mail_max`, `auth.sign_in_mail_window_minutes`, `team.invitation_resend_minutes`); then run `node scripts/plugin-api-doc.mjs`.
+81. Port `apps/web/src/api/middleware/public-sites.ts` and call `publicSitesMiddleware(serverPlugins)` in `apps/web/src/api/index.ts` directly after `databaseMiddleware`; pass `serverPlugins.flatMap(p => p.uploadPaths ?? [])` as `apiBodyLimit`'s second argument.
+82. Port the public CSP branch and the HSTS host check of `apps/web/src/api/middleware/security-headers.ts`, `publicSiteCsp` on `AppVariables`, and the `publicSites`, `uploadPaths`, `deploymentFeatures` slots and the `workspace` tier in `apps/web/src/plugins/types.ts` with their re-exports in `apps/web/src/plugins/api/{index,http,public,identity,ai,ui}.ts`.
+83. Replace `apps/web/src/node/assets.ts` (bundles first, `ASSETS.fetch` = an existing file or 404) and the catch-all in `apps/web/src/api/index.ts` (`isShellNavigation`); a test fetching a client route from the Node server must send `Accept: text/html`.
+84. Port `deploymentFeatures` and the async `resolveFeatures` in `apps/web/src/permissions/features.ts`, `availableInEnvironment(deployed, key)` in `apps/web/src/api/services/features.ts`, and `await` every `resolveFeatures` call (`middleware/auth.ts`, `services/member-ability.ts`, your own).
+85. Move the `@theme` block and both `@plugin "daisyui/theme"` blocks from `apps/web/src/ui/index.css` to `apps/web/src/shared/theme-tokens.css` and `@import "../shared/theme-tokens.css";` after the Tailwind import; move the inline theme script of `apps/web/src/ui/index.html` to `apps/web/src/ui/public/assets/theme-init.js` (`<script src="/assets/theme-init.js"></script>`).
+86. Port `WorkspaceRoute`, `isWorkspacePath` and `pluginRoutes('workspace')` in `apps/web/src/ui/App.tsx`, the `workspace` prop of `Layout`, `forceCollapsed` on `SideNav`, and `Breadcrumbs` in `components/shared/PageHeader.tsx`.
+87. Port `resolveOwnerTenant` into `apps/web/src/api/utils/db/tenant-helpers.ts`, `chatModelAvailable` into `apps/web/src/plugins/api/ai.ts`, and `getBytes`/`postForm`/`HttpMethod` into `apps/cli/src/api.ts`.
+88. Add `publicSites` to `deploy/helm/rocketpod/values.yaml` and the ConfigMap and Ingress templates; for an installed plugin declaring `publicSites`, set its hosts var and route its hosts to the app as `docs/DEPLOY.md` § Public site hosts describes.
+89. Port the 0.30.0 tests: `tests/api/{public-sites,spa-catch-all,plugin-resolve-owner-tenant}.test.ts`, `tests/config/{deployment-features,ui-shell-csp}.test.ts`, `tests/ui/plugin-route-tiers.test.tsx`, the cases added to `tests/config/{plugins,public-mounts,packaging}.test.ts`, `tests/api/node-server.test.ts` and `apps/cli/tests/api.test.ts`, and the `theme-tokens.css` read in `tests/ui/contrast.test.ts`.
+90. Port the `appOwned` helpers, `declaresPublicSites` and `publicSitesProblems` in `scripts/lib/plugin-lib.mjs` (with `plugin-lib.d.mts`), the `cmdRemove`/`cmdUpgrade` changes in `scripts/plugin.mjs`, and the `theme-tokens.css` colour rewrite in `scripts/rename.mjs`, with the cases in `tests/config/{plugin-path-containment,plugin-skills,plugin-lib}.test.ts`.
+91. Port the docs: `docs/CONCEPTS.md` §1, §7, §15 and §16, `docs/DEPLOY.md` § Public site hosts, `.claude/rules/ui.md`, `rp-plugin/{SKILL,reference}.md`, the `CLAUDE.md` files in `apps/web/src/api/middleware`, `ui` and `plugins`; then run `node scripts/plugin-api-doc.mjs`.
 
 ## Conflicts to expect
 
@@ -495,6 +518,9 @@ Sign-in moves to `openid-client`, and a hardening round tightens roles, invitati
 - `apps/web/tests/api/invitations.test.ts` → `createInvitation` takes `actor`; a resend right after a create must backdate `last_sent_at` → update local tests.
 - `apps/web/src/platform/types.ts` → `Broadcaster.closeSockets` added → a custom hub or fake implements it.
 - A test asserting `content` on spans → the default is off → set `OBSERVABILITY_CAPTURE_CONTENT: 'true'` in that test's env.
+- `apps/web/src/api/index.ts` → one middleware after `databaseMiddleware` and the catch-all rewritten → keep your own order and mounts; place it directly after `databaseMiddleware`.
+- `apps/web/src/node/assets.ts` → root files no longer served before the app → an app that serves its own root files from `dist/ui` keeps working through `ASSETS.fetch`.
+- `apps/web/src/ui/index.css` → the token blocks moved out → keep your palette and move it with them.
 
 ## Verify
 
@@ -528,3 +554,6 @@ Sign-in moves to `openid-client`, and a hardening round tightens roles, invitati
 28. `rg -n "arctic|@oslojs" apps/web/src apps/web/package.json pnpm-lock.yaml` prints nothing, and `pnpm audit` reports no known vulnerabilities.
 29. A `read`-scoped key on `PATCH /api/me` answers 403 `insufficient_scope`; with `AUTH_OIDC_ONLY=true`, `GET /auth/methods` answers `magicLink: false`; `GET /auth/cli` with a session cookie answers 302 to `/cli/confirm` and creates no API key.
 30. `pnpm web test:api -- tests/api/security` passes, including `realtime-socket-revocation` (close code 4001 through `LISTEN/NOTIFY`).
+31. With no plugin declaring `publicSites`, `curl -i http://localhost:3001/api/health` answers from the app, and `curl -i -H 'Accept: text/html' http://localhost:3001/settings` answers the shell while `curl -i http://localhost:3001/assets/missing.js` answers 404.
+32. `pnpm web test:api -- public-sites spa-catch-all node-server` passes.
+33. `helm template x deploy/helm/rocketpod --set config.APP_URL=https://app.example.com --set ingress.enabled=true --set publicSites.hostsVar=SITES_HOSTS --set 'publicSites.hosts={www.example.com}'` renders `SITES_HOSTS: "www.example.com"` in the ConfigMap and an ingress rule for `www.example.com`.

@@ -42,13 +42,28 @@ beforeAll(() => {
 })
 afterAll(() => rmSync(root, { recursive: true, force: true }))
 
+/** The five barrels and the formatter config `add` runs over them. */
+const APP_FILES = [
+  'biome.json',
+  'packages/shared/src/plugins/index.ts',
+  'apps/web/src/plugins/server.ts',
+  'apps/web/src/plugins/ui.ts',
+  'apps/web/src/plugins/schema.ts',
+  'apps/cli/src/plugins/index.ts',
+]
+
 /** A throwaway host: the real scripts, manifest and API ledger in a clean git repository. */
-function makeHost(name: string, edit?: (manifest: Record<string, unknown>) => void) {
+function makeHost(
+  name: string,
+  edit?: (manifest: Record<string, unknown>) => void,
+  files: string[] = []
+) {
   const host = path.join(root, name, 'host')
   mkdirSync(path.join(host, 'docs'), { recursive: true })
-  cpSync(path.join(KIT_ROOT, 'scripts'), path.join(host, 'scripts'), { recursive: true })
-  cpSync(path.join(KIT_ROOT, 'package.json'), path.join(host, 'package.json'))
-  cpSync(path.join(KIT_ROOT, 'docs/plugin-api.md'), path.join(host, 'docs/plugin-api.md'))
+  for (const file of ['scripts', 'package.json', 'docs/plugin-api.md', ...files]) {
+    mkdirSync(path.dirname(path.join(host, file)), { recursive: true })
+    cpSync(path.join(KIT_ROOT, file), path.join(host, file), { recursive: true })
+  }
   const manifest = JSON.parse(readFileSync(path.join(KIT_ROOT, '.rocketflare.json'), 'utf8'))
   manifest.surfaces = manifest.surfaces.filter((s: { kind?: string }) => s.kind !== 'plugin')
   edit?.(manifest)
@@ -372,5 +387,174 @@ describe('kit:upgrade keeps every release path inside the repository', () => {
     const { status } = run(host, 'upgrade.mjs', ['--apply', '--force'])
     expect(status).toBe(0)
     expect(readFileSync(path.join(host, 'added/file.txt'), 'utf8')).toBe('new\n')
+  })
+})
+
+describe('appOwned paths and public sites across releases', () => {
+  // Fixture ids no real plugin uses, so a host that installs `sites` can still run this suite.
+  const appHost = (name: string) =>
+    makeHost(
+      name,
+      manifest => {
+        manifest.app = { slug: 'acme', display: 'Acme', domain: 'acme.example' }
+      },
+      APP_FILES
+    )
+
+  /** `fixture-sites` at 1.0.0, then at 2.0.0 with `second` merged in. */
+  const sitesReleases = (name: string, second: object) => {
+    const release = (extra: object) => ({
+      'rocketflare-plugin.json': JSON.stringify({
+        id: 'fixture-sites',
+        version: '1.0.0',
+        minKit: '0.1.0',
+        uses: {},
+        ...extra,
+      }),
+      'apps/web/src/plugins/fixture-sites/index.ts': 'export {}\n',
+    })
+    return bareRepository(name, [
+      ['1.0.0', release({})],
+      ['2.0.0', release({ version: '2.0.0', ...second })],
+    ]).url
+  }
+  const recordedVersion = (host: string) =>
+    JSON.parse(readFileSync(path.join(host, '.rocketflare.json'), 'utf8')).surfaces.find(
+      (s: { id: string }) => s.id === 'fixture-sites'
+    ).source.version
+
+  it('a plugin serving public sites plans the host step on add and its inverse on remove', () => {
+    const host = appHost('site-hosts')
+    const plugin = localPlugin(
+      'site-hosts',
+      {
+        id: 'fixture-sites',
+        publicSites: { hostsVar: 'FIXTURE_SITES_HOSTS' },
+        vars: [{ key: 'FIXTURE_SITES_HOSTS' }],
+      },
+      { 'apps/web/src/plugins/fixture-sites/index.ts': 'export {}\n' }
+    )
+    const added = run(host, 'plugin.mjs', ['add', plugin, '--apply', '--allow-dirty'])
+    expect(added.status, added.output).toBe(0)
+    expect(added.output).toContain('FIXTURE_SITES_HOSTS')
+    expect(added.output).toContain('publicSites.hosts')
+    expect(run(host, 'plugin.mjs', ['check']).status).toBe(0)
+
+    const removed = run(host, 'plugin.mjs', ['remove', 'fixture-sites', '--allow-dirty'])
+    expect(removed.status, removed.output).toBe(0)
+    expect(removed.output).toMatch(/Stop sending the hosts in FIXTURE_SITES_HOSTS here/)
+  })
+
+  it('an upgrade to a release with an unsafe appOwned path is refused before anything is written', () => {
+    const host = appHost('upgrade-appowned')
+    const url = sitesReleases('upgrade-appowned', { appOwned: ['..'] })
+    expect(
+      run(host, 'plugin.mjs', ['add', `${url}@1.0.0`, '--apply', '--allow-dirty']).status
+    ).toBe(0)
+    const anchor = path.join(host, 'apps/web/src/plugins/fixture-sites/plugin.json')
+    const before = readFileSync(anchor, 'utf8')
+
+    const upgraded = run(host, 'plugin.mjs', [
+      'upgrade',
+      'fixture-sites',
+      '--to',
+      '2.0.0',
+      '--apply',
+      '--allow-dirty',
+    ])
+    expect(upgraded.status).not.toBe(0)
+    expect(upgraded.output).toContain('appOwned')
+    expect(readFileSync(anchor, 'utf8')).toBe(before)
+    expect(recordedVersion(host)).toBe('1.0.0')
+  })
+
+  it('an upgrade to a release declaring a Cloudflare binding is refused before anything is written', () => {
+    const host = appHost('upgrade-binding')
+    const url = sitesReleases('upgrade-binding', {
+      bindings: [{ type: 'kv', binding: 'CACHE', name: 'cache' }],
+    })
+    expect(
+      run(host, 'plugin.mjs', ['add', `${url}@1.0.0`, '--apply', '--allow-dirty']).status
+    ).toBe(0)
+
+    const upgraded = run(host, 'plugin.mjs', [
+      'upgrade',
+      'fixture-sites',
+      '--to',
+      '2.0.0',
+      '--apply',
+      '--allow-dirty',
+    ])
+    expect(upgraded.status).not.toBe(0)
+    expect(upgraded.output).toContain('cannot be installed')
+    expect(upgraded.output).toContain('Nothing has been written.')
+    expect(recordedVersion(host)).toBe('1.0.0')
+  })
+
+  it('remove reports an appOwned file replaced by a directory symlink, rather than crashing', () => {
+    const host = appHost('remove-symlink')
+    const app = 'apps/web/src/plugins/fixture-sites/app'
+    const { url } = bareRepository('remove-symlink', [
+      [
+        '1.0.0',
+        {
+          'rocketflare-plugin.json': JSON.stringify({
+            id: 'fixture-sites',
+            version: '1.0.0',
+            minKit: '0.1.0',
+            uses: {},
+            appOwned: [app],
+          }),
+          'apps/web/src/plugins/fixture-sites/index.ts': 'export {}\n',
+          [`${app}/page.txt`]: 'page\n',
+        },
+      ],
+    ])
+    expect(
+      run(host, 'plugin.mjs', ['add', `${url}@1.0.0`, '--apply', '--allow-dirty']).status
+    ).toBe(0)
+    const target = path.join(root, 'remove-symlink', 'target')
+    mkdirSync(target, { recursive: true })
+    rmSync(path.join(host, app, 'page.txt'))
+    symlinkSync(target, path.join(host, app, 'page.txt'))
+
+    const planned = run(host, 'plugin.mjs', ['remove', 'fixture-sites', '--allow-dirty'])
+    expect(planned.output).not.toContain('EISDIR')
+    expect(planned.status).toBe(0)
+    expect(planned.output).toMatch(new RegExp(`changed\\s+${app}/page\\.txt`))
+  })
+
+  it('remove lists an appOwned directory replaced by a symlink as one entry, not its target', () => {
+    const host = appHost('remove-root-symlink')
+    const app = 'apps/web/src/plugins/fixture-sites/app'
+    const { url } = bareRepository('remove-root-symlink', [
+      [
+        '1.0.0',
+        {
+          'rocketflare-plugin.json': JSON.stringify({
+            id: 'fixture-sites',
+            version: '1.0.0',
+            minKit: '0.1.0',
+            uses: {},
+            appOwned: [app],
+          }),
+          'apps/web/src/plugins/fixture-sites/index.ts': 'export {}\n',
+          [`${app}/page.txt`]: 'page\n',
+        },
+      ],
+    ])
+    expect(
+      run(host, 'plugin.mjs', ['add', `${url}@1.0.0`, '--apply', '--allow-dirty']).status
+    ).toBe(0)
+    const target = path.join(root, 'remove-root-symlink', 'target')
+    mkdirSync(target, { recursive: true })
+    writeFileSync(path.join(target, 'elsewhere.txt'), 'not the plugin\n')
+    rmSync(path.join(host, app), { recursive: true })
+    symlinkSync(target, path.join(host, app))
+
+    const planned = run(host, 'plugin.mjs', ['remove', 'fixture-sites', '--allow-dirty'])
+    expect(planned.status).toBe(0)
+    expect(planned.output).not.toContain('elsewhere.txt')
+    expect(planned.output).toMatch(new RegExp(`added\\s+${app}\\n`))
   })
 })

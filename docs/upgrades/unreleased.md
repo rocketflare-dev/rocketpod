@@ -228,6 +228,8 @@ Two fixes to plugin events and platform documents.
 - `EventPayloadOf<S, E>` distributes over a union of plugins, so an event's payload type is found whichever plugin in the union declares it.
 - `documentCardsFromToolResult` (`@rocketpod/shared/ai/embeddings`) skips a document marked `platform: true`, so chat and agent runs show no card that the documents page could not open.
 
+- `apps/web/tests/ui/plugin-route-tiers.test.tsx` "returns to the saved state on leaving" waits for `/^shell/`: the editor fixture's "to shell" link matched `'shell'`, so the wait could pass while the lazy shell page was still loading.
+
 ## How to apply
 
 1. Add six columns to the Drizzle schema in `apps/web/src/db/schema/`:
@@ -524,6 +526,7 @@ Two fixes to plugin events and platform documents.
 103. Port the 0.32.0 tests: `tests/api/plugin-events.test.ts` (no jobs queue is `createTestEnv({ jobs: null })`), `tests/helpers/{events,fixture-events}.ts`, the cases added to `tests/config/{plugins,plugin-lib,unscoped-allowlist}.test.ts`, `tests/driver/driver.test.ts` and `tests/api/agui-projection.test.ts`, `emit` in `tests/kit/unit.ts`'s `makeRequestCtx`, and the example-feature tests; give the note-stats prompt and agent an `evalCoverage` exemption.
 104. Port the docs: `docs/CONCEPTS.md` §16 (and the D42 decision table), the `CLAUDE.md` files in `apps/web/src/api/queues`, `db/schema`, `plugins` and `plugins/example-feature`, `rp-plugin/reference.md`, `rp-how-do-i/SKILL.md` and `example-feature/SKILL.md`; then run `node scripts/plugin-api-doc.mjs`.
 105. Port the distributive `EventPayloadOf` in `packages/shared/src/plugins/types.ts` and the `platform` skip in `documentCardsFromToolResult` (`packages/shared/src/ai/embeddings.ts`), with the cases in `tests/config/{plugins,document-helpers}.test.ts`.
+106. In `apps/web/tests/ui/plugin-route-tiers.test.tsx` "returns to the saved state on leaving", wait for `toHaveTextContent(/^shell/)` rather than `'shell'`.
 
 ## Conflicts to expect
 

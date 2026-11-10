@@ -13,7 +13,13 @@
  */
 
 import { createTestEnv, setupTestDatabase, stubs } from '@testkit/integration'
-import { makeJobCtx, makeRequestCtx, makeToolCtx, makeWorkflowCtx } from '@testkit/unit'
+import {
+  makeCronCtx,
+  makeJobCtx,
+  makeRequestCtx,
+  makeToolCtx,
+  makeWorkflowCtx,
+} from '@testkit/unit'
 import { describe, expect, it } from 'vitest'
 
 const db = setupTestDatabase()
@@ -116,6 +122,20 @@ describe('the background and run contexts', () => {
   it('give a job no ambient tenant — a job’s tenant is in its payload', () => {
     const ctx = makeJobCtx({ db })
     expect('tenantId' in ctx).toBe(false)
+  })
+
+  it('give a job and a cron the platform object store, and a 503 when there is none', async () => {
+    const env = createTestEnv()
+    await makeJobCtx({ db, env })
+      .storage()
+      .put(`tenants/${TENANT}/x/a.txt`, 'hello', { contentType: 'text/plain' })
+    expect(stubs(env).files?.objects.has(`tenants/${TENANT}/x/a.txt`)).toBe(true)
+    const cron = makeCronCtx({ db, env })
+    const object = await cron.storage().get(`tenants/${TENANT}/x/a.txt`)
+    expect(object && (await new Response(object.body).text())).toBe('hello')
+
+    const bare = makeJobCtx({ db, env: createTestEnv({ storage: null }) })
+    expect(() => bare.storage()).toThrow(expect.objectContaining({ statusCode: 503 }))
   })
 
   it('bind a tool to a scope rather than to a bare tenant id', () => {

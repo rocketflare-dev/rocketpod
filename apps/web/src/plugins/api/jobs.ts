@@ -22,8 +22,10 @@ import type { TaskContext } from '../../api/scheduled'
 import { tenantFeatures } from '../../api/services/features'
 import { enqueueJob, enqueueJobs } from '../../api/services/jobs'
 import { realtimeEvent } from '../../api/services/realtime'
+import type { StorageService } from '../../api/services/storage'
 import type { Platform } from '../../platform/types'
 import { createStepRealtimeFor } from './realtime-step'
+import { filesStorage } from './storage'
 import type { PluginContext } from './types'
 
 export type { JobEnvelope, JobInput, JobOf, JobType } from '@rocketpod/shared/jobs'
@@ -58,6 +60,12 @@ export interface BackgroundMethods {
    * tenant's override and the platform state alone.
    */
   features(tenantId: string): Promise<readonly string[]>
+  /**
+   * The platform's object store, or a 503 `storage_not_configured` — loud, because a silently
+   * absent store loses bytes. The same service `RequestCtx.storage()` returns. Write under
+   * `tenants/<tenantId>/<plugin id>/…` so the `tenant.purge` job removes the objects with the tenant.
+   */
+  storage(): StorageService
 }
 
 /**
@@ -79,7 +87,7 @@ export interface CronCtx extends PluginContext, BackgroundMethods {
  */
 export function backgroundMethods(
   { db, config }: Pick<PluginContext, 'db' | 'config'>,
-  platform: Pick<Platform, 'jobs' | 'realtime'>
+  platform: Pick<Platform, 'jobs' | 'realtime' | 'storage'>
 ): BackgroundMethods {
   return {
     enqueue: (input, options) => enqueueJob(platform.jobs, input, options),
@@ -96,6 +104,7 @@ export function backgroundMethods(
       )
     },
     features: tenantId => tenantFeatures(db, config, tenantId),
+    storage: () => filesStorage(platform),
   }
 }
 

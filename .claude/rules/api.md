@@ -206,7 +206,9 @@ A plugin is a separate git repository copied into the app that contributes throu
   per-subscription secret, the provider's signature — every failure the same 401) and then uses
   only the tenant that proof carried. It re-checks its flag with `ctx.features(tenantId)` and
   answers by `ctx.enqueue` — a provider's webhook timeout is seconds. `JobCtx` and `CronCtx` carry
-  the same `features(tenantId)`, so a fan-out cron skips dark tenants
+  the same `features(tenantId)`, so a fan-out cron skips dark tenants. All three carry `storage()`
+  (`platform.storage`, 503 `storage_not_configured` without one) — write under
+  `tenants/<tenantId>/<plugin id>/…` so `tenant.purge` removes it
 - **Knowledge from a plugin goes through `ingestDocument` / `ingestDocumentFile`** (D34), with
   `source: '<id>:<kind>'` and the item's upstream `externalId` so a re-sync upserts; never an
   insert into `documents`. `deleteIngestedDocument` is the upstream-delete path

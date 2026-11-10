@@ -203,6 +203,17 @@ IdP-managed tenancy: with `OIDC_MANAGED_TENANCY=true` the OIDC issuer decides wh
 28. Tell anyone reading `ai_usage` that an agent run is now several rows (one per call), grouped
     by `agent_run_id`.
 29. Run `node scripts/plugin-api-doc.mjs` to regenerate `docs/plugin-api.md`.
+30. Concurrent tool calls: add `maxConcurrentToolCalls` (positive int, optional) to
+    `agentPolicySchema` in `packages/shared/src/ai/agents.ts`, and replace the sequential loop in
+    `runToolLoop`'s `executeToolUses` (`services/ai/agent-loop.ts`) with the kit's bounded worker
+    pool (`executeSingleToolUse` + in-order `tool_result` emission). Default 4; `1` is the old
+    sequential behaviour. Copy `tests/config/agent-concurrent-tools.test.ts`.
+31. Plugin background storage: add `apps/web/src/plugins/api/storage.ts` (`filesStorage(platform)`
+    over `platform.storage`, 503 `storage_not_configured` without one), use it for
+    `RequestCtx.storage()` in `http.ts`, add `storage(): StorageService` to `BackgroundMethods` in
+    `jobs.ts` (its `platform` parameter widens to `Pick<Platform, 'jobs' | 'realtime' | 'storage'>`),
+    and re-export `StorageService`, `StoredObject` and `StoredObjectMeta` from `@/plugins/api`.
+    Regenerate `docs/plugin-api.md`.
 
 ## Conflicts to expect
 
@@ -214,6 +225,7 @@ IdP-managed tenancy: with `OIDC_MANAGED_TENANCY=true` the OIDC issuer decides wh
 - `apps/web/src/api/services/agents/runtime.ts` → the `AgentContext` literal is `withFanout({ … })` with `recordUsage`, the client is wrapped by `meterChatClient` → keep your own fields inside the literal.
 - `apps/web/src/api/services/agents/examples/*.ts` → `recordUsage` calls deleted, `research-topic`'s salvage became `meta.policy` → delete yours the same way; never keep both.
 - `apps/web/tests/helpers/test-agents.ts` → the test agents' usage writes deleted → a test counting `ai_usage` rows now sees one per call.
+- `apps/web/src/api/services/ai/agent-loop.ts` → an app that edited `executeToolUses` (extra approval rules) → move the per-call rules into `executeSingleToolUse`; the pool owns ordering.
 
 ## Verify
 
@@ -228,3 +240,5 @@ IdP-managed tenancy: with `OIDC_MANAGED_TENANCY=true` the OIDC issuer decides wh
 9. `psql "$DATABASE_URL" -c '\d agent_runs'` lists `batch_id uuid` and the two new indexes.
 10. `pnpm web agent:replay triage-research --tenant <slug>` prints one line per settled run and a summary line.
 11. `pnpm cli agents list` marks `triage-research` as batchable, and `pnpm cli agents run triage-research --batch questions.jsonl` prints one run per line.
+12. `pnpm web test:config -- tests/config/agent-concurrent-tools.test.ts` passes.
+13. A plugin job handler's `ctx.storage().put('tenants/<id>/<plugin>/x', …)` writes to the configured object store; with no `STORAGE_*` it throws 503 `storage_not_configured`.

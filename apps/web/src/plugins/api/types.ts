@@ -62,6 +62,12 @@ export interface PluginContext {
 
 // ---- Bare types a plugin NAMES rather than receives ----------------------------------------------
 
+export type {
+  StorageService,
+  StoredObject,
+  StoredObjectMeta,
+} from '../../api/services/storage'
+
 /**
  * The types below are not obtained from a context, and that is not an oversight.
  *

@@ -52,6 +52,7 @@ import { createRouter } from '../../api/utils/routes/router'
 import { validate } from '../../api/utils/routes/validate'
 import { isAdminLevel, isGlobalAdmin, isOwnerLevel, type PluginAuth } from './auth'
 import { nudgeEntity, nudgeEntityTopic } from './events'
+import { filesStorage } from './storage'
 import type { PluginContext } from './types'
 
 export type { AppRouter } from '../../api/utils/routes/router'
@@ -325,16 +326,7 @@ export function requestCtx(c: AppContext): RequestCtx {
     nudge: (entity, id) => nudgeEntity(route.realtime, route.tenantId, entity, id),
     nudgeTopic: (topic, entity, id) =>
       nudgeEntityTopic(route.realtime, route.tenantId, topic, entity, id),
-    storage: () => {
-      const storage = c.get('platform').storage
-      if (!storage) {
-        throw new ServiceUnavailableError(
-          'File storage is not configured',
-          'storage_not_configured'
-        )
-      }
-      return storage
-    },
+    storage: () => filesStorage(c.get('platform')),
 
     notFound: (message = 'Not found', code = ERROR_CODES.notFound) => {
       throw new NotFoundError(message, code)

@@ -437,6 +437,9 @@ The server surface: the context family, and the types a plugin must be able to n
   - `sendToUsers(userIds: string[], event: RealtimeEvent): Promise<void>`
   - `sendToTopic(topic: string, event: RealtimeEvent): Promise<void>`
     The sockets subscribed to `topic` (`@rocketpod/shared/realtime` § Topics).
+- `interface StorageService`
+- `interface StoredObject extends StoredObjectMeta`
+- `interface StoredObjectMeta`
 - `type Subjects = CoreSubject \| PluginSubject \| FeatureSubject`
 - `type Tenant = typeof tenants.$inferSelect`
 - `interface Tool<Input = unknown>`
@@ -1246,6 +1249,9 @@ nothing in the comparison that can throw.
 @/plugins/api :: member :: StepRealtime.sendToUser :: sendToUser(userId: string, event: RealtimeEvent): Promise<void>
 @/plugins/api :: member :: StepRealtime.sendToUsers :: sendToUsers(userIds: string[], event: RealtimeEvent): Promise<void>
 @/plugins/api :: member :: StepRealtime.sendToTopic :: sendToTopic(topic: string, event: RealtimeEvent): Promise<void>
+@/plugins/api :: interface :: StorageService :: interface StorageService
+@/plugins/api :: interface :: StoredObject :: interface StoredObject extends StoredObjectMeta
+@/plugins/api :: interface :: StoredObjectMeta :: interface StoredObjectMeta
 @/plugins/api :: type :: Subjects :: type Subjects = CoreSubject | PluginSubject | FeatureSubject
 @/plugins/api :: type :: Tenant :: type Tenant = typeof tenants.$inferSelect
 @/plugins/api :: interface :: Tool :: interface Tool<Input = unknown>

@@ -8,7 +8,8 @@ describe('scheduled dispatcher', () => {
     const ctx = createExecutionContext()
     const reports = await dispatchScheduled('0 4 * * *', env, ctx)
     await waitOnExecutionContext(ctx)
-    expect(reports).toEqual([
+    // Core first; an installed plugin may append its own tasks to a core cron.
+    expect(reports.slice(0, 2)).toEqual([
       expect.objectContaining({ cron: '0 4 * * *', task: 'pruneExpired', status: 'ok' }),
       expect.objectContaining({ cron: '0 4 * * *', task: 'pruneAiSpans', status: 'ok' }),
     ])

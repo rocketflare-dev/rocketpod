@@ -26,6 +26,10 @@ these:
 
 Some organisations use single sign-on only. Then the page shows one button and nothing else.
 
+Where your company requires its own single sign-on for your email address, the other ways in are
+refused for you: asking for an email link sends you a message pointing to your company's sign-in
+instead, and the sign-in page opens with that button picked for you.
+
 If single sign-on sends you back with **"You don't have access to this app"**, your sign-in worked
 but your organisation has not been given this app. Ask your organisation's administrator to grant
 it, then sign in again.

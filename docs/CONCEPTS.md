@@ -38,6 +38,13 @@ suites on vitest 4, §9 — never part of the gate).
   tenants via `tenant_users`, the session carries the current one. `single`: one tenant, every
   admitted user auto-joins as `member`; multi-only surface is 404 `tenancy_mode_single`
   (`requireMultiTenant`) and hidden via `useTenancyMode()`. Switching to `multi` needs no migration.
+  The auto-join (`onNoTenant`) runs for a NEW person `SIGNUP_MODE` admits, for dev login and for a
+  `BOOTSTRAP_ADMIN_EMAILS` admin (who creates the tenant on an empty database); a returning person
+  with no membership gets a tenant-less session instead. Enterprise identity in single mode: the
+  one tenant IS the deployment, so the identity seam takes only its id (another is a tenant that
+  does not exist), a plugin's `deprovision` BLOCKS the leaver (§16), `OIDC_MANAGED_TENANCY` refuses
+  to load (it creates one tenant per issuer org), and the admin console's issuer-org link and
+  organisation delete answer 404 `tenancy_mode_single`.
 - **`SIGNUP_MODE = open | invite_only | approval` (D9)**, default `invite_only`. Uninvited logins
   land on `/pending`; `approval` also files an `access_requests` row at *verify* time and
   queues an email to every active global admin for a NEW row (never for a re-login);
@@ -161,6 +168,50 @@ are always `tenant`; no audit log beyond `activity_events`; no personal API keys
   the row's `idp_synced_at` is stale and skipped, and a role change never creates a membership.
   204 for applied, stale, unknown person or org, and unknown type; 400 for a malformed known type;
   401 for a bad signature; 404 when not configured.
+- **Plugin sign-in (the identity seam, §16)**: a plugin that proves a person itself — a SAML
+  assertion, a per-tenant OIDC connection — finishes with `identityFor(c, id).signIn({ subject,
+  email, emailVerified, name, tenantId?, role? })` (`plugins/api/identity.ts`), never by writing
+  a session. The kit links the identity in `oauth_providers` under provider `plugin:<id>` (the
+  plugin namespaces `subject`, e.g. `<connection>|<nameId>`), else finds the person by email, else
+  `admitUser`s them — by `SIGNUP_MODE`, or as an IdP admission (`admittedBy: 'idp'`) when
+  `tenantId` + `role` are asserted, which also upserts an `idp` membership through the same
+  primitive the OIDC reconcile uses. Then `completeLogin` pins that tenant and sets the cookie.
+  `emailVerified: false`, a blocked person, a stale tenant and a subject linked elsewhere are the
+  usual `/login?error=` redirects. `ServerPlugin.loginMethods(cfg)` adds buttons to the login page
+  (`GET /auth/methods` → `pluginMethods`, `<plugin id>:<method id>`), each a full-page navigation
+  to a `startPath` under the plugin's own `/api/hooks/<id>/`, optionally behind an email field
+  (`askEmail` → `?email=`, home-realm discovery). A method may carry `errors`, copy for its own
+  `?error=<plugin id>.<name>` codes: its routes redirect a failed navigation to `/login` with one
+  (and `?email=`, which refills that method's field), and the page shows the server-sent copy,
+  never URL text; a code outside its namespace drops the method. They show under `AUTH_OIDC_ONLY` too: they are
+  SSO, and `oidcOnly` hides the kit's non-SSO methods. A plugin link is not listed on the profile's
+  sign-in methods and cannot be unlinked there (`DELETE /auth/providers/:provider` knows only the
+  kit's providers).
+- **SSO required per email domain (`ServerPlugin.ssoPolicy`, `api/auth/sso-policy.ts`)**: once an
+  organisation turns SSO on, its people may sign in ONLY through it. Core cannot know which
+  domains are theirs — the connections and their DNS-verified domains live in a plugin — so it
+  ASKS every installed plugin, in parallel, once per sign-in ATTEMPT (never per request: a minted
+  session is trusted until it ends): `{ required: true, methodId }` names one of that plugin's own
+  `loginMethods`, or `null`. Enforced server-side at: the magic-link request (no token is minted;
+  a token-free "use single sign-on" email links to the login page instead — still 202 with the
+  same body, so nothing leaks to the requester, and the real person learns where to go rather than
+  waiting for a link that never comes), magic-link verify (a link minted before the policy
+  existed is spent and refused), the Google / Microsoft / OIDC callback (the asserted email AND a
+  linked account's own, checked before anyone is admitted or linked), dev login (403
+  `sso_required` + `details.method`, so development shows what production does) and every
+  plugin's `identityFor().signIn` — which passes only for a plugin that CLAIMED the address, so a
+  second tenant's connection cannot sidestep the first's. `/auth/cli` and invitation acceptance
+  need a session, so they inherit it; an invitee's magic-link request gets the SSO email with the
+  invite as `returnUrl`. Refusals land on `/login?error=sso_required&method=<plugin id>:<method id>`
+  and the login page offers that method directly (email prefilled from the SSO email's link),
+  using the label `/auth/methods` gives — never text from the URL. **Decided:** a policy that
+  THROWS (or answers garbage) **fails closed** for that email, logged at `error` — failing open
+  would hand the magic-link door to anyone who can make the lookup fail; the claim is attributed to
+  the throwing plugin, so its own sign-in still works. **Break-glass:** `BOOTSTRAP_ADMIN_EMAILS`
+  are exempt (logged at `warn` when a claim is bypassed) — they live in deployment config only an
+  operator can change, so a broken connection can never lock out the console that would fix it;
+  `is_global_admin` alone is not exempt (it is a database flag). A `methodId` the plugin does not
+  offer keeps the requirement and drops the hint.
 - **Hardening (D12)**: random tokens hashed with SHA-256, a required encryption key, CSRF by origin
   allow-list (Bearer is exempt), and a sliding-window rate limit on login routes (the platform's
   `rateLimiter`: the `rate_limits` table — `src/node/limits.ts`, exact under concurrency, keyed by
@@ -185,6 +236,19 @@ sign-in or the session's end; one orgs claim, one role map and no per-org role
 overrides; the app writes nothing back to the issuer; the slug is taken from the claim once and
 never follows a later rename; `person.suspended` revokes no API keys: a key acts as its creator,
 so the keys in the tenants they lost stop working, and those in their manual tenants do not.
+Plugin sign-in: the kit trusts the plugin's word on `subject`, `email`, `emailVerified` and the
+tenant entirely (proving them is the plugin's job); one plugin may not name another's id, but
+nothing enforces that the id passed to `identityFor` is the caller's own; in multi mode
+`deprovision` is per tenant by design and never blocks — a person a tenant's IdP deactivates keeps
+their other tenants, the sessions selected to them and their keys there, and a session with NO
+pinned tenant is not ended (it re-resolves to another membership, or to none); in single mode it
+blocks (§16), but `removeMembership` alone leaves a signed-in person with no tenant, who can file
+an access request; an IdP block is lifted only by `setMembership`, so a plugin that reactivates
+without one leaves the person blocked; and a plugin link is invisible on the
+profile page. SSO required: sessions that already exist when a domain turns it on are not ended
+(they run to their TTL), API keys are untouched, a throwing policy locks that email's non-SSO
+sign-in until it recovers (only the bootstrap admins are exempt), linking a provider to a
+signed-in account is not checked, and the host trusts the plugin's word that it owns the domain.
 
 ## 3. API shell
 
@@ -1150,7 +1214,66 @@ Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
   proves the caller before naming a tenant. `signState` / `verifyState` are the proof for a
   round-trip the plugin started: HMAC-SHA256 under a key HKDF-derived from
   `OAUTH_ENCRYPTION_KEY`, a `purpose` that is part of the signed body, an absolute expiry
-  (default 10 min), `null` for every failure. Signed, not encrypted.
+  (default 10 min), `null` for every failure. Signed, not encrypted. The host guards every
+  public mount before its router runs (`api/middleware/public-mounts.ts`): a per-IP sliding
+  window over `platform.rateLimiter` (the `rate_limits` table) in a bucket named after the prefix
+  — default 120 / 60 s, `rateLimit: false` to opt out (a webhook sender with fixed IPs that
+  batches), a no-op on a platform without a limiter like every kit limit — and the body cap, chosen at middleware step 5 before any parsing: 1 MB unless the
+  mount declares `bodyLimitBytes` (≤ 10 MB; the config test refuses more), which then replaces
+  it beneath that prefix for every content type, so a ~200 KB SAML form POST or a SCIM bulk body
+  is neither refused nor unbounded. Both are the optional third tuple element,
+  `[prefix, router, { rateLimit?, bodyLimitBytes? }]`; a path is throttled by the longest public
+  prefix it falls under only.
+- **Identity (the identity seam)**: a public handler that has proved a person signs them in with
+  `identityFor(c, id).signIn(...)` — the kit links, admits, applies an `idp` membership and mints
+  the session (§2) and the plugin returns the redirect it answers; it never touches
+  `user_sessions`, cookies or `tenant_users`. **Linking by email is opt-in — decided:** a sign-in
+  (or `upsertUser`) whose email belongs to an account with no link from this plugin is refused
+  (`account_exists`) unless it passes `linkByEmail: true`, which a plugin sets only when it has
+  proved its IdP owns the email's domain (a DNS-verified domain on the connection) — a per-tenant
+  IdP can assert any address, so linking by email alone would let one customer's IdP sign in as
+  anyone. `provisionFor(ctx, id)` is the cookie-free half, from
+  any `PluginContext` (SCIM, a directory sync): `findUser`, `upsertUser` (creates with a link and
+  no session; a block stays; an unverified email never links to an existing account),
+  `setMembership` / `removeMembership` (`source = 'idp'` only, so read-only in the app — 409
+  `idp_managed` — and never an owner, support or manual row), `deprovision` and `listMembers`.
+  **`removeMembership` is the membership only** (the IdP stopped granting the tenant: its sessions
+  are UNPINNED and fall back to another membership); **`deprovision` is a leaver** (SCIM
+  `active: false`): the same removal plus DELETING the sessions pinned to that tenant, answering
+  `{ removed, sessionsEnded, retained }` — `retained` is a manual/owner/support row it left, with
+  its sessions — and `blocked`. **Decided: never global in multi mode** — no `blocked_at`, no
+  other tenant's sessions or memberships, because a tenant's IdP speaks for that tenant only; the
+  person's API keys in that tenant stop authenticating because `validateApiKey` joins the
+  creator's membership there (401). **Decided: in single mode `deprovision` BLOCKS** — the one
+  tenant is the deployment, so the multi-mode reason (the person's other tenants) does not exist,
+  and without a block a magic link, Google, another plugin's sign-in, dev login's `onNoTenant` or
+  the session left with no pinned tenant would let the leaver straight back in. It sets
+  `users.blocked_at` with `blocked_source = 'plugin:<id>'` and deletes EVERY session (keys answer
+  403 `blocked`), answering `blocked: true` — only for a person the IdP speaks for (it just
+  removed their `idp` row, or they carry this plugin's link), never with a `retained` row, and
+  never a global or bootstrap admin (logged: no IdP locks the operator out). The block has a
+  source so reactivation cannot undo an operator: the SAME plugin's `setMembership` (SCIM
+  `active: true`, a role again) lifts a `plugin:<id>` block and nothing else; the admin console's
+  Block writes `manual` (and takes over an IdP block), Unblock clears either, NULL means manual;
+  `upsertUser` and `signIn` never lift one. A tombstone `onNoTenant` checks was rejected: it would
+  close one door of six, where `blocked_at` is already checked by every sign-in, the session
+  middleware and API keys. In single mode every tenant-taking method also accepts only THE tenant
+  (`getSingleTenant`), `tests/api/tenancy-single-identity.test.ts` proves the mode end to end.
+  `tests/driver/identity.test.ts` runs sign-in, provisioning and the single-mode block through the
+  request path's `openDatabase`. Every tenant-taking method 404s a missing tenant; the CALLER must have proved its right
+  to that tenant, the `PublicCtx` contract. `loginMethods(cfg)` contributes login-page buttons whose `startPath`
+  must sit under `/api/hooks/<id>/`, and whose `errors` copy is keyed `<id>.<name>` —
+  `plugins.test.ts` fails a stray one, and `GET /auth/methods` drops it with a log. `example-feature`'s dev-only `/api/hooks/example-feature/sso/*` is the
+  worked example.
+- **SSO required (`ssoPolicy`)**: `(db, email, { config }) => Promise<{ required: true; methodId;
+  label? } | null>` — "my connection claims this email's domain; send them to my login method
+  `methodId`". The host asks every plugin once per sign-in attempt and enforces the answer on all
+  of its own methods and on every OTHER plugin's `signIn` (§2); `evaluateSsoPolicy` is pure over
+  the plugin list and `plugins.test.ts` drives it with fixtures (claim, other plugin, throw,
+  malformed answer, undeclared method, break-glass). Keep it to one indexed lookup on the domain,
+  answer `null` for a domain no connection claims, and let a real failure throw (the host fails
+  closed). The host does not verify the domain, end existing sessions or check `provisionFor`.
+  `example-feature/api/sso-policy.ts` claims `@sso-required.example.test`, development only.
 - **Background feature checks (D34)**: `JobCtx`, `CronCtx` and `PublicCtx` carry `storage()`
   (`platform.storage`, the same service `RequestCtx.storage()` returns, 503
   `storage_not_configured` without one; keys under `tenants/<id>/<plugin id>/…` are purged with the
@@ -1221,6 +1344,7 @@ Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
 | 23 | A plugin ships agent skills: `skills/<dir>/` → `.claude/skills/<dir>/`, namespaced by id, replaced on upgrade |
 | 24 | (Rocketflare's inbound-email slot — not ported, see the known gaps) |
 | 25 | A background context starts an agent run through the route's own `enqueueRun`; idempotency is a derived run id, not a new column |
+| 26 | Plugin identity is `identityFor(c, id)` / `provisionFor(ctx, id)`, links under `plugin:<id>`, memberships through the core `idp` primitives; login buttons are declared, never rendered by the plugin |
 
 **Known gaps:** no sandbox, review or signing; no rename migrations (expand/contract only); no
 cross-plugin FK tooling or `many()` onto core tables; `grants` is additive by convention only;
@@ -1239,8 +1363,9 @@ test of data-touching handlers; no purge-intent ledger;
 `plugin-ci.yml` input changes reach callers only via `main`, and nothing tests versions between
 floor and ceiling. `addedDependencies` starts after 0.17.1: a plugin installed by 0.17.1 or earlier has its
 older packages kept, never removed, when a release drops them, and a package a plugin added that
-the kit later starts declaring too is still the plugin's to remove. Public mounts (D34) get no rate limit of their own and no `@testkit` builder
-(test them through `request()`); `verifyState` has no replay ledger — a token is reusable until it
+the kit later starts declaring too is still the plugin's to remove. Public mounts (D34) have no `@testkit` builder
+(test them through `request()`), and their rate limit is the kit's Postgres window, keyed
+on the client IP (`TRUSTED_PROXY_HOPS` decides which address that is) — a sender behind a shared egress shares one bucket; `verifyState` has no replay ledger — a token is reusable until it
 expires, so a plugin whose callback must run once records that itself; an ingested document's
 upsert reads the previous row before writing, so two racing re-ingests of a FILE may leave one
 replaced original behind in storage; a plugin skill edited in place is overwritten by the next

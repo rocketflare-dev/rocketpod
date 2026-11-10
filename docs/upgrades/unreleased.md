@@ -11,7 +11,8 @@ migrations:
   - "users.global_admin_source (text manual|idp, nullable)"
   - "user_sessions.max_expires_at (timestamptz, nullable)"
   - "agent_runs.batch_id (uuid, nullable); indexes agent_runs (tenant_id, status), partial agent_runs (tenant_id, batch_id) and partial ai_usage (tenant_id, agent_run_id)"
-areas: [api, db, config, shared, ui, cli, docs, ci, scripts]
+  - "users.blocked_source (text, nullable)"
+areas: [api, db, config, shared, ui, cli, plugins, docs, ci, scripts]
 touches_surfaces:
   - feature-guide
   - example-guide-pages
@@ -50,7 +51,11 @@ IdP-managed tenancy: with `OIDC_MANAGED_TENANCY=true` the OIDC issuer decides wh
   matched by slug; and deletes an organisation (`DELETE /api/admin/tenants/:id`, the owner's
   `deleteTenant` with its slug confirmation), the only way to remove an ownerless one. The admin
   tenant DTOs carry `externalOrgId`, the detail `idpManaged`; `TenantDetail.tsx` gains the
-  Identity provider org panel and a danger zone.- Agents at volume (Rocketflare 0.21.0): `enqueueRun(db, cfg, platform, input)` enforces
+  Identity provider org panel and a danger zone.
+
+Agents run at volume: a per-tenant cap on active runs, batch runs, per-call metering with budgets, tool-loop policies and replay.
+
+- Agents at volume (Rocketflare 0.21.0): `enqueueRun(db, cfg, platform, input)` enforces
   `AGENT_MAX_ACTIVE_RUNS_PER_TENANT` (default 50, 429 `agent_runs_limit`) and
   `AGENT_TENANT_DAILY_COST_USD` (429 `ai_budget_exceeded`); an exclusive agent's active run is found
   before the cap, so asking again is never a 429. `triage-research` is now `exclusive: false`.
@@ -144,6 +149,18 @@ vitest 5, Vite 8, postgres.js 4, CASL 7, the Anthropic SDK 1.x (API version `202
   `permissions: contents: read` at the top of `evals.yml`, `kit.yml` and `notify-plugins.yml`,
   gitleaks checked by SHA-256, `evals.yml`'s suite filter quoted, and `image.yml`'s `publish` job
   rebuilds without `cache-from: type=gha` (a cache any run can write never reaches a pushed image).
+
+
+Plugins get an identity seam: `identityFor(c, id).signIn` signs a person a plugin proved in, `provisionFor(ctx, id)` provisions and deprovisions `idp` memberships, a plugin can add login-page methods and require SSO for its domains, and plugin public mounts are rate-limited and size-capped by the host.
+
+- `@/plugins/api` gains `plugins/api/identity.ts`: `identityFor(c, id).signIn({ subject, email, emailVerified, name, tenantId?, role?, linkByEmail?, redirectTo? })` links the identity under provider `plugin:<id>` (`ProviderKey`, `linkPluginIdentity` in `auth/oauth-providers.ts`), admits, upserts an `idp` membership and mints the session; an existing account is linked by email only with `linkByEmail: true`, else `/login?error=account_exists` (`ERROR_CODES.accountExists`).
+- `provisionFor(ctx, id)`: `findUser`, `upsertUser`, `setMembership`, `removeMembership`, `deprovision({ tenantId, userId })` → `{ removed, sessionsEnded, retained }` (the `idp` row plus the sessions pinned to that tenant, `deleteUserSessionsInTenant`), `listMembers`. `services/idp-tenancy.ts` exports `upsertIdpMembership`, `removeIdpMembership`, `deprovisionIdpMember`, `blockDeprovisioned`, `liftIdpBlock`.
+- `TENANCY_MODE=single`: the seam takes only the one tenant's id; `deprovision` also blocks the person (`users.blocked_source = 'plugin:<id>'`, every session ended) and only the same plugin's `setMembership` lifts it; admin blocks write `manual` (`setUserBlocked`), shown as "blocked by identity provider" on `UserDetail.tsx`; `PUT /api/admin/tenants/:id/external-org` answers 404 `tenancy_mode_single`.
+- `ServerPlugin.loginMethods(cfg)` (`api/auth/plugin-login-methods.ts`) → `GET /auth/methods` `pluginMethods` (`pluginLoginMethodSchema` in `@rocketpod/shared/auth`); `Login.tsx` renders each (an email field when `askEmail`; a method's `errors` is copy for its own `?error=<id>.<name>` codes; `?email=` refills it); a `startPath` outside `/api/hooks/<id>/` is dropped.
+- `ServerPlugin.ssoPolicy(db, email, { config })` (`api/auth/sso-policy.ts`, `routes/auth/sso.ts`): a claimed address is refused magic link (a token-free "use single sign-on" email instead, still 202 — `requestSignInEmail`, `ssoRequiredEmail`), magic-link verify, Google, Microsoft, OIDC, dev login (403 `sso_required` + `details.method`) and other plugins' `signIn`, landing on `/login?error=sso_required&method=`. A throwing policy fails closed; `BOOTSTRAP_ADMIN_EMAILS` are exempt.
+- Public mounts (`/api/hooks/<id>`) take an optional third tuple element `{ rateLimit?: { max, windowSeconds } | false; bodyLimitBytes? }` (`PluginPublicMountOptions`): `mountPublicRoutes` (`api/middleware/public-mounts.ts`) puts a per-IP limiter over `platform.rateLimiter` in front of each (bucket `hooks:<prefix>`, default 120 / 60 s), and `apiBodyLimit(publicBodyLimitOverrides(…))` at step 5 lets a mount replace the 1 MB cap (≤ `MAX_PUBLIC_MOUNT_BODY_BYTES`, 10 MB).
+- `example-feature`: a development-only example SSO (`api/sso.ts`, `api/sso-policy.ts` claiming `@sso-required.example.test`, a login method) with its tests; scheduled tests let a plugin append tasks to a core cron.
+- The Standard Webhooks verifier refuses a secret or signature that is not valid base64 (`atob`) instead of reading it leniently. A porting note over 150 lines now prints a warning from `release-check --unreleased` and `kit:release` (`noteLengthWarning`) rather than being a target only.
 
 ## How to apply
 
@@ -345,6 +362,47 @@ vitest 5, Vite 8, postgres.js 4, CASL 7, the Anthropic SDK 1.x (API version `202
     `${SUITE:+"$SUITE"}` in `evals.yml`, and drop `cache-from: type=gha` from `image.yml`'s
     `publish` step.
 
+51. Add `blockedSource` (`text('blocked_source').$type<BlockedSource>()`, `BlockedSource` is
+    `'manual'` or `` `plugin:${string}` ``) to `apps/web/src/db/schema/users.ts`, run
+    `pnpm db:generate --name idp-blocked-source` and `pnpm db:migrate` (one `ADD COLUMN`).
+52. Copy from the kit: `apps/web/src/plugins/api/identity.ts`, `apps/web/src/api/auth/{plugin-login-methods,sso-policy}.ts`,
+    `apps/web/src/api/routes/auth/sso.ts`, `apps/web/src/api/middleware/public-mounts.ts`, and the
+    tests `tests/api/{auth-sso-required,tenancy-single-identity}.test.ts`,
+    `tests/config/public-mounts.test.ts`, `tests/driver/identity.test.ts`. A context you build
+    for `provisionFor` by hand needs `platform` (`resolvePlatform(env)`); `identityFor` falls
+    back to `resolvePlatform(c.env)` when the platform middleware did not run, and passes
+    `platform.jobs` to `admitUser`.
+53. Port the diffs to `auth/{oauth-providers,sessions}.ts` (`ProviderKey`, `linkPluginIdentity`,
+    `deleteUserSessionsInTenant`, `blocked_source` in `resolveSession`), `routes/auth/{dev-login,helpers,magic-link,oauth,session}.ts`
+    (`ssoDecisionFor` + `ssoAllows` before admitting; `ssoRequiredRedirect`; `pluginMethods`),
+    `services/{admin,email,idp-tenancy}.ts`, `routes/admin.ts` (`requireMultiTenant` on the
+    external-org route), `plugins/{types,server}.ts` (`loginMethods?`, `ssoPolicy?`,
+    `PluginPublicMountOptions`), `plugins/api/{index,http}.ts`, `packages/shared/src/{auth,admin,errors}.ts`,
+    `ui/pages/{Login,admin/TenantDetail,admin/UserDetail}.tsx` and `tests/ui/login.test.tsx`.
+54. In `apps/web/src/api/middleware/body-limit.ts` add `MAX_PUBLIC_MOUNT_BODY_BYTES`,
+    `isUnderPrefix`, `BodyLimitOverride` and `apiBodyLimit`; in `apps/web/src/api/index.ts`
+    replace the step-5 `isUploadPath` ternary with
+    `app.use('/api/*', apiBodyLimit(publicBodyLimitOverrides(publicMounts)))` and the public-mount
+    loop with `mountPublicRoutes(app, publicMounts)`. A test-local app that exercises a limit
+    needs `platformMiddleware` and an env whose `PLATFORM.rateLimiter` is set.
+55. Port the test edits: the `login methods`, `sso policy` and public-mount-guard blocks of
+    `tests/config/plugins.test.ts` and its helpers in `tests/helpers/plugins.ts`, the
+    `/auth/methods` assertions that ignore `pluginMethods` (`tests/api/auth-session.test.ts`,
+    `auth-oidc.test.ts`), `tenancy-single.test.ts`, and the `.slice(0, 2)` on the nightly cron's
+    task list in `tests/api/scheduled.test.ts`.
+56. If your copy still carries `example-feature`, copy its `api/sso.ts`, `api/sso-policy.ts`, the
+    `loginMethods` and `ssoPolicy` entries in `index.ts`, the `EXAMPLE_SSO_*` constants in
+    `shared.ts`, the `/sso` line in `api/public.ts`, its new `plugin.json` `uses`, its three test
+    files and skill section 5.
+57. Port `NOTE_LINES_GUIDE` / `noteLengthWarning` into `scripts/lib/upgrade-lib.{mjs,d.mts}`,
+    `scripts/release-check.mjs` and `scripts/release.mjs`, with its case in
+    `tests/kit-only/upgrade-notes.test.ts`.
+58. Port the docs: `docs/CONCEPTS.md` §1, §2 and §16 (the identity seam, SSO required, public
+    mount guards and their gaps), `SETUP.md` (an SSO / SCIM plugin under `TENANCY_MODE=single`),
+    `.claude/rules/api.md` (steps 5 and 10, the two identity bullets),
+    `apps/web/src/plugins/CLAUDE.md`, `apps/web/src/api/middleware/CLAUDE.md`, and the Guide's
+    `start/signing-in.md`; then run `node scripts/plugin-api-doc.mjs`.
+
 ## Conflicts to expect
 
 - `apps/web/src/api/auth/providers/oidc.ts` → `logout_uri` already added by hand in the app → keep one `searchParams.set('logout_uri', …)`.
@@ -364,6 +422,9 @@ vitest 5, Vite 8, postgres.js 4, CASL 7, the Anthropic SDK 1.x (API version `202
 - `.github/workflows/**` → pins, timeouts, permissions → apply step 50 by hand.
 - `apps/web/vitest.config.ts`, `vite.config.ts`, `biome.json` → apply steps 44–45 by hand if you edited them.
 - `apps/web/src/ui/components/permissions/{AbilityContext.tsx,index.ts}` → `Can` and the context export removed → step 47.
+- `apps/web/src/api/routes/auth/magic-link.ts` → the `admitUser` call takes `platform.jobs` → keep it; add the SSO check before it and move `requested` above it.
+- `apps/web/src/plugins/api/identity.ts` → `admitUser` and `provisionFor` need the platform → read it as `c.get('platform') ?? resolvePlatform(c.env)`.
+- `apps/web/tests/config/public-mounts.test.ts` → the kit's env carries `RATE_LIMIT_KV` and `cf-connecting-ip` → a `PLATFORM` with `createMemoryRateLimiter(kv)` and `x-forwarded-for`.
 
 ## Verify
 
@@ -386,3 +447,8 @@ vitest 5, Vite 8, postgres.js 4, CASL 7, the Anthropic SDK 1.x (API version `202
 17. `grep -rnE 'uses: [^@]+@v[0-9]' .github/workflows` prints nothing, and each workflow has one `persist-credentials: false` per checkout.
 18. `rg -n "@casl/react|<Can[ >]|from 'zod-to-json-schema'|future=\{\{" apps packages` prints nothing.
 19. `docker build -t rocketpod:local .` succeeds and `docker compose up -d` answers `/healthz` with `{"status":"ok"}` (`docker run --rm --entrypoint node rocketpod:local -v` prints `v26.`).
+20. `psql "$DATABASE_URL" -c '\d users'` lists `blocked_source text`.
+21. In development `GET /auth/methods` lists `example-feature:demo-sso` under `pluginMethods`; with `APP_ENV=staging` it does not.
+22. In development `POST /auth/dev-login` with `{"email":"a@sso-required.example.test"}` answers 403 `sso_required` with `details.method: "example-feature:demo-sso"`.
+23. `pnpm web test:config -- tests/config/public-mounts.test.ts` passes, and the 121st request in a minute from one IP to `/api/hooks/<id>/…` answers 429 `rate_limited`.
+24. `pnpm web test:driver -- identity` and `pnpm web test:api -- auth-sso-required tenancy-single-identity` pass.

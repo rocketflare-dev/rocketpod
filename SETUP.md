@@ -556,6 +556,15 @@ any env keys it declares (add them to `.env`, and to the chart's `config`/`secre
 A plugin that declares Cloudflare `bindings` or Worker exports is refused (`cloudflare-only`).
 `defaultPlugins` is empty in Rocketpod today (`docs/CONCEPTS.md` §8).
 
+**An SSO / SCIM plugin under `TENANCY_MODE=single`** (the identity seam, `docs/CONCEPTS.md` §16):
+the one organisation is the whole deployment, so a person the plugin's directory deactivates is
+**blocked**, not just removed — every session ends, API keys answer 403, and no other sign-in
+method lets them back in. Admin → Users shows them as "blocked by identity provider";
+reactivating them in the directory lifts it, and so does Unblock. A block you set by hand is
+yours: no directory sync lifts it. Under `multi` a deactivation only removes that organisation's
+membership. Verify (single mode): deactivate a test person in the directory → their next request
+answers 401 and a magic link lands on `/login?error=blocked`.
+
 Writing one of your own: `/rp-plugin`, or `apps/web/src/plugins/CLAUDE.md` and
 `apps/web/src/plugins/example-feature/` — the vendored reference plugin, which exists to be read
 and then deleted.

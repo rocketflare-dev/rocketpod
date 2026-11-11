@@ -27,7 +27,7 @@
  * subjects, prompt/agent/feature keys, query-key roots `<id>:…`, the API prefix `/api/<id>`), so
  * two plugins installed in one app cannot collide and the host can always say which one owns a row.
  */
-import type { TypeOf, ZodLiteral, ZodObject, ZodRawShape } from 'zod'
+import type { TypeOf, ZodLiteral, ZodObject, ZodRawShape, ZodTypeAny } from 'zod'
 import type { PluginEvalCoverage } from '../ai/eval-coverage'
 import type { FeatureDefinition } from '../features'
 
@@ -111,6 +111,17 @@ export interface SharedPlugin {
    * subject a member must be able to `read` to subscribe. The registry refuses anything else.
    */
   readonly realtimeTopics?: readonly RealtimeTopicDefinition[]
+  /**
+   * Events this plugin EMITS, name → payload schema. Every name is `<id>.<name>` — this
+   * plugin's id, a dot, then lower-case segments (`sites.form.submitted`) — and never `kit.`.
+   * `ctx.emit(name, …)` validates the payload against the schema and records the event;
+   * `ServerPlugin.eventHandlers`, the app's own `APP_EVENT_HANDLERS` and an agent's `triggers` /
+   * `bindable` subscribe to it by name. A payload may hold personal data (a form's fields): it is
+   * kept for `EVENTS_RETENTION_DAYS` and never logged. Write it `as const` so the names stay
+   * literals. The name is the version seam, as a job type is: a breaking payload change is a new
+   * name, never an edited schema.
+   */
+  readonly events?: Readonly<Record<string, ZodTypeAny>>
 }
 
 /**
@@ -122,6 +133,25 @@ export interface RealtimeTopicDefinition {
   readonly prefix: string
   readonly subject: string
   readonly scope?: 'tenant' | 'platform'
+}
+
+// ---- Event names -------------------------------------------------------------------------
+
+/** One segment after the plugin id: lower-case, digits, `-` and `_`, dot-separated. */
+export const EVENT_NAME_RE = /^[a-z][a-z0-9-]*(\.[a-z0-9][a-z0-9_-]*)+$/
+
+/**
+ * `null` when `name` is an event `pluginId` may declare, else the sentence saying why not: it must
+ * be `<pluginId>.<something>`, well formed, and never in the core `kit.` namespace. The same rule
+ * `pnpm plugin check` applies to a manifest's `events` (`scripts/lib/plugin-lib.mjs`).
+ */
+export function eventNameProblem(pluginId: string, name: string): string | null {
+  if (name.startsWith('kit.')) return `'${name}' is in the core kit. namespace`
+  if (!name.startsWith(`${pluginId}.`)) return `'${name}' must start with '${pluginId}.'`
+  if (!EVENT_NAME_RE.test(name)) {
+    return `'${name}' must be lower-case dot-separated segments after '${pluginId}.'`
+  }
+  return null
 }
 
 // ---- Derivations the host's closed sets read ------------------------------------------------
@@ -165,6 +195,32 @@ export type FeatureKeyOf<S extends SharedPlugin> = Extract<
     : never,
   string
 >
+
+/**
+ * The events one plugin declares — its `events` record. Distributive, so over a UNION of plugins it
+ * is a union of records; `EventNameOf` / `EventPayloadOf` read names and payloads out of it.
+ */
+export type EventsOf<S extends SharedPlugin> = NonNullable<DeclaredBy<S, 'events'>>
+
+/** The event names one plugin (or a union of plugins) declares. */
+export type EventNameOf<S extends SharedPlugin> = Extract<
+  EventsOf<S> extends infer R ? (R extends unknown ? keyof R : never) : never,
+  string
+>
+
+/**
+ * The parsed payload of event `E`, from whichever plugin in `S` declares it. A union of names gives
+ * the union of their payloads, so a handler list typed over every event still type-checks.
+ */
+export type EventPayloadOf<S extends SharedPlugin, E extends string> = E extends unknown
+  ? EventsOf<S> extends infer R
+    ? R extends Record<E, infer Schema>
+      ? Schema extends ZodTypeAny
+        ? TypeOf<Schema>
+        : never
+      : never
+    : never
+  : never
 
 /** The job types one plugin declares — what its `ServerPlugin.jobHandlers` must cover. */
 export type JobTypeOf<S extends SharedPlugin> =

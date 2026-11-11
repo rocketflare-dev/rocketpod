@@ -26,6 +26,7 @@ import type {
   RealtimeHub,
   RealtimeMember,
   RunEngine,
+  SocketCloseTarget,
   StorageBody,
   StorageService,
   StoredObjectMeta,
@@ -329,11 +330,12 @@ export interface RecordedAccept {
  * A recording `RealtimeHub` (D8): every send records `{ tenantId, args: [method, ...args] }` in
  * `broadcasts`, so route tests can assert "a nudge was sent to tenant X" without sockets. `accept`
  * records the upgrade in `accepted` and answers 501 — the socket side is exercised against the
- * real hub (`node-realtime.test.ts`).
+ * real hub (`node-realtime.test.ts`). `closeSockets` records its target in `closes`.
  */
 export class RecordingRealtime implements RealtimeHub {
   readonly broadcasts: RecordedBroadcast[] = []
   readonly accepted: RecordedAccept[] = []
+  readonly closes: SocketCloseTarget[] = []
 
   private record(tenantId: string, args: unknown[]) {
     this.broadcasts.push({ tenantId, args })
@@ -357,6 +359,10 @@ export class RecordingRealtime implements RealtimeHub {
     return this.record(event.tenantId, ['broadcastToTopic', topic, event])
   }
 
+  async closeSockets(target: SocketCloseTarget): Promise<void> {
+    this.closes.push(target)
+  }
+
   async accept(request: Request, member: RecordedAccept['member']): Promise<Response> {
     this.accepted.push({ request, member })
     return new Response('realtime stub', { status: 501 })
@@ -365,6 +371,7 @@ export class RecordingRealtime implements RealtimeHub {
   clear(): void {
     this.broadcasts.length = 0
     this.accepted.length = 0
+    this.closes.length = 0
   }
 }
 
@@ -604,11 +611,21 @@ export class RecordingWorkflow {
   /** Make `sendEvent` fail the way a retention-expired or dev-restarted instance does. */
   notFoundOnSendEvent = false
   defaultStatus: FakeInstanceStatus = { status: 'running' }
+  /**
+   * Fail one instance's creation — `create()` throws for it, the way an engine outage does — so a
+   * batch can prove only that input is marked failed.
+   */
+  failCreate: ((options: { id: string; params?: unknown }) => boolean) | null = null
 
+  /**
+   * Idempotent on the id, as the OpenWorkflow engine is (`idempotencyKey: id`): a second create
+   * with an id already created answers that instance and records nothing new.
+   */
   async create(options: { id?: string; params?: unknown } = {}) {
     const id = options.id ?? crypto.randomUUID()
-    if (this.created.some(c => c.id === id)) {
-      throw new Error(`instance.already_exists: an instance with id ${id} already exists`)
+    if (this.created.some(c => c.id === id)) return this.instance(id)
+    if (this.failCreate?.({ id, params: options.params })) {
+      throw new Error(`workflow.internal_error: could not create ${id}`)
     }
     this.created.push({ id, params: options.params })
     return this.instance(id)
@@ -651,6 +668,7 @@ export class RecordingWorkflow {
 
   clear(): void {
     this.created.length = 0
+    this.failCreate = null
     this.terminated.length = 0
     this.events.length = 0
     this.statusCalls.length = 0

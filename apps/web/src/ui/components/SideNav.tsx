@@ -11,8 +11,8 @@ import {
   MagnifyingGlassIcon,
   ShieldCheckIcon,
 } from '@heroicons/react/24/outline'
-import type { ComponentType, ReactNode } from 'react'
-import { Link, NavLink, useLocation } from 'react-router-dom'
+import { type ComponentType, type ReactNode, useSyncExternalStore } from 'react'
+import { Link, NavLink, useLocation } from 'react-router'
 import type { PluginNavGroup } from '@/plugins/types'
 import { uiPlugins } from '@/plugins/ui'
 import { useAppInfo } from '@/ui/hooks/useAppInfo'
@@ -50,7 +50,7 @@ export type NavConfig = (NavItem | NavGroup)[]
  * Notifications live in the header `UserMenu`; apps add their own groups above "Organisation",
  * and an installed plugin does the same through `UiPlugin.nav` — see `composeNav` below.
  */
-const CORE_NAVIGATION: NavConfig = [
+export const CORE_NAVIGATION: NavConfig = [
   {
     items: [
       { to: '/', label: 'Home', icon: HomeIcon },
@@ -103,7 +103,7 @@ const CORE_NAVIGATION: NavConfig = [
   },
 ]
 
-function isNavGroup(item: NavItem | NavGroup): item is NavGroup {
+export function isNavGroup(item: NavItem | NavGroup): item is NavGroup {
   return 'items' in item
 }
 
@@ -115,16 +115,23 @@ export const DEFAULT_NAV_ANCHOR = 'Organisation'
  * reasoned about: a group is placed BEFORE the core group whose label it names, and appended when
  * that label is not there — which is what an app that deleted the anchor group gets, rather than a
  * plugin whose pages have no way in. Several groups naming the same anchor keep their declared
- * order. The core config is never mutated.
+ * order. An UNLABELLED group landing straight after another unlabelled group joins it rather than
+ * opening a new block: a label is what earns a group its own heading and gap, so four plugins with
+ * one page each read as one list, not four spaced-out islands. The core config is never mutated.
  */
 export function composeNav(core: NavConfig, plugins: readonly PluginNavGroup[] = []): NavConfig {
   const out: NavConfig = [...core]
   for (const group of plugins) {
     const anchor = group.before ?? DEFAULT_NAV_ANCHOR
     const entry: NavGroup = { label: group.label, items: group.items }
-    const at = out.findIndex(item => isNavGroup(item) && item.label === anchor)
-    if (at === -1) out.push(entry)
-    else out.splice(at, 0, entry)
+    const found = out.findIndex(item => isNavGroup(item) && item.label === anchor)
+    const at = found === -1 ? out.length : found
+    const previous = out[at - 1]
+    if (!entry.label && previous && isNavGroup(previous) && !previous.label) {
+      out[at - 1] = { ...previous, items: [...previous.items, ...entry.items] }
+    } else {
+      out.splice(at, 0, entry)
+    }
   }
   return out
 }
@@ -164,6 +171,12 @@ interface SideNavProps {
   items?: NavConfig
   /** Rendered above the collapse toggle */
   footer?: ReactNode
+  /**
+   * Render the icon rail from the `lg` breakpoint up, whatever the reader saved (a plugin
+   * `workspace` route). The saved preference is left alone and returns on leaving; below `lg` the
+   * drawer is unchanged. The collapse toggle is hidden, since it could not take effect.
+   */
+  forceCollapsed?: boolean
 }
 
 /** The count an item shows: its live `badgeKey` first, then whatever it declared statically. */
@@ -175,12 +188,34 @@ export function badgeValueFor(item: NavItem, badges: NavBadges): number | undefi
   return item.badge
 }
 
-export default function SideNav({ items = navigationConfig, footer }: SideNavProps) {
+const LG_QUERY = '(min-width: 1024px)'
+
+function subscribeLg(onChange: () => void) {
+  if (typeof window.matchMedia !== 'function') return () => {}
+  const query = window.matchMedia(LG_QUERY)
+  query.addEventListener('change', onChange)
+  return () => query.removeEventListener('change', onChange)
+}
+
+/** The drawer's own `lg:drawer-open` breakpoint, in JS because the rail's markup depends on it. */
+function useIsLg() {
+  return useSyncExternalStore(subscribeLg, () =>
+    typeof window.matchMedia === 'function' ? window.matchMedia(LG_QUERY).matches : true
+  )
+}
+
+export default function SideNav({
+  items = navigationConfig,
+  footer,
+  forceCollapsed,
+}: SideNavProps) {
   const { pathname } = useLocation()
   const canAccess = useNavGuard()
   const { name, version } = useAppInfo()
   const badges = useNavBadges()
-  const [isCollapsed, setIsCollapsed] = useBooleanPreference('sideNavCollapsed', false)
+  const [savedCollapsed, setSavedCollapsed] = useBooleanPreference('sideNavCollapsed', false)
+  const isLg = useIsLg()
+  const isCollapsed = savedCollapsed || (forceCollapsed === true && isLg)
 
   const visible = filterNavConfig(items, canAccess)
 
@@ -193,6 +228,7 @@ export default function SideNav({ items = navigationConfig, footer }: SideNavPro
           to={item.to}
           onClick={closeMobileDrawer}
           data-active={isPathActive(pathname, item.to)}
+          title={isCollapsed ? item.label : undefined}
           className={`nav-item flex items-center gap-2.5 ${
             isCollapsed ? 'justify-center px-3 py-2.5' : 'px-2.5 py-1.5'
           }`}
@@ -283,28 +319,30 @@ export default function SideNav({ items = navigationConfig, footer }: SideNavPro
         )}
       </nav>
 
-      {footer && (
+      {footer && !(forceCollapsed && isLg) && (
         <div className="px-3 py-2 border-t border-[color:var(--border-subtle)]">{footer}</div>
       )}
 
-      <div className="p-3 hidden lg:block border-t border-[color:var(--border-subtle)]">
-        <button
-          type="button"
-          onClick={() => setIsCollapsed(c => !c)}
-          className={`btn btn-ghost btn-sm w-full ${isCollapsed ? 'btn-square' : 'justify-start gap-2'}`}
-          title={isCollapsed ? 'Expand navigation' : 'Collapse navigation'}
-          aria-label={isCollapsed ? 'Expand navigation' : 'Collapse navigation'}
-        >
-          {isCollapsed ? (
-            <ChevronRightIcon className="w-4 h-4" />
-          ) : (
-            <>
-              <ChevronLeftIcon className="w-4 h-4" />
-              <span>Collapse</span>
-            </>
-          )}
-        </button>
-      </div>
+      {!forceCollapsed && (
+        <div className="p-3 hidden lg:block border-t border-[color:var(--border-subtle)]">
+          <button
+            type="button"
+            onClick={() => setSavedCollapsed(c => !c)}
+            className={`btn btn-ghost btn-sm w-full ${isCollapsed ? 'btn-square' : 'justify-start gap-2'}`}
+            title={isCollapsed ? 'Expand navigation' : 'Collapse navigation'}
+            aria-label={isCollapsed ? 'Expand navigation' : 'Collapse navigation'}
+          >
+            {isCollapsed ? (
+              <ChevronRightIcon className="w-4 h-4" />
+            ) : (
+              <>
+                <ChevronLeftIcon className="w-4 h-4" />
+                <span>Collapse</span>
+              </>
+            )}
+          </button>
+        </div>
+      )}
     </aside>
   )
 }

@@ -3,7 +3,7 @@
  * (Settings) heads each run of tabs with its group once and keeps the same tab semantics.
  */
 import { fireEvent, screen } from '@testing-library/react'
-import { useLocation } from 'react-router-dom'
+import { useLocation } from 'react-router'
 import { describe, expect, it } from 'vitest'
 import { URLTabs } from '@/ui/components/shared'
 import { renderWithProviders } from './helpers/renderWithProviders'

@@ -27,6 +27,7 @@ import {
   PORT_BLOCK_FIRST,
   PORT_BLOCK_SIZE,
   parseArgs,
+  pluginTranslator,
   portsForBlock,
   prefixGuard,
   REDACTED_KEY_MARGIN,
@@ -277,6 +278,42 @@ describe('applyReplacements', () => {
       'display',
       'bare',
     ])
+  })
+})
+
+describe('pluginTranslator (a plugin is written in the ecosystem vocabulary)', () => {
+  const kitOnly = pluginTranslator(null)
+  const toApp = pluginTranslator(deriveNames('my-app', 'My App'))
+
+  it("moves Rocketflare's names into the kit's, so a shared plugin typechecks here", () => {
+    if (!kitOnly) throw new Error('the kit is not the ecosystem, so there is always a translator')
+    expect(kitOnly("import { z } from '@rocketflare/shared/plugins'")).toBe(
+      "import { z } from '@rocketpod/shared/plugins'"
+    )
+    expect(kitOnly('ROCKETFLARE_API_KEY · Rocketflare · rocketflare_ · rocketflare-sso')).toBe(
+      'ROCKETPOD_API_KEY · Rocketpod · rocketpod_ · rocketpod-sso'
+    )
+  })
+
+  it('keeps the fixed filenames and upstream references', () => {
+    if (!kitOnly) throw new Error('expected a translator')
+    const text =
+      '.rocketflare.json rocketflare-plugin.json .rocketflare.local.json ' +
+      'https://github.com/rocketflare-dev/rocketflare-commercial-plugins'
+    expect(kitOnly(text)).toBe(text)
+  })
+
+  it("then into a renamed copy's names", () => {
+    if (!toApp) throw new Error('expected a translator')
+    expect(toApp("from '@rocketflare/shared/auth' and '@rocketpod/shared/auth'")).toBe(
+      "from '@my-app/shared/auth' and '@my-app/shared/auth'"
+    )
+  })
+
+  it('never changes a line count', () => {
+    if (!kitOnly) throw new Error('expected a translator')
+    const text = 'a @rocketflare/x\nROCKETFLARE_Y\n\nRocketflare\n'
+    expect(kitOnly(text).split('\n')).toHaveLength(text.split('\n').length)
   })
 })
 

@@ -23,13 +23,18 @@ import type { EffectiveRole } from '@rocketpod/shared/permissions'
 import type { AgentKeyOf, JobTypeOf, PromptKeyOf, SharedPlugin } from '@rocketpod/shared/plugins'
 import type { Hono, MiddlewareHandler } from 'hono'
 import type { ComponentType, LazyExoticComponent } from 'react'
+import type { PluginLoginMethodDeclaration } from '../api/auth/plugin-login-methods'
+import type { SsoPolicy } from '../api/auth/sso-policy'
 import type { JobHandler } from '../api/queues/jobs'
 import type { ScheduledTask } from '../api/scheduled'
 import type { VisibilityResource } from '../api/services/access'
+import type { AccessScope } from '../api/services/access-sql'
 import type { AnyAgentDefinition } from '../api/services/agents/registry'
 import type { AgentToolContext } from '../api/services/agents/tools'
 import type { Tool } from '../api/services/ai/agent-loop'
+import type { EventHandler } from '../api/services/events/types'
 import type { AppBindings, AppEnv } from '../api/types'
+import type { AppConfig } from '../config'
 import type { Database } from '../db/client'
 import type { Tenant } from '../db/schema'
 import type { RoleGrant } from '../permissions/abilities'
@@ -43,11 +48,95 @@ import type { QuickLink } from '../ui/pages/Home'
 export type PluginMount = readonly [string, Hono<AppEnv>, MiddlewareHandler?]
 
 /**
- * One UNAUTHENTICATED mount: prefix and router, no gate — a feature gate reads
- * `auth.features`, and there is no auth here. The prefix must be `/api/hooks/<plugin id>` or
+ * How the host guards one public mount before its router runs. Both are applied by the HOST
+ * (`api/index.ts`), never by the plugin's handlers, so every unauthenticated prefix is throttled
+ * and size-capped by default.
+ */
+export interface PluginPublicMountOptions {
+  /**
+   * Per-IP sliding window over `platform.rateLimiter`, its bucket named after the prefix (no two
+   * mounts share one).
+   * Omitted → `PUBLIC_MOUNT_RATE_LIMIT` (120 / 60 s / IP). `false` turns it off — for a webhook
+   * sender with fixed IPs that batches, where the handler's proof of the caller is the gate.
+   * A no-op on a platform with no rate limiter, like every kit rate limit.
+   */
+  rateLimit?: { max: number; windowSeconds: number } | false
+  /**
+   * Replaces the global 1 MB body cap for everything beneath this prefix, whatever the content
+   * type (JSON, `application/x-www-form-urlencoded`, `application/scim+json`…). At most
+   * `MAX_PUBLIC_MOUNT_BODY_BYTES` (10 MB) — the config test refuses more, the host clamps.
+   */
+  bodyLimitBytes?: number
+}
+
+/**
+ * One UNAUTHENTICATED mount: prefix, router and optional guards — no gate, because a feature gate
+ * reads `auth.features` and there is no auth here. The prefix must be `/api/hooks/<plugin id>` or
  * beneath it; handlers build `publicCtx(c)` and prove who is calling before they touch a row.
  */
-export type PluginPublicMount = readonly [string, Hono<AppEnv>]
+export type PluginPublicMount = readonly [string, Hono<AppEnv>, PluginPublicMountOptions?]
+
+export interface PublicSiteFormPath {
+  /** Exact path, e.g. `/forms/contact`. POST only. */
+  path: string
+  /** Own body cap. At most `MAX_PUBLIC_MOUNT_BODY_BYTES`; default 64 KiB. */
+  bodyLimitBytes?: number
+  /** Per-IP window; own bucket. Default `PUBLIC_MOUNT_RATE_LIMIT`. */
+  rateLimit?: { max: number; windowSeconds: number }
+}
+
+/** Developer-declared additions to the strict public CSP. Inline script stays banned. */
+export interface PublicSiteCsp {
+  scriptSrc?: readonly string[]
+  frameSrc?: readonly string[]
+  imgSrc?: readonly string[]
+  connectSrc?: readonly string[]
+  /** An origin, or a path of this site (`/submit`), which is pinned to the request's origin. */
+  formAction?: readonly string[]
+}
+
+/**
+ * A public website answered by the server on its own hostnames (`api/middleware/public-sites.ts`).
+ * The host owns the request's order: cache lookup (only where the runtime has a Cache API — a Node
+ * process does not), router, cache put; a declared form POST is rate limited. It does NOT resolve
+ * a tenant, render anything or know what a page is: all of that is the router's.
+ */
+export interface PublicSitesDeclaration {
+  /**
+   * Hosts this plugin answers (lowercase, no port). `null` means DORMANT: the plugin's config is
+   * bad, so every host other than APP_URL's and loopback gets a plain, uncached 503.
+   */
+  hosts: (config: AppConfig) => readonly string[] | null
+  /**
+   * Answers everything on a matching host, so `/api/*`, `/auth/*` and `/ws` never reach core
+   * there. On a cacheable request it receives the URL WITHOUT its query string: what is stored is
+   * shared by every visitor to that path, so it must not depend on anything one of them sent.
+   */
+  router: Hono<AppEnv>
+  /**
+   * CSP additions for a host. Synchronous: it runs on cache hits too. A single page that needs
+   * more sets `PUBLIC_SITE_PAGE_CSP_HEADER` on its own response instead; `pathname` is for a path
+   * that must get less than the rest of the host, which a per-page addition cannot do.
+   */
+  csp?: (host: string, config: AppConfig, pathname: string) => PublicSiteCsp
+  forms?: readonly PublicSiteFormPath[]
+  /** Omitted = no caching. `generation` must not touch Postgres; null = do not cache this request. */
+  cache?: {
+    generation: (env: AppBindings, config: AppConfig) => Promise<string | null>
+    /** A function receives the request's pathname, for a path that may live longer than a page. */
+    ttlSeconds: number | ((pathname: string) => number)
+    /**
+     * Stored separately for each value: a format negotiated from `Accept`, for example. Return
+     * `null` for no variant. Keep the set of values small and fixed, because each is its own entry.
+     */
+    variant?: (request: Request) => string | null
+    /**
+     * The request headers `variant` reads. A response whose `Vary` names anything else is not
+     * stored, nor is any `Vary` on a request with no variant; `Accept-Encoding` is always allowed.
+     */
+    variantHeaders?: readonly string[]
+  }
+}
 
 /** What `pnpm plugin check` verifies before an install, mirrored from the plugin's manifest. */
 export interface PluginRequires {
@@ -84,6 +173,37 @@ export interface ServerPlugin<S extends SharedPlugin = SharedPlugin> {
    */
   publicMounts?: readonly PluginPublicMount[]
   /**
+   * Whole websites on hostnames of their own: on a claimed host this router answers every path and
+   * core is unreachable. Host claims are checked by `tests/config/plugins.test.ts`
+   * (`publicSiteIssues`); at runtime a bad claim is ignored and logged. The host throttles forms
+   * and sets the public CSP (`api/middleware/public-sites.ts`); routing the hosts to the server is
+   * the deployment's (`docs/DEPLOY.md` § Public site hosts).
+   */
+  publicSites?: PublicSitesDeclaration
+  /**
+   * Sign-in methods for the login page, read per request by `GET /auth/methods` (so `cfg` may
+   * decide: a dev-only method, one per configured connection). Each button navigates to its
+   * `startPath`, which MUST be under this plugin's `/api/hooks/<id>/` (`tests/config/plugins.test.ts`;
+   * a stray one is dropped at runtime). The host renders and namespaces them; it does NOT run the
+   * flow — the plugin's public route does, and finishes it with `identityFor(c, id).signIn(...)`.
+   */
+  loginMethods?: (cfg: AppConfig) => readonly PluginLoginMethodDeclaration[]
+  /**
+   * "SSO required" for the emails one of this plugin's connections claims (a DNS-verified domain):
+   * answer `{ required: true, methodId }` — `methodId` one of THIS plugin's `loginMethods(cfg)` ids,
+   * where the login page sends the person — or `null` for an address it does not claim. Asked once
+   * per sign-in attempt (`api/auth/sso-policy.ts`), never per request, with every installed
+   * plugin's policy in parallel: keep it to one indexed lookup on the email's domain.
+   *
+   * The HOST enforces it on every kit method — the magic-link request (a token-free "use single
+   * sign-on" email instead of a link, still 202) and verify, the Google / Microsoft / OIDC callback,
+   * dev login — and on every OTHER plugin's `identityFor().signIn`; a claiming plugin's own `signIn`
+   * passes. A THROW fails closed for that email (logged), and `BOOTSTRAP_ADMIN_EMAILS` are exempt
+   * (break-glass). The host does NOT verify the domain (that is the plugin's proof), revoke sessions
+   * that already exist, or apply it to `provisionFor` (SCIM mints no session).
+   */
+  ssoPolicy?: SsoPolicy
+  /**
    * Extra path prefixes the app owns, unioned into `API_PREFIXES` — so an unmatched path under
    * one is a JSON 404 rather than `index.html`, and the static handler (`node/assets.ts`, which
    * reads `isApiPath`) never serves a file for it.
@@ -114,13 +234,46 @@ export interface ServerPlugin<S extends SharedPlugin = SharedPlugin> {
    */
   agentTools?: (ctx: AgentToolContext) => Tool[] | Promise<Tool[]>
   /**
+   * PLATFORM knowledge sources (`<id>:<kind>`, written with `ingestPlatformDocument`) the kit's
+   * `search_knowledge` tool also searches for this reader — chat and every agent run. Unioned
+   * across plugins and passed as `platformSources`; a source not namespaced `<id>:` is dropped
+   * with a warning, a throw is logged and contributes nothing. May be async and may depend on the
+   * scope (`[]` for a tenant without the plugin's feature). The host does NOT make platform
+   * documents readable through `get_document` or `list_documents` — those stay tenant-only.
+   */
+  knowledgeSources?: (scope: AccessScope) => readonly string[] | Promise<readonly string[]>
+  /**
    * Cron expression → tasks, merged into `SCHEDULED_TASKS` (tasks on a cron core already runs
    * are appended after the core ones). A new expression needs no other edit: the worker process
    * registers every `SCHEDULED_TASKS` expression as a pg-boss schedule at start (`node/jobs.ts`).
    */
   scheduledTasks?: Readonly<Record<string, ScheduledTask[]>>
+  /**
+   * Subscriptions to plugin events — this plugin's own or any other installed plugin's,
+   * named by `event` and declared in some `SharedPlugin.events`. Each entry gets its OWN queued
+   * `event.deliver` job per event (`handler:<id>:<name>`), so one failing handler retries alone.
+   * The handler receives the event, re-read from `plugin_events` and re-validated, and the job's
+   * context; `eventCtx(ctx)` adapts it to a context BOUND to the event's tenant (`startAgentRun`,
+   * `startBoundAgent`, `storage`, `features`, `emit`, `enqueue`). The host does NOT dedupe a
+   * redelivery — be idempotent on `event.id` — and acknowledges a 4xx refusal rather than retrying
+   * it. `tests/config/plugins.test.ts` refuses an undeclared event and a duplicated `name`.
+   */
+  eventHandlers?: readonly EventHandler[]
+  /**
+   * Feature keys this plugin's own CONFIG switches on for the deployment, unioned with
+   * `FEATURES_ENABLED`, so an `environmentGated` flag can follow a plugin's vars rather than need a
+   * second, drifting var of its own. Pure, and it must not read the database: it runs on every
+   * request's auth path. The flag's rollout state still decides per tenant.
+   */
+  deploymentFeatures?: (config: AppConfig) => readonly string[]
   /** Per-role CASL rules, applied after the core matrix — additive, never a replacement. */
   grants?: Partial<Record<EffectiveRole, RoleGrant>>
+  /**
+   * Prefixes that skip the global 1 MB body cap, for a route taking a file. Each must be under
+   * `/api/<id>/` (`tests/config/plugins.test.ts`), and its route MUST mount its own `bodyLimit`:
+   * nothing else caps it.
+   */
+  uploadPaths?: readonly string[]
   /** Plugin tables with no `tenant_id`, unioned into `RLS_EXCLUDED_TABLES` with a reason each. */
   rlsExcludedTables?: readonly string[]
   /**
@@ -176,7 +329,7 @@ export interface ServerPlugin<S extends SharedPlugin = SharedPlugin> {
   extensions?: Readonly<Record<string, readonly unknown[]>>
 }
 
-export type PluginRouteTier = 'shell' | 'noTenant' | 'public'
+export type PluginRouteTier = 'shell' | 'noTenant' | 'public' | 'workspace'
 
 export interface PluginRoute {
   /** A path under the tier's router — `/approvals`, `/approvals/:id`. */
@@ -188,8 +341,41 @@ export interface PluginRoute {
   Component: LazyExoticComponent<ComponentType>
   /** The SAME guard its nav item uses, so a link never points at a page its reader cannot open. */
   guard?: NavGuard
-  /** Default `shell` — inside `Layout`, signed in with a tenant. */
+  /**
+   * Default `shell` — inside `Layout`, signed in with a tenant. `workspace` is the same, for a
+   * page that wants the whole space: the nav collapses to its icon rail, `<main>` has no padding
+   * and the page fills the viewport under the header (`h-full`), scrolling only its own panes.
+   */
   tier?: PluginRouteTier
+}
+
+/** Where in the top bar a plugin header item sits. */
+export type PluginHeaderPlacement = 'center' | 'end'
+
+/**
+ * One item in the app's top bar — a search box, a help button. Rendered by the shell inside
+ * `Layout` for every signed-in page with a tenant, behind `guard`, inside its OWN `Suspense`
+ * (fallback: nothing) and error boundary (fallback: nothing, logged), so a slow or crashing item
+ * never takes the header down with it.
+ *
+ * The host does NOT reserve space, de-duplicate or collapse items on a narrow screen: the header is
+ * one row at every width, so an item is a compact control (an icon button below `sm`, say) and
+ * anything big it opens — a palette, a drawer — is its own lazy chunk loaded on first use.
+ */
+export interface PluginHeaderItem {
+  /** Unique within the plugin; the React key is `<plugin id>:<id>`. */
+  id: string
+  /** `lazy(() => import('./ui/header/X'))` and nothing else, exactly like a route's `Component`. */
+  Component: LazyExoticComponent<ComponentType>
+  /** The same guard semantics as a nav item or route (`useNavGuard`); hidden when it fails. */
+  guard?: NavGuard
+  /** Ascending, default 0; ties break on plugin id, then item id — so the order never depends on install order. */
+  order?: number
+  /**
+   * Default `end`: the right-hand cluster, before the kit's own widgets (status, bell, user
+   * menu). `center`: the flexible middle of the bar, where a search box goes.
+   */
+  placement?: PluginHeaderPlacement
 }
 
 /** A nav group, placed relative to a named core group ("Organisation" by default). */
@@ -215,6 +401,11 @@ export interface UiPlugin<S extends SharedPlugin = SharedPlugin> {
    * The host does NOT de-duplicate or re-order: two plugins offering the same `to` show twice.
    */
   homeLinks?: readonly QuickLink[]
+  /**
+   * Top-bar items (`PluginHeaderItem`): merged across plugins, ordered by `order` then plugin id,
+   * rendered by `PluginHeaderSlot` in `Layout`'s `headerCenter` / `headerEnd`.
+   */
+  header?: readonly PluginHeaderItem[]
   /** Families merged into `queryKeys`; every root must start with `<id>:`. */
   queryKeys?: Readonly<Record<string, unknown>>
   /**
@@ -222,6 +413,14 @@ export interface UiPlugin<S extends SharedPlugin = SharedPlugin> {
    * falls back to a form generated from the agent's own JSON Schema, then to a JSON textarea.
    */
   agentForms?: Readonly<Partial<Record<AgentKeyOf<S> & string, AgentForm>>>
+  /**
+   * Cross-plugin registries for the browser, the UI twin of `ServerPlugin.extensions`: another
+   * plugin reads every installed plugin's entries under a key with `uiExtensions(key)` (from
+   * `@/plugins/api/ui`) and narrows them with its own schema. Keys are the OWNING plugin's
+   * (`global-search.commands`), so a contributor names it without importing that plugin. This
+   * object ships in the main bundle: plain data only, never a component.
+   */
+  extensions?: Readonly<Record<string, readonly unknown[]>>
 }
 
 /** The element type of the barrels — a plugin whose shared half is not narrowed. */

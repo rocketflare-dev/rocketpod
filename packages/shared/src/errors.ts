@@ -30,8 +30,16 @@ export const ERROR_CODES = {
   noTenant: 'no_tenant',
   tenantSuspended: 'tenant_suspended',
   blocked: 'blocked',
+  /**
+   * 403 (dev login) / `/login?error=` (every redirecting sign-in): a plugin's connection claims the
+   * email's domain and requires single sign-on (`ServerPlugin.ssoPolicy`). `details.method`, when
+   * known, is the `GET /auth/methods` `pluginMethods` id to send the person to.
+   */
+  ssoRequired: 'sso_required',
   tenancyModeSingle: 'tenancy_mode_single',
   csrf: 'csrf_failed',
+  /** 403: the API key is valid but its scopes do not allow this method. */
+  insufficientScope: 'insufficient_scope',
   /** 503: no chat/embeddings provider resolves for the tenant. */
   aiNotConfigured: 'ai_not_configured',
   /** 503: no durable-run engine is configured, so a run cannot be started. */
@@ -40,6 +48,20 @@ export const ERROR_CODES = {
   jobsNotConfigured: 'jobs_not_configured',
   /** 409: `?strict=1` and an active run already exists for an exclusive agent. */
   agentRunActive: 'agent_run_active',
+  /** 429: the tenant already has `AGENT_MAX_ACTIVE_RUNS_PER_TENANT` runs queued, running or parked. */
+  agentRunsLimit: 'agent_runs_limit',
+  /** 400: `POST /api/agents/runs/batch` named an exclusive agent — one run at a time cannot batch. */
+  agentExclusive: 'agent_exclusive',
+  /** 400: an event name no installed plugin declares. */
+  eventUnknown: 'event_unknown',
+  /** 403: the agent does not opt in (`bindable`) to being started by this event. */
+  agentNotBindable: 'agent_not_bindable',
+  /** 429: the tenant's agent spend today has reached `AGENT_TENANT_DAILY_COST_USD`. */
+  aiBudgetExceeded: 'ai_budget_exceeded',
+  /** Event code, not a status: a run stopped because it reached its token or cost budget. */
+  agentBudgetExceeded: 'agent_budget_exceeded',
+  /** Event code, not a status: a run's tool loop ran out under its `policy` with no answer. */
+  agentPolicyExhausted: 'agent_policy_exhausted',
   /** 404: `POST /api/agui/run` was given a `threadId` that exists but is not this user's. */
   aguiThreadNotFound: 'agui_thread_not_found',
   /** 400: the last message of a `RunAgentInput` was not a user turn. */
@@ -72,8 +94,15 @@ export const ERROR_CODES = {
    * the app may neither edit nor remove it. Change it at the issuer.
    */
   idpManaged: 'idp_managed',
+  /** 403: the caller already owns `MAX_OWNED_TENANTS_PER_USER` organisations. */
+  tenantLimitReached: 'tenant_limit_reached',
   /** 409: another tenant is already linked to that OIDC issuer org (`tenants.external_org_id`). */
   externalOrgTaken: 'external_org_taken',
+  /**
+   * 409: a plugin's identity provider asserted the email of an existing account it has not proved
+   * it may claim (no `linkByEmail`) — linking it would let one tenant's IdP take over that account.
+   */
+  accountExists: 'account_exists',
   /** 416: the `Range` asked for starts past the end of the object (`Content-Range: bytes *\/n`). */
   rangeNotSatisfiable: 'range_not_satisfiable',
 } as const

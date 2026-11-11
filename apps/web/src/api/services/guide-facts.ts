@@ -75,8 +75,13 @@ export const PINNED_FACTS = {
   'cli.exit.forbidden': '3',
   /** `MAGIC_LINK_TTL_MS` — apps/web/src/api/auth/magic-link.ts (imports the schema) */
   'auth.magic_link_minutes': '15',
+  /** `RECIPIENT_MAIL_MAX`, `RECIPIENT_MAIL_WINDOW_SECONDS` — apps/web/src/api/routes/auth/magic-link.ts */
+  'auth.sign_in_mail_max': '5',
+  'auth.sign_in_mail_window_minutes': '15',
   /** `INVITATION_TTL_MS` — apps/web/src/api/services/invitations.ts (imports the job queue) */
   'team.invitation_days': '7',
+  /** `INVITATION_RESEND_COOLDOWN_SECONDS` — apps/web/src/api/services/invitations.ts */
+  'team.invitation_resend_minutes': '5',
 } as const satisfies Record<string, string>
 
 /** Facts built from constants this module imports. */

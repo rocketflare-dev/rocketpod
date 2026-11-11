@@ -9,8 +9,10 @@
  *
  * The exports below are grouped by the file they come from and sorted by the formatter, so read
  * them there: `./http` is a request, `./jobs` is background work, `./ai` is agents and tools,
- * `./access` is row visibility, `./events` is nudges and notifications, `./secrets` is a tenant's
- * credentials at rest.
+ * `./chat` is a streamed chat turn a plugin route answers with,
+ * `./access` is row visibility, `./events` is nudges and notifications, `./emit` is declared plugin
+ * events, `./secrets` is a tenant's
+ * credentials at rest, `./identity` is signing a person in and provisioning their memberships.
  *
  * **Three things are deliberately NOT here.**
  *
@@ -26,9 +28,12 @@
  *   barrel. They are at `@/db/schema/kit` — beside `rls.ts`, below the barrel.
  */
 
+export type { BindableAgent } from '@rocketpod/shared/ai/agents'
 export type {
   AnyServerPlugin,
   AnyUiPlugin,
+  PluginHeaderItem,
+  PluginHeaderPlacement,
   PluginNavGroup,
   PluginRequires,
   PluginRoute,
@@ -44,10 +49,15 @@ export type {
   VisibilityResource,
 } from './access'
 export { sharedWithMyGroups } from './access'
+export { eventBinding, eventTrigger, listBindableAgents } from './agent-runs'
 export type {
   AgentCtx,
   AgentDecide,
+  AgentInterruptAnswer,
+  AgentInterruptAsk,
+  AgentSummary,
   Decision,
+  FusedItem,
   PickOptions,
   PickResult,
   PluginAgent,
@@ -64,15 +74,49 @@ export type {
 export {
   AiNotConfiguredError,
   agentCtx,
+  anyTermTsquery,
+  candidatePoolSize,
+  chatModelAvailable,
   defineTool,
+  fuseByRank,
+  listAgents,
   recordUsage,
   toolCtx,
   toolInputSchema,
 } from './ai'
 export type { AbilityCheck, Actions, MembershipRole, PluginAuth, Subjects, User } from './auth'
 export { hasFeature, isAdminLevel, isGlobalAdmin, isOwnerLevel, requireFeature } from './auth'
+export type {
+  StreamChatEmit,
+  StreamChatOptions,
+  StreamChatResult,
+  StreamChatToolCtx,
+  StreamChatTurn,
+} from './chat'
+export {
+  customEventNameIssue,
+  InvalidCustomEventError,
+  streamChat,
+  usageFeatureIssue,
+} from './chat'
 export type { HookCtx, SeedCtx, Tenant } from './db'
 export { affected, isUniqueViolation, pgErrorCode, rows, transaction } from './db'
+export type {
+  AgentEventBinding,
+  AgentEventTrigger,
+  DeliveredEvent,
+  Emit,
+  EmitInput,
+  EmittedEvent,
+  EventContext,
+  EventCtx,
+  EventHandler,
+  EventName,
+  EventPayload,
+  TenantEmit,
+  TenantEmitInput,
+} from './emit'
+export { eventCtx } from './emit'
 export type { ActivityInput, NotifyInput, Realtime } from './events'
 export {
   notify,
@@ -91,10 +135,26 @@ export type {
   DetachedCtx,
   PluginMount,
   PluginPublicMount,
+  PluginPublicMountOptions,
+  PublicSiteCsp,
+  PublicSiteFormPath,
+  PublicSitesDeclaration,
   RequestCtx,
   RequestVisibility,
 } from './http'
 export { createRouter, pageWindow, requestCtx, validate } from './http'
+export type {
+  IdpAppRole,
+  PluginDeprovisionResult,
+  PluginIdentity,
+  PluginIdentityUser,
+  PluginLoginMethodDeclaration,
+  PluginMember,
+  PluginProvision,
+  PluginSignInInput,
+  SsoRequirement,
+} from './identity'
+export { identityFor, provisionFor, resolveOwnerTenant } from './identity'
 export type {
   BackgroundMethods,
   CronCtx,
@@ -105,14 +165,30 @@ export type {
   JobOf,
   JobType,
   ScheduledTask,
+  StartAgentRun,
+  StartAgentRunInput,
+  StartedAgentRun,
 } from './jobs'
 export { cronCtx, jobCtx } from './jobs'
 export type {
+  PlatformDocumentInput,
+  PlatformDocumentResult,
   PluginIngestFileInput,
   PluginIngestResult,
   PluginIngestTextInput,
+  SearchKnowledgeHit,
+  SearchKnowledgeInput,
+  SearchKnowledgeResult,
 } from './knowledge'
-export { deleteIngestedDocument, ingestDocument, ingestDocumentFile } from './knowledge'
+export {
+  deleteIngestedDocument,
+  ingestDocument,
+  ingestDocumentFile,
+  ingestPlatformDocument,
+  PlatformEmbeddingsError,
+  prunePlatformDocuments,
+  searchKnowledge,
+} from './knowledge'
 export type {
   AgentTraceContext,
   SpanKind,
@@ -129,7 +205,7 @@ export {
   withAgentTrace,
 } from './observability'
 export type { PublicCtx } from './public'
-export { PUBLIC_MOUNT_ROOT, publicCtx } from './public'
+export { memberCan, PUBLIC_MOUNT_ROOT, PUBLIC_SITE_PAGE_CSP_HEADER, publicCtx } from './public'
 export type { StepRealtime } from './realtime-step'
 export { createStepRealtimeFor } from './realtime-step'
 export { openSecret, sealSecret, signState, verifyState } from './secrets'
@@ -142,6 +218,9 @@ export type {
   PluginContext,
   PluginLogger,
   PluginPlatform,
+  StorageService,
+  StoredObject,
+  StoredObjectMeta,
 } from './types'
 export type { StepCtx, StepOptions, WorkflowCtx } from './workflow'
 export { DuplicateStepNameError, workflowCtx } from './workflow'

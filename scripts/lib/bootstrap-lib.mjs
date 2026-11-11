@@ -10,13 +10,13 @@
  */
 import { defaultPluginEntries, defaultPluginEntryProblems } from './upgrade-lib.mjs'
 
-/** The major version in an `.nvmrc` (`24`, `v24.1.0`, `lts/*` → NaN). */
+/** The major version in an `.nvmrc` (`26`, `v26.1.0`, `lts/*` → NaN). */
 export function parseNvmrc(text) {
   const match = /^\s*v?(\d+)/.exec(text)
   return match ? Number(match[1]) : Number.NaN
 }
 
-/** `versionAtLeast('v24.16.0', 24)` → true. Tolerates a leading `v` and trailing text. */
+/** `versionAtLeast('v26.13.0', 26)` → true. Tolerates a leading `v` and trailing text. */
 export function versionAtLeast(vString, major) {
   const match = /^\s*v?(\d+)/.exec(vString ?? '')
   return match ? Number(match[1]) >= major : false

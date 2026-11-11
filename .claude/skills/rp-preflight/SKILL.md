@@ -53,8 +53,8 @@ hint are authoritative; the table below adds what each fix *does*.
 
 | Failure line says | What is wrong | The fix (say what it does, then let the user choose) |
 |---|---|---|
-| node missing / not v24 | wrong Node | `nvm install` (reads `.nvmrc`) or `fnm use` — installs/activates Node 24 for this shell |
-| pnpm missing / not 10.x | corepack is off | `corepack enable` — makes the `pnpm` version in root `package.json` `packageManager` available |
+| node missing / not v26 | wrong Node | `nvm install` (reads `.nvmrc`) or `fnm use` — installs/activates Node 26 for this shell |
+| pnpm missing / not 10.x | pnpm is not installed (Node 26 ships no corepack) | `npm i -g pnpm@10` — installs pnpm 10, which then runs the version in root `package.json` `packageManager` |
 | docker daemon not reachable | Docker is not running | start Docker Desktop, or `colima start` (macOS), or `sudo systemctl start docker` (Linux) — starts the daemon; nothing in the repo changes |
 | `apps/web/.env` missing | first run never completed | `cp apps/web/.env.example apps/web/.env`, then fill `OAUTH_ENCRYPTION_KEY` with `openssl rand -hex 32` (SETUP.md 1.3); or `/rp-setup` which does this for you |
 | `OAUTH_ENCRYPTION_KEY` empty or shorter than 32 chars | the one required secret is blank | as above — generate a 64-hex value; **never** reuse a value from another environment |

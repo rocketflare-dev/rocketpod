@@ -51,7 +51,8 @@ The first chat default for Anthropic is {{fact:ai.default_model.anthropic}}, and
 
 Once saved, a key is never shown again — not to you, not to anyone. The table only says that the
 entry has one. To change it, edit the entry and paste a new key; leave the field blank to keep the
-old one. If you switch an entry to a different provider, you must paste a new key.
+old one. If you switch an entry to a different provider or change its address, you must paste a
+new key: a saved key is only ever sent to the provider and address it was entered for.
 
 ## The default entry
 

@@ -62,7 +62,7 @@ export function ReaderLayout({
   toc: ReactNode
   aside: ReactNode
   children: ReactNode
-  contentRef: RefObject<HTMLDivElement>
+  contentRef: RefObject<HTMLDivElement | null>
 }) {
   const [rightW, setRightW] = useState(() => {
     const v = Number(localStorage.getItem(STORAGE_KEY))

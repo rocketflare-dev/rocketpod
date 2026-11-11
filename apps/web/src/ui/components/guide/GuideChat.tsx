@@ -16,7 +16,7 @@ import {
 import { GUIDE_PATH, type GuideCitation, guideHref } from '@rocketpod/shared/guide'
 import { type RefObject, useEffect, useRef, useState } from 'react'
 import type { Components } from 'react-markdown'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router'
 import { Markdown } from '@/ui/components/ai/Markdown'
 import { useAppInfo } from '@/ui/hooks/useAppInfo'
 import { useGuideChat } from './GuideChatProvider'
@@ -53,7 +53,7 @@ export default function GuideChat({
   inputRef,
 }: {
   onNavigate?: () => void
-  inputRef?: RefObject<HTMLTextAreaElement>
+  inputRef?: RefObject<HTMLTextAreaElement | null>
 }) {
   const { chat } = useGuideChat()
   const { messages, steps, streaming, send, stop, reset } = chat

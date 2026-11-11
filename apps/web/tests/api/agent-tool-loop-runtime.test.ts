@@ -77,7 +77,7 @@ function script(s: FakeScript) {
 /** Enqueue and claim — the workflow's first step — leaving the run ready for `execute`. */
 async function claimed(env: TestEnv, topic: string) {
   const { user, tenant } = await createTestTenantWithUser(db, 'member')
-  const { run } = await enqueueRun(db, env, {
+  const { run } = await enqueueRun(db, loadConfig(env), env, {
     tenantId: tenant.id,
     agentKey: TEST_RESEARCH,
     input: { topic },
@@ -137,10 +137,15 @@ describe('ctx.checkpoint', () => {
     // Turns carry forward, so `maxTurns` stays a budget for the RUN, not for each attempt.
     expect(output.turns).toBe(2)
 
-    // Ledgered ONCE for the whole run, summing both attempts.
+    // One row per call that RETURNED, across both attempts: attempt 1's turn was ledgered the
+    // moment it came back, the failed call cost nothing, and the resumed attempt's turn is the
+    // second row — the carried-forward checkpoint usage is never written again.
     const usage = await db.query.aiUsage.findMany({ where: eq(aiUsage.tenantId, tenant.id) })
-    expect(usage).toHaveLength(1)
-    expect(usage[0]).toMatchObject({ inputTokens: 100, outputTokens: 30 })
+    expect(usage.map(u => [u.inputTokens, u.outputTokens]).sort((a, b) => a[0]! - b[0]!)).toEqual([
+      [40, 10],
+      [60, 20],
+    ])
+    expect(usage.every(u => u.agentRunId === params.runId)).toBe(true)
 
     // Settling drops the checkpoint: nothing will resume, and the transcript is not a record.
     const settled = await db.query.agentRuns.findFirst({ where: eq(agentRuns.id, params.runId) })

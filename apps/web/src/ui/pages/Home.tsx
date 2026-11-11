@@ -10,7 +10,7 @@ import {
   UserCircleIcon,
 } from '@heroicons/react/24/outline'
 import type { ComponentType } from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 import { uiPlugins } from '@/plugins/ui'
 import { RoleBadge } from '@/ui/components/RoleBadge'
 import { EmptyState, PageHeader, SectionPanel, SkeletonRows } from '@/ui/components/shared'
@@ -27,7 +27,7 @@ export interface QuickLink {
   guard?: NavGuard
 }
 
-const CORE_QUICK_LINKS: QuickLink[] = [
+export const CORE_QUICK_LINKS: QuickLink[] = [
   {
     to: '/profile',
     label: 'Your account',

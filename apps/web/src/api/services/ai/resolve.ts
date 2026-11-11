@@ -69,6 +69,8 @@ export interface ResolvedChat {
    * `platform_default` = the platform tier ran the platform default model for `promptKey`.
    */
   source: 'tenant' | 'platform' | 'platform_default' | 'agent'
+  /** The deployment pays for this call: the platform key, not a tenant's own. */
+  billedToPlatform: boolean
   /** `cfg.AGENT_MAX_OUTPUT_TOKENS` — the per-call `max_tokens` consumers pass. */
   maxOutputTokens: number
   configId?: string
@@ -406,6 +408,7 @@ export async function resolveChat(
       provider: row.provider,
       model: override ?? row.model,
       source,
+      billedToPlatform: false,
       maxOutputTokens: cfg.AGENT_MAX_OUTPUT_TOKENS,
       configId: row.id,
     }
@@ -418,6 +421,7 @@ export async function resolveChat(
       provider: platform.provider,
       model: override ?? promoted ?? platform.model,
       source: assignment ? 'agent' : promoted ? 'platform_default' : 'platform',
+      billedToPlatform: true,
       maxOutputTokens: cfg.AGENT_MAX_OUTPUT_TOKENS,
     }
   }

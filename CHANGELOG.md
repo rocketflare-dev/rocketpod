@@ -6,6 +6,11 @@ copy of the kit forward without recreating anything its owner deleted.
 
 If you are running a copy: `pnpm kit:upgrade` tells you which of these you are missing.
 
+## 0.32.2 — 2026-11-11
+
+Rocketpod catches up with Rocketflare 0.32.2 and takes its version: identity seam, agents at volume, Node 26 and current dependencies, the security hardening round, public sites, platform knowledge and plugin events.
+[Porting note](docs/upgrades/0.32.2.md).
+
 ## 0.2.0 — 2026-10-30
 
 Every runtime capability is now a neutral `Platform`, a Node entry (`src/node/server.ts`) serves the app with one Postgres pool per process, and the Neon serverless driver is removed.

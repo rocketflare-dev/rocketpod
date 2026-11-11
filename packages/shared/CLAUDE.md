@@ -179,8 +179,8 @@ realtime event type: the enum + its roots in `REALTIME_INVALIDATIONS` (a ui test
 is a `queryKeys` family). Adding a file scope: `FILE_SCOPES` here AND the mirrored enum in
 `apps/web/src/db/schema/files.ts`. Making a NEW resource restrictable (D29): add `visibility` +
 `groups: z.array(groupRefSchema)` to its schema here, a `visibility` column plus a junction table
-server-side, and a `visible<Resource>(scope)` predicate registered as a `VISIBILITY_RESOURCES`
-entry in `api/services/access.ts` — never infer "restricted" from the presence of grant rows.
+server-side, and a `visible<Resource>(scope)` predicate added to `CORE_VISIBILITY_RESOURCES`
+in `api/services/access.ts` (a plugin: its `visibilityResources`) — never infer "restricted" from the presence of grant rows.
 
 ## Rules
 

@@ -6,6 +6,7 @@
  */
 import { Command, InvalidArgumentError } from 'commander'
 import { runActivityList } from './commands/activity'
+import { runAgentRunsList, runAgentsList, runAgentsRun } from './commands/agents'
 import { runConfigGet, runConfigPath, runConfigSet } from './commands/config'
 import { runEvalsPromote } from './commands/evals'
 import { runFeaturesList } from './commands/features'
@@ -152,6 +153,30 @@ activity
   .option('--page-size <n>', 'items per page (max 200)', positiveInt('--page-size'))
   .option('--type <name>', 'filter by dotted event type, e.g. member.invited')
   .action(action((ctx, cmd) => runActivityList(ctx, cmd.opts())))
+
+const agents = program
+  .command('agents')
+  .description('agents of the active tenant — start runs, one at a time or in batches')
+agents
+  .command('list')
+  .description('list the agents, and which of them can run in a batch')
+  .action(action(runAgentsList))
+agents
+  .command('run <key>')
+  .description('start a run from a JSON file, or one run per line of a JSONL file')
+  .option('--input <file>', 'a JSON file holding one input')
+  .option('--batch <file>', 'a JSONL file, one input per line (non-exclusive agents only)')
+  .action(action((ctx, cmd) => runAgentsRun(ctx, cmd.args[0] ?? '', cmd.opts())))
+const agentRuns = agents.command('runs').description('agent runs')
+agentRuns
+  .command('list')
+  .description('list runs, newest first — your own, or every run for an admin')
+  .option('--agent <key>', 'only this agent')
+  .option('--status <status>', 'queued | running | awaiting_input | succeeded | failed | cancelled')
+  .option('--batch <id>', 'only the runs one batch created')
+  .option('--page <n>', 'page number', positiveInt('--page'))
+  .option('--page-size <n>', 'items per page (max 200)', positiveInt('--page-size'))
+  .action(action((ctx, cmd) => runAgentRunsList(ctx, cmd.opts())))
 
 const traces = program
   .command('traces')

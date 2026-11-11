@@ -144,7 +144,7 @@ const CHECKPOINT = {
 
 async function claimedRun(env: TestEnv, role: 'owner' | 'member' = 'member') {
   const { user, tenant } = await createTestTenantWithUser(db, role)
-  const { run } = await enqueueRun(db, env, {
+  const { run } = await enqueueRun(db, loadConfig(env), env, {
     tenantId: tenant.id,
     agentKey: TEST_SUMMARIZE,
     input: { text: 'anything' },
@@ -641,6 +641,7 @@ describe('the plumbing underneath', () => {
       input: { to: 'edited@example.test' },
       note: 'fixed the address',
       onReject: 'cancel_run',
+      approvedCall: null,
     })
     // A pending ask is not an answer.
     expect(approvals.has('call_c')).toBe(false)

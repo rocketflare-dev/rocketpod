@@ -14,6 +14,7 @@
  * `plugin-lib.d.mts` beside this file is the hand-written type surface (no `allowJs`).
  */
 import { KIT } from './rename-lib.mjs'
+import { repoPathProblem } from './repo-paths.mjs'
 import { missingFrom } from './surface.mjs'
 import { compareVersions, isVendored } from './upgrade-lib.mjs'
 
@@ -47,6 +48,9 @@ export function pluginIdProblem(id) {
   // along with everything else, and the plugin would arrive under a name nothing imports.
   if (id.includes(KIT.slug)) return `'${id}' must not contain the kit's name`
   if (RESERVED_PLUGIN_IDS.includes(id)) return `'${id}' is a barrel filename`
+  // `plugins/api/**` is the host's plugin API (surface.mjs reserves it too): a plugin there would
+  // install into the directory every plugin imports its context from.
+  if (id === 'api') return `'api' is the host's plugin API directory (apps/web/src/plugins/api)`
   return null
 }
 
@@ -269,7 +273,7 @@ export function removeBarrelLine(text, kind, id) {
  * A plugin owns four directories and edits no core file — that rule is what lets two plugins share
  * one app. But some need a line in one: the analytics plugin cannot render at all unless
  * `apps/web/vite.config.ts` aliases `@nivo/heatmap` to the stub it ships, because drizzle-cube's
- * heat-map chunk names that OPTIONAL peer and Rollup fails the whole build without it.
+ * heat-map chunk names that OPTIONAL peer and Rolldown fails the whole build without it.
  *
  * Printing the line as a "by hand" step left `pnpm build` failing for anyone who did not read the
  * plan — including `plugin-ci.yml`, which runs the gate unattended and applies nothing. So a
@@ -353,6 +357,7 @@ export const FILE_ROLES = Object.freeze([
   'fragment', // migrations/** — NEVER copied; pasted into a `--custom` migration by a human
   'meta', // the manifest, README/CHANGELOG/LICENSE — read, reported, not copied
   'repo-only', // the plugin repository's own tooling — belongs to it, not to the host
+  'seed', // a declared hostFiles entry — copied once if absent, then the developer's
   'refused', // anywhere else: a plugin may not write outside its own roots
 ])
 
@@ -457,6 +462,350 @@ export function undeclaredSkillDirs(id, declared, hostDirs, installedIds = []) {
   return hostDirs.filter(d => !declared.includes(d) && owner(d) === id)
 }
 
+// ---------------------------------------------------------------- Claude Code hooks
+
+/**
+ * Where a plugin's Claude Code hooks land: the host's PROJECT settings, which a coding agent in
+ * the host reads (a Stop hook that nudges it to keep a guide in sync, say). Never
+ * `settings.local.json`, which is the developer's.
+ */
+export const CLAUDE_SETTINGS_FILE = '.claude/settings.json'
+
+/** The hook events a plugin may declare — Claude Code's own names. */
+export const CLAUDE_HOOK_EVENTS = Object.freeze([
+  'PreToolUse',
+  'PostToolUse',
+  'Notification',
+  'UserPromptSubmit',
+  'Stop',
+  'SubagentStop',
+  'PreCompact',
+  'SessionStart',
+  'SessionEnd',
+])
+
+/** The longest timeout (seconds) a plugin hook may ask for. Claude Code's own default is 60. */
+export const MAX_CLAUDE_HOOK_TIMEOUT = 600
+
+/**
+ * The one command shape a plugin hook may have: `node "$CLAUDE_PROJECT_DIR/.claude/skills/<dir>/<script>"`,
+ * optionally followed by plain flags. Nothing else — no `cd`, no `&&`, no pipe, no `pnpm` — so a
+ * hook can only run a script the plugin itself ships in one of its declared skill directories,
+ * which `remove` deletes with the hook and `plugin check` can read. Captures the skill directory
+ * and the script path inside it.
+ */
+const CLAUDE_HOOK_COMMAND_RE =
+  /^node "\$CLAUDE_PROJECT_DIR\/\.claude\/skills\/([a-z][a-z0-9-]*)\/((?:[A-Za-z0-9_][A-Za-z0-9._-]*\/)*[A-Za-z0-9_][A-Za-z0-9._-]*\.(?:mjs|cjs|js))"((?: --?[a-z0-9][a-z0-9-]*(?:=[A-Za-z0-9._:/-]+)?)*)$/
+
+/** `{ dir, script }` of a legal plugin hook command, or null. Pure over the string. */
+export function parseClaudeHookCommand(command) {
+  if (typeof command !== 'string') return null
+  const m = command.match(CLAUDE_HOOK_COMMAND_RE)
+  if (!m || m[2].split('/').some(s => s === '..' || s === '.')) return null
+  return { dir: m[1], script: m[2] }
+}
+
+/**
+ * The plugin a hook command belongs to, among `ids`: the one whose namespace holds the skill
+ * directory the command names — the LONGEST match, as for skill directories (`example` vs
+ * `example-feature`). Null for a command no plugin owns (the kit's, the developer's).
+ */
+export function claudeHookOwner(command, ids) {
+  const parsed =
+    parseClaudeHookCommand(command) ??
+    // An owned command that no longer parses (edited by hand) is still recognised by its path, so
+    // `remove` takes it out rather than leaving it pointing at a deleted directory.
+    (typeof command === 'string'
+      ? (() => {
+          const m = command.match(/\.claude\/skills\/([a-z][a-z0-9-]*)\//)
+          return m ? { dir: m[1] } : null
+        })()
+      : null)
+  if (!parsed) return null
+  return (
+    ids
+      .filter(id => parsed.dir === id || parsed.dir.startsWith(`${id}-`))
+      .sort((a, b) => b.length - a.length)[0] ?? null
+  )
+}
+
+/** A manifest's `claudeHooks`, flattened to `[{ event, matcher?, command, timeout? }]`. */
+export function pluginClaudeHooks(manifest) {
+  const declared = manifest?.claudeHooks
+  if (!isObj(declared)) return []
+  return Object.entries(declared).flatMap(([event, entries]) =>
+    Array.isArray(entries)
+      ? entries
+          .filter(e => isObj(e) && typeof e.command === 'string')
+          .map(e => ({
+            event,
+            ...(typeof e.matcher === 'string' ? { matcher: e.matcher } : {}),
+            command: e.command,
+            ...(typeof e.timeout === 'number' ? { timeout: e.timeout } : {}),
+          }))
+      : []
+  )
+}
+
+/** Everything wrong with a manifest's `claudeHooks`, as sentences. */
+export function claudeHookProblems(manifest) {
+  const declared = manifest?.claudeHooks
+  if (declared === undefined) return []
+  if (!isObj(declared)) {
+    return [
+      'claudeHooks must be an object of { "<Event>": [{ "command", "matcher"?, "timeout"? }] }',
+    ]
+  }
+  const id = manifest.id
+  const skills = pluginSkillDirs(manifest)
+  const problems = []
+  for (const [event, entries] of Object.entries(declared)) {
+    if (!CLAUDE_HOOK_EVENTS.includes(event)) {
+      problems.push(
+        `claudeHooks event '${event}' is not a Claude Code hook event (${CLAUDE_HOOK_EVENTS.join(', ')})`
+      )
+      continue
+    }
+    if (!Array.isArray(entries) || entries.length === 0) {
+      problems.push(`claudeHooks.${event} must be a non-empty array of hooks`)
+      continue
+    }
+    for (const e of entries) {
+      if (!isObj(e) || typeof e.command !== 'string') {
+        problems.push(
+          `claudeHooks.${event} carries ${JSON.stringify(e)} — each hook has a "command"`
+        )
+        continue
+      }
+      const extra = Object.keys(e).filter(k => !['command', 'matcher', 'timeout'].includes(k))
+      if (extra.length > 0) {
+        problems.push(
+          `claudeHooks.${event} hook declares ${extra.join(', ')} — only command, matcher, timeout`
+        )
+      }
+      if (e.matcher !== undefined && typeof e.matcher !== 'string') {
+        problems.push(`claudeHooks.${event} hook has a non-string matcher`)
+      }
+      if (
+        e.timeout !== undefined &&
+        !(Number.isInteger(e.timeout) && e.timeout > 0 && e.timeout <= MAX_CLAUDE_HOOK_TIMEOUT)
+      ) {
+        problems.push(
+          `claudeHooks.${event} hook timeout ${JSON.stringify(e.timeout)} must be a whole number of seconds, 1–${MAX_CLAUDE_HOOK_TIMEOUT}`
+        )
+      }
+      const parsed = parseClaudeHookCommand(e.command)
+      if (!parsed) {
+        problems.push(
+          `claudeHooks.${event} command ${JSON.stringify(e.command)} may only be ` +
+            'node "$CLAUDE_PROJECT_DIR/.claude/skills/<skill>/<script>.mjs" (plus plain --flags)'
+        )
+        continue
+      }
+      if (typeof id === 'string' && skillDirProblem(id, parsed.dir) !== null) {
+        problems.push(
+          `claudeHooks.${event} command runs .claude/skills/${parsed.dir}/, which is not in '${id}'s namespace`
+        )
+      } else if (!skills.includes(parsed.dir)) {
+        problems.push(
+          `claudeHooks.${event} command runs .claude/skills/${parsed.dir}/, which "skills" does not declare`
+        )
+      }
+    }
+  }
+  return problems
+}
+
+/** The hook groups `settings.hooks[event]` holds, as an array (anything else reads as none). */
+const hookGroups = (settings, event) =>
+  Array.isArray(settings?.hooks?.[event]) ? settings.hooks[event] : []
+
+/** The `{ event, matcher?, command, timeout? }` entries in a settings object that `id` owns. */
+export function ownedClaudeHooks(settings, id, installedIds = [id]) {
+  const ids = [...new Set([...installedIds, id])]
+  const found = []
+  for (const event of Object.keys(isObj(settings?.hooks) ? settings.hooks : {})) {
+    for (const group of hookGroups(settings, event)) {
+      for (const h of Array.isArray(group?.hooks) ? group.hooks : []) {
+        if (claudeHookOwner(h?.command, ids) !== id) continue
+        found.push({
+          event,
+          ...(typeof group.matcher === 'string' ? { matcher: group.matcher } : {}),
+          command: h.command,
+          ...(typeof h.timeout === 'number' ? { timeout: h.timeout } : {}),
+        })
+      }
+    }
+  }
+  return found
+}
+
+const hookKey = h => JSON.stringify([h.event, h.matcher ?? null, h.command, h.timeout ?? null])
+
+/** The settings file's indent, so a write keeps the developer's style. */
+const jsonIndent = text => text.match(/^[ \t]+(?=")/m)?.[0] ?? '  '
+
+/**
+ * `settingsText` (null = the file is absent) with plugin `id`'s hooks set to exactly `hooks`.
+ *
+ * The plugin's existing entries — found by the skill directory their command names — are taken
+ * out first, then each wanted one is appended as its own matcher group at the end of its event.
+ * Everything else keeps its place. When nothing would change the input comes back as it was
+ * (idempotent `add`, a no-op `upgrade`). A group or event the removal empties goes, and so does an
+ * empty `hooks`; a file left as `{}` answers `null` — delete it — so add → remove over an absent
+ * file leaves no file, and over a present one the original bytes (the kit's file is
+ * `JSON.stringify` at two spaces with a trailing newline, which is what this writes).
+ *
+ * Answers `{ text, added, removed }`, `text` null meaning "no file".
+ */
+export function setClaudeHooks(settingsText, id, hooks, { installedIds = [id] } = {}) {
+  const settings = settingsText === null ? {} : JSON.parse(settingsText)
+  if (!isObj(settings)) throw new Error(`${CLAUDE_SETTINGS_FILE} is not a JSON object`)
+  const ids = [...new Set([...installedIds, id])]
+  const before = ownedClaudeHooks(settings, id, ids)
+  const want = hooks.map(h => ({ ...h }))
+  // Compared as sets, per event in declared order: the settings file's event order is the
+  // developer's, so a reordering of events alone is not a change.
+  const perEvent = list =>
+    JSON.stringify(
+      Object.entries(Object.groupBy(list, h => h.event))
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([e, hs]) => [e, hs.map(hookKey)])
+    )
+  const same = perEvent(before) === perEvent(want)
+  if (same) return { text: settingsText, added: [], removed: [] }
+
+  const events = isObj(settings.hooks) ? settings.hooks : {}
+  for (const event of Object.keys(events)) {
+    if (!Array.isArray(events[event])) continue
+    const kept = []
+    for (const group of events[event]) {
+      const inner = Array.isArray(group?.hooks) ? group.hooks : null
+      if (!inner) {
+        kept.push(group)
+        continue
+      }
+      const rest = inner.filter(h => claudeHookOwner(h?.command, ids) !== id)
+      if (rest.length > 0 || inner.length === 0) kept.push({ ...group, hooks: rest })
+    }
+    if (kept.length > 0) events[event] = kept
+    else delete events[event]
+  }
+  for (const h of want) {
+    const group = {
+      ...(h.matcher !== undefined ? { matcher: h.matcher } : {}),
+      hooks: [
+        {
+          type: 'command',
+          command: h.command,
+          ...(h.timeout !== undefined ? { timeout: h.timeout } : {}),
+        },
+      ],
+    }
+    events[h.event] = [...(Array.isArray(events[h.event]) ? events[h.event] : []), group]
+  }
+  if (Object.keys(events).length > 0) settings.hooks = events
+  else delete settings.hooks
+
+  const wantKeys = new Set(want.map(hookKey))
+  const beforeKeys = new Set(before.map(hookKey))
+  const added = want.filter(h => !beforeKeys.has(hookKey(h)))
+  const removed = before.filter(h => !wantKeys.has(hookKey(h)))
+  if (Object.keys(settings).length === 0) return { text: null, added, removed }
+  const indent = settingsText === null ? '  ' : jsonIndent(settingsText)
+  return { text: `${JSON.stringify(settings, null, indent)}\n`, added, removed }
+}
+
+/** One hook as the plan prints it. */
+export const describeClaudeHook = h =>
+  `${h.event}${h.matcher ? ` [${h.matcher}]` : ''}  ${h.command}${h.timeout ? `  (timeout ${h.timeout}s)` : ''}`
+
+// ---------------------------------------------------------------- host files
+
+/**
+ * Files a plugin SEEDS into the host once and then hands to the developer — a guide's markdown,
+ * its generated content module, its images. Unlike a plugin root they are never the plugin's again:
+ * `add` copies each only if it is absent, `upgrade` never touches one, `remove` leaves them all.
+ *
+ * Host roots, each namespaced by the id: `docs/<id>/` (content), `apps/web/src/ui/public/<id>/`
+ * (static assets: Vite's `publicDir`, so they reach `dist/ui` and the Node server serves them) and
+ * `apps/web/src/host/<id>/` (code the plugin imports as `@/host/<id>/…` — the one host import a
+ * plugin may make outside the declared entries, and only of its own id). `apps/web/public/<id>/`
+ * is accepted too, because a plugin written for Rocketflare names that root; nothing serves it.
+ */
+export function hostFileRoots(id) {
+  return [
+    `docs/${id}/`,
+    `apps/web/src/ui/public/${id}/`,
+    `apps/web/public/${id}/`,
+    `apps/web/src/host/${id}/`,
+  ]
+}
+
+/** A manifest's `hostFiles` entries that are well-formed `{ path, from }` objects. */
+export function pluginHostFiles(manifest) {
+  const declared = manifest?.hostFiles
+  return Array.isArray(declared)
+    ? declared
+        .filter(e => isObj(e) && typeof e.path === 'string' && typeof e.from === 'string')
+        .map(e => ({ path: e.path.replace(/\/+$/, ''), from: e.from.replace(/\/+$/, '') }))
+    : []
+}
+
+/** Everything wrong with a manifest's `hostFiles`, as sentences. */
+export function hostFileProblems(manifest) {
+  const declared = manifest?.hostFiles
+  if (declared === undefined) return []
+  if (!Array.isArray(declared)) return ['hostFiles must be an array of { "path", "from" }']
+  const id = manifest.id
+  const roots = typeof id === 'string' ? hostFileRoots(id) : []
+  const problems = []
+  const seen = new Set()
+  for (const e of declared) {
+    if (!isObj(e) || !isStr(e.path) || !isStr(e.from)) {
+      problems.push(`hostFiles carries ${JSON.stringify(e)} — each entry is { "path", "from" }`)
+      continue
+    }
+    const target = e.path.replace(/\/+$/, '')
+    const from = e.from.replace(/\/+$/, '')
+    const targetProblem = repoPathProblem(target)
+    if (targetProblem) {
+      problems.push(`hostFiles path ${JSON.stringify(e.path)} ${targetProblem}`)
+    } else if (!roots.some(r => target === r.slice(0, -1) || target.startsWith(r))) {
+      problems.push(
+        `hostFiles path ${JSON.stringify(e.path)} is outside ${roots.join(', ') || 'the host-file roots'}`
+      )
+    }
+    const fromProblem = repoPathProblem(from)
+    if (fromProblem) problems.push(`hostFiles from ${JSON.stringify(e.from)} ${fromProblem}`)
+    else if (from === PLUGIN_MANIFEST_FILE || from.startsWith('.git/') || from === '.git') {
+      problems.push(`hostFiles from ${JSON.stringify(e.from)} is not seedable content`)
+    } else if (from === 'skills' || from.startsWith('skills/')) {
+      problems.push(
+        `hostFiles from ${JSON.stringify(e.from)} is under skills/, which "skills" owns`
+      )
+    }
+    if (seen.has(target)) problems.push(`hostFiles declares ${target} twice`)
+    seen.add(target)
+  }
+  return problems
+}
+
+/**
+ * The host path a plugin-repo file seeds, or null when no `hostFiles` entry covers it. An entry's
+ * `from` is a file (exact match) or a directory (everything beneath it, at the same relative path
+ * under `path`).
+ */
+export function hostFileTarget(relPath, hostFiles) {
+  for (const e of hostFiles) {
+    if (relPath === e.from) return { target: e.path, entry: e }
+    if (relPath.startsWith(`${e.from}/`)) {
+      return { target: `${e.path}/${relPath.slice(e.from.length + 1)}`, entry: e }
+    }
+  }
+  return null
+}
+
 /**
  * Built from `KIT.ecosystem` for the reason `MANIFEST_FILE` is (see `manifest.mjs`): this is the
  * ECOSYSTEM's filename, the same in every plugin repository, so a renamed copy that looked for
@@ -499,8 +848,16 @@ const REPO_ONLY_DIRS = ['.github/', '.git/', 'node_modules/', '.claude/', 'scrip
  * else is a refusal rather than a warning, because the alternative is a plugin that edits
  * `api/index.ts` on the way in and an install nobody can reverse by deleting a directory.
  */
-export function classifyPluginFile(relPath, id, { skills = [] } = {}) {
+export function classifyPluginFile(relPath, id, { skills = [], hostFiles = [] } = {}) {
+  // Stated on the path itself, before any prefix test below can be fooled by a `..` segment. The
+  // repository's own top-level `.git/` is excepted: it is never copied, and a local source has one.
+  const pathProblem = relPath.startsWith('.git/') ? null : repoPathProblem(relPath)
+  if (pathProblem) return { role: 'refused', reason: `the path ${pathProblem}` }
   if (relPath === PLUGIN_MANIFEST_FILE) return { role: 'meta', reason: "the plugin's manifest" }
+  // A declared host file is SEEDED: copied once if absent, the developer's from then on. Checked
+  // before the roots, so a `from` inside one is seeded rather than also copied as plugin code.
+  const seeded = hostFileTarget(relPath, hostFiles)
+  if (seeded) return { role: 'seed', target: seeded.target, hostFile: seeded.entry.path }
   // A skill is copied OUT of the plugin's roots, into `.claude/skills/<dir>/` — the one place
   // outside them a plugin may write, and only for a directory its manifest names. An undeclared
   // one is refused rather than skipped: shipping a skill nobody declared is how a plugin would
@@ -573,6 +930,65 @@ export function pluginPlatformProblems(manifest) {
     )
   }
   return problems
+}
+
+// ---------------------------------------------------------------- appOwned and publicSites
+
+/** The paths a manifest hands to the developer: `remove` and `upgrade` treat them as theirs. */
+export function pluginAppOwned(manifest) {
+  return Array.isArray(manifest?.appOwned)
+    ? manifest.appOwned.filter(p => typeof p === 'string')
+    : []
+}
+
+/** Is this host-relative file one of the developer's? */
+export const isAppOwnedPath = (file, owned) =>
+  owned.some(p => file === p || file.startsWith(`${p}/`))
+
+/** Everything wrong with a manifest's `appOwned`. Each entry is a path inside its `paths`. */
+export function appOwnedProblems(manifest) {
+  const declared = manifest.appOwned
+  if (declared === undefined) return []
+  if (!Array.isArray(declared) || declared.some(p => typeof p !== 'string')) {
+    return ['appOwned must be an array of paths']
+  }
+  const roots = surfaceDirectories({
+    paths: manifest.paths ?? pluginRoots(manifest.id).map(r => `${r}**`),
+  })
+  const anchor = manifest.anchor ?? `apps/web/src/plugins/${manifest.id}/plugin.json`
+  return declared.flatMap(p => {
+    if (p === '' || /[*?]|\/\/|\/$|^\/|(^|\/)\.\.?(\/|$)/.test(p)) {
+      return [`appOwned entry ${JSON.stringify(p)} must be a plain relative path, with no glob`]
+    }
+    if (!isAppOwnedPath(p, roots)) {
+      return [`appOwned entry ${JSON.stringify(p)} is outside the plugin's paths`]
+    }
+    return isAppOwnedPath(anchor, [p])
+      ? [`appOwned entry ${JSON.stringify(p)} covers the anchor ${anchor}`]
+      : []
+  })
+}
+
+/** Does this manifest serve public sites? Its presence is the whole switch. */
+export const declaresPublicSites = manifest => Boolean(manifest?.publicSites)
+
+/**
+ * Everything wrong with a manifest's `publicSites`. The hosts var has to be a declared, non-secret
+ * `vars[]` entry: it is the environment variable the deployment sets to the site hosts, and the
+ * same list is what the ingress (or proxy) in front has to accept (`docs/DEPLOY.md` § Public site
+ * hosts).
+ */
+export function publicSitesProblems(manifest) {
+  const declared = manifest.publicSites
+  if (declared === undefined) return []
+  const hostsVar = declared?.hostsVar
+  if (typeof hostsVar !== 'string' || !/^[A-Z][A-Z0-9_]*$/.test(hostsVar)) {
+    return [`publicSites.hostsVar ${JSON.stringify(hostsVar)} must name a var (A_B_C)`]
+  }
+  const entry = (manifest.vars ?? []).find(v => (v?.key ?? v?.name ?? v) === hostsVar)
+  if (!entry) return [`publicSites.hostsVar ${hostsVar} is not declared in vars[]`]
+  if (entry.secret === true) return [`publicSites.hostsVar ${hostsVar} is marked secret`]
+  return []
 }
 
 // ---------------------------------------------------------------- requirements
@@ -724,7 +1140,7 @@ export function buildPluginSurface(
     id,
     kind: 'plugin',
     label: manifest.label ?? id,
-    anchor: manifest.anchor ?? `apps/web/src/plugins/${id}/plugin.json`,
+    anchor: pluginAnchor({ ...manifest, id }),
     // `docs/plugins/<id>/**` is always included, declared or not: `add` copies the plugin's release
     // notes there, and if the surface did not name them `kit-manifest.test.ts` would report them as
     // unclassified files and `remove` would leave them behind. A plugin's own `paths` name its CODE
@@ -756,6 +1172,11 @@ export function buildPluginSurface(
     // the host already declared. `plugin upgrade` removes a package a release stops declaring only
     // when some plugin's record says a plugin put it there (`dependencyDelta`).
     ...(addedDependencies ? { addedDependencies } : {}),
+    // The host files it seeded, as globs: NOT in `paths`, because `remove` deletes `paths` and these
+    // are the developer's. Recorded so the kit's file classification knows whose they are.
+    ...(pluginHostFiles(manifest).length > 0
+      ? { hostFiles: pluginHostFiles(manifest).flatMap(e => [e.path, `${e.path}/**`]) }
+      : {}),
     history: [],
   }
 }
@@ -765,6 +1186,62 @@ export function surfaceDirectories(surface) {
   return (surface.paths ?? [])
     .map(g => g.replace(/\/?\*\*.*$/, ''))
     .filter(p => p !== '' && !p.includes('*'))
+}
+
+/** Where a plugin's manifest copy lands in a host. */
+export function pluginAnchor(manifest) {
+  return manifest.anchor ?? `apps/web/src/plugins/${manifest.id}/plugin.json`
+}
+
+/**
+ * Every path a manifest can steer, checked before any of them is used.
+ *
+ * `anchor` and `paths` must stay inside the plugin's own roots (a declared skill directory counts,
+ * by its name, for `paths` — `remove` deletes those directories). `coreEdits[].file` and the
+ * workspace directories named by `dependencies` must be plain paths inside the repository. Pure:
+ * each entry is `{ field, path, problem }`, and a symlink on disk is the caller's half.
+ */
+export function manifestPathProblems(manifest, id = manifest?.id) {
+  const out = []
+  const m = manifest ?? {}
+  const refuse = (field, value, problem) => out.push({ field, path: String(value), problem })
+  const owned = rel => {
+    if (pluginRoots(id).some(root => rel === root.slice(0, -1) || rel.startsWith(root))) return true
+    if (!rel.startsWith(SKILLS_ROOT)) return false
+    return skillDirProblem(id, rel.slice(SKILLS_ROOT.length).split('/')[0]) === null
+  }
+  const OUTSIDE = `is outside the plugin's own roots (${pluginRoots(id).join(', ')})`
+
+  if (m.anchor !== undefined) {
+    const problem = repoPathProblem(m.anchor)
+    if (problem) refuse('anchor', m.anchor, problem)
+    else if (!owned(m.anchor) || m.anchor.startsWith(SKILLS_ROOT))
+      refuse('anchor', m.anchor, OUTSIDE)
+  }
+  for (const edit of Array.isArray(m.coreEdits) ? m.coreEdits : []) {
+    const problem = repoPathProblem(edit?.file)
+    if (problem) refuse('coreEdits', edit?.file, problem)
+  }
+  for (const pkg of isObj(m.dependencies) ? Object.keys(m.dependencies) : []) {
+    const problem = repoPathProblem(pkg)
+    if (problem) refuse('dependencies', pkg, problem)
+  }
+  for (const glob of Array.isArray(m.paths) ? m.paths : []) {
+    if (typeof glob !== 'string') {
+      refuse('paths', glob, 'is not a repository-relative path')
+      continue
+    }
+    if (glob.split('/').includes('..')) {
+      refuse('paths', glob, "has a '..' path segment")
+      continue
+    }
+    for (const dir of surfaceDirectories({ paths: [glob] })) {
+      const problem = repoPathProblem(dir)
+      if (problem) refuse('paths', glob, problem)
+      else if (!owned(dir)) refuse('paths', glob, OUTSIDE)
+    }
+  }
+  return out
 }
 
 /**
@@ -801,7 +1278,7 @@ export function renderAddPlan(plan) {
     `Source      ${plan.source.repo}${plan.source.subdir ? `#${plan.source.subdir}` : ''}` +
       `${plan.source.ref ? ` @ ${plan.source.ref}` : ''}${plan.source.commit ? ` (${plan.source.commit.slice(0, 12)})` : ''}`,
     `Host        ${plan.host.label} at kit ${plan.host.kitVersion} — records into ${plan.host.recordsIn}`,
-    `Names       ${plan.host.translated ? `translated into ${plan.host.label}'s vocabulary on the way in` : 'kit vocabulary, copied verbatim'}`,
+    `Names       ${plan.host.translated ? `translated from the ecosystem's vocabulary into ${plan.host.label === 'the kit itself' ? "the kit's" : `${plan.host.label}'s`} on the way in` : 'kit vocabulary, copied verbatim'}`,
     '',
     'Requirements',
   ]
@@ -837,10 +1314,33 @@ export function renderAddPlan(plan) {
     lines.push(`  ${pad('(not copied) migrations/', 44)}${fragments.length} install fragment(s)`)
   }
 
+  lines.push('', 'Manifest copy (the anchor `plugin check` reads)', `  ${pluginAnchor(m)}`)
+
   const skills = pluginSkillDirs(m)
   if (skills.length > 0) {
     lines.push('', 'Skills (Claude Code finds them here — nothing to do)')
     for (const dir of skills) lines.push(`  ${skillTarget(dir)}`)
+  }
+
+  const hooks = pluginClaudeHooks(m)
+  if (hooks.length > 0) {
+    lines.push(
+      '',
+      `Claude Code hooks (merged into ${CLAUDE_SETTINGS_FILE}${plan.settingsExists === false ? ', which is created' : ''}; ` +
+        '`plugin remove` takes out exactly these)'
+    )
+    for (const h of hooks) lines.push(`  + ${describeClaudeHook(h)}`)
+  }
+
+  const seeds = plan.hostSeeds ?? []
+  if (seeds.length > 0) {
+    lines.push(
+      '',
+      'Host files (seeded once, then YOURS — upgrade never touches them, remove leaves them)'
+    )
+    for (const s of seeds) {
+      lines.push(`  ${pad(s.state === 'keep' ? 'kept' : 'seeded', 8)}${s.target}`)
+    }
   }
 
   lines.push('', 'Barrel lines')
@@ -969,6 +1469,21 @@ export function planSteps(m, { fragments = [], clashes = [] } = {}) {
       )
     )
   }
+  if (declaresPublicSites(m)) {
+    const hostsVar = m.publicSites.hostsVar
+    // HUMAN: which hostnames point here is a DNS and ingress decision per environment, and the
+    // server only answers a host the ingress or proxy in front lets through.
+    steps.push(
+      mkStep(
+        'human',
+        'site-hosts',
+        `Accept every host in ${hostsVar}, per environment`,
+        `list the hosts in Helm \`publicSites.hosts\` with \`publicSites.hostsVar: ${hostsVar}\` (with Compose or a proxy of your own: set ${hostsVar} and route the hosts to the web service), point their DNS here — docs/DEPLOY.md § Public site hosts`,
+        `each ${hostsVar} host resolves to the deployment and reaches the server with its own Host header`,
+        'a person owns the DNS and the certificates for those hosts'
+      )
+    )
+  }
   for (const v of m.vars ?? []) {
     const key = varKey(v)
     // A var is an environment variable: the KEY is declared where every environment reads its
@@ -1030,6 +1545,18 @@ export function removeSteps(m, { archive = false } = {}) {
         `pnpm db:generate --name plugin-${m.id}-remove   # read the SQL, then: pnpm db:migrate`,
         `DROP TABLE for ${tables.join(', ')} and nothing else`,
         'a person reads a migration containing DROP before it runs'
+      )
+    )
+  }
+  if (declaresPublicSites(m)) {
+    steps.push(
+      mkStep(
+        'human',
+        'site-hosts',
+        `Stop sending the hosts in ${m.publicSites.hostsVar} here`,
+        `remove them from Helm \`publicSites\` (or from ${m.publicSites.hostsVar} and the proxy in front of Compose) and from their DNS, then deploy — docs/DEPLOY.md § Public site hosts`,
+        "the app's own host is the only one the ingress accepts",
+        'a host still pointed here answers with the app; whether it goes elsewhere is a decision'
       )
     )
   }
@@ -1098,7 +1625,17 @@ export function addPlanJson(plan) {
       fragments,
       refused: plan.files.filter(f => f.role === 'refused').map(f => f.path),
     },
+    anchor: pluginAnchor(m),
     skills: pluginSkillDirs(m).map(dir => ({ name: dir, target: skillTarget(dir) })),
+    claudeHooks: {
+      file: CLAUDE_SETTINGS_FILE,
+      creates: pluginClaudeHooks(m).length > 0 && plan.settingsExists === false,
+      hooks: pluginClaudeHooks(m),
+    },
+    hostFiles: (plan.hostSeeds ?? []).map(s => ({
+      target: s.target,
+      action: s.state === 'keep' ? 'kept' : 'seeded',
+    })),
     barrels: plan.barrels.map(kind => ({
       kind,
       file: BARRELS[kind].file,
@@ -1410,6 +1947,38 @@ export function pluginManifestProblems(manifest) {
     }
   }
 
+  for (const problem of appOwnedProblems(m)) {
+    bad(
+      'appOwned',
+      problem,
+      'list paths inside "paths", e.g. "apps/web/src/plugins/<id>/app", and never the anchor'
+    )
+  }
+
+  for (const problem of claudeHookProblems(m)) {
+    bad(
+      'claudeHooks',
+      problem,
+      'each hook is { "command": "node \\"$CLAUDE_PROJECT_DIR/.claude/skills/<id>/<script>.mjs\\"", "matcher"?, "timeout"? } under a Claude Code event, running a script shipped in a declared skill'
+    )
+  }
+
+  for (const problem of hostFileProblems(m)) {
+    bad(
+      'hostFiles',
+      problem,
+      `each entry is { "path": "<one of ${isStr(m.id) ? hostFileRoots(m.id).join(' | ') : 'docs/<id>/ | apps/web/src/ui/public/<id>/ | apps/web/src/host/<id>/'}>…", "from": "<path in the plugin repository>" }`
+    )
+  }
+
+  for (const problem of publicSitesProblems(m)) {
+    bad(
+      'publicSites',
+      problem,
+      'set "publicSites" to { "hostsVar": "<KEY>" } and declare <KEY> in "vars"'
+    )
+  }
+
   if (m.crons !== undefined && !Array.isArray(m.crons)) {
     bad('crons', 'declares crons as other than an array', 'set "crons" to []')
   } else {
@@ -1422,6 +1991,24 @@ export function pluginManifestProblems(manifest) {
           'a cron is five whitespace-separated fields ("15 * * * *") — the schedule key pg-boss gets'
         )
       }
+    }
+  }
+
+  if (m.events !== undefined && !isStrArray(m.events)) {
+    bad('events', 'declares events as other than an array of strings', 'set "events" to []')
+  } else {
+    const seen = new Set()
+    for (const name of m.events ?? []) {
+      const problem = isStr(m.id) ? eventNameProblem(m.id, name) : null
+      if (problem) {
+        bad(
+          'events',
+          `declares ${problem}`,
+          `rename it '${m.id}.<name>' in "events" AND in the shared entry's \`events\``
+        )
+      }
+      if (seen.has(name)) bad('events', `declares event '${name}' twice`, 'list each event once')
+      seen.add(name)
     }
   }
 
@@ -1482,6 +2069,16 @@ export function pluginManifestProblems(manifest) {
           `set "schema"."${field}" to []`
         )
       }
+    }
+  }
+
+  if (isStr(m.id)) {
+    for (const p of manifestPathProblems(m)) {
+      bad(
+        p.field,
+        `declares ${p.path}, which ${p.problem}`,
+        'keep it inside the repository, and "anchor" and "paths" inside the plugin\'s own roots'
+      )
     }
   }
 
@@ -1974,6 +2571,66 @@ export function withoutDependencies(source, names = []) {
   if (!changed) return source
   const indent = /^[ \t]+(?=")/m.exec(source)?.[0] ?? '  '
   return `${JSON.stringify(json, null, indent)}${source.endsWith('\n') ? '\n' : ''}`
+}
+
+// ---------------------------------------------------------------- events
+
+/** The rule `eventNameProblem` in `@rocketpod/shared/plugins` applies; kept in step by a test. */
+export const EVENT_NAME_RE = /^[a-z][a-z0-9-]*(\.[a-z0-9][a-z0-9_-]*)+$/
+
+/** `null` when `name` is an event `pluginId` may declare, else why not. Mirrors the shared rule. */
+export function eventNameProblem(pluginId, name) {
+  if (typeof name !== 'string' || name === '') return 'an empty event name'
+  if (name.startsWith('kit.')) return `'${name}', which is in the core kit. namespace`
+  if (!name.startsWith(`${pluginId}.`)) return `'${name}', which does not start with '${pluginId}.'`
+  if (!EVENT_NAME_RE.test(name)) {
+    return `'${name}', which is not lower-case dot-separated segments after '${pluginId}.'`
+  }
+  return null
+}
+
+/**
+ * Events two installed plugins both declare — impossible while every name carries its plugin's id,
+ * and checked anyway, because a manifest the name rule refused is still on disk: the second
+ * declaration would be silently ignored by the host (the first wins), so its emits would validate
+ * against the OTHER plugin's schema. One entry per plugin involved, like `tableClashes`.
+ */
+export function eventClashes(manifests = []) {
+  const holders = new Map()
+  for (const m of manifests) {
+    if (!m?.id) continue
+    for (const name of Array.isArray(m.events) ? m.events : []) {
+      if (typeof name !== 'string' || name.trim() === '') continue
+      const ids = holders.get(name) ?? []
+      if (!ids.includes(m.id)) ids.push(m.id)
+      holders.set(name, ids)
+    }
+  }
+  const out = []
+  for (const [event, ids] of [...holders].sort(([a], [b]) => a.localeCompare(b))) {
+    if (ids.length < 2) continue
+    for (const id of [...ids].sort()) {
+      out.push({ event, id, others: ids.filter(other => other !== id).sort() })
+    }
+  }
+  return out
+}
+
+/**
+ * The manifest's `events` that the plugin's shared entry never NAMES — read from comment-free
+ * source, as a quoted literal. A manifest is what `check` can read without evaluating TypeScript;
+ * this keeps it honest about the code. The other direction (an event the shared entry declares and
+ * the manifest omits) is `tests/config/plugins.test.ts`'s, which evaluates the barrel.
+ */
+export function undeclaredManifestEvents(events = [], sharedSource = '') {
+  const code = stripComments(sharedSource)
+  return events.filter(
+    name =>
+      typeof name === 'string' &&
+      !code.includes(`'${name}'`) &&
+      !code.includes(`"${name}"`) &&
+      !code.includes(`\`${name}\``)
+  )
 }
 
 /**

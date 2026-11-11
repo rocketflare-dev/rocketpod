@@ -33,12 +33,26 @@ Rocketpod): `postgres.js`** — the Node entry's process pool. Never add `pg`. *
   (`and(eq(t.tenantId, tenantId), inScope(scope))`) rather than allow-listing a correct query
 - `users` is global (a person belongs to many tenants); visibility is through `tenant_users`
 - `TENANCY_MODE=single` changes nothing here: the schema is identical in both modes (D25)
+- **Platform rows** are the one sanctioned null tenant: `documents` and `chunks` use
+  `platformTenantRef()` (nullable) instead of `tenantRef()`, and a row with `tenant_id` NULL is the
+  app describing itself, readable by EVERY tenant. Never give another table a nullable tenant
+  without the same review. A CHECK makes a platform document carry `source` + `external_id`
+  (`documents_platform_source_external_uq` is their identity), and only
+  `services/ai/platform-documents.ts` writes them, on the owner connection, from a job or cron.
+  Every tenant read keeps `tenant_id = $t`; platform rows are reached only by `tenant_id IS NULL
+  AND source = ANY(…)` in `searchChunks`. Code reading `DocumentRow.tenantId` gets
+  `string | null`; `documentTenantId(row)` is the narrowing that throws on a platform row
 
 ## Row-level security — shipped inert (D1, docs/RLS.md)
 
 Every table with a `tenantId` MUST include `tenantIsolation('<table>')` in its `extraConfig`; a table
 without one goes in `RLS_EXCLUDED_TABLES` (`apps/web/src/db/schema/rls.ts`) with the reason.
-`apps/web/tests/api/rls-coverage.test.ts` fails CI either way until you do. The policies are `FOR ALL TO
+`apps/web/tests/api/rls-coverage.test.ts` fails CI either way until you do. `documents` and
+`chunks` also carry `platformReadable('<table>')`, a second permissive policy `FOR SELECT … USING
+(tenant_id IS NULL)` with no `WITH CHECK`. Policies OR, so a scoped read sees its tenant's rows plus
+the platform rows, and writes stay under `tenantIsolation` alone, whose `WITH CHECK` refuses a
+null tenant. `rls-coverage` pins the pair and the exact table list: a new platform-readable table
+is a design decision. The policies are `FOR ALL TO
 rocketpod_app` with `USING` and `WITH CHECK` on `tenant_id = nullif(current_setting('app.tenant_id',
 true), '')::uuid`. `apps/web/scripts/db-roles.ts` creates `rocketpod_app` `NOLOGIN`, `NOBYPASSRLS`
 via SQL, so policies resolve while nothing can connect as the role.
@@ -115,7 +129,11 @@ predicate**, not SQL injection — the app role can `set_config` itself.
 - Per-call rows: `ai_usage` (append-only, `(tenant_id, at DESC)`), `ai_spans` (D32 — append-only trace store, unique `(tenant_id, trace_id, span_id)` for `onConflictDoNothing`, `run_id`/`conversation_id`/`user_id` plain uuids with NO foreign key so deleting a run never rewrites its trace; pruned nightly per tenant), `agent_run_events` (`(run_id, seq)`
   unique, numbering continues across attempts). Concurrency is a claim row, never a lock:
   `agent_runs` `UPDATE … WHERE status IN ('queued','running') RETURNING` plus the partial unique index
-  `agent_runs_active_exclusive_idx` — the pattern for any "one active job per key" need
+  `agent_runs_active_exclusive_idx` on `(tenant_id, agent_key, concurrency_key)` over active rows
+  with a key (`''` the tenant-wide slot, a caller's key one per key, NULL no slot) — the pattern
+  for any "one active job per key" need ("one run EVER per key" is `enqueueRun({ idempotencyKey })`,
+  which derives the run id from it — the primary key is that gate, no column needed). The predicate reads a COLUMN, never the code: a deploy that
+  flips an agent's exclusivity must not change which in-flight rows the index covers (D39)
 - **The predicate is the guarantee, so it is written once and rendered.** `agent_runs` is the worked
   example. Its exclusive index covers `ACTIVE_RUN_STATUSES` (`queued`, `running`, `awaiting_input` —
   a run parked on a human still holds the slot), and the SQL literal list in `extraConfig` is BUILT

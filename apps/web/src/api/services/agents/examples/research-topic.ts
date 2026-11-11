@@ -9,9 +9,9 @@
  *
  * - **A loop that ends without the terminal tool is salvaged, not failed.** Small and
  *   self-hosted models often ignore `tool_choice` (a model that answers in prose is a live failure
- *   mode, not an edge case), so `no_tool_call` / `max_turns` falls back to ONE `callStructuredTool` over
- *   the transcript — the same forced-tool + prose-JSON recovery the rest of the app uses. Only if
- *   that also fails does the run fail, carrying the model's own words in the error details.
+ *   mode, not an edge case), so `no_tool_call` / `max_turns` falls back to ONE forced call over
+ *   the transcript (its `policy`) — the same forced-tool + prose-JSON recovery the rest of the
+ *   app uses. Only if that also fails does the run fail, carrying the model's own words in the error details.
  * - **Citations are filtered to what search actually returned.** Every `documentId` the tools
  *   reported is recorded during the loop; a citation naming anything else is dropped rather than
  *   persisted, so a hallucinated id can never reach the UI. The title comes from the search hit,
@@ -42,13 +42,11 @@ import {
   researchTopicInputSchema,
   researchTopicOutputSchema,
 } from '@rocketpod/shared/ai/agents'
-import type { TokenUsage } from '@rocketpod/shared/ai/chat'
 import { choicePayloadSchema } from '@rocketpod/shared/ai/interrupts'
 import { z } from 'zod'
-import { callStructuredTool, runToolLoop, type Tool } from '../../ai/agent-loop'
+import { runToolLoop, type Tool } from '../../ai/agent-loop'
 import { ingestText } from '../../ai/ingest'
 import type { ChatMessage } from '../../ai/types'
-import { recordUsage } from '../../ai/usage'
 import type { AgentContext, AgentDefinition } from '../registry'
 import { summariseToolResult } from '../tools'
 
@@ -290,6 +288,10 @@ export const researchTopicAgent: AgentDefinition<ResearchTopicInput, ResearchTop
     outputSchema: researchTopicOutputSchema,
     promptKey: 'research-topic',
     exclusive: true,
+    // A loop that ends without `submit_answer` (prose, or the turn cap — the live failure mode on
+    // a model that ignores `tool_choice`) is salvaged by ONE forced call over the transcript, not
+    // failed: the loop does it, `onExhausted` below only says so on the timeline.
+    policy: { maxTurns: RESEARCH_MAX_TURNS, onExhaustion: 'final-answer' },
   },
 
   async run(ctx: AgentContext<ResearchTopicInput>) {
@@ -298,20 +300,8 @@ export const researchTopicAgent: AgentDefinition<ResearchTopicInput, ResearchTop
     const messages: ChatMessage[] = [{ role: 'user', content: `Research this: ${topic}` }]
     /** documentId → title, from the tools' own answers. */
     const seen = new Map<string, string>()
-    /**
-     * Written the moment tokens are spent, not at the end: a failed salvage or a cancellation
-     * between turns must still leave the loop's tokens in the ledger. (`runToolLoop` has no
-     * per-turn usage tap, so a cancel mid-loop still loses that run's tokens — a known gap.)
-     */
-    const ledger = (usage: TokenUsage) =>
-      recordUsage(ctx.db, {
-        tenantId: ctx.tenantId,
-        userId: ctx.userId,
-        feature: 'agent:research-topic',
-        provider: ctx.chat.client.provider,
-        model: ctx.chat.model,
-        usage,
-      }).catch(err => ctx.logger.warn({ err }, 'research-topic: usage write failed'))
+    // No ledger code here: `ctx.chat.client` is metered by the runtime, so every turn of the
+    // loop and its salvage writes its own `ai_usage` row, carrying this run's id, as it returns.
 
     // A retried `execute` step re-enters `run()` from the top; the checkpoint is what stops it
     // paying for every turn again. Null on a first attempt (or an unreadable stored value).
@@ -325,7 +315,12 @@ export const researchTopicAgent: AgentDefinition<ResearchTopicInput, ResearchTop
       system,
       messages,
       tools: [...ctx.tools, askHumanTool(ctx), indexFindingTool(ctx), submitAnswerTool as Tool],
-      maxTurns: Math.min(ctx.cfg.AGENT_MAX_TURNS, RESEARCH_MAX_TURNS),
+      maxTurns: ctx.cfg.AGENT_MAX_TURNS,
+      // `researchTopicAgent.meta`, not a `ctx` field: `triage-research` runs this body inline on
+      // ITS context, and the policy is this agent's.
+      policy: researchTopicAgent.meta.policy,
+      onExhausted: reason =>
+        ctx.step('answer', 'Writing the answer', 'running', `recovering (${reason})`),
       // The two halves of the HITL gate, and neither is optional once a tool declares
       // `requiresApproval`: without `approvals` the answered gate is asked again on the next
       // attempt; without `runApproved` the approved write runs a second time on a step retry —
@@ -398,11 +393,6 @@ export const researchTopicAgent: AgentDefinition<ResearchTopicInput, ResearchTop
         }
       },
     })
-    // Once per run, not once per attempt: `loop.usage` includes the resumed attempts' tokens.
-    await ctx.once('loop-usage', async () => {
-      await ledger(loop.usage)
-      return { inputTokens: loop.usage.inputTokens, outputTokens: loop.usage.outputTokens }
-    })
     await ctx.step(
       'research',
       'Searching the knowledge base',
@@ -411,29 +401,8 @@ export const researchTopicAgent: AgentDefinition<ResearchTopicInput, ResearchTop
     )
     await ctx.checkCancelled()
 
-    // Salvage: the model stopped without the terminal call (prose, or the turn cap). Ask once more
-    // with the tool forced over the transcript we already have.
-    let submitted = loop.terminalInput as SubmitAnswer | null
-    const salvaged = submitted === null
-    if (!submitted) {
-      await ctx.step('answer', 'Writing the answer', 'running', `recovering (${loop.stopReason})`)
-      submitted = await callStructuredTool(ctx.chat.client, {
-        model: ctx.chat.model,
-        maxTokens: Math.min(ctx.chat.maxOutputTokens, ANSWER_MAX_TOKENS),
-        system,
-        messages: loop.messages,
-        tool: {
-          name: SUBMIT_ANSWER_TOOL,
-          description: submitAnswerTool.description,
-          schema: submitAnswerSchema,
-        },
-        // The loop just sent this transcript with rolling breakpoints, so on a caching provider
-        // (Anthropic) the recovery reads the prefix instead of paying for it twice.
-        cache: true,
-        // Fires before `callStructuredTool` throws, so a failed recovery is still ledgered.
-        onUsage: extra => void ledger(extra),
-      })
-    }
+    // The policy guarantees an answer or a throw: a salvaged one arrives here like any other.
+    const submitted = loop.terminalInput as SubmitAnswer
 
     const citations = verifyCitations(submitted.citations, seen)
     // What this run PRODUCED, as things a person opens rather than prose to scroll.
@@ -465,6 +434,6 @@ export const researchTopicAgent: AgentDefinition<ResearchTopicInput, ResearchTop
       'done',
       `${citations.length} citation${citations.length === 1 ? '' : 's'}`
     )
-    return { answer: submitted.answer, citations, turns: loop.turns + (salvaged ? 1 : 0) }
+    return { answer: submitted.answer, citations, turns: loop.turns + (loop.salvaged ? 1 : 0) }
   },
 }

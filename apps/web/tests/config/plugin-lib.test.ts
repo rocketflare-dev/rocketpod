@@ -20,6 +20,7 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { EVENT_NAME_RE, eventNameProblem } from '@rocketpod/shared/plugins'
 import { describe, expect, it } from 'vitest'
 import {
   MANIFEST_FILE,
@@ -47,9 +48,12 @@ import {
   dependencyClashes,
   dependencyDelta,
   describeClash,
+  eventClashes,
   hasBarrelLine,
   isolationEvidence,
   jsonKeyLine,
+  EVENT_NAME_RE as LIB_EVENT_NAME_RE,
+  eventNameProblem as libEventNameProblem,
   missingDependencies,
   newlyAddedDependencies,
   nextAddedDependencies,
@@ -60,6 +64,7 @@ import {
   pluginIdProblem,
   pluginManifestProblems,
   pluginPlatformProblems,
+  publicSitesProblems,
   rangeWithin,
   removeBarrelLine,
   removeSteps,
@@ -74,6 +79,7 @@ import {
   surfaceDirectories,
   tableClashes,
   tupleEntries,
+  undeclaredManifestEvents,
   unsupportedForKit,
   withoutDependencies,
 } from '../../../../scripts/lib/plugin-lib.mjs'
@@ -110,6 +116,10 @@ describe('plugin ids', () => {
     for (const reserved of ['index', 'server', 'ui', 'schema', 'types']) {
       expect(pluginIdProblem(reserved)).toMatch(/barrel filename/)
     }
+  })
+
+  it("refuses 'api', the host's plugin API directory", () => {
+    expect(pluginIdProblem('api')).toMatch(/plugin API directory/)
   })
 
   it('camelises an id into the stem of every export name', () => {
@@ -549,6 +559,42 @@ const fixtureManifest = {
   schema: { tables: ['orders_orders', 'orders_lines'], rlsExcluded: [] },
 }
 
+describe('publicSites in a manifest', () => {
+  const vars = [{ key: 'SITES_HOSTS' }]
+
+  it('names a declared, non-secret var', () => {
+    expect(publicSitesProblems({})).toEqual([])
+    expect(publicSitesProblems({ publicSites: { hostsVar: 'SITES_HOSTS' }, vars })).toEqual([])
+  })
+
+  it('refuses a malformed, undeclared or secret hosts var', () => {
+    expect(publicSitesProblems({ publicSites: { hostsVar: 'sites' }, vars })[0]).toMatch(/A_B_C/)
+    expect(publicSitesProblems({ publicSites: {}, vars })[0]).toMatch(/must name a var/)
+    expect(publicSitesProblems({ publicSites: { hostsVar: 'SITES_HOSTS' } })[0]).toMatch(
+      /not declared in vars/
+    )
+    expect(
+      publicSitesProblems({
+        publicSites: { hostsVar: 'SITES_HOSTS' },
+        vars: [{ key: 'SITES_HOSTS', secret: true }],
+      })[0]
+    ).toMatch(/marked secret/)
+  })
+
+  it('reaches pluginManifestProblems, with appOwned, as their own fields', () => {
+    const fields = pluginManifestProblems({
+      id: 'orders',
+      version: '1.0.0',
+      minKit: '0.1.0',
+      uses: {},
+      publicSites: { hostsVar: 'NOPE' },
+      appOwned: ['../escape'],
+    }).map(p => p.field)
+    expect(fields).toContain('publicSites')
+    expect(fields).toContain('appOwned')
+  })
+})
+
 describe('platform declarations', () => {
   /**
    * This codebase has no Cloudflare runtime: a plugin reaches jobs, storage, realtime and runs
@@ -712,7 +758,17 @@ describe('the install plan', () => {
     expect(text).toContain('orders@1.1.0 — Orders')
     expect(text).toContain('@ 1.1.0 (abc123def456)')
     expect(text).toContain(`records into ${MANIFEST_FILE}`)
-    expect(text).toContain("translated into Acme Logistics (acme)'s vocabulary")
+    expect(text).toContain(
+      "translated from the ecosystem's vocabulary into Acme Logistics (acme)'s on the way in"
+    )
+    const inKit = renderAddPlan({
+      ...plan,
+      barrels: [...plan.barrels],
+      host: { ...plan.host, label: 'the kit itself' },
+    }).join('\n')
+    expect(inKit).toContain(
+      "translated from the ecosystem's vocabulary into the kit's on the way in"
+    )
     expect(text).toContain("Verify (from the plugin's own note)")
     expect(text).toContain('The Orders page lists one order.')
     for (const kind of BARREL_KINDS) expect(text).toContain(BARRELS[kind].file)
@@ -1524,6 +1580,48 @@ describe('the audit', () => {
       return existsSync(anchor) ? JSON.parse(read(s.anchor)) : { id: s.id }
     })
     expect(tableClashes(installedManifests)).toEqual([])
+  })
+
+  /**
+   * What `check` can say about events from manifests alone — the name rule, a name two
+   * plugins declare, and a listed name the shared entry never declares.
+   */
+  it('refuses a mis-prefixed, kit. or doubled event, a clash, and one the source never declares', () => {
+    expect(LIB_EVENT_NAME_RE.source).toBe(EVENT_NAME_RE.source)
+    for (const name of ['sites.form.submitted', 'kit.x', 'crm.form', 'sites.Form', 'sites']) {
+      expect(libEventNameProblem('sites', name) === null, name).toBe(
+        eventNameProblem('sites', name) === null
+      )
+    }
+    const problems = pluginManifestProblems({
+      version: '1.0.0',
+      minKit: '0.1.0',
+      uses: {},
+      id: 'sites',
+      events: ['sites.form.submitted', 'kit.agent.started', 'crm.lead', 'sites.form.submitted'],
+    })
+      .filter(p => p.field === 'events')
+      .map(p => p.problem)
+    expect(problems).toEqual([
+      "declares 'kit.agent.started', which is in the core kit. namespace",
+      "declares 'crm.lead', which does not start with 'sites.'",
+      "declares event 'sites.form.submitted' twice",
+    ])
+    expect(
+      eventClashes([
+        { id: 'sites', events: ['sites.form.submitted'] },
+        { id: 'crm', events: ['sites.form.submitted', 'crm.lead.created'] },
+      ])
+    ).toEqual([
+      { event: 'sites.form.submitted', id: 'crm', others: ['sites'] },
+      { event: 'sites.form.submitted', id: 'sites', others: ['crm'] },
+    ])
+    expect(
+      undeclaredManifestEvents(
+        ['sites.form.submitted', 'sites.page.published'],
+        "// 'sites.page.published' is only a comment\nevents: { 'sites.form.submitted': schema }"
+      )
+    ).toEqual(['sites.page.published'])
   })
 
   it('reports the audit as DATA, with warnings kept out of the exit code', () => {

@@ -33,6 +33,29 @@ import { setupTestDatabase } from '../helpers/db'
 import { json, request } from '../helpers/request'
 import { createTestEnv } from '../mocks/bindings'
 
+/**
+ * A fixture SSO policy (`ServerPlugin.ssoPolicy`): plugin `acme` claims `@acme-sso.test` and
+ * routes it to its `sso` method. Every other address is unclaimed, so the rest of the file runs
+ * exactly as without it.
+ */
+vi.mock('@/api/routes/auth/sso', async () => {
+  const { evaluateSsoPolicyForAll } = await import('@/api/auth/sso-policy')
+  const fixtures = [
+    {
+      shared: { id: 'acme' },
+      loginMethods: () => [{ id: 'sso', label: 'Acme SSO', startPath: '/api/hooks/acme/sso' }],
+      ssoPolicy: async (_db: unknown, email: string) =>
+        email.endsWith('@acme-sso.test') ? { required: true as const, methodId: 'sso' } : null,
+    },
+  ]
+  return {
+    // biome-ignore lint/suspicious/noExplicitAny: the mock forwards the real signature untouched
+    ssoDecisionFor: (db: any, cfg: any, emails: any, logger: any) =>
+      // biome-ignore lint/suspicious/noExplicitAny: fixtures are structurally ServerPlugins
+      evaluateSsoPolicyForAll(fixtures as any, db, cfg, emails, logger),
+  }
+})
+
 const db = setupTestDatabase()
 
 const ISSUER = 'https://idp.test/realms/acme'
@@ -51,17 +74,19 @@ function oidcEnv(overrides: Record<string, unknown> = {}) {
 
 interface SigningKey {
   kid: string
+  alg: string
   privateKey: CryptoKey
   jwk: Record<string, unknown>
 }
 
-async function newKey(): Promise<SigningKey> {
-  const { privateKey, publicKey } = await generateKeyPair('RS256', { extractable: true })
+async function newKey(alg = 'RS256'): Promise<SigningKey> {
+  const { privateKey, publicKey } = await generateKeyPair(alg, { extractable: true })
   const kid = `kid-${uniqueId()}`
   return {
     kid,
+    alg,
     privateKey,
-    jwk: { ...(await exportJWK(publicKey)), kid, alg: 'RS256', use: 'sig' },
+    jwk: { ...(await exportJWK(publicKey)), kid, alg, use: 'sig' },
   }
 }
 
@@ -80,7 +105,7 @@ interface Issuer {
   omit: string[]
   userinfo: Record<string, unknown> | null
   /** When set, the token endpoint answers with this instead of tokens (an issuer refusing). */
-  tokenFailure: { status: number; body: unknown } | null
+  tokenFailure: { status: number; body: unknown; contentType?: string } | null
   jwksFetches: number
   discoveryFetches: number
   tokenRequests: Array<{ body: URLSearchParams; authorization: string | null }>
@@ -89,10 +114,10 @@ interface Issuer {
 let idp: Issuer
 const realFetch = globalThis.fetch
 
-function jsonResponse(body: unknown, status = 200) {
+function jsonResponse(body: unknown, status = 200, contentType = 'application/json') {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': contentType },
   })
 }
 
@@ -108,7 +133,7 @@ async function signIdToken(nonce: string | undefined): Promise<string> {
   }
   for (const key of idp.omit) delete claims[key]
   return new SignJWT(claims)
-    .setProtectedHeader({ alg: 'RS256', kid: idp.signer.kid })
+    .setProtectedHeader({ alg: idp.signer.alg, kid: idp.signer.kid })
     .sign(idp.signer.privateKey)
 }
 
@@ -153,7 +178,10 @@ beforeEach(async () => {
       const code = body.get('code') ?? ''
       // A real issuer redeems a code ONCE — the replay defence the router relies on.
       if (idp.usedCodes.has(code)) return jsonResponse({ error: 'invalid_grant' }, 400)
-      if (idp.tokenFailure) return jsonResponse(idp.tokenFailure.body, idp.tokenFailure.status)
+      if (idp.tokenFailure) {
+        const { body: failure, status, contentType } = idp.tokenFailure
+        return jsonResponse(failure, status, contentType)
+      }
       idp.usedCodes.add(code)
       return jsonResponse({
         access_token: `access-${code}`,
@@ -278,6 +306,39 @@ describe('GET /auth/oidc', () => {
 })
 
 describe('GET /auth/oidc/callback', () => {
+  it('SSO required: a claimed domain is refused before anyone is admitted, linked or signed in', async () => {
+    const email = `sso_${uniqueId().toLowerCase()}@acme-sso.test`
+    const sub = `sub_${uniqueId()}`
+    idp.claims = { sub, email, email_verified: true }
+    const env = oidcEnv({ SIGNUP_MODE: 'open' })
+    const res = await signIn(env, `?returnUrl=${encodeURIComponent('/documents')}`)
+    expect(res.status).toBe(302)
+    expect(location(res).pathname).toBe('/login')
+    expect(location(res).searchParams.get('error')).toBe('sso_required')
+    expect(location(res).searchParams.get('method')).toBe('acme:sso')
+    expect(location(res).searchParams.get('returnUrl')).toBe('/documents')
+    expect(cookieValue(res, SESSION_COOKIE_NAME)).toBeFalsy()
+    expect(await db.select().from(users).where(eq(users.email, email))).toHaveLength(0)
+    expect(await linkFor(sub)).toHaveLength(0)
+  })
+
+  it('SSO required: a LINKED account on a claimed domain is refused whatever the issuer asserts', async () => {
+    const user = await createTestUser(db, {
+      email: `linked_${uniqueId().toLowerCase()}@acme-sso.test`,
+    })
+    const sub = `sub_${uniqueId()}`
+    await db.insert(oauthProviders).values({
+      userId: user.id,
+      provider: 'oidc',
+      providerUserId: `${ISSUER}|${sub}`,
+      email: 'personal@example.test',
+    })
+    idp.claims = { sub, email: 'personal@example.test', email_verified: true }
+    const res = await signIn(oidcEnv())
+    expect(location(res).searchParams.get('error')).toBe('sso_required')
+    expect(cookieValue(res, SESSION_COOKIE_NAME)).toBeFalsy()
+  })
+
   it('links an existing user by verified email; the identity key is issuer|sub', async () => {
     const { user, tenant } = await createTestTenantWithUser(db, 'member')
     const sub = `sub_${uniqueId()}`
@@ -392,6 +453,18 @@ describe('GET /auth/oidc/callback', () => {
     expect(location(res).searchParams.get('error')).toBe('oauth_failed')
   })
 
+  it('an issuer that signs with ES256, and says so in discovery, signs in', async () => {
+    const user = await createTestUser(db)
+    const key = await newKey('ES256')
+    idp.published = [key]
+    idp.signer = key
+    idp.discovery.id_token_signing_alg_values_supported = ['ES256']
+    idp.claims = { sub: `sub_${uniqueId()}`, email: user.email, email_verified: true }
+    const res = await signIn(oidcEnv())
+    expect(location(res).pathname).toBe('/')
+    expect(await sessionUserId(res, oidcEnv())).toBe(user.id)
+  })
+
   it('key rotation: a new kid refetches the JWKS (after the cooldown) and succeeds', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     const user = await createTestUser(db)
@@ -480,6 +553,18 @@ describe('GET /auth/oidc/callback', () => {
     expect(tokenRequest?.body.get('client_id')).toBe(CLIENT_ID)
   })
 
+  it('the token request repeats the redirect_uri the authorization request sent', async () => {
+    const user = await createTestUser(db)
+    idp.claims = { sub: `sub_${uniqueId()}`, email: user.email, email_verified: true }
+    const env = oidcEnv()
+    const flow = await start(env)
+    const res = await callback(env, flow)
+    expect(await sessionUserId(res, env)).toBe(user.id)
+    const sent = flow.target.searchParams.get('redirect_uri')
+    expect(sent).toMatch(/\/auth\/oidc\/callback$/)
+    expect(idp.tokenRequests.at(-1)?.body.get('redirect_uri')).toBe(sent)
+  })
+
   it('link mode attaches the issuer identity to the signed-in user', async () => {
     const user = await createTestUser(db)
     const token = await createTestSession(db, user.id)
@@ -521,8 +606,12 @@ describe('AUTH_OIDC_ONLY', () => {
       expect(location(res).searchParams.get('error')).toBe('oidc_only')
     }
     expect((await request('/auth/oidc', {}, { env })).status).toBe(302)
-    expect(await json(await request('/auth/methods', {}, { env }))).toEqual({
-      magicLink: true,
+    // A plugin's methods (the example plugin's, in development) are not the kit's to pin here.
+    const { pluginMethods: _plugins, ...methods } = await json<Record<string, unknown>>(
+      await request('/auth/methods', {}, { env })
+    )
+    expect(methods).toEqual({
+      magicLink: false,
       providers: ['oidc'],
       devLogin: true,
       oidc: { label: 'Single sign-on' },
@@ -544,7 +633,10 @@ describe('AUTH_OIDC_ONLY', () => {
 describe('GET /auth/methods with an issuer', () => {
   it('adds oidc to the providers with its configured label; oidcOnly false', async () => {
     const env = oidcEnv({ OIDC_LABEL: 'Acme SSO', APP_ENV: 'staging' })
-    expect(await json(await request('/auth/methods', {}, { env }))).toEqual({
+    const { pluginMethods: _plugins, ...body } = await json<Record<string, unknown>>(
+      await request('/auth/methods', {}, { env })
+    )
+    expect(body).toEqual({
       magicLink: true,
       providers: ['google', 'microsoft', 'oidc'],
       devLogin: false,
@@ -936,10 +1028,15 @@ describe('OIDC_MANAGED_TENANCY', () => {
       'an AWS error body',
       { __type: 'UserLambdaValidationException', message: 'No grant for this app' },
     ],
+    [
+      'an AWS error body as application/x-amz-json-1.1',
+      { __type: 'UserLambdaValidationException', message: 'No grant for this app' },
+      'application/x-amz-json-1.1',
+    ],
   ])(
     'a 400 UserLambdaValidationException at the token exchange → no_access (%s)',
-    async (_l, body) => {
-      idp.tokenFailure = { status: 400, body }
+    async (_l, body, contentType?: string) => {
+      idp.tokenFailure = { status: 400, body, ...(contentType ? { contentType } : {}) }
       const res = await signIn(managedEnv())
       expect(location(res).pathname).toBe('/login')
       expect(location(res).searchParams.get('error')).toBe('no_access')

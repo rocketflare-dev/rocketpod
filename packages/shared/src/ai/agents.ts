@@ -44,7 +44,11 @@ export type AgentKey = z.infer<typeof agentKeySchema>
  * `exclusive` = at most one ACTIVE run per (tenant, agent), where active is
  * {@link ACTIVE_RUN_STATUSES} — `queued`, `running` **and `awaiting_input`**, so a run parked on a
  * question still holds the slot. Enforced by a partial unique index on `agent_runs` whose predicate
- * is rendered from that same list, never by memory. `approvers` is who may answer this agent's
+ * is rendered from that same list, never by memory. `exclusive: false` opts out — the run row
+ * holds no slot (`agent_runs.concurrency_key` NULL) and sits outside the index, so any number may
+ * be active at once (one person's conversation with an agent, where two people at once is normal).
+ * A server caller narrows either kind to one active run per key with
+ * `enqueueRun({ concurrencyKey })`. `approvers` is who may answer this agent's
  * interrupts: `'requester'` (the default — whoever can see the run) or `'admin'`.
  */
 export interface AgentMeta<Input = unknown, Output = unknown> {
@@ -71,7 +75,56 @@ export interface AgentMeta<Input = unknown, Output = unknown> {
    * adds its own subject.
    */
   approvers?: z.infer<typeof agentApproversSchema>
+  /**
+   * What ONE run of this agent may spend, overriding `AGENT_RUN_MAX_TOKENS` /
+   * `AGENT_RUN_MAX_COST_USD`. Checked before every model call and decision the run makes; a run
+   * over it fails with event code `agent_budget_exceeded`. Tokens include prompt-cache reads and
+   * writes. Decision engines with no price (TypeSafe) count toward `maxTokens` only; a chat model
+   * with no known price is refused while a cost cap applies.
+   */
+  budget?: AgentBudget
+  /**
+   * How far ONE run's tool loop may go, and what happens when it runs out. Enforced by
+   * `runToolLoop` when the agent passes it (`policy: meta.policy`); `AGENT_MAX_TURNS` stays the
+   * ceiling a policy cannot raise. Absent, a loop behaves exactly as before: it stops at the turn
+   * cap and hands back no answer.
+   */
+  policy?: AgentPolicy
 }
+
+/** A per-run spending cap. Either side may be absent — the deployment's default applies. */
+export interface AgentBudget {
+  maxTokens?: number
+  maxCostUsd?: number
+}
+
+export const AGENT_EXHAUSTION_MODES = ['final-answer', 'fail'] as const
+export type AgentExhaustionMode = (typeof AGENT_EXHAUSTION_MODES)[number]
+
+/**
+ * A tool loop's limits, every one counted across ALL attempts of the run — the turns and
+ * the active time ride the checkpoint, the tool calls and the failures are read back out of the
+ * transcript — so a retried step never gets a fresh allowance. Time spent parked on a person is
+ * not active time.
+ *
+ * `onExhaustion` decides what running out means. `'final-answer'` (the default) makes ONE forced
+ * call to the loop's terminal tool over the transcript so far — the salvage `research-topic` used
+ * to carry by hand — and fails the run when that call fails. `'fail'` fails the run straight away.
+ */
+export const agentPolicySchema = z.object({
+  /** Model turns. Clamped to `AGENT_MAX_TURNS`. */
+  maxTurns: z.number().int().positive().optional(),
+  /** Tool calls executed (the terminal tool's call is the answer, not one of these). */
+  maxToolCalls: z.number().int().positive().optional(),
+  /** Maximum number of tool calls to execute concurrently in one turn. Defaults to 4. */
+  maxConcurrentToolCalls: z.number().int().positive().optional(),
+  /** Seconds of active loop time. */
+  maxDurationSeconds: z.number().positive().optional(),
+  /** Consecutive tool calls that came back as errors. A success resets the count. */
+  repeatedFailureLimit: z.number().int().positive().optional(),
+  onExhaustion: z.enum(AGENT_EXHAUSTION_MODES).optional(),
+})
+export type AgentPolicy = z.infer<typeof agentPolicySchema>
 
 /** `GET /api/agents` item — the meta without its zod schemas (not serialisable). */
 export const agentInfoSchema = z.object({
@@ -83,6 +136,8 @@ export const agentInfoSchema = z.object({
   /** `AgentMeta.startable` — whether the generic Run form / `POST /api/agents/runs` may start it. */
   startable: z.boolean().default(true),
   approvers: agentApproversSchema.default('requester'),
+  /** The agent's tool-loop policy, when it declares one — the Agents page shows it. */
+  policy: agentPolicySchema.optional(),
   /**
    * The agent's `inputSchema` as JSON Schema, produced server-side by `toolInputSchema()`
    * (`services/ai/agent-loop.ts`). Three reasons it is this and not zod: the conversion already exists;
@@ -155,6 +210,21 @@ export const agentRunSchema = z.object({
   finishedAt: z.coerce.date().nullable(),
   cancelRequestedAt: z.coerce.date().nullable(),
   createdAt: z.coerce.date(),
+  /**
+   * Whether this run held its agent's exclusive slot — copied from `meta.exclusive` at enqueue,
+   * so the database predicate does not depend on the code that is deployed today. Defaulted for a
+   * response from an older server.
+   */
+  exclusive: z.boolean().default(true),
+  /** The `POST /runs/batch` call that created this run; null for a single enqueue. */
+  batchId: z.string().uuid().nullable().default(null),
+  /**
+   * The plugin event that started this run — an agent `trigger` or a `bindable` start — e.g.
+   * `sites.form.submitted`; null for a run a person or a job started. Defaulted for an older server.
+   */
+  triggerEvent: z.string().nullable().default(null),
+  /** That event's `plugin_events` id. The row is pruned after the retention window; this is not. */
+  triggerEventId: z.string().uuid().nullable().default(null),
 })
 export type AgentRun = z.infer<typeof agentRunSchema>
 
@@ -167,6 +237,8 @@ export type CreateAgentRunResponse = z.infer<typeof createAgentRunResponseSchema
 export const agentRunListQuerySchema = paginationQuerySchema.extend({
   agentKey: agentKeySchema.optional(),
   status: agentRunStatusSchema.optional(),
+  /** Only the runs one batch created. */
+  batchId: z.string().uuid().optional(),
 })
 export type AgentRunListQuery = z.infer<typeof agentRunListQuerySchema>
 
@@ -176,6 +248,67 @@ export const createAgentRunRequestSchema = z.object({
   input: z.unknown(),
 })
 export type CreateAgentRunRequest = z.infer<typeof createAgentRunRequestSchema>
+
+// ---- Bindable agents -------------------------------------------------------------------
+
+/**
+ * `GET /api/agents/bindable?event=` — the agents that opt in (`bindable`) to being started by one
+ * plugin event when a subject names them: the list behind a no-code "On submit, start" picker.
+ */
+export const bindableAgentListQuerySchema = z.object({
+  event: z.string().min(1).max(200),
+})
+export type BindableAgentListQuery = z.infer<typeof bindableAgentListQuerySchema>
+
+export const bindableAgentSchema = z.object({
+  key: agentKeySchema,
+  title: z.string(),
+  description: z.string(),
+})
+export type BindableAgent = z.infer<typeof bindableAgentSchema>
+
+export const bindableAgentListResponseSchema = z.object({ items: z.array(bindableAgentSchema) })
+export type BindableAgentListResponse = z.infer<typeof bindableAgentListResponseSchema>
+
+// ---- Batch enqueue -------------------------------------------------------------------------
+
+/** Most inputs one `POST /api/agents/runs/batch` takes. */
+export const AGENT_RUN_BATCH_MAX = 100
+
+/**
+ * `POST /api/agents/runs/batch`: many runs of ONE non-exclusive agent in one request, the rows
+ * inserted in one statement and each started on the run engine. Each input is validated against the agent's own
+ * `inputSchema` in the service, item by item — an invalid one is reported, the rest still run.
+ */
+export const createAgentRunBatchRequestSchema = z.object({
+  agentKey: agentKeySchema,
+  inputs: z.array(z.unknown()).min(1).max(AGENT_RUN_BATCH_MAX),
+})
+export type CreateAgentRunBatchRequest = z.infer<typeof createAgentRunBatchRequestSchema>
+
+/**
+ * One input's fate, at its `index` in the request. `run` is set whenever a row exists — including
+ * a row whose engine run could not be created, which is settled `failed` and carries the
+ * error too. `run: null` means the input never became a row (it did not validate).
+ */
+export const agentRunBatchItemSchema = z.object({
+  index: z.number().int().nonnegative(),
+  run: agentRunSchema.nullable(),
+  error: z
+    .object({ code: z.string(), message: z.string(), details: z.unknown().optional() })
+    .nullable(),
+})
+export type AgentRunBatchItem = z.infer<typeof agentRunBatchItemSchema>
+
+/** 202. `created` counts runs that are queued; `failed` counts every item with an `error`. */
+export const createAgentRunBatchResponseSchema = z.object({
+  batchId: z.string().uuid(),
+  agentKey: agentKeySchema,
+  created: z.number().int().nonnegative(),
+  failed: z.number().int().nonnegative(),
+  items: z.array(agentRunBatchItemSchema),
+})
+export type CreateAgentRunBatchResponse = z.infer<typeof createAgentRunBatchResponseSchema>
 
 // ---- Events ---------------------------------------------------------------------------------------
 
@@ -262,6 +395,8 @@ export const agentErrorEventDataSchema = z
      * produced no call — `{ reason, stopReason, text }` with what the model actually said.
      */
     details: z.unknown().optional(),
+    /** A machine-readable reason, when there is one — `agent_budget_exceeded`. */
+    code: z.string().optional(),
   })
   .passthrough()
 export type AgentErrorEventData = z.infer<typeof agentErrorEventDataSchema>
@@ -304,6 +439,16 @@ export const agentRunWithEventsSchema = agentRunSchema.extend({
   artifacts: z.array(agentArtifactSchema).default([]),
   /** Every typed question the run asked — answers, probabilities, the engine that gave them. */
   decisions: z.array(agentRunDecisionSchema).default([]),
+  /** What the run spent, every attempt included — its `ai_usage` rows, summed. */
+  usage: z
+    .object({
+      calls: z.number().int().nonnegative(),
+      inputTokens: z.number().int().nonnegative(),
+      outputTokens: z.number().int().nonnegative(),
+      /** Priced calls only, in microcents (1e-8 USD); an unpriced call counts in the tokens alone. */
+      costMicrocents: z.number().int().nonnegative(),
+    })
+    .optional(),
 })
 export type AgentRunWithEvents = z.infer<typeof agentRunWithEventsSchema>
 

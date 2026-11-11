@@ -40,6 +40,11 @@ themselves from this page.
 3. Pick the role they will join with, then send.
 
 Each person gets an email with a link. The link works for {{fact:team.invitation_days}} days.
+Only an owner can invite someone as an owner.
+
+Invitation emails have a daily limit, per sender and per organisation. Past it, the invite is
+refused until the next day (UTC); in a long list, the addresses past the limit are reported as
+not sent.
 
 > **RULE OF THUMB** — Invite people with the role they need today. You can raise it later in one
 > click; taking access back after the fact is harder to explain.
@@ -49,7 +54,8 @@ Each person gets an email with a link. The link works for {{fact:team.invitation
 Invitations that have not been accepted are listed under **Pending invitations**. An invitation is
 one of {{fact:team.invitation_statuses}}.
 
-- **Resend** sends the email again.
+- **Resend** sends the email again — at most once every {{fact:team.invitation_resend_minutes}}
+  minutes for one invitation.
 - **Revoke** cancels it. The link stops working at once.
 
 When someone accepts, they move to **Members** with the role you chose.
@@ -57,7 +63,8 @@ When someone accepts, they move to **Members** with the role you chose.
 ## Change a role or remove someone
 
 In **Members**, change the role with the select on their row, or remove them with the button at
-the end of it. A removed person loses access to the organisation straight away.
+the end of it. A removed person loses access to the organisation straight away: their open pages
+lose their live connection, and any invitations they sent that are still pending are revoked.
 
 A row marked **Managed** belongs to your identity provider, not to this app: it has no role
 select and no remove button. Change that person's role or access in the identity provider; it

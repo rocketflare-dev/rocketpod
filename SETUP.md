@@ -16,8 +16,9 @@ code conventions are in `.claude/rules/`. If this is a freshly copied kit, do
 Legend: `[ready]` works out of the box · `[config]` needs your configuration
 
 **Fix missing prerequisites proactively rather than reporting them.** If Node is missing or too
-old, install 24 (`nvm install` reads `.nvmrc`, or `fnm use`, or the system package manager). If
-pnpm is missing, `corepack enable` (it reads `packageManager` from the root `package.json`). If
+old, install 26 (`nvm install` reads `.nvmrc`, or `fnm use`, or the system package manager). If
+pnpm is missing, `npm i -g pnpm@10` (Node 26 ships no corepack; pnpm then switches itself to the
+`packageManager` version in the root `package.json`). If
 Docker is unavailable on macOS, `brew install colima docker && colima start`; on Linux install Docker
 Engine and add your user to the `docker` group. Confirm the tool works, then carry on.
 
@@ -46,14 +47,14 @@ Engine and add your user to the `docker` group. Confirm the tool works, then car
 
 ### 1.1 Toolchain
 ```bash
-node -v            # v24.x — from .nvmrc
-corepack enable && pnpm -v   # 10.x — from package.json packageManager
+node -v            # v26.x — from .nvmrc
+npm i -g pnpm@10 && pnpm -v   # 10.x — pnpm switches to package.json packageManager
 docker info >/dev/null && echo docker-ok
 ```
-Verify: three lines — `v24.*`, `10.*`, `docker-ok`. `pnpm preflight` is the same check as one
+Verify: three lines — `v26.*`, `10.*`, `docker-ok`. `pnpm preflight` is the same check as one
 read-only command (toolchain, `.env`, Postgres, AI provider keys, `pnpm dev:status`; exit 3
 when anything is missing) — `bash scripts/bootstrap.sh` installs Node through an fnm/nvm that is
-already present and pnpm through corepack, and never pipes a URL into a shell.
+already present and pnpm through corepack where it exists (npm otherwise), and never pipes a URL into a shell.
 
 ### 1.2 Dependencies
 ```bash
@@ -235,13 +236,14 @@ pnpm cli whoami
 ```
 
 > **Headless / no browser** (CI, agents): skip `pnpm cli login`. Sign in with the dev-login cookie
-> (or any session) and hit `GET /auth/cli?redirect_uri=http://127.0.0.1:8765/callback` — the
-> `Location` header carries `key=`; export it as `ROCKETPOD_API_KEY` with `ROCKETPOD_URL=http://localhost:3001`,
+> (or any session) and `POST /auth/cli/confirm` with `{"redirectUri":"http://127.0.0.1:8765/callback"}` — the
+> `redirectTo` in the answer carries `key=`; export it as `ROCKETPOD_API_KEY` with `ROCKETPOD_URL=http://localhost:3001`,
 > then `pnpm cli whoami`. In real environments create a tenant API key in Settings → API keys instead.
 
 `login` starts a loopback listener on the first free port in `127.0.0.1:8765–8770` and opens
-`/auth/cli?redirect_uri=http://127.0.0.1:<port>/callback`; after login + tenant select the server
-mints a tenant API key named `cli:<your hostname>` and redirects back. The key is stored in
+`/auth/cli?redirect_uri=http://127.0.0.1:<port>/callback&state=<random>`; after login + tenant select
+you confirm on a page that names the port and the organisation, and the server mints a tenant API
+key named `cli:<your hostname>` and sends the browser back. The key is stored in
 `~/.rocketpod/config.json` (mode `0600`) and is never printed in full.
 Verify: `whoami` prints your email, the tenant name and a key prefix; `pnpm cli members list --json |
 head` prints JSON; `ls -l ~/.rocketpod/config.json` shows `-rw-------`; a wrong key exits `2`. For CI or
@@ -317,6 +319,10 @@ An account whose `email_verified` is false is refused — for every provider.
 2. Redirect URI (Web): `{APP_URL}/auth/microsoft/callback` for each origin as in 2.2
 3. Certificates & secrets → new client secret → `MICROSOFT_CLIENT_ID` / `MICROSOFT_CLIENT_SECRET`
 
+Account matching uses the user principal name, whose domain Entra requires the directory to have
+verified, never the separately editable `mail` attribute. Someone whose UPN differs from the
+address they were invited at signs in as their UPN.
+
 Absent: button hidden. Verify: round trip. Redirect URIs are always derived from `APP_URL`; there
 is no `*_REDIRECT_URI` variable to set.
 
@@ -331,8 +337,9 @@ One generic OpenID Connect issuer per deployment, beside or instead of the butto
    refused), `OIDC_CLIENT_ID`, and `OIDC_CLIENT_SECRET` unless the client is public. Optional:
    `OIDC_LABEL` (button text, default "Single sign-on"), `OIDC_SCOPES` (default
    `openid email profile`), `AUTH_OIDC_ONLY=true` (the login page shows only the "Continue with <label>"
-   button — signing in is still a click, never an automatic redirect — and hides every other method; the magic-link endpoint stays live for invitations — it hides, it does
-   not disable), `OIDC_TRUST_EMAIL=true` (see Entra below). Locally these go in `.env`; deployed,
+   button — signing in is still a click, never an automatic redirect — and every other sign-in
+   method is off on the server, magic links included: invitation emails carry an accept URL, so
+   they are unaffected), `OIDC_TRUST_EMAIL=true` (see Entra below). Locally these go in `.env`; deployed,
    everything but the secret is plain config and `OIDC_CLIENT_SECRET` is a secret (Part 3)
 3. Issuer notes:
    - **Keycloak**: `OIDC_ISSUER=https://<host>/realms/<realm>`; "Client authentication" on for a
@@ -397,8 +404,8 @@ an org no longer in the claim loses its `idp` membership. A tenant created this 
 owner** — a global admin can still do owner-only things, and can make an owner from a manual
 membership. `idp` memberships are read-only in Settings → People (409 `idp_managed` from the API).
 
-What an event does: `person.suspended` ends the person's sessions and removes their `idp`
-memberships; `membership.removed`, `grant.revoked` and `org.suspended` remove `idp` memberships;
+What an event does: `person.suspended` ends the person's sessions, removes their `idp`
+memberships and clears a global-admin role the issuer granted (a manual grant stays); `membership.removed`, `grant.revoked` and `org.suspended` remove `idp` memberships;
 `membership.role_changed` changes one; `org.renamed` renames the tenant. Each is signed (Standard
 Webhooks), applied idempotently and in any order; `docs/CONCEPTS.md` §2 has the details.
 
@@ -479,7 +486,9 @@ badged `Jev`.
 Agent runs run on OpenWorkflow in the worker (`pnpm dev` runs mode `all`, so the worker is
 in-process). Verify (from the Agents page in the nav, or by hand):
 `POST /api/agents/runs` `{ "agentKey": "summarize-text", "input": { "text": "<a paragraph>" } }` →
-202; `GET /api/agents/runs/<id>` reaches `succeeded` with `output.summary`.
+202; `GET /api/agents/runs/<id>` reaches `succeeded` with `output.summary` and `usage`.
+A batch takes a non-exclusive agent: `pnpm cli agents run triage-research --batch q.jsonl`
+with one `{ "question": "…" }` per line, then `pnpm cli agents runs list --batch <id>`.
 
 **Human-in-the-loop walkthrough** (`docs/CONCEPTS.md` §9). A run can stop and ask a person — the
 park is OpenWorkflow's `waitForSignal` behind the kit's `step.waitForEvent`. Nothing extra to
@@ -520,8 +529,8 @@ pnpm cli traces list                  # newest first; --agent chat · --status e
 pnpm cli traces show <traceId|runId>  # the span tree: model, tokens, latency, tool args/results
 ```
 A chat turn shows `invoke_agent chat` with `chat <model>` and `execute_tool <name>` children, and
-retrieval/embeddings under the tool. `OBSERVABILITY_CAPTURE_CONTENT=false` drops prompts and tool
-I/O. Optional backend (Langfuse keys keep working with no new setting; Phoenix locally is
+retrieval/embeddings under the tool. Prompts and tool I/O appear only with
+`OBSERVABILITY_CAPTURE_CONTENT=true` (off by default). Optional backend (Langfuse keys keep working with no new setting; Phoenix locally is
 `docker run -p 6006:6006 arizephoenix/phoenix` + `OBSERVABILITY_PRESET=phoenix` +
 `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:6006` in `.env`): `docs/DEPLOY.md` § Tracing.
 
@@ -552,6 +561,15 @@ say yes to. It never generates a migration: that arrives as a numbered step you 
 any env keys it declares (add them to `.env`, and to the chart's `config`/`secrets` when deployed).
 A plugin that declares Cloudflare `bindings` or Worker exports is refused (`cloudflare-only`).
 `defaultPlugins` is empty in Rocketpod today (`docs/CONCEPTS.md` §8).
+
+**An SSO / SCIM plugin under `TENANCY_MODE=single`** (the identity seam, `docs/CONCEPTS.md` §16):
+the one organisation is the whole deployment, so a person the plugin's directory deactivates is
+**blocked**, not just removed — every session ends, API keys answer 403, and no other sign-in
+method lets them back in. Admin → Users shows them as "blocked by identity provider";
+reactivating them in the directory lifts it, and so does Unblock. A block you set by hand is
+yours: no directory sync lifts it. Under `multi` a deactivation only removes that organisation's
+membership. Verify (single mode): deactivate a test person in the directory → their next request
+answers 401 and a magic link lands on `/login?error=blocked`.
 
 Writing one of your own: `/rp-plugin`, or `apps/web/src/plugins/CLAUDE.md` and
 `apps/web/src/plugins/example-feature/` — the vendored reference plugin, which exists to be read

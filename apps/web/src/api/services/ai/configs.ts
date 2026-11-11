@@ -6,9 +6,9 @@
  *
  * - credentials are encrypted on the way in and NEVER come back out (`toAiConfig` →
  *   `hasCredential` only);
- * - an upsert keys on (tenant, scope, label); omitting `apiKey` on a re-save keeps the stored key,
- *   and a provider change without a new key drops it (a key belongs to the provider it was entered
- *   for);
+ * - an upsert keys on (tenant, scope, label); omitting `apiKey` on a re-save keeps the stored key
+ *   only while the provider and the normalised base URL both match — a provider or endpoint change
+ *   without a new key drops it (a key belongs to the provider and endpoint it was entered for);
  * - `isDefault` swaps the scope's default inside the transaction (clear-others-then-set — the
  *   partial unique index rejects the reverse order), and the first row in a scope is always made
  *   default.
@@ -16,7 +16,12 @@
  * Every function takes the tenant id from its CALLER — the auth context, or the tenant a global
  * admin is managing — and every query carries it.
  */
-import type { AiConfig, AiScope, UpsertAiConfigRequest } from '@rocketpod/shared/ai/config'
+import {
+  type AiConfig,
+  type AiScope,
+  sameAiEndpoint,
+  type UpsertAiConfigRequest,
+} from '@rocketpod/shared/ai/config'
 import { modelTraits } from '@rocketpod/shared/ai/models'
 import { and, asc, eq, ne } from 'drizzle-orm'
 import type { AppConfig } from '../../../config'
@@ -44,6 +49,15 @@ export function toAiConfig(row: AiConfigRow): AiConfig {
   }
 }
 
+/**
+ * A stored credential belongs to the provider and the endpoint it was entered for: it is never sent
+ * anywhere the person who entered it did not choose, so changing either needs the key again.
+ */
+function keepsStoredKey(existing: AiConfigRow | undefined, body: UpsertAiConfigRequest): boolean {
+  if (!existing?.apiKeyEnc) return false
+  return existing.provider === body.provider && sameAiEndpoint(existing.baseUrl, body.baseUrl)
+}
+
 /** Provider × scope × field rules the contract alone cannot express. */
 export function validateAiConfigUpsert(
   body: UpsertAiConfigRequest,
@@ -59,10 +73,8 @@ export function validateAiConfigUpsert(
   if (info.needsBaseUrl && !body.baseUrl) {
     throw new BadRequestError(`${info.name} requires a base URL`, 'base_url_required')
   }
-  // A key is required unless the row already holds one FOR THE SAME PROVIDER (a stored credential
-  // belongs to the provider it was entered for and will not authenticate elsewhere).
-  const keepsKey = existing?.apiKeyEnc && existing.provider === body.provider
-  if (info.needsApiKey && !body.apiKey && !keepsKey) {
+  // A key is required unless the row already holds one for this provider and endpoint.
+  if (info.needsApiKey && !body.apiKey && !keepsStoredKey(existing, body)) {
     throw new BadRequestError(`${info.name} requires an API key`, 'api_key_required')
   }
   // What thinking means is per MODEL (`@rocketpod/shared/ai/models`): a budget only where the
@@ -156,8 +168,8 @@ export async function upsertAiConfig(
   })
   validateAiConfigUpsert(body, existing)
   const apiKeyEnc = body.apiKey ? await encrypt(body.apiKey, requireEncryptionKey(cfg)) : undefined
-  // A provider change without a new key must not carry the old provider's credential along.
-  const dropKey = !body.apiKey && existing && existing.provider !== body.provider
+  // A provider or endpoint change without a new key must not carry the old credential along.
+  const dropKey = !body.apiKey && existing && !keepsStoredKey(existing, body)
 
   const values = {
     tenantId,

@@ -36,6 +36,7 @@ import { enqueueRun, getRun, listEvents, parkRun } from '@/api/services/agents/r
 import { AiError } from '@/api/services/ai/errors'
 import type { ChatClient } from '@/api/services/ai/types'
 import { runAgentRun } from '@/api/workflows/agent-run-body'
+import { loadConfig } from '@/config'
 import { agentRunInterrupts, agentRuns } from '@/db/schema'
 import { FakeChatClient } from '../helpers/ai'
 import {
@@ -133,7 +134,7 @@ async function parked(
   specs: Array<{ key: string; spec: AgentInterruptSpec }> = [{ key: 'send-it', spec: APPROVAL }],
   agentKey: AgentKey = TEST_SUMMARIZE
 ) {
-  const { run } = await enqueueRun(db, env, {
+  const { run } = await enqueueRun(db, loadConfig(env), env, {
     tenantId: owner.tenant.id,
     agentKey,
     input:

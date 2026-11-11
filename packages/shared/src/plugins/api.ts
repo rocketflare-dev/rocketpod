@@ -42,6 +42,8 @@ export {
   paginationMetaSchema,
   paginationQuerySchema,
 } from '../pagination'
+/** The rule a return path must pass — the one `redirectToSchema` and the SPA use. */
+export { isSameOriginPath } from '../paths'
 export type { Actions, Subjects } from '../permissions'
 export type { RealtimeEvent, RealtimeEventType } from '../realtime'
 export type { MembershipRole } from '../tenants'
@@ -49,6 +51,9 @@ export type { MembershipRole } from '../tenants'
 export type {
   AgentKeyOf,
   DeclaredBy,
+  EventNameOf,
+  EventPayloadOf,
+  EventsOf,
   FeatureKeyOf,
   JobTypeOf,
   JobVariant,
@@ -56,4 +61,10 @@ export type {
   SharedPlugin,
   SubjectOf,
 } from './types'
-export { isPluginId, PLUGIN_ID_RE, pluginNamespace } from './types'
+export {
+  EVENT_NAME_RE,
+  eventNameProblem,
+  isPluginId,
+  PLUGIN_ID_RE,
+  pluginNamespace,
+} from './types'

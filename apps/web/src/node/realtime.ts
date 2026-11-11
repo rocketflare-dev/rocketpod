@@ -19,6 +19,11 @@
  * the previous one. Shutdown closes every socket with 1001 ("going away"), which the client treats
  * as a deploy and reconnects at once.
  *
+ * **Revocation**: `closeSockets` publishes a close envelope (`{ t, x: { u?, s? } }`) the same way,
+ * and every process ends the matching local sockets with `SOCKET_REVOKED_CODE` (4001) — a removed
+ * member, a signed-out session, a blocked person, a suspended tenant. `/ws` already refuses them a
+ * new socket; this ends the one they still hold.
+ *
  * **Topics** (`@rocketpod/shared/realtime` § Topics): a client may also send
  * `{"type":"subscribe","topic":…}` / `unsubscribe` (`realtimeClientMessageSchema`). The hub keeps
  * a topic on the connection only when `canSubscribeTopic(member, topic)` allows — the member's
@@ -54,6 +59,8 @@ const PING = JSON.stringify({ type: 'ping' })
 const PONG = JSON.stringify({ type: 'pong' })
 /** "Going away": the UI reconnects at once instead of backing off. */
 export const GOING_AWAY = 1001
+/** The close code for a socket whose membership or session has ended. */
+export const SOCKET_REVOKED_CODE = 4001
 
 /** Who a socket is: `routes/ws.ts` decided it (topic grants included); the hub only reads it. */
 export type HubMember = RealtimeMember
@@ -66,12 +73,20 @@ export const MAX_TOPICS_PER_SOCKET = 64
  * a TOPIC send, the topic `k`: delivered to the sockets subscribed to it, within tenant `t` for a
  * tenant topic (the tenant the topic names) and on any tenant for a platform one (`t` = `*`).
  */
-interface Envelope {
+interface EventEnvelope {
   t: string
   u?: string[]
   k?: string
   e: RealtimeEvent
 }
+
+/** A close: the sockets of tenant `t`, narrowed to user `u` and/or session `s`. */
+interface CloseEnvelope {
+  t: string
+  x: { u?: string; s?: string }
+}
+
+type Envelope = EventEnvelope | CloseEnvelope
 
 /** Any tenant: a platform topic's envelope. */
 const ANY_TENANT = '*'
@@ -140,7 +155,7 @@ export function createNodeRealtime(options: NodeRealtimeOptions): NodeRealtime {
 
   // ---- publish --------------------------------------------------------------------------------
 
-  async function publish(envelope: Envelope): Promise<BroadcastResult> {
+  async function publish(envelope: EventEnvelope): Promise<BroadcastResult> {
     const payload = JSON.stringify(envelope)
     if (Buffer.byteLength(payload) > MAX_NOTIFY_BYTES) {
       log(
@@ -168,7 +183,22 @@ export function createNodeRealtime(options: NodeRealtimeOptions): NodeRealtime {
     }
   }
 
-  function deliver(envelope: Envelope): void {
+  function closeMatching(envelope: CloseEnvelope): void {
+    const conns = byTenant.get(envelope.t)
+    if (!conns) return
+    const { u, s } = envelope.x
+    for (const conn of [...conns]) {
+      if (u !== undefined && conn.member.userId !== u) continue
+      if (s !== undefined && conn.member.sessionId !== s) continue
+      try {
+        conn.ws.close(SOCKET_REVOKED_CODE, 'revoked')
+      } catch {
+        // already closed
+      }
+    }
+  }
+
+  function deliver(envelope: EventEnvelope): void {
     const payload = JSON.stringify(envelope.e)
     if (envelope.k !== undefined) {
       const topic = envelope.k
@@ -274,8 +304,9 @@ export function createNodeRealtime(options: NodeRealtimeOptions): NodeRealtime {
     } catch {
       return
     }
-    if (typeof envelope?.t !== 'string' || !envelope.e) return
-    deliver(envelope)
+    if (typeof envelope?.t !== 'string') return
+    if ('x' in envelope && envelope.x && typeof envelope.x === 'object') closeMatching(envelope)
+    else if ('e' in envelope && envelope.e) deliver(envelope)
   }
 
   function scheduleReconnect(): void {
@@ -349,6 +380,12 @@ export function createNodeRealtime(options: NodeRealtimeOptions): NodeRealtime {
       }
       // A tenant topic is delivered inside the tenant it NAMES, whatever the event claims.
       return publish({ t: parsed.tenantId ?? ANY_TENANT, k: topic, e: event })
+    },
+    async closeSockets({ tenantId, userId, sessionId }) {
+      const x: CloseEnvelope['x'] = {}
+      if (userId !== undefined) x.u = userId
+      if (sessionId !== undefined) x.s = sessionId
+      await publisher`select pg_notify(${REALTIME_CHANNEL}, ${JSON.stringify({ t: tenantId, x })})`
     },
     async accept(_request, member) {
       const slot = upgradeScope.getStore()

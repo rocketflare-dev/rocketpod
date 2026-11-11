@@ -115,7 +115,7 @@ async function startFor(
   agentKey: 'triage-research',
   input: unknown
 ) {
-  const { run } = await enqueueRun(db, env, { tenantId, agentKey, input, userId })
+  const { run } = await enqueueRun(db, loadConfig(env), env, { tenantId, agentKey, input, userId })
   const params = { runId: run.id, tenantId }
   expect(await claimStep(db, env, fakeLogger(), params)).toBe(true)
   const outcome = await executeRun(db, loadConfig(env), env, fakeLogger(), params)

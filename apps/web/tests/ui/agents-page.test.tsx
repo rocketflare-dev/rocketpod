@@ -6,7 +6,7 @@
  * empty state instead of a toast; the runs table shows status, agent and filters.
  */
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
-import { Route, Routes } from 'react-router-dom'
+import { Route, Routes } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import AgentsPage from '@/ui/pages/agents/AgentsPage'
 import RunPage from '@/ui/pages/agents/RunPage'

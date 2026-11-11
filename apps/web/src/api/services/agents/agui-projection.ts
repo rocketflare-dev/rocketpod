@@ -11,10 +11,11 @@
  * - **A settled `cancelled` run projects as `RUN_ERROR` with code `agent_run_cancelled`.** The
  *   streaming convention — "closed with no terminal event means cancelled" — cannot apply to a
  *   finite array, where the absence of a terminal event is how an ACTIVE run is represented.
- * - **No `kit.usage`.** `ai_usage` rows are not attributable to a run (there is no run column), so
- *   a projection over `(run, events)` has no honest number to report. The Usage page is the ledger.
+ * - **No `kit.usage`.** Every `ai_usage` row of a run carries its id, and `GET /runs/:id`
+ *   returns the sum as `usage`; the projection stays a pure fold over `(run, events)` and does not
+ *   read the ledger. A `kit.usage` CUSTOM event is the place to add it if an AG-UI client needs it.
  * - **An errored tool result keeps its JSON.** `ToolCallResultEvent` has no error flag (still none
- *   in `@ag-ui/core@1.0.2`); add `kit.tool.error` to the CUSTOM union only if a screen needs the
+ *   in AG-UI 1.0); add `kit.tool.error` to the CUSTOM union only if a screen needs the
  *   red state.
  */
 import type { AgentRun, AgentRunEvent } from '@rocketpod/shared/ai/agents'

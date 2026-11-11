@@ -92,6 +92,15 @@ export const agentRuns = pgTable(
      * `exclusive` agent), `<caller key>` = one active run per key, NULL = none (runs freely).
      */
     concurrencyKey: text('concurrency_key'),
+    /** The `POST /runs/batch` call that created the row — `GET /runs?batchId=`. */
+    batchId: uuid('batch_id'),
+    /**
+     * The plugin event that started the run, by name and `plugin_events` id — NULL for a run
+     * a person or a job started. A plain uuid with NO foreign key: the event row is pruned after
+     * `EVENTS_RETENTION_DAYS`, and the run's record of what started it must outlive it.
+     */
+    triggerEvent: text('trigger_event'),
+    triggerEventId: uuid('trigger_event_id'),
     ...timestamps(),
   },
   table => [
@@ -108,6 +117,11 @@ export const agentRuns = pgTable(
       .where(
         sql`${table.status} IN (${sql.raw(ACTIVE_STATUS_LITERALS)}) AND ${table.concurrencyKey} IS NOT NULL`
       ),
+    // The per-tenant concurrency cap counts active rows on every enqueue.
+    index('agent_runs_tenant_status_idx').on(table.tenantId, table.status),
+    index('agent_runs_tenant_batch_idx')
+      .on(table.tenantId, table.batchId)
+      .where(sql`${table.batchId} IS NOT NULL`),
     tenantIsolation('agent_runs'),
   ]
 )

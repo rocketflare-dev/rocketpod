@@ -47,11 +47,21 @@ config:
   OTEL_EXPORTER_OTLP_ENDPOINT: ""
   OTEL_EXPORTER_OTLP_PROTOCOL: ""
   OBSERVABILITY_PRESET: ""
+  # Off when empty: "true" records prompts, completions and tool I/O in traces and ai_spans.
   OBSERVABILITY_CAPTURE_CONTENT: ""
   OBSERVABILITY_TRACE_URL: ""
   OBSERVABILITY_SPAN_RETENTION_DAYS: ""
+  # Days of recorded plugin events kept (default 7); payloads may hold personal data.
+  EVENTS_RETENTION_DAYS: ""
   AGENT_MAX_OUTPUT_TOKENS: ""
   AGENT_MAX_TURNS: ""
+  AGENT_MAX_ACTIVE_RUNS_PER_TENANT: ""
+  MAX_OWNED_TENANTS_PER_USER: ""
+  INVITATION_EMAILS_PER_USER_PER_DAY: ""
+  INVITATION_EMAILS_PER_TENANT_PER_DAY: ""
+  AGENT_RUN_MAX_TOKENS: ""
+  AGENT_RUN_MAX_COST_USD: ""
+  AGENT_TENANT_DAILY_COST_USD: ""
   CHAT_KNOWLEDGE_TOOLS: ""
   AGENT_INTERRUPT_TIMEOUT: ""
   CHAT_HISTORY_MAX_CHARS: ""
@@ -170,6 +180,16 @@ ingress:
   tls: []
   #  - secretName: rocketpod-tls
   #    hosts: [app.example.com]
+
+# Public site hosts: an installed plugin declaring `publicSites` answers whole websites on hosts of
+# their own (docs/DEPLOY.md § Public site hosts). `hostsVar` is the var its manifest names
+# (`publicSites.hostsVar`, e.g. SITES_HOSTS); the chart sets it to `hosts`, comma-separated, and
+# gives every host an ingress rule to the same Service. Add the hosts to `ingress.tls` too.
+publicSites:
+  hostsVar: ""
+  hosts: []
+  #  - www.example.com
+  #  - example.com
 
 serviceAccount:
   create: true

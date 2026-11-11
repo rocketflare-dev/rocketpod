@@ -41,6 +41,11 @@ export interface Surface {
    * none of its packages.
    */
   addedDependencies?: Record<string, string[]>
+  /**
+   * `kind: 'plugin'` only: globs over the host files it seeded (`hostFiles`). Not in `paths`,
+   * because `remove` deletes those and these are the developer's.
+   */
+  hostFiles?: string[]
   history?: HistoryEntry[]
 }
 export interface KitBlock {
@@ -166,7 +171,8 @@ export function translateBlock(
   block: DiffBlock,
   /** null: the kit itself — nothing is translated. */
   names: Names | null,
-  options?: { translate?: boolean }
+  /** `sub` replaces the names translation for every translated line (a plugin's translator). */
+  options?: { translate?: boolean; sub?: (text: string) => string }
 ): string
 export function countLines(text: string): number
 export function stripIndexLines(text: string): string
@@ -234,6 +240,9 @@ export interface NoteCheckOptions {
  * Everything wrong with one porting note, as sentences — the ONE statement of the note schema,
  * read by `release-check.mjs` and by `upgrade-notes.test.ts`.
  */
+/** A note's length guide: past it the tools warn, they never fail. */
+export const NOTE_LINES_GUIDE: number
+export function noteLengthWarning(text: string, file?: string): string | null
 export function noteProblems(text: string, options?: NoteCheckOptions): string[]
 export function compareVersions(a: string, b: string): -1 | 0 | 1
 export const VERSION_RE: RegExp

@@ -43,13 +43,13 @@ const readWeb = (file: string) => fs.readFileSync(path.join(WEB_DIR, file), 'utf
 describe('parseNvmrc / versionAtLeast', () => {
   it('reads the major from the common .nvmrc shapes', () => {
     expect(parseNvmrc('24\n')).toBe(24)
-    expect(parseNvmrc('v24.1.0')).toBe(24)
+    expect(parseNvmrc('v26.1.0')).toBe(26)
     expect(parseNvmrc('lts/*')).toBeNaN()
-    expect(parseNvmrc(readWeb('../../.nvmrc'))).toBe(24)
+    expect(parseNvmrc(readWeb('../../.nvmrc'))).toBe(26)
   })
 
   it('compares majors, tolerating a v prefix and junk', () => {
-    expect(versionAtLeast('v24.16.0', 24)).toBe(true)
+    expect(versionAtLeast('v26.13.0', 26)).toBe(true)
     expect(versionAtLeast('25.0.0-pre', 24)).toBe(true)
     expect(versionAtLeast('v22.12.0', 24)).toBe(false)
     expect(versionAtLeast(undefined, 24)).toBe(false)

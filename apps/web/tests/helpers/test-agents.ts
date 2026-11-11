@@ -4,10 +4,13 @@
  * never in `src/`:
  *
  * - `test-summarize` — one forced `submit_summary` call, an `approval` interrupt before an optional
- *   `ingestText` write behind `ctx.once`, artifacts, `ai_usage` under `agent:test-summarize`;
+ *   `ingestText` write behind `ctx.once`, artifacts;
  * - `test-research` — a `runToolLoop` over `ctx.tools` plus a `save_note` tool gated by
- *   `requiresApproval` (`allowEdits`), checkpointed (`ctx.checkpoint`), the loop's usage written
- *   once (`ctx.once('loop-usage')`), ending in a terminal `submit_answer`.
+ *   `requiresApproval` (`allowEdits`), checkpointed (`ctx.checkpoint`), ending in a terminal
+ *   `submit_answer`.
+ *
+ * Neither writes `ai_usage`: the runtime's meter ledgers every call through `ctx.chat.client`, one
+ * row per call under `agent:<key>`, carrying the run id.
  *
  * They are registered through the PLUGIN seam, exactly as an installed plugin's agents are:
  * a file mocks both barrels, and is `// @vitest-isolate` for it —
@@ -22,7 +25,6 @@
  * Every runtime import is LAZY (inside `run`): this module is loaded by the `@/plugins/server`
  * mock factory, and a top-level import of a module that reads that barrel would close a cycle.
  */
-import type { TokenUsage } from '@rocketpod/shared/ai/chat'
 import { approvalPayloadSchema } from '@rocketpod/shared/ai/interrupts'
 import type { PromptDefinition } from '@rocketpod/shared/ai/prompts'
 import { z } from 'zod'
@@ -43,7 +45,6 @@ export const SAVE_NOTE_TOOL = 'save_note'
 
 const kit = () => import('@/api/services/ai/agent-loop')
 const ingest = () => import('@/api/services/ai/ingest')
-const usageLedger = () => import('@/api/services/ai/usage')
 
 // ---- test-summarize -----------------------------------------------------------------------------
 
@@ -79,7 +80,6 @@ const testSummarizeAgent: AgentDefinition<SummarizeInput, SummarizeOutput> = {
 
   async run(ctx) {
     const { callStructuredTool } = await kit()
-    const { recordUsage } = await usageLedger()
     const { input } = ctx
     await ctx.step('precheck', 'Checking the input', 'running')
     const text = input.text.trim()
@@ -105,15 +105,6 @@ const testSummarizeAgent: AgentDefinition<SummarizeInput, SummarizeOutput> = {
           description: 'Submit the summary and its key points.',
           schema: submitSummarySchema,
         },
-        onUsage: usage =>
-          void recordUsage(ctx.db, {
-            tenantId: ctx.tenantId,
-            userId: ctx.userId,
-            feature: `agent:${TEST_SUMMARIZE}`,
-            provider: ctx.chat.client.provider,
-            model: ctx.chat.model,
-            usage,
-          }),
       })
       await ctx.emit({
         type: 'tool.end',
@@ -246,7 +237,6 @@ const testResearchAgent: AgentDefinition<ResearchInput, ResearchOutput> = {
 
   async run(ctx) {
     const { runToolLoop } = await kit()
-    const { recordUsage } = await usageLedger()
     const system = await ctx.prompt()
     const messages: ChatMessage[] = [{ role: 'user', content: `Research this: ${ctx.input.topic}` }]
     const resume = await ctx.checkpoint.load()
@@ -270,20 +260,6 @@ const testResearchAgent: AgentDefinition<ResearchInput, ResearchOutput> = {
       ...(resume ? { resume } : {}),
       onCheckpoint: checkpoint => ctx.checkpoint.save(checkpoint),
       onStep: () => ctx.checkCancelled(),
-    })
-    // Once per RUN, summing every attempt: the resumed loop's usage already includes the turns the
-    // checkpoint carried, so writing it per attempt would ledger them twice.
-    await ctx.once('loop-usage', async () => {
-      const usage: TokenUsage = loop.usage
-      await recordUsage(ctx.db, {
-        tenantId: ctx.tenantId,
-        userId: ctx.userId,
-        feature: `agent:${TEST_RESEARCH}`,
-        provider: ctx.chat.client.provider,
-        model: ctx.chat.model,
-        usage,
-      })
-      return { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens }
     })
     const submitted = submitAnswerSchema.safeParse(loop.terminalInput)
     const answer = submitted.success ? submitted.data.answer : `No answer (${loop.stopReason}).`

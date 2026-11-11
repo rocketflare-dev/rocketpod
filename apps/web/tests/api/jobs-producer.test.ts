@@ -4,7 +4,9 @@
  * stays inline (a person is waiting) and enqueues nothing. Assertions run against the
  * `RecordingQueue` behind `stubs(env).queue`.
  */
+
 import { jobEnvelopeSchema } from '@rocketpod/shared/jobs'
+import { eq } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
 import {
   buildJobEnvelope,
@@ -12,6 +14,7 @@ import {
   enqueueJobs,
   JobsQueueNotConfiguredError,
 } from '@/api/services/jobs'
+import { teamInvitations } from '@/db/schema'
 import {
   createTestSession,
   createTestTenantWithUser,
@@ -169,6 +172,10 @@ describe('invitation routes enqueue email.send', () => {
     const { id } = await json<{ id: string }>(created)
     const first = (stubs(env).queue.messages[0]?.body as EmailJob | undefined)?.payload.link
     expect(first).toBeDefined()
+    await db
+      .update(teamInvitations)
+      .set({ lastSentAt: new Date(Date.now() - 3_600_000) })
+      .where(eq(teamInvitations.id, id))
     const res = await request(
       `/api/invitations/${id}/resend`,
       { method: 'POST', headers: cookie },

@@ -64,6 +64,8 @@ x-app: &app
     OIDC_SESSION_MAX_AGE_DAYS: ${OIDC_SESSION_MAX_AGE_DAYS:-}
     JOBS_CONCURRENCY: ${JOBS_CONCURRENCY:-2}
     RUNS_CONCURRENCY: ${RUNS_CONCURRENCY:-4}
+    # Off by default: `true` records prompts, completions and tool I/O in traces and `ai_spans`.
+    OBSERVABILITY_CAPTURE_CONTENT: ${OBSERVABILITY_CAPTURE_CONTENT:-false}
   depends_on: &app-depends
     migrate:
       condition: service_completed_successfully

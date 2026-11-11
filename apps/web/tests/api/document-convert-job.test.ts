@@ -133,6 +133,33 @@ describe('document.convert', () => {
     )
   })
 
+  it('a conversion with NUL and control characters in its text still stores and indexes', async () => {
+    const { tenant, user } = await createTestTenantWithUser(db, 'owner')
+    const env = createTestEnv()
+    const { row: doc } = await pendingUpload(
+      env,
+      tenant.id,
+      user.id,
+      'Invoice\u0000 total\u0001 42\tEUR.\r\nPaid\u000B in full.\u001F'
+    )
+
+    const { msg } = await run(env, tenant.id, doc.id)
+
+    expect(msg.ack).toHaveBeenCalledTimes(1)
+    expect(msg.retry).not.toHaveBeenCalled()
+    const row = await rowOf(doc.id)
+    expect(row).toMatchObject({ status: 'indexed', error: null })
+    expect(row?.content).toContain('Invoice total 42\tEUR.\r\nPaid in full.')
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: asserting they are gone
+    expect(row?.content).not.toMatch(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/)
+    const pieces = await db
+      .select()
+      .from(chunks)
+      .where(and(eq(chunks.tenantId, tenant.id), eq(chunks.documentId, doc.id)))
+    expect(pieces.length).toBeGreaterThan(0)
+    expect(pieces.some(p => p.text.includes('Invoice total 42'))).toBe(true)
+  })
+
   it('a format: error answer is permanent → failed with the reason, acked, no retry', async () => {
     const { tenant, user } = await createTestTenantWithUser(db, 'owner')
     const env = createTestEnv()

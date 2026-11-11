@@ -8,12 +8,12 @@
 import { lt, sql } from 'drizzle-orm'
 import { type AppConfig, loadConfig } from '../config'
 import { affected, type Database, openDatabase } from '../db/client'
-import { aiSpans, operationLocks, rateLimits, userSessions } from '../db/schema'
+import { aiSpans, operationLocks, pluginEvents, rateLimits, userSessions } from '../db/schema'
 import { resolvePlatform } from '../platform'
 import type { Platform, WaitUntil } from '../platform/types'
 import { serverPlugins } from '../plugins/server'
 import { pruneMagicLinkTokens } from './auth/magic-link'
-import { pruneInvitations } from './services/invitations'
+import { pruneInvitationSendCounters, pruneInvitations } from './services/invitations'
 import type { AppBindings } from './types'
 import { type Logger, loggerFor } from './utils/core/logger'
 
@@ -54,6 +54,7 @@ export async function runPruneExpired(db: Database) {
   ).length
   const magicLinks = await pruneMagicLinkTokens(db)
   const invitations = await pruneInvitations(db)
+  const invitationSendCounters = await pruneInvitationSendCounters(db)
   // The platform's limiter and locks: a key whose newest hit left its window, a lock whose
   // holder never released it.
   const rateLimitKeys = affected(
@@ -62,7 +63,14 @@ export async function runPruneExpired(db: Database) {
   const operationLockKeys = affected(
     await db.delete(operationLocks).where(lt(operationLocks.expiresAt, sql`now()`))
   )
-  return { sessions, magicLinks, invitations, rateLimitKeys, operationLockKeys }
+  return {
+    sessions,
+    magicLinks,
+    invitations,
+    invitationSendCounters,
+    rateLimitKeys,
+    operationLockKeys,
+  }
 }
 
 /** Nightly prune of expired rows: counts are logged so the run is auditable. */
@@ -106,9 +114,31 @@ export const pruneAiSpans: ScheduledTask = {
   },
 }
 
+/**
+ * Drop `plugin_events` older than `EVENTS_RETENTION_DAYS`. A payload may hold personal data —
+ * a form's fields — so the window is short (7 days) and this runs nightly; one DELETE across every
+ * tenant from the `(tenant_id, created_at)` index, for the reason `runPruneAiSpans` gives. A
+ * delivery still retrying past the cutoff (it cannot be: the backoff ends within the hour) finds no
+ * row and is acknowledged.
+ */
+export async function runPruneEvents(db: Database, retentionDays: number, now = new Date()) {
+  const cutoff = new Date(now.getTime() - retentionDays * 24 * 60 * 60 * 1000)
+  const events = affected(await db.delete(pluginEvents).where(lt(pluginEvents.createdAt, cutoff)))
+  return { events, cutoff: cutoff.toISOString() }
+}
+
+/** Nightly retention for recorded plugin events. */
+export const pruneEvents: ScheduledTask = {
+  name: 'pruneEvents',
+  async run({ db, config, logger }) {
+    const result = await runPruneEvents(db, config.EVENTS_RETENTION_DAYS)
+    logger.info(result, 'pruneEvents: removed expired plugin events')
+  },
+}
+
 /** Cron expression → tasks. The registry IS the schedule: nothing else lists an expression. */
 const CORE_SCHEDULED_TASKS: Record<string, ScheduledTask[]> = {
-  '0 4 * * *': [pruneExpired, pruneAiSpans],
+  '0 4 * * *': [pruneExpired, pruneAiSpans, pruneEvents],
 }
 
 /**

@@ -22,7 +22,7 @@ import {
   agentRunStatusSchema,
 } from '@rocketpod/shared/ai/agents'
 import { useState } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router'
 import {
   EmptyState,
   PageHeader,
@@ -67,6 +67,14 @@ export default function AgentsPage() {
                     {agent.exclusive && (
                       <span className="badge badge-ghost badge-sm" title="One run at a time">
                         exclusive
+                      </span>
+                    )}
+                    {agent.policy?.maxTurns && (
+                      <span
+                        className="badge badge-ghost badge-sm"
+                        title={`Up to ${agent.policy.maxTurns} model turns per run; when it runs out: ${agent.policy.onExhaustion ?? 'final-answer'}`}
+                      >
+                        ≤{agent.policy.maxTurns} turns
                       </span>
                     )}
                   </div>
@@ -137,7 +145,15 @@ function RunsTable({ titleOf }: { titleOf: (agentKey: string) => string }) {
   const rows = runs.data?.items ?? []
 
   const requestedBy = (run: AgentRun) =>
-    run.requestedByUserId === null ? (
+    run.triggerEvent ? (
+      // Started by a plugin event: the event's name is who asked.
+      <span
+        className="font-mono text-xs text-muted"
+        title={`Started by the ${run.triggerEvent} event`}
+      >
+        {run.triggerEvent}
+      </span>
+    ) : run.requestedByUserId === null ? (
       <span className="text-muted">system</span>
     ) : run.requestedByUserId === user?.id ? (
       'You'

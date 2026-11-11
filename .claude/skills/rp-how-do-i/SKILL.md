@@ -137,6 +137,46 @@ ones their slice touches, and say what enforces each, so the rule is a test and 
   them on: the decision key must be stable across attempts (a reused key with different questions
   FAILS the run), and the items a decision is about must be frozen behind `ctx.once` first. Without
   a TypeSafe key the chat model answers, uncalibrated — tell them before they tune a threshold.
+- **Volume: when the agent runs per case, many times a day** (D39). Ask how many cases a day, and
+  whether two of them may ever run at once for one organisation. The answers pick three things:
+  - **`exclusive`** — `true` only when two runs would step on each other (one shared document, one
+    mailbox). A per-case agent is `exclusive: false`, like `triage-research`; only a non-exclusive
+    agent can be batched (`POST /api/agents/runs/batch`, ≤ 100 inputs, or `rocketpod agents run
+    <key> --batch cases.jsonl`), and every enqueue counts against
+    `AGENT_MAX_ACTIVE_RUNS_PER_TENANT` (50 — a 429, not a queue: the caller retries).
+  - **Fan-out inside one run is `ctx.map`, never `Promise.all` over `ctx`.** Two items calling
+    `ctx.decide('relevant', …)` collide on one key and the second silently gets the first's answer;
+    `ctx.map('screen', items, (item, scope) => …)` gives each item its own scope (`screen[3]/relevant`)
+    and replays finished items on a retry. At most six in flight. Freeze the items behind `ctx.once`
+    first, return ids and scalars from the item, and expect one park for every ask the items raise.
+  - **A budget, before they ship it.** At volume a bad prompt is a bill: set `meta.budget`
+    (`maxTokens`, `maxCostUsd`) on the agent and `AGENT_TENANT_DAILY_COST_USD` in the deployment's
+    environment (`.env`, the chart's `config`). Every call through `ctx.chat.client` and
+    `ctx.decide` is already one `ai_usage` row with the run id — so they must NOT write usage
+    themselves (it double-counts); `ctx.recordUsage` is only for a client they built.
+    `GET /api/agents/runs/:id` shows what a run cost.
+  Then point them at `/rp-agent-replay` to prove a threshold change against yesterday's cases before
+  it runs on today's.
+- **"Start an agent when X happens"** (D42) — a form is submitted, a note is created, a sync
+  finds a new record. Do not coach a job that calls `startAgentRun`, and never a route that starts
+  the run inline: X is a declared plugin EVENT and the agent subscribes to it. Ask one question
+  first — **does the event alone decide, or does a person choose the agent per subject?**
+  - **The event decides** → `triggers: [eventTrigger('<id>.<thing>.<happened>', { where?, input })]`
+    on the agent definition. `where` filters the payload, `input` builds the agent's input (its
+    `inputSchema` validates it; invalid input is logged and dropped, not retried). One run per
+    (event, agent), however often the delivery repeats; the run shows the event as who started it.
+  - **A person picks** ("On submit, start …" on a form block) → the agent opts in with
+    `bindable: [eventBinding(event, { input })]`; the editor's dropdown reads
+    `GET /api/agents/bindable?event=`; the subject's own `eventHandlers` entry reads the STORED
+    choice and calls `eventCtx(ctx).startBoundAgent(key)`, which re-checks the opt-in, so a forged
+    key starts nothing. Never take the agent key from the visitor's submission.
+  - **The emitter**: declare the event in the plugin's shared `events` (zod payload, `<id>.` names,
+    listed in `plugin.json` `"events"`), then `await ctx.emit(name, { payload, idempotencyKey:
+    '<thing>:<id>' })` after the row is stored. Keep the payload to ids and what subscribers need —
+    it is kept 7 days (`EVENTS_RETENTION_DAYS`) and may hold personal data; never log it.
+  - The app's own code subscribes in `apps/web/src/api/services/events/app-handlers.ts`. Worked
+    example: `example-feature` (`POST /notes` emits, `events/note-created.ts` handles,
+    `agents/note-stats.ts` is triggered). `docs/CONCEPTS.md` §16 "Plugin events".
 
 Four more when the answer to step 0 was "plugin", and every one of them is a test rather than
 advice:

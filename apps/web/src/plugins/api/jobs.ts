@@ -22,8 +22,15 @@ import type { TaskContext } from '../../api/scheduled'
 import { tenantFeatures } from '../../api/services/features'
 import { enqueueJob, enqueueJobs } from '../../api/services/jobs'
 import { realtimeEvent } from '../../api/services/realtime'
+import type { StorageService } from '../../api/services/storage'
 import type { Platform } from '../../platform/types'
+import { agentRunStarter, type StartAgentRunInput, type StartedAgentRun } from './agent-runs'
+import { type Emit, eventEmitter } from './emit'
 import { createStepRealtimeFor } from './realtime-step'
+import { filesStorage } from './storage'
+
+export type { StartAgentRun, StartAgentRunInput, StartedAgentRun } from './agent-runs'
+
 import type { PluginContext } from './types'
 
 export type { JobEnvelope, JobInput, JobOf, JobType } from '@rocketpod/shared/jobs'
@@ -58,6 +65,28 @@ export interface BackgroundMethods {
    * tenant's override and the platform state alone.
    */
   features(tenantId: string): Promise<readonly string[]>
+  /**
+   * The platform's object store, or a 503 `storage_not_configured` — loud, because a silently
+   * absent store loses bytes. The same service `RequestCtx.storage()` returns. Write under
+   * `tenants/<tenantId>/<plugin id>/…` so the `tenant.purge` job removes the objects with the tenant.
+   */
+  storage(): StorageService
+  /**
+   * Start an agent run for one organisation and return its id — `POST /api/agents/runs` from a
+   * job, through the same `enqueueRun`: input validation (400), the exclusive slot, the active-run
+   * cap (429 `agent_runs_limit`), the daily budget (429 `ai_budget_exceeded`), the engine start
+   * (503 `agent_runs_not_configured` without `platform.runs`). Pass an `idempotencyKey` naming the
+   * work (`receipt:<documentId>`) so a redelivered message answers the first run, `deduplicated`,
+   * instead of starting a second. Part of `feature-agents`: an app without the agent runtime has
+   * no such method.
+   */
+  startAgentRun(input: StartAgentRunInput): Promise<StartedAgentRun>
+  /**
+   * Emit a declared plugin event for one organisation: validated against the declaration
+   * (400), recorded in `plugin_events`, one delivery queued per subscriber; never runs a handler.
+   * Pass an `idempotencyKey` naming the thing (`submission:<id>`) so a redelivered job emits once.
+   */
+  emit: Emit
 }
 
 /**
@@ -66,10 +95,19 @@ export interface BackgroundMethods {
  * declared, so a declared variant with no handler is a type error in the plugin rather than a
  * dispatch failure in the host.
  */
-export interface JobCtx extends PluginContext, BackgroundMethods {}
+export interface JobCtx extends PluginContext, BackgroundMethods {
+  /**
+   * Which background context this is. A brand as much as a field: the few methods that only a
+   * job or a cron task may call (`ingestPlatformDocument`) take `JobCtx | CronCtx`, and the
+   * structurally identical `PublicCtx` carries no `kind`, so passing one is a type error.
+   */
+  readonly kind: 'job'
+}
 
 /** One cron run. `waitUntil` exists here because a scheduled invocation genuinely has one. */
 export interface CronCtx extends PluginContext, BackgroundMethods {
+  /** See `JobCtx.kind`. */
+  readonly kind: 'cron'
   waitUntil(promise: Promise<unknown>): void
 }
 
@@ -78,8 +116,8 @@ export interface CronCtx extends PluginContext, BackgroundMethods {
  * runtime — the queue and the realtime hub come from it, never from a value on `env`.
  */
 export function backgroundMethods(
-  { db, config }: Pick<PluginContext, 'db' | 'config'>,
-  platform: Pick<Platform, 'jobs' | 'realtime'>
+  { db, config, logger }: Pick<PluginContext, 'db' | 'config' | 'logger'>,
+  platform: Platform
 ): BackgroundMethods {
   return {
     enqueue: (input, options) => enqueueJob(platform.jobs, input, options),
@@ -96,12 +134,16 @@ export function backgroundMethods(
       )
     },
     features: tenantId => tenantFeatures(db, config, tenantId),
+    storage: () => filesStorage(platform),
+    startAgentRun: agentRunStarter({ db, config, logger, platform }),
+    emit: eventEmitter({ db, config, logger, env: {}, platform }),
   }
 }
 
 /** Adapt the core `JobContext`. The only place a plugin's job half names a core internal. */
 export function jobCtx(ctx: JobContext): JobCtx {
   return {
+    kind: 'job',
     db: ctx.db,
     config: ctx.config,
     logger: ctx.logger,
@@ -114,6 +156,7 @@ export function jobCtx(ctx: JobContext): JobCtx {
 /** Adapt the core `TaskContext`. */
 export function cronCtx(ctx: TaskContext): CronCtx {
   return {
+    kind: 'cron',
     db: ctx.db,
     config: ctx.config,
     logger: ctx.logger,

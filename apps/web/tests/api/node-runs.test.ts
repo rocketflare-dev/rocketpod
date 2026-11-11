@@ -479,7 +479,7 @@ describe('agent runs on the Node worker', () => {
 
   async function queuedRun(input: Record<string, unknown> = { text: 'Volcanoes erupt.' }) {
     const { user, tenant } = await createTestTenantWithUser(db, 'member')
-    const { run } = await enqueueRun(db, platform, {
+    const { run } = await enqueueRun(db, config, platform, {
       tenantId: tenant.id,
       agentKey: TEST_SUMMARIZE,
       input,

@@ -47,7 +47,7 @@ export function applyCoreEdits(text: string, edits: CoreEdit[]): string
 export function revertCoreEdits(text: string, edits: CoreEdit[]): string
 export function coreEditsByFile(manifest: { coreEdits?: CoreEdit[] }): Map<string, CoreEdit[]>
 
-export type FileRole = 'copy' | 'note' | 'fragment' | 'meta' | 'repo-only' | 'refused'
+export type FileRole = 'copy' | 'note' | 'fragment' | 'meta' | 'repo-only' | 'seed' | 'refused'
 export const FILE_ROLES: readonly FileRole[]
 export function pluginRoots(id: string): string[]
 export const PLUGIN_MANIFEST_FILE: string
@@ -58,12 +58,56 @@ export interface FileClassification {
   root?: string
   /** Set when the file belongs to a declared skill (`skills/<dir>/…` → `.claude/skills/<dir>/…`). */
   skill?: string
+  /** Set on a `seed`: the declared `hostFiles` path the file falls under. */
+  hostFile?: string
 }
 export function classifyPluginFile(
   relPath: string,
   id: string,
-  options?: { skills?: readonly string[] }
+  options?: { skills?: readonly string[]; hostFiles?: readonly HostFile[] }
 ): FileClassification
+
+/** `.claude/settings.json` — where a plugin's Claude Code hooks are merged. */
+export const CLAUDE_SETTINGS_FILE: string
+export const CLAUDE_HOOK_EVENTS: readonly string[]
+export const MAX_CLAUDE_HOOK_TIMEOUT: number
+/** One declared hook, flattened: `claudeHooks[event][]`. */
+export interface ClaudeHook {
+  event: string
+  matcher?: string
+  command: string
+  timeout?: number
+}
+export function parseClaudeHookCommand(command: unknown): { dir: string; script: string } | null
+export function claudeHookOwner(command: unknown, ids: readonly string[]): string | null
+export function pluginClaudeHooks(manifest: unknown): ClaudeHook[]
+export function claudeHookProblems(manifest: unknown): string[]
+export function ownedClaudeHooks(
+  settings: unknown,
+  id: string,
+  installedIds?: readonly string[]
+): ClaudeHook[]
+/** `text` null means "no file" — the input when absent, the output when nothing is left. */
+export function setClaudeHooks(
+  settingsText: string | null,
+  id: string,
+  hooks: readonly ClaudeHook[],
+  options?: { installedIds?: readonly string[] }
+): { text: string | null; added: ClaudeHook[]; removed: ClaudeHook[] }
+export function describeClaudeHook(hook: ClaudeHook): string
+
+/** One `hostFiles` entry: seeded at `path` from `from` (a file or a directory) in the plugin repo. */
+export interface HostFile {
+  path: string
+  from: string
+}
+export function hostFileRoots(id: string): string[]
+export function pluginHostFiles(manifest: unknown): HostFile[]
+export function hostFileProblems(manifest: unknown): string[]
+export function hostFileTarget(
+  relPath: string,
+  hostFiles: readonly HostFile[]
+): { target: string; entry: HostFile } | null
 
 /** `.claude/skills/` — where a plugin's declared skills land in a host. */
 export const SKILLS_ROOT: string
@@ -86,6 +130,19 @@ export function undeclaredSkillDirs(
  * means installable. This kit has no Cloudflare runtime to bind them on.
  */
 export function pluginPlatformProblems(manifest: PluginManifest): string[]
+export function publicSitesProblems(manifest: {
+  publicSites?: { hostsVar?: unknown }
+  vars?: unknown[]
+}): string[]
+export function declaresPublicSites(manifest: { publicSites?: unknown } | null | undefined): boolean
+export function pluginAppOwned(manifest: { appOwned?: unknown } | null | undefined): string[]
+export function isAppOwnedPath(file: string, owned: readonly string[]): boolean
+export function appOwnedProblems(manifest: {
+  id?: string
+  anchor?: string
+  paths?: string[]
+  appOwned?: unknown
+}): string[]
 
 /** A required peer plugin: an id alone asks for presence, `minVersion` adds a FLOOR. */
 export type PluginRequirement = string | { id: string; minVersion?: string | null }
@@ -119,6 +176,12 @@ export interface PluginManifest {
   registries?: string[]
   /** Skill directories shipped at `skills/<dir>/`, each `<id>` or `<id>-*`; land in `.claude/skills/`. */
   skills?: string[]
+  /** Claude Code hooks merged into `.claude/settings.json`, each running a script in a declared skill. */
+  claudeHooks?: Record<string, Array<{ matcher?: string; command: string; timeout?: number }>>
+  /** Files seeded once into `docs/<id>/`, `apps/web/src/ui/public/<id>/` or `apps/web/src/host/<id>/`. */
+  hostFiles?: HostFile[]
+  /** The events its shared entry declares, each `<id>.<name>` (never `kit.`). */
+  events?: string[]
   requires?: PluginRequires
   dependencies?: Record<string, Record<string, string>>
   /** Rocketflare's Cloudflare bindings; any entry makes the plugin uninstallable here. */
@@ -183,6 +246,11 @@ export function buildPluginSurface(
   }
 ): Surface
 export function surfaceDirectories(surface: Surface): string[]
+export function pluginAnchor(manifest: { id: string; anchor?: string }): string
+export function manifestPathProblems(
+  manifest: object | null | undefined,
+  id?: string
+): { field: string; path: string; problem: string }[]
 export function archiveSql(id: string, tables: readonly string[]): string
 
 export interface AddPlan {
@@ -196,6 +264,10 @@ export interface AddPlan {
   barrels: BarrelKind[]
   /** Dependencies the host, or a peer plugin, already pins at another range. */
   clashes?: readonly DependencyClash[]
+  /** Each host file the install seeds (`seed`) or finds already there (`keep`). */
+  hostSeeds?: ReadonlyArray<{ target: string; state: 'seed' | 'keep' }>
+  /** Whether `.claude/settings.json` exists; false prints "which is created" beside the hooks. */
+  settingsExists?: boolean
   verify?: string | null
 }
 export function renderAddPlan(plan: AddPlan): string[]
@@ -398,6 +470,12 @@ export interface TableClash {
   /** The other plugins declaring the same name, sorted. */
   others: string[]
 }
+export const EVENT_NAME_RE: RegExp
+export function eventNameProblem(pluginId: string, name: unknown): string | null
+export function eventClashes(
+  manifests?: readonly ({ id?: string; events?: unknown } | null | undefined)[]
+): { event: string; id: string; others: string[] }[]
+export function undeclaredManifestEvents(events?: readonly unknown[], sharedSource?: string): string[]
 export function tableClashes(
   manifests?: ReadonlyArray<PluginManifest | null | undefined>
 ): TableClash[]

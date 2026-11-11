@@ -40,7 +40,8 @@ so it needs `run()` outside a step, and the engine replays everything outside a 
 step is unlimited, so a long run is a bigger `timeout`, not more steps.
 
 Rules: idempotent steps (the `agent_runs` row is the claim); cooperative cancel (poll the row between
-turns); no `waitUntil` — await everything, including nudges (`createStepRealtime().settle()`).
+turns); no `waitUntil` — await everything, including nudges (`createStepRealtime().settle()`) and events
+(`emit`).
 `pnpm dev` runs the engine locally; inspect a run in the `openworkflow` schema
 (`workflow_runs`, `step_attempts`) by the `instanceId` on its `agent_runs` row.
 

@@ -16,8 +16,16 @@ export const WEBHOOK_TOLERANCE_S = 5 * 60
 
 const SECRET_PREFIX = 'whsec_'
 
-function keyBytes(secret: string): Uint8Array<ArrayBuffer> {
-  return new Uint8Array(Buffer.from(secret.slice(SECRET_PREFIX.length), 'base64'))
+/** Base64 to bytes with `atob`; null when it is not valid base64 (`Buffer` would silently skip it). */
+function base64Bytes(value: string): Uint8Array<ArrayBuffer> | null {
+  try {
+    const binary = atob(value)
+    const bytes = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+    return bytes
+  } catch {
+    return null
+  }
 }
 
 /** The `webhook-*` headers of a request, or null when one is missing. */
@@ -37,11 +45,13 @@ export async function verifyStandardWebhook(
 ): Promise<boolean> {
   if (!secret.startsWith(SECRET_PREFIX)) return false
   if (!/^\d+$/.test(headers.timestamp)) return false
+  const secretKey = base64Bytes(secret.slice(SECRET_PREFIX.length))
+  if (!secretKey || secretKey.length === 0) return false
   const timestamp = Number(headers.timestamp)
   if (Math.abs(now.getTime() / 1000 - timestamp) > WEBHOOK_TOLERANCE_S) return false
   const key = await crypto.subtle.importKey(
     'raw',
-    keyBytes(secret),
+    secretKey,
     { name: 'HMAC', hash: 'SHA-256' },
     false,
     ['verify']
@@ -50,7 +60,8 @@ export async function verifyStandardWebhook(
   for (const entry of headers.signature.split(' ')) {
     const [version, value] = entry.split(',')
     if (version !== 'v1' || !value) continue
-    const given = new Uint8Array(Buffer.from(value, 'base64'))
+    const given = base64Bytes(value)
+    if (!given) continue
     // `verify` compares in constant time.
     if (await crypto.subtle.verify('HMAC', key, given, content)) return true
   }

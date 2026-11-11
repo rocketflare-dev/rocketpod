@@ -13,7 +13,7 @@
 import type { GuideOutlineItem } from '@rocketpod/shared/guide'
 import { memo, useMemo } from 'react'
 import ReactMarkdown, { type Components, type Options } from 'react-markdown'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 import rehypeRaw from 'rehype-raw'
 import remarkGfm from 'remark-gfm'
 import { remarkGuide } from './remarkGuide'

@@ -9,13 +9,15 @@
 import type { Hono, MiddlewareHandler } from 'hono'
 import { serverPlugins } from '../plugins/server'
 import { authMiddleware, globalAdminMiddleware } from './middleware/auth'
-import { isUploadPath, jsonBodyLimit } from './middleware/body-limit'
+import { apiBodyLimit, isUnderPrefix, jsonBodyLimit } from './middleware/body-limit'
 import { configMiddleware } from './middleware/config'
 import { corsMiddleware } from './middleware/cors'
 import { csrfProtection } from './middleware/csrf'
 import { databaseMiddleware } from './middleware/database'
 import { errorHandler, notFoundBody, notFoundHandler } from './middleware/error-handler'
 import { platformMiddleware } from './middleware/platform'
+import { mountPublicRoutes, publicBodyLimitOverrides } from './middleware/public-mounts'
+import { publicSitesMiddleware } from './middleware/public-sites'
 import { authRateLimit } from './middleware/rate-limit'
 import { requestIdMiddleware, requestLogger } from './middleware/request-logger'
 import { securityHeaders } from './middleware/security-headers'
@@ -56,6 +58,9 @@ import { createRouter } from './utils/routes/router'
 
 const app = createRouter()
 
+/** Every installed plugin's unauthenticated mounts — read twice below (body cap, then routes). */
+const publicMounts = serverPlugins.flatMap(p => p.publicMounts ?? [])
+
 // 1. Error envelope first so every later failure (including config validation) uses it.
 app.onError(errorHandler)
 app.notFound(notFoundHandler)
@@ -67,9 +72,20 @@ app.use('*', configMiddleware)
 app.use('*', platformMiddleware)
 app.use('*', securityHeaders)
 
-// 5. Reject oversized bodies before any parsing or DB work. The upload route mounts its own
-//    (larger) limit — see middleware/body-limit.ts.
-app.use('/api/*', (c, next) => (isUploadPath(c.req.path) ? next() : jsonBodyLimit(c, next)))
+// 5. Reject oversized bodies before any parsing or DB work. The upload routes mount their own
+//    (larger) limit, and a public mount's `bodyLimitBytes` replaces the 1 MB cap beneath its
+//    prefix — see middleware/body-limit.ts.
+app.use(
+  '/api/*',
+  apiBodyLimit(
+    publicBodyLimitOverrides(publicMounts),
+    serverPlugins.flatMap(p => p.uploadPaths ?? [])
+  )
+)
+// A plugin may own a prefix outside `/api` (a protocol endpoint); it gets the JSON cap too.
+for (const prefix of serverPlugins.flatMap(p => p.apiPrefixes ?? [])) {
+  if (!isUnderPrefix(prefix, '/api')) app.use(`${prefix}/*`, jsonBodyLimit)
+}
 app.use('/auth/*', jsonBodyLimit)
 
 // 6–7. CORS answers preflights before CSRF can reject them; CSRF is cookie-only, no DB.
@@ -79,11 +95,15 @@ app.use('*', csrfProtection)
 // 8. Per-request DB client — last of the globals because it is the first thing with real cost.
 app.use('*', databaseMiddleware)
 
-// 9. Per-request tracer: OTLP export when a backend is configured + the `ai_spans` store; flushed in
+// 9. Public site hosts: on a host a plugin claims, its router answers everything, so none of the
+//    mounts below is reachable there. Unconditional pass-through with no `publicSites` plugin.
+app.use('*', publicSitesMiddleware(serverPlugins))
+
+// 10. Per-request tracer: OTLP export when a backend is configured + the `ai_spans` store; flushed in
 //    `waitUntil` after the handler. Streaming routes flush again before their stream closes.
 app.use('/api/*', tracerMiddleware)
 
-// 10. Mounts — auth is applied PER MOUNT so the public surface is enumerable: health, /auth/*,
+// 11. Mounts — auth is applied PER MOUNT so the public surface is enumerable: health, /auth/*,
 //    /api/invite/:token (details; accept resolves the cookie itself), /api/identity/events
 //    (signed by the OIDC issuer). `/api/admin/*` is the only tenant-free cross-tenant path
 //    (globalAdminMiddleware); everything else is `authMiddleware`.
@@ -106,10 +126,9 @@ app.route('/ws', wsRouter)
 // A plugin's PUBLIC mounts — consent callbacks and webhooks a third party calls with no
 // session. Only under `/api/hooks/<plugin id>` (the config test refuses anything else, and refuses
 // an authed mount there), so this line is the whole of the plugin-owned unauthenticated surface.
-// Before the authed table, which never claims `/api/hooks`, so order is belt and braces.
-for (const [prefix, router] of serverPlugins.flatMap(p => p.publicMounts ?? [])) {
-  app.route(prefix, router)
-}
+// Before the authed table, which never claims `/api/hooks`, so order is belt and braces. Each is
+// rate-limited per IP in its own bucket unless it opts out (`middleware/public-mounts.ts`).
+mountPublicRoutes(app, publicMounts)
 const mounts: readonly (readonly [string, Hono<AppEnv>, MiddlewareHandler?])[] = [
   ['/api/me', meRouter],
   ['/api/tenant', tenantRouter],
@@ -157,15 +176,38 @@ for (const [prefix, router, gate] of mounts) {
   app.route(prefix, router)
 }
 
-// 11. SPA via the Node assets layer (`src/node/assets.ts`). Hashed files are served from disk
-//     before the app runs; only navigations reach here, and `ASSETS.fetch` answers index.html for
-//     a client route. API-shaped paths must 404 as JSON.
-app.all('*', c => {
+// 12. SPA via the Node assets layer (`src/node/assets.ts`). The hashed bundles (`/assets/*`, and
+//     `/site-assets/*` for public sites) are served from disk before the app runs; every other
+//     path reaches here. `ASSETS.fetch` answers a file of the UI build that exists and 404s
+//     anything else, and the shell is fetched here for a browser navigation only, so a missing
+//     `/assets/*`, `/site-assets/*` or root file is a 404 rather than `index.html`. An API-shaped
+//     path must 404 as JSON.
+app.all('*', async c => {
   const { pathname } = new URL(c.req.url)
   if (isApiPath(pathname)) return c.json(notFoundBody(pathname), 404)
-  if (c.env.ASSETS) return c.env.ASSETS.fetch(c.req.raw)
   // No `ASSETS` handler (Vite serves the UI in dev, or a bare `app.request` in tests).
-  return c.text('Not Found', 404)
+  if (!c.env.ASSETS) return c.text('Not Found', 404)
+  const res = await c.env.ASSETS.fetch(c.req.raw)
+  if (res.status !== 404 || !isShellNavigation(c.req.raw, pathname)) return res
+  // A fresh request for `/` with the navigation's method and headers (the Node request object
+  // answered 500 when passed as the init).
+  const shell = new Request(new URL('/', c.req.url), {
+    method: c.req.method,
+    headers: c.req.raw.headers,
+  })
+  return c.env.ASSETS.fetch(shell)
 })
+
+/** A browser navigating to a client route, not a request for a file that does not exist. */
+function isShellNavigation(req: Request, pathname: string): boolean {
+  if (req.method !== 'GET' && req.method !== 'HEAD') return false
+  const navigating =
+    req.headers.get('Sec-Fetch-Mode') === 'navigate' ||
+    (req.headers.get('Accept') ?? '').includes('text/html')
+  // The bundles are hashed files, and a root-level name with a dot is `/robots.txt`, not a route.
+  return (
+    navigating && !/^\/(site-)?assets(\/|$)/.test(pathname) && !/^\/[^/]*\.[^/]*$/.test(pathname)
+  )
+}
 
 export { app }

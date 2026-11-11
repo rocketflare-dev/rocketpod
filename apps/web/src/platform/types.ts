@@ -170,6 +170,20 @@ export interface Broadcaster {
    * tenant it names; a platform topic any subscribed socket.
    */
   toTopic(topic: string, event: RealtimeEvent): Promise<BroadcastResult>
+  /**
+   * End admitted sockets whose membership or session is gone, with close code 4001: one person's
+   * in a tenant (`userId`), one session's (`sessionId`), or, with neither, every socket in the
+   * tenant (it was suspended). Call after the change has committed — the database already refuses
+   * the person, and an open socket is the only thing left. Best effort, like every send.
+   */
+  closeSockets(target: SocketCloseTarget): Promise<void>
+}
+
+/** Which admitted sockets `closeSockets` ends; both filters narrow, neither = the whole tenant. */
+export interface SocketCloseTarget {
+  tenantId: string
+  userId?: string
+  sessionId?: string
 }
 
 /** The identity `/ws` hands the hub — the only caller of `accept`. */

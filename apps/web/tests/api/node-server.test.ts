@@ -26,6 +26,7 @@ beforeAll(async () => {
   writeFileSync(path.join(uiDir, 'index.html'), '<!doctype html><title>shell</title>')
   mkdirSync(path.join(uiDir, 'assets'))
   writeFileSync(path.join(uiDir, 'assets', 'app-abc123.js'), 'console.log("app")')
+  writeFileSync(path.join(uiDir, 'robots.txt'), 'User-agent: *')
   // `loadGuide: false`: the boot load writes the GLOBAL `guide_chunks`, which `guide.test.ts` owns.
   server = await startServer({
     env: testEnv(),
@@ -77,15 +78,38 @@ describe('the Node entry, mode web', () => {
     expect(await res.text()).toBe('console.log("app")')
   })
 
-  it('answers a client-side route with the shell (SPA fallback), uncached', async () => {
+  it('answers a navigation to a client-side route with the shell (SPA fallback), uncached', async () => {
+    const navigate = { accept: 'text/html', 'sec-fetch-mode': 'navigate' }
     for (const route of ['/', '/settings/members', '/t/acme/agents/42']) {
-      const res = await fetch(`${base}${route}`)
+      const res = await fetch(`${base}${route}`, { headers: navigate })
       expect(res.status, route).toBe(200)
       expect(res.headers.get('content-type'), route).toMatch(/text\/html/)
       expect(await res.text(), route).toContain('<title>shell</title>')
     }
-    const shell = await fetch(`${base}/settings`)
+    const shell = await fetch(`${base}/settings`, { headers: navigate })
     expect(shell.headers.get('cache-control')).toBe('no-cache')
+  })
+
+  it('serves a root file of the build through the app', async () => {
+    const res = await fetch(`${base}/robots.txt`)
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toMatch(/text\/plain/)
+    expect(await res.text()).toBe('User-agent: *')
+  })
+
+  it('a missing bundle, a missing root file or a non-navigation is a 404, never the shell', async () => {
+    const navigate = { accept: 'text/html', 'sec-fetch-mode': 'navigate' }
+    for (const route of ['/assets/missing.js', '/site-assets/missing.css', '/favicon.ico']) {
+      const res = await fetch(`${base}${route}`, { headers: navigate })
+      expect(res.status, route).toBe(404)
+    }
+    const fetched = await fetch(`${base}/settings`, { headers: { accept: '*/*' } })
+    expect(fetched.status).toBe(404)
+  })
+
+  it('never serves a file outside the build', async () => {
+    const res = await fetch(`${base}/%2e%2e/%2e%2e/etc/passwd`)
+    expect(res.status).toBe(404)
   })
 
   it('a non-GET to a non-API path is a 404, not the shell', async () => {

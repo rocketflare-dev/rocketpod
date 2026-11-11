@@ -32,4 +32,17 @@ spec:
                   name: http
           {{- end }}
     {{- end }}
+    {{- /* A public site host: every path goes to the app, whose public-sites middleware answers it. */}}
+    {{- range .Values.publicSites.hosts }}
+    - host: {{ . | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "rocketpod.fullname" $ }}
+                port:
+                  name: http
+    {{- end }}
 {{- end }}

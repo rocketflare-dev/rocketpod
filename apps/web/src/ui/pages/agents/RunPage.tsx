@@ -31,7 +31,7 @@ import { ChevronLeftIcon, ChevronRightIcon, CpuChipIcon } from '@heroicons/react
 import type { AgentInfo, AgentRunWithEvents } from '@rocketpod/shared/ai/agents'
 import { isRunActive } from '@rocketpod/shared/ai/agents'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams } from 'react-router'
 import { EmptyState, PageHeader, SectionPanel, SkeletonRows, URLTabs } from '@/ui/components/shared'
 import { useAgentList, useAgentRun } from '@/ui/hooks/useAgents'
 import { useAuth } from '@/ui/hooks/useAuth'
@@ -153,8 +153,9 @@ function RunWorkspace({ run, agent }: { run: AgentRunWithEvents; agent?: AgentIn
     return parsed?.success && entry?.artifacts ? entry.artifacts(parsed.data, run.id) : []
   }, [rows, run.artifacts, run.agentKey, run.output, run.id])
 
-  const requestedBy =
-    run.requestedByUserId === null
+  const requestedBy = run.triggerEvent
+    ? `the ${run.triggerEvent} event`
+    : run.requestedByUserId === null
       ? 'system'
       : run.requestedByUserId === user?.id
         ? 'you'

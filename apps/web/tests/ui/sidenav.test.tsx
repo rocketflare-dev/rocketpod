@@ -99,6 +99,20 @@ describe('composeNav', () => {
     expect((out[1] as { label?: string }).label).toBe('A')
   })
 
+  it('folds unlabelled groups into the unlabelled group above them — one list, no gaps', () => {
+    const out = composeNav(config, [
+      { items: [item('/analytics')] },
+      { items: [item('/inbox')] },
+      { label: 'Books', items: [item('/books')] },
+    ])
+    const groups = out.filter(e => 'items' in e) as { label?: string; items: { to: string }[] }[]
+    expect(groups[0]?.items.map(i => i.to)).toEqual(['/', '/analytics', '/inbox'])
+    // A labelled group still gets its own heading, before the anchor.
+    expect(groups.map(g => g.label)).toEqual([undefined, 'Books', 'Organisation', 'Platform'])
+    // …and the core's first group was copied, not edited.
+    expect((config[0] as { items: unknown[] }).items).toHaveLength(1)
+  })
+
   it('does not mutate the core config', () => {
     const before = config.length
     composeNav(config, [plugin, plugin])

@@ -19,6 +19,7 @@ import { eq } from 'drizzle-orm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AGENTS } from '@/api/services/agents/registry'
 import { enqueueRun, RECONCILE_LIVENESS_MS } from '@/api/services/agents/runs'
+import { loadConfig } from '@/config'
 import { agentRunEvents, agentRuns } from '@/db/schema'
 import { fieldsFromJsonSchema } from '@/ui/pages/agents/fields/schemaFields'
 import {
@@ -534,7 +535,7 @@ describe('enqueueRun — the exclusive slot (concurrency_key)', () => {
     AGENTS[TEST_SUMMARIZE] = original
   })
   const enqueue = (tenantId: string, env: TestEnv, concurrencyKey?: string) =>
-    enqueueRun(db, env, {
+    enqueueRun(db, loadConfig(env), env, {
       tenantId,
       agentKey: TEST_SUMMARIZE,
       input: { text: 'Some text.' },

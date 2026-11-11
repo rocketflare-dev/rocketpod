@@ -208,7 +208,7 @@ async function stepToolchain(plan) {
   const pnpmV = pnpmVersion.output.trim().split('\n').pop() ?? ''
   if (pnpmVersion.code !== 0 || !pnpmV.startsWith('10.')) {
     throw new StepError(`pnpm 10.x not found (${pnpmV || 'missing'})`, {
-      hint: 'corepack enable   (reads packageManager from package.json)',
+      hint: 'npm i -g pnpm@10   (Node 26 ships no corepack; pnpm follows packageManager)',
       output: pnpmVersion.output,
       exitCode: EXIT.prerequisite,
     })
@@ -464,8 +464,8 @@ async function stepMigrate() {
 }
 
 /**
- * Install `.rocketflare.json`'s `defaultPlugins` (D31) — what makes a fresh clone of a kit whose
- * features live in plugins come up with those features already there.
+ * Install `.rocketflare.json`'s `defaultPlugins` (D31) — what makes a fresh clone of an app come
+ * up with the plugins it lists already there. The kit lists none.
  *
  * It runs BEFORE the seed on purpose: a plugin contributes a `hooks.seedDemo`, so installing one
  * after `pnpm seed` would leave the demo workspace missing exactly the rows the plugin exists to

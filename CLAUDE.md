@@ -10,8 +10,8 @@ here.
 > before assuming a capability exists; update it when you change one.**
 > **Setup**: asked for setup help → run `/rp-setup` (it drives `scripts/bootstrap.sh --no-dev`, then
 > starts the server): show each `✔ n/10` line, stop on failure. By hand: `SETUP.md` Part 1.
-> **Fresh copy?** `/rp-adapt <slug>`, then `docs/ADAPTING.md`. `/rp-setup`, `/rp-adapt`, `/rp-preflight`,
-> `/rp-traces`, `/rp-evals` and `/rp-plugin` you may run yourself. **Deploying** (image, Compose,
+> **Fresh copy?** `/rp-adapt <slug>`, then `docs/ADAPTING.md`. `/rp-setup`, `/rp-adapt`, `/rp-preflight`, `/rp-how-do-i`,
+> `/rp-upgrade`, `/rp-traces`, `/rp-evals`, `/rp-agent-replay`, `/rp-agent-docs`, `/rp-doc-sync` and `/rp-plugin` you may run yourself. **Deploying** (image, Compose,
 > Helm — `docs/DEPLOY.md`) is `/rp-deploy`: it renders and checks locally, and asks the user before
 > it pushes an image, touches a cluster or creates anything billed.
 > **The Guide** (`docs/CONCEPTS.md` §18): in-app user docs at `/guide` + "Ask the Guide". Pages in
@@ -33,7 +33,7 @@ here.
 
 ## Stack
 
-- **Runtime**: Node 24 — `src/node/server.ts` serves the Hono app on `@hono/node-server`
+- **Runtime**: Node 26 — `src/node/server.ts` serves the Hono app on `@hono/node-server`
   (`SERVER_MODE` `web|worker|all`; `/healthz`, `/readyz`; one Postgres pool per process; SIGTERM
   drains), bundled to `dist/server.js`. Every runtime capability is a `Platform` member
   (`src/platform/types.ts`, `.claude/rules/runtime.md`). pnpm 10
@@ -41,7 +41,7 @@ here.
   Docker locally; Drizzle over postgres.js, the ONE driver (D35, narrowed — Neon's serverless
   driver is gone); `openDatabase(env)` = a view of the Node process pool; raw results only through
   `rows()`/`affected()`
-- **Auth**: arctic (Google, Microsoft, any OIDC issuer — jose-verified `id_token`, off by default) + magic link + dev-login; `__Host-session`; API keys; Postgres rate limit
+- **Auth**: openid-client (Google, Microsoft, any OIDC issuer — jose-verified `id_token`, off by default) + magic link + dev-login; `__Host-session`; API keys; Postgres rate limit
 - **Async / realtime**: pg-boss jobs + cron, `ws` on `/ws` with LISTEN/NOTIFY fan-out (tenant-wide
   nudges, plus registered TOPICS a page subscribes to, gated by `read` on a subject), S3-compatible
   storage (`STORAGE_*`; ranged reads, streamed multipart uploads), OpenWorkflow durable agent runs
@@ -61,7 +61,7 @@ here.
   feedback → `rocketpod evals promote`
 - **Analytics**: not core — the `analytics` PLUGIN (D31), not installed by default until a
   Rocketpod-compatible release exists (`defaultPlugins` is empty)
-- **UI**: React 18 + Vite, DaisyUI 5 / Tailwind v4, React Router 6, TanStack Query 5; served by the Node server from `dist/ui`
+- **UI**: React 19 + Vite, DaisyUI 5 / Tailwind v4, React Router 7, TanStack Query 5; served by the Node server from `dist/ui`
 - **CLI**: commander + chalk + open; `tsx` in dev, esbuild → `dist/cli.js` (bin `rocketpod`)
 - **Tests**: vitest projects `api` · `api-isolated` · `driver` · `ui` · `config` · `kit-only` (the kit's own
   tests, `apps/web/tests/kit-only/`, deleted by the rename — never in a copy) (Postgres :5533, the
@@ -84,6 +84,7 @@ pnpm gate [step…] · pnpm gate --list [--json]  # THE gate: lint → typecheck
 pnpm test  # every package; starts the test DB (:5533) + S3 gateway (:7433); the whole suite, driver conformance included
 TEST_DATABASE_BRANCH=gate-… pnpm test  # a sandbox gate: no Docker, the whole suite on a gate branch over TCP (CONCEPTS §4)
 pnpm eval [suite] [--model x] [--compare] · pnpm eval:baseline · pnpm eval:view  # real-model evals (D33, docs/EVALS.md)
+pnpm web agent:replay <agent> --tenant <slug> [--candidate f] [--live]  # today's agent code over past runs, read-only
 pnpm lint · pnpm typecheck · pnpm build  # workspace-wide
 pnpm web <script>  # any apps/web script (test:api, db:check…)
 pnpm web docs:stale · pnpm web guide:index [--dry-run] · pnpm web guide:shots [--stale]  # the Guide: stale pages / re-embed (needs EMBEDDINGS_API_KEY, costs) / screenshots (Playwright, on demand)
@@ -143,7 +144,9 @@ docs/upgrades/     one porting note per kit release (+ unreleased.md, kit repo o
                    rp-traces (debug a run from its span tree; pick a tracing backend, D32) ·
                    rp-doc-sync (keep the Guide's pages true to the code; docs:stale + the Stop hook) ·
                    rp-evals (+ reference.md — author, run, compare, harvest, baseline, improve; D33) ·
+                   rp-agent-replay (replay an agent's past runs with today's code, no model calls; D38) ·
                    rp-deploy (Compose or Helm, the secrets checklist, never prints a secret) ·
+                   rp-agent-docs (+ check.mjs — audit and fix CLAUDE.md, rules and skills) ·
                    example-feature (demo the reference plugin)
 ```
 
@@ -153,11 +156,12 @@ zod-only, no platform APIs) in `src/ai/agui.ts` alone — the AG-UI wire format 
 protocol's own schemas on both sides, which a mirror cannot give. A fifth dependency needs the same
 written justification, and `apps/web/tests/config/shared-imports.test.ts` enforces the list.
 
-**`apps/cli`.** `login` opens `GET /auth/cli?redirect_uri=http://127.0.0.1:<port>/callback`; the server
-mints a tenant API key `cli:<host>` → `?key=&tenant_id=&tenant_name=`; stored `0600` in
+**`apps/cli`.** `login` opens `GET /auth/cli?redirect_uri=http://127.0.0.1:<port>/callback&state=`; the
+server sends the browser to `/cli/confirm`, whose `POST /auth/cli/confirm` mints a tenant API key
+`cli:<host>` → `?key=&tenant_id=&tenant_name=&state=` (the CLI checks its per-login `state`); stored `0600` in
 `~/.rocketpod/config.json` (`ROCKETPOD_API_KEY`/`ROCKETPOD_URL` for CI). Also `logout|whoami|status|config`,
 `members|keys|activity|groups|features list --json`, `groups members`, `traces list|show`,
-`feedback list`, `evals promote` (`.claude/rules/cli.md`)
+`feedback list`, `evals promote`, `agents list|run <key> --input|--batch|runs list` (D39) (`.claude/rules/cli.md`)
 
 ## Config model
 
@@ -171,7 +175,11 @@ LISTEN; direct or session-mode when PgBouncer runs in transaction mode), `DATABA
 (`postgres` only) · **server**: `SERVER_MODE`/first arg (`web|worker|all`), `PORT` (3001),
 `TRUSTED_PROXY_HOPS` (proxies appending `X-Forwarded-For`, 0) · secret `OAUTH_ENCRYPTION_KEY` ·
 **work**: `JOBS_CONCURRENCY` (2), `JOBS_POLL_INTERVAL_SECONDS` (2), `RUNS_CONCURRENCY` (4),
-`AGENT_INTERRUPT_TIMEOUT`, `AGENT_MAX_OUTPUT_TOKENS`, `AGENT_MAX_TURNS` · **storage**: `STORAGE_DRIVER` (`s3`),
+`AGENT_INTERRUPT_TIMEOUT`, `AGENT_MAX_OUTPUT_TOKENS`, `AGENT_MAX_TURNS`,
+`AGENT_MAX_ACTIVE_RUNS_PER_TENANT` (50; 429 above), `MAX_OWNED_TENANTS_PER_USER` (10),
+`INVITATION_EMAILS_PER_USER_PER_DAY` (500), `INVITATION_EMAILS_PER_TENANT_PER_DAY` (1000),
+`AGENT_RUN_MAX_TOKENS` / `AGENT_RUN_MAX_COST_USD` /
+`AGENT_TENANT_DAILY_COST_USD` (D39 budgets, unset = no cap; `meta.budget` overrides per agent) · **storage**: `STORAGE_DRIVER` (`s3`),
 `STORAGE_ENDPOINT`, `STORAGE_REGION`, `STORAGE_BUCKET`, `STORAGE_FORCE_PATH_STYLE`, secrets
 `STORAGE_ACCESS_KEY_ID`/`STORAGE_SECRET_ACCESS_KEY` · **AI**: secrets `ANTHROPIC_API_KEY`,
 `AI_API_KEY` (+ `AI_BASE_URL`, `AI_MODEL` — OpenAI-compatible), `EMBEDDINGS_API_KEY` (+
@@ -232,7 +240,8 @@ code-quality.md · runtime.md. Runbooks: `docs/DEPLOY.md` · `docs/RLS.md`
   prefixed from it — `example-feature` → `example_*`, and `plugin check` fails a collision — job
   types `<id>.x`, query-key roots `<id>:…`, `/api/<id>`, CUSTOM events `<id>.` — **never `kit.`**),
   reaches core only through the five barrels, its own four published entries and the DECLARED import
-  entries (`@/plugins/api`, `@/db/schema/kit`, `@testkit/*` — `docs/plugin-api.md`), and ships
+  entries (`@/plugins/api`, `@/db/schema/kit`, `@testkit/*`, its own `@/host/<id>/*` —
+  `docs/plugin-api.md`), and ships
   no migration — the host generates the DDL — and declares no Cloudflare `bindings` or
   `workerExports` (`pnpm plugin` refuses them; capabilities come through `ctx.platform`)
 - **Released history is never rewritten**: an adopted copy pins a kit commit in `.rocketflare.json`;

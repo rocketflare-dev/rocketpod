@@ -20,15 +20,21 @@
 
 import {
   EXAMPLE_FEATURE_FLAG,
+  EXAMPLE_NOTE_STATS_AGENT,
+  EXAMPLE_NOTE_STATS_PROMPT,
   EXAMPLE_NOTE_SUBJECT,
   EXAMPLE_PING_JOB,
   exampleFeatureShared,
 } from '@rocketpod/shared/plugins/example-feature/index'
 import type { ServerPlugin } from '@/plugins/api'
 import { requireFeature, toolCtx } from '@/plugins/api'
+import { exampleNoteStatsAgent, exampleNoteStatsPrompt } from './agents/note-stats'
 import { onTenantCreated, seedDemo } from './api/hooks'
 import { exampleFeaturePublicRouter } from './api/public'
 import { exampleFeatureRouter } from './api/routes'
+import { EXAMPLE_SSO_START_PATH } from './api/sso'
+import { EXAMPLE_SSO_METHOD_ID, exampleSsoPolicy } from './api/sso-policy'
+import { exampleNoteCreatedHandler } from './events/note-created'
 import { handleExamplePing } from './jobs/ping'
 import { exampleAgentTools } from './tools/list-example-notes'
 
@@ -49,7 +55,42 @@ export const exampleFeatureServer = {
    * exist without a session.
    */
   publicMounts: [['/api/hooks/example-feature', exampleFeaturePublicRouter]],
+  /**
+   * **A sign-in method on the kit's login page**, read per request so `cfg` decides — here,
+   * development only, because the example SSO behind it vouches for any email (`api/sso.ts`).
+   * The button navigates to `startPath`, which must be under this plugin's `/api/hooks/<id>/`;
+   * `askEmail` puts an email field in front of it (home-realm discovery, for a real plugin).
+   */
+  loginMethods: cfg =>
+    cfg.APP_ENV === 'development'
+      ? [
+          {
+            id: EXAMPLE_SSO_METHOD_ID,
+            label: 'Example SSO (development only)',
+            startPath: EXAMPLE_SSO_START_PATH,
+            askEmail: true,
+          },
+        ]
+      : [],
+  /**
+   * **"SSO required" for the domains a connection owns.** Asked once per sign-in attempt; the kit
+   * then refuses every other method for that address and routes the person to `methodId` — one of
+   * this plugin's own `loginMethods` ids. Here: `@sso-required.example.test`, development only.
+   */
+  ssoPolicy: (_db, email, { config }) => exampleSsoPolicy(email, config),
   jobHandlers: { [EXAMPLE_PING_JOB]: handleExamplePing },
+  /**
+   * **A subscriber to a declared event** — here the plugin's own `example-feature.note.created`,
+   * which `POST /notes` emits. Each handler gets its own queued delivery per event, so one that
+   * fails retries alone; `eventCtx` (inside the handler file) binds it to the event's tenant.
+   */
+  eventHandlers: [exampleNoteCreatedHandler],
+  /**
+   * **An agent the same event starts** — `triggers` on the definition, no handler needed — and
+   * that an editor could bind instead (`bindable`). Checked against `shared.agentKeys`.
+   */
+  agents: { [EXAMPLE_NOTE_STATS_AGENT]: exampleNoteStatsAgent },
+  prompts: { [EXAMPLE_NOTE_STATS_PROMPT]: exampleNoteStatsPrompt },
   /**
    * The tool is written against `ToolCtx`; `toolCtx` adapts the runtime's context at this one
    * boundary. The scope inside it carries the tenant AND what the run's REQUESTER may read, which

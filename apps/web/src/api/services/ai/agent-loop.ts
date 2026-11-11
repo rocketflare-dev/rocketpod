@@ -7,11 +7,13 @@
  */
 
 import type Anthropic from '@anthropic-ai/sdk'
+import type { AgentPolicy } from '@rocketpod/shared/ai/agents'
 import { type TokenUsage, tokenUsageSchema } from '@rocketpod/shared/ai/chat'
 import { aiProviderSchema } from '@rocketpod/shared/ai/config'
 import type { AgentInterruptSpec, JsonSchema } from '@rocketpod/shared/ai/interrupts'
 import { type ZodType, z } from 'zod'
 import { traceToolCall } from '../../observability/context'
+import { stableStringify } from '../../utils/core/stable-stringify'
 import { AiError } from './errors'
 import {
   addUsage,
@@ -78,12 +80,17 @@ export function withRollingCacheBreakpoints(
   for (const index of [marked.length - 1, marked.length - 2]) {
     if (index < 0) continue
     const message = marked[index]
-    if (message) marked[index] = { ...message, content: withBreakpoint(message.content) }
+    if (message && message.role !== 'system') {
+      marked[index] = { ...message, content: withBreakpoint(message.content) }
+    }
   }
   return marked
 }
 
 // ---- Tools ---------------------------------------------------------------------------------
+
+/** JSON as the database stores it, with keys in a fixed order: what makes two inputs comparable. */
+const canonicalJson = (value: unknown) => stableStringify(JSON.parse(JSON.stringify(value ?? null)))
 
 /** A tool the model may call. `handler` runs it; a tool WITHOUT a handler is terminal (its input is the answer). */
 export interface Tool<Input = unknown> {
@@ -96,7 +103,8 @@ export interface Tool<Input = unknown> {
   /**
    * Gate this call on a person: the loop stops, asks, and runs the handler only on a
    * `resolved` answer. Enforced by {@link runToolLoop}, never by the handler — a handler that
-   * checks for itself is a handler that has already run.
+   * checks for itself is a handler that has already run. {@link runStreamingChat} cannot ask, so
+   * chat never offers or runs a tool with a gate.
    */
   requiresApproval?: boolean
   /**
@@ -230,6 +238,8 @@ export interface ToolApproval {
   note?: string
   /** What this rejection means — `rejectionFor(spec)`, resolved once by the runtime. */
   onReject: 'cancel_run' | 'tell_model'
+  /** The call the person was shown (`spec.tool`). A go-ahead runs only a call that matches it. */
+  approvedCall: { name: string; input: unknown } | null
 }
 
 /**
@@ -387,6 +397,11 @@ export interface ToolLoopCheckpoint {
   turns: number
   /** Tokens billed across all attempts (see `runtime.ts` on why this cannot double-count). */
   usage: TokenUsage
+  /**
+   * Milliseconds of active loop time across all attempts — what `policy.maxDurationSeconds`
+   * counts. Absent in a checkpoint written by an older release, which reads as 0.
+   */
+  activeMs?: number
 }
 
 const contentBlockSchema = z.discriminatedUnion('type', [
@@ -421,6 +436,7 @@ const checkpointSchema = z.object({
   ),
   turns: z.number().int().nonnegative(),
   usage: tokenUsageSchema,
+  activeMs: z.number().nonnegative().optional(),
 })
 
 /**
@@ -438,6 +454,7 @@ export function parseToolLoopCheckpoint(value: unknown): ToolLoopCheckpoint | nu
   return {
     turns: parsed.data.turns,
     usage: parsed.data.usage,
+    ...(parsed.data.activeMs !== undefined ? { activeMs: parsed.data.activeMs } : {}),
     messages: parsed.data.messages.map(message => ({
       role: message.role,
       content:
@@ -507,6 +524,55 @@ export interface RunToolLoopOptions {
    * second consecutive user turn.
    */
   beforeTurn?: (turn: number) => Promise<ChatMessage[] | void>
+  /**
+   * The run's limits and what running out means (`AgentMeta.policy`) — pass the agent's
+   * `meta.policy`. `maxTurns` above stays the ceiling. Without a policy the loop behaves as it
+   * always has: it stops at `maxTurns` or on a turn with no tool call and hands back no answer.
+   */
+  policy?: AgentPolicy
+  /** Awaited once before the `'final-answer'` salvage call, so a caller can show it is recovering. */
+  onExhausted?: (reason: ToolLoopExhaustion) => void | Promise<void>
+  /**
+   * Decide, before anything else happens to it, whether a tool call may run at all — a deny by
+   * POLICY, where `requiresApproval` asks a PERSON. A denied call is never gated and never
+   * executed: the model gets an error result saying why and carries on. Runs on the resume path
+   * too, so an answer to an old gate cannot slip a call past a rule that changed while it waited.
+   */
+  authorizeTool?: (call: ToolCallToAuthorize) => ToolAuthorization | Promise<ToolAuthorization>
+}
+
+/** What {@link RunToolLoopOptions.authorizeTool} is asked about. `input` is the model's, unparsed. */
+export interface ToolCallToAuthorize {
+  name: string
+  input: unknown
+  toolUseId: string
+  turn: number
+}
+
+/** `true` / `{ allow: true }` runs the call; `false` / `{ allow: false, reason }` refuses it. */
+export type ToolAuthorization = boolean | { allow: boolean; reason?: string }
+
+/** Why a loop under a {@link AgentPolicy} ran out of road. */
+export type ToolLoopExhaustion =
+  | 'max_turns'
+  | 'no_tool_call'
+  | 'max_tool_calls'
+  | 'max_duration'
+  | 'repeated_failures'
+
+/**
+ * A loop under a policy ran out and could not salvage an answer: `onExhaustion: 'fail'`, or a
+ * `'final-answer'` loop that does not have exactly one terminal tool to force. Not retryable — a
+ * retry would resume the same exhausted transcript.
+ */
+export class ToolLoopExhaustedError extends Error {
+  constructor(
+    public readonly reason: ToolLoopExhaustion,
+    public readonly turns: number
+  ) {
+    super(`The agent ran out of its execution budget (${reason}) after ${turns} turns`)
+    this.name = 'ToolLoopExhaustedError'
+  }
 }
 
 export interface ToolLoopResult {
@@ -514,12 +580,47 @@ export interface ToolLoopResult {
   terminalInput: unknown | null
   terminalTool: string | null
   turns: number
-  stopReason: StopReason | 'max_turns' | 'no_tool_call' | 'interrupt'
+  stopReason: StopReason | ToolLoopExhaustion | 'interrupt'
   usage: TokenUsage
   /** The full transcript (seed + assistant/tool turns); also what `onCheckpoint` persists. */
   messages: ChatMessage[]
   /** Set only with `stopReason: 'interrupt'` and `onInterrupt` answering `'return'`. */
   interrupts?: InterruptRequest[]
+  /**
+   * The loop ran out (`stopReason` says how) and `terminalInput` came from the policy's ONE forced
+   * call to the terminal tool, not from a turn of the loop.
+   */
+  salvaged?: boolean
+}
+
+/**
+ * Read the policy's two transcript-derived counters back out of a transcript: tool calls answered
+ * (the terminal tool's answer is not one) and the run of error results at its end. Derived rather
+ * than stored so a checkpoint from an older release — or any resumed attempt — counts what really
+ * happened.
+ */
+function countToolResults(
+  messages: ChatMessage[],
+  byName: ReadonlyMap<string, Tool>
+): { toolCalls: number; consecutiveFailures: number } {
+  const nameOf = new Map<string, string>()
+  let toolCalls = 0
+  let consecutiveFailures = 0
+  for (const message of messages) {
+    if (typeof message.content === 'string') continue
+    for (const block of message.content) {
+      if (block.type === 'tool_use') nameOf.set(block.id, block.name)
+      if (block.type !== 'tool_result') continue
+      const tool = byName.get(nameOf.get(block.toolUseId) ?? '')
+      if (!tool || tool.handler) toolCalls += 1
+      consecutiveFailures = block.isError ? consecutiveFailures + 1 : 0
+    }
+  }
+  return { toolCalls, consecutiveFailures }
+}
+
+function isAllowed(decision: ToolAuthorization): { allow: boolean; reason?: string } {
+  return typeof decision === 'boolean' ? { allow: decision } : decision
 }
 
 /**
@@ -601,7 +702,9 @@ export async function runToolLoop(
   client: ChatClient,
   opts: RunToolLoopOptions
 ): Promise<ToolLoopResult> {
-  const maxTurns = opts.maxTurns ?? 8
+  const policy = opts.policy
+  const ceiling = opts.maxTurns ?? 8
+  const maxTurns = policy?.maxTurns ? Math.min(ceiling, policy.maxTurns) : ceiling
   const byName = new Map(opts.tools.map(t => [t.name, t]))
   const definitions = opts.tools.map(toToolDefinition)
   // A resumed loop starts from the stored transcript, NOT the seed: replaying it would re-ask the
@@ -609,8 +712,85 @@ export async function runToolLoop(
   const messages: ChatMessage[] = [...(opts.resume?.messages ?? opts.messages)]
   let usage = opts.resume?.usage ?? ZERO_USAGE
   let turns = opts.resume?.turns ?? 0
+  // Active time is carried in the checkpoint rather than measured from the run's start, so a run
+  // parked on a person for a day resumes with the time it had actually used.
+  const attemptStartedAt = Date.now()
+  const activeMs = () => (opts.resume?.activeMs ?? 0) + (Date.now() - attemptStartedAt)
   const checkpoint = async () => {
-    await opts.onCheckpoint?.({ messages: [...messages], turns, usage })
+    await opts.onCheckpoint?.({ messages: [...messages], turns, usage, activeMs: activeMs() })
+  }
+
+  /** The limit this loop has hit, if any — checked before each model turn and after each tool turn. */
+  const spent = (): ToolLoopExhaustion | null => {
+    if (!policy) return null
+    const { toolCalls, consecutiveFailures } = countToolResults(messages, byName)
+    if (policy.repeatedFailureLimit && consecutiveFailures >= policy.repeatedFailureLimit) {
+      return 'repeated_failures'
+    }
+    if (policy.maxToolCalls && toolCalls >= policy.maxToolCalls) return 'max_tool_calls'
+    if (policy.maxDurationSeconds && activeMs() >= policy.maxDurationSeconds * 1000) {
+      return 'max_duration'
+    }
+    return null
+  }
+
+  /**
+   * Out of road. Without a policy: the old result, no answer. With one: `'fail'` throws, and
+   * `'final-answer'` forces ONE call to the terminal tool over the transcript so far. That call
+   * failing fails the run (`StructuredOutputError`, or the provider's own error, cancellation
+   * included) — a salvage that cannot produce an answer is never reported as one.
+   */
+  const exhaust = async (reason: ToolLoopExhaustion): Promise<ToolLoopResult> => {
+    const unanswered = { terminalInput: null, terminalTool: null, turns, usage, messages }
+    if (!policy) return { ...unanswered, stopReason: reason }
+    const terminals = opts.tools.filter(t => !t.handler)
+    const terminal = terminals.length === 1 ? terminals[0] : undefined
+    if ((policy.onExhaustion ?? 'final-answer') === 'fail' || !terminal) {
+      throw new ToolLoopExhaustedError(reason, turns)
+    }
+    await opts.onExhausted?.(reason)
+    const input = await callStructuredTool(client, {
+      model: opts.model,
+      maxTokens: opts.maxTokens ?? 4096,
+      system: opts.system,
+      messages,
+      tool: { name: terminal.name, description: terminal.description, schema: terminal.schema },
+      // The loop just sent this transcript, so a caching provider reads the prefix back.
+      cache: true,
+      signal: opts.signal,
+      onUsage: extra => {
+        usage = addUsage(usage, extra)
+      },
+    })
+    return {
+      ...unanswered,
+      terminalInput: input,
+      terminalTool: terminal.name,
+      stopReason: reason,
+      usage,
+      salvaged: true,
+    }
+  }
+
+  /**
+   * `authorizeTool`'s answers for a turn, keyed by tool call id — only the refusals. Asked BEFORE
+   * the gates are collected, so nobody is asked to approve a call policy would refuse anyway.
+   */
+  const authorize = async (toolUses: ToolUseBlock[], turn: number) => {
+    const denied = new Map<string, string | undefined>()
+    if (!opts.authorizeTool) return denied
+    for (const block of toolUses) {
+      const decision = isAllowed(
+        await opts.authorizeTool({
+          name: block.name,
+          input: block.input,
+          toolUseId: block.id,
+          turn,
+        })
+      )
+      if (!decision.allow) denied.set(block.id, decision.reason)
+    }
+    return denied
   }
 
   /**
@@ -618,11 +798,14 @@ export async function runToolLoop(
    * purpose — it takes the existing `isError` path, because nobody should be asked to approve
    * arguments the tool would reject anyway.
    */
-  const collectGates = (toolUses: ToolUseBlock[]): InterruptRequest[] => {
+  const collectGates = (
+    toolUses: ToolUseBlock[],
+    denied: ReadonlyMap<string, string | undefined>
+  ): InterruptRequest[] => {
     const requests: InterruptRequest[] = []
     for (const block of toolUses) {
       const tool = byName.get(block.name)
-      if (!tool || opts.approvals?.has(block.id)) continue
+      if (!tool || opts.approvals?.has(block.id) || denied.has(block.id)) continue
       if (!tool.requiresApproval && !tool.requiresApprovalWhen) continue
       const parsed = tool.schema.safeParse(block.input)
       if (!parsed.success) continue
@@ -668,57 +851,216 @@ export async function runToolLoop(
     }
   }
 
+  const defaultConcurrency = 4
+  const rawCap = policy?.maxConcurrentToolCalls
+  const maxConcurrentToolCalls =
+    typeof rawCap === 'number' && Number.isInteger(rawCap) && rawCap >= 1
+      ? rawCap
+      : defaultConcurrency
+
+  // An approval is good for one execution per attempt. A retried attempt starts a fresh set and
+  // replays the recorded effect through `runApproved`.
+  const spentApprovals = new Set<string>()
+
+  /** Is this block the very call the person approved? Stored input is parsed, so compare parsed. */
+  const isApprovedCall = (tool: Tool | undefined, block: ToolUseBlock, shown: ToolApproval) => {
+    const call = shown.approvedCall
+    if (!tool || !call || call.name !== block.name) return false
+    const parsed = tool.schema.safeParse(block.input)
+    if (!parsed.success) return false
+    return canonicalJson(parsed.data) === canonicalJson(call.input)
+  }
+
+  const executeSingleToolUse = async (
+    block: ToolUseBlock
+  ): Promise<{ text: string; isError: boolean }> => {
+    const tool = byName.get(block.name)
+    const approval = opts.approvals?.get(block.id)
+    if (approval?.status === 'cancelled') {
+      if (approval.onReject === 'cancel_run') {
+        throw new InterruptDeclinedError(approval.interruptId, approval.note)
+      }
+      // `tell_model`: declining is an ANSWER, not a fault, so `isError` is false. An error result
+      // would have the model apologising and retrying the thing it was just refused.
+      return {
+        text: approval.note
+          ? `A person declined this action: ${approval.note}`
+          : 'A person declined this action. Do not try it again; continue another way.',
+        isError: false,
+      }
+    }
+    if (approval) {
+      if (spentApprovals.has(approval.interruptId) || !isApprovedCall(tool, block, approval)) {
+        return {
+          text: 'This call is not the one a person approved. It did not run.',
+          isError: true,
+        }
+      }
+      spentApprovals.add(approval.interruptId)
+      // An approver may have edited the arguments; the route re-validated them against the tool's
+      // own schema before storing them, and `runHandler` validates once more here.
+      const input = approval.input !== undefined ? approval.input : block.input
+      const run = () => runHandler(tool, block.name, input, block.id)
+      return opts.runApproved
+        ? await opts.runApproved(`tool:${approval.interruptId}`, run)
+        : await run()
+    }
+    return await runHandler(tool, block.name, block.input, block.id)
+  }
+
   /**
    * Run a turn's tool calls and build its `tool_result` blocks. The ONE place the approval rules
    * live — the in-loop path and the resume path both call it.
+   *
+   * Executes via a single bounded worker pool (size = min(maxConcurrentToolCalls, toolUses.length)).
+   * Emits each `tool_result` event progressively as soon as that result and all preceding results
+   * in model-request order are ready, preserving transcript order and live timeline updates.
    */
   const executeToolUses = async (
     toolUses: ToolUseBlock[],
-    turn: number
+    turn: number,
+    denied: ReadonlyMap<string, string | undefined>
   ): Promise<ContentBlock[]> => {
+    if (toolUses.length === 0) return []
+
+    // Calls already answered before this turn, for `maxToolCalls`. Every call in the turn still
+    // gets a result — a `tool_use` left unanswered is a 400 on the NEXT request, the salvage's.
+    let budget = policy?.maxToolCalls
+      ? policy.maxToolCalls - countToolResults(messages, byName).toolCalls
+      : Number.POSITIVE_INFINITY
+
+    type TaskOutcome =
+      | { kind: 'result'; outcome: { text: string; isError: boolean } }
+      | { kind: 'error'; error: unknown }
+
+    const outcomes: (TaskOutcome | undefined)[] = new Array(toolUses.length)
+    let nextIndex = 0
+    let stopClaiming = false
+
+    let nextEmitIndex = 0
+    let emitPromise = Promise.resolve()
+    let emitError: unknown
+
+    const flushEmits = () => {
+      emitPromise = emitPromise
+        .then(async () => {
+          while (nextEmitIndex < toolUses.length) {
+            if (emitError) break
+            const task = outcomes[nextEmitIndex]
+            if (!task || task.kind === 'error') break
+            const index = nextEmitIndex++
+            const block = toolUses[index]
+            const outcome = task.outcome
+            try {
+              await opts.onEvent?.({
+                kind: 'tool_result',
+                turn,
+                toolUseId: block.id,
+                name: block.name,
+                resultText: outcome.text,
+                isError: outcome.isError,
+              })
+            } catch (err) {
+              emitError = err
+              stopClaiming = true
+              break
+            }
+          }
+        })
+        .catch(err => {
+          emitError = err
+          stopClaiming = true
+        })
+      return emitPromise
+    }
+
+    const runWorker = async () => {
+      while (true) {
+        if (stopClaiming || emitError || opts.signal?.aborted) return
+
+        const index = nextIndex++
+        if (index >= toolUses.length) return
+
+        const block = toolUses[index]
+
+        if (denied.has(block.id)) {
+          const reason = denied.get(block.id)
+          outcomes[index] = {
+            kind: 'result',
+            outcome: {
+              text: reason
+                ? `This call was refused by policy: ${reason}`
+                : `This call was refused by policy: ${block.name} may not run here.`,
+              isError: true,
+            },
+          }
+          await flushEmits()
+          continue
+        }
+
+        if (budget <= 0) {
+          outcomes[index] = {
+            kind: 'result',
+            outcome: {
+              text: 'Not run: this run has used all of its tool calls.',
+              isError: true,
+            },
+          }
+          await flushEmits()
+          continue
+        }
+
+        budget -= 1
+
+        try {
+          const outcome = await executeSingleToolUse(block)
+          outcomes[index] = { kind: 'result', outcome }
+          await flushEmits()
+        } catch (err) {
+          outcomes[index] = { kind: 'error', error: err }
+          stopClaiming = true
+          await flushEmits()
+          return
+        }
+      }
+    }
+
+    const workerCount = Math.min(maxConcurrentToolCalls, toolUses.length)
+    const workers = Array.from({ length: workerCount }, () => runWorker())
+    await Promise.all(workers)
+
+    await emitPromise
+
+    if (opts.signal?.aborted) {
+      throw new AiError('unavailable', client.provider, 'Agent run cancelled')
+    }
+
+    if (emitError) {
+      throw emitError
+    }
+
+    for (let i = 0; i < toolUses.length; i++) {
+      const task = outcomes[i]
+      if (task?.kind === 'error') {
+        throw task.error
+      }
+    }
+
     const results: ContentBlock[] = []
-    for (const block of toolUses) {
-      const tool = byName.get(block.name)
-      const approval = opts.approvals?.get(block.id)
-      let outcome: { text: string; isError: boolean }
-      if (approval?.status === 'cancelled') {
-        if (approval.onReject === 'cancel_run') {
-          throw new InterruptDeclinedError(approval.interruptId, approval.note)
-        }
-        // `tell_model`: declining is an ANSWER, not a fault, so `isError` is false. An error result
-        // would have the model apologising and retrying the thing it was just refused.
-        outcome = {
-          text: approval.note
-            ? `A person declined this action: ${approval.note}`
-            : 'A person declined this action. Do not try it again; continue another way.',
-          isError: false,
-        }
-      } else if (approval) {
-        // An approver may have edited the arguments; the route re-validated them against the tool's
-        // own schema before storing them, and `runHandler` validates once more here.
-        const input = approval.input !== undefined ? approval.input : block.input
-        const run = () => runHandler(tool, block.name, input, block.id)
-        outcome = opts.runApproved
-          ? await opts.runApproved(`tool:${approval.interruptId}`, run)
-          : await run()
-      } else {
-        outcome = await runHandler(tool, block.name, block.input, block.id)
+    for (let i = 0; i < toolUses.length; i++) {
+      const block = toolUses[i]
+      const task = outcomes[i]
+      if (!task || task.kind !== 'result') {
+        break
       }
       results.push({
         type: 'tool_result',
         toolUseId: block.id,
-        content: outcome.text,
-        isError: outcome.isError,
-      })
-      await opts.onEvent?.({
-        kind: 'tool_result',
-        turn,
-        toolUseId: block.id,
-        name: block.name,
-        resultText: outcome.text,
-        isError: outcome.isError,
+        content: task.outcome.text,
+        isError: task.outcome.isError,
       })
     }
+
     return results
   }
 
@@ -728,15 +1070,18 @@ export async function runToolLoop(
   // parks again rather than running anything.
   const pending = pendingToolUses(messages)
   if (pending.length > 0) {
-    const stillGated = collectGates(pending)
+    const denied = await authorize(pending, turns)
+    const stillGated = collectGates(pending, denied)
     if (stillGated.length > 0) return await raise(stillGated)
-    messages.push({ role: 'user', content: await executeToolUses(pending, turns) })
+    messages.push({ role: 'user', content: await executeToolUses(pending, turns, denied) })
     await checkpoint()
   }
 
   while (turns < maxTurns) {
     if (opts.signal?.aborted)
       throw new AiError('unavailable', client.provider, 'Agent run cancelled')
+    const limit = spent()
+    if (limit) return await exhaust(limit)
     const injected = await opts.beforeTurn?.(turns + 1)
     for (const message of injected ?? []) {
       if (message.role === 'user' && typeof message.content === 'string') {
@@ -821,33 +1166,18 @@ export async function runToolLoop(
       continue
     }
 
-    if (toolUses.length === 0) {
-      return {
-        terminalInput: null,
-        terminalTool: null,
-        turns,
-        stopReason: 'no_tool_call',
-        usage,
-        messages,
-      }
-    }
+    if (toolUses.length === 0) return await exhaust('no_tool_call')
 
     // The gate: after the assistant turn is on the transcript, before any handler has run.
-    const gates = collectGates(toolUses)
+    const denied = await authorize(toolUses, turns)
+    const gates = collectGates(toolUses, denied)
     if (gates.length > 0) return await raise(gates)
 
-    messages.push({ role: 'user', content: await executeToolUses(toolUses, turns) })
+    messages.push({ role: 'user', content: await executeToolUses(toolUses, turns, denied) })
     await checkpoint()
   }
 
-  return {
-    terminalInput: null,
-    terminalTool: null,
-    turns,
-    stopReason: 'max_turns',
-    usage,
-    messages,
-  }
+  return await exhaust(spent() ?? 'max_turns')
 }
 
 // ---- Streaming conversational loop ----------------------------------------------------------
@@ -897,7 +1227,9 @@ export async function runStreamingChat(
   opts: RunStreamingChatOptions
 ): Promise<StreamingChatResult> {
   const maxTurns = opts.maxTurns ?? 8
-  const tools = opts.tools ?? []
+  // Chat cannot park a turn for a person's answer, so a tool that declares a gate is withheld: the
+  // model is not offered it, and naming it anyway finds no tool and gets an error result.
+  const tools = (opts.tools ?? []).filter(t => !t.requiresApproval && !t.requiresApprovalWhen)
   const byName = new Map(tools.map(t => [t.name, t]))
   const definitions = tools.map(toToolDefinition)
   const messages: ChatMessage[] = [...opts.messages]
@@ -945,8 +1277,9 @@ export async function runStreamingChat(
     }
     messages.push({ role: 'assistant', content: result.content })
     const results: ContentBlock[] = []
-    // No interrupt gate here, deliberately. Chat has no host that can park a turn — there is
-    // no run step to unwind and no `agent_runs` row to hold the answer — so a tool raising
+    // No interrupt gate here, deliberately: gated tools were withheld above. Chat has no host that
+    // can park a turn — there is no run step to unwind and no `agent_runs` row to hold the answer —
+    // so a tool raising
     // `InterruptRequested` in a chat is a BUG, and `runHandler` turning it into an `isError` result
     // is what we want to see: a visible wrong answer rather than a stream that never terminates.
     // Chat HITL is Part 3 and arrives as `onInterrupt: 'return'` plus a conversation checkpoint.

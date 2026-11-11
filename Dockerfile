@@ -11,16 +11,17 @@
 #   docker run IMAGE all              → both in one process (small installs)
 #   docker run --entrypoint node IMAGE dist/migrate.js   → the migrate one-shot
 
-ARG NODE_VERSION=24
+ARG NODE_VERSION=26
 
 # ---------------------------------------------------------------------------------------- build
 FROM node:${NODE_VERSION}-bookworm-slim AS build
 WORKDIR /repo
 ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH CI=true
-RUN corepack enable
 
 # The manifests first, so a source-only change reuses the dependency layer.
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc* ./
+# Node 26 ships no corepack: npm installs exactly the pnpm that `packageManager` names.
+RUN npm install -g "$(node -p "require('./package.json').packageManager")"
 COPY apps/web/package.json apps/web/
 COPY apps/cli/package.json apps/cli/
 COPY apps/evals/package.json apps/evals/

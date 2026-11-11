@@ -1,11 +1,10 @@
 /**
  * Agent tools and agents, as a plugin writes them.
  *
- * **Half of this is unexercised.** `ToolCtx` is real — the reference plugin contributes a tool to
- * every agent run — but `AgentCtx` is not: no installed plugin registers an AGENT yet.
- * So `AgentCtx` is derived from the core `AgentContext`
- * (`services/agents/registry.ts`) and from what its two example agents demonstrably use, and
- * nothing speculative is added beyond that. Widen it when a plugin exists to widen it for.
+ * `AgentCtx` is derived from the core `AgentContext` (`services/agents/registry.ts`) and from
+ * what agents demonstrably use, and nothing speculative is added beyond that. It was first widened
+ * for a plugin that holds a conversation with a person (`interrupt`, `chatModel`): widen it again
+ * when a plugin exists to widen it for.
  *
  * Two core rules carry over and matter more inside a plugin, because a plugin's author is
  * further from the runtime that enforces them:
@@ -23,9 +22,16 @@
  * shape a plugin can get subtly wrong.
  */
 
+import type { AiProvider } from '@rocketpod/shared/ai/config'
+import type { PromptKey } from '@rocketpod/shared/ai/prompts'
 import type { AccessScope } from '../../api/services/access-sql'
 import type { AgentDecide } from '../../api/services/agents/decisions'
-import type { AgentContext, AgentDefinition } from '../../api/services/agents/registry'
+import type {
+  AgentContext,
+  AgentDefinition,
+  AgentInterruptAnswer,
+  AgentInterruptAsk,
+} from '../../api/services/agents/registry'
 import type { AgentToolContext } from '../../api/services/agents/tools'
 import type {
   CallStructuredToolOptions,
@@ -36,8 +42,13 @@ import type {
 import { callStructuredTool, runToolLoop, toolInputSchema } from '../../api/services/ai/agent-loop'
 import { AiNotConfiguredError } from '../../api/services/ai/errors'
 import { recordUsage } from '../../api/services/ai/usage'
+import type { TenantEmit } from '../../api/services/events/types'
 import { tenantFeatures } from '../../api/services/features'
-import type { Database, PluginConfig, PluginPlatform } from './types'
+import type { StorageService } from '../../api/services/storage'
+import type { AbilityCheck } from './auth'
+import { tenantEmitter } from './emit'
+import { filesStorage } from './storage'
+import type { Database, PluginConfig, PluginContext, PluginPlatform } from './types'
 
 export type {
   AgentDecide,
@@ -47,7 +58,12 @@ export type {
   SiftOptions,
   SiftResult,
 } from '../../api/services/agents/decisions'
-export type { AgentContext, AgentDefinition } from '../../api/services/agents/registry'
+export type {
+  AgentContext,
+  AgentDefinition,
+  AgentInterruptAnswer,
+  AgentInterruptAsk,
+} from '../../api/services/agents/registry'
 export type { AgentToolContext } from '../../api/services/agents/tools'
 export type {
   Tool,
@@ -55,6 +71,13 @@ export type {
   ToolLoopCheckpoint,
   ToolLoopResult,
 } from '../../api/services/ai/agent-loop'
+/**
+ * The retrieval primitives, for a plugin that searches a corpus of its own the way the kit
+ * searches `chunks`: `anyTermTsquery` (the lexical half's ANY-word tsquery), `candidatePoolSize`
+ * ("retrieve wide, fuse narrow") and `fuseByRank` (Reciprocal Rank Fusion, `k = 60`). Pure.
+ */
+export type { FusedItem } from '../../api/services/ai/fusion'
+export { anyTermTsquery, candidatePoolSize, fuseByRank } from '../../api/services/ai/fusion'
 /** A tool whose input schema failed to convert is a tool the model cannot see — fail loudly. */
 /** Ledger one model call (`ai_usage`). `feature` is `<plugin id>:<what>` or `agent:<key>`. */
 /** 503 `ai_not_configured` — throw it BEFORE any row is written or any stream opens. */
@@ -76,6 +99,13 @@ export interface ToolCtx {
   scope: AccessScope
   /** The run's tenant — `scope.tenantId`, surfaced because every query needs it. */
   tenantId: string
+  /**
+   * Does the requester hold this CASL grant now? Offer a tool that writes only when they hold your
+   * subject's manage (`ctx.can('manage', MY_SUBJECT)`) — never decide that from `scope.bypass`,
+   * which is the row-visibility flag and is true for roles your grants treat as read-only. A run
+   * with no requester holds nothing.
+   */
+  can: AbilityCheck
   /** The CALLER's budget for one document window, in characters. An agent run's is far larger than a chat turn's. */
   maxDocumentChars?: number
   /**
@@ -84,6 +114,12 @@ export interface ToolCtx {
    * feature costs no prompt tokens and the model never sees a tool it could only fail with.
    */
   features(): Promise<readonly string[]>
+  /**
+   * The platform's object store, or a 503 `storage_not_configured` — the same service every other
+   * context's `storage()` returns. Read and write under `tenants/<ctx.tenantId>/<plugin id>/…`;
+   * the tenant is the RUN's, never one the model named.
+   */
+  storage(): StorageService
 }
 
 /** Adapt the runtime's tool context. The only place a plugin's tools name a core internal. */
@@ -94,7 +130,9 @@ export function toolCtx(ctx: AgentToolContext): ToolCtx {
     platform: ctx.env,
     scope: ctx.scope,
     tenantId: ctx.scope.tenantId,
+    can: ctx.can ?? (() => false),
     features: () => tenantFeatures(ctx.db, ctx.cfg, ctx.scope.tenantId),
+    storage: () => filesStorage(ctx.env),
     ...(ctx.maxDocumentChars !== undefined && { maxDocumentChars: ctx.maxDocumentChars }),
   }
 }
@@ -137,6 +175,17 @@ export interface AgentCtx<Input = unknown> {
   tools: Tool[]
   /** The system prompt for this agent's `promptKey`, with `appName`/`tenantName` filled in. */
   prompt(vars?: Record<string, string | undefined>): Promise<string>
+  /**
+   * The platform's object store, or a 503 `storage_not_configured` — the same service every other
+   * context's `storage()` returns. Read and write under `tenants/<ctx.tenantId>/<plugin id>/…`. A
+   * write is a side effect, so it goes through `once` like any other.
+   */
+  storage(): StorageService
+  /**
+   * Emit a declared plugin event in the run's organisation. A side effect: wrap it in
+   * `once`, and derive its `idempotencyKey` from `runId`, so a retried step emits once.
+   */
+  emit: TenantEmit
   /** A durable timeline row. Never throws — progress must not be able to fail a run. */
   step(
     key: string,
@@ -168,6 +217,25 @@ export interface AgentCtx<Input = unknown> {
    * `key`, so `key` must be stable across attempts, exactly like `once`.
    */
   decide: AgentDecide
+  /**
+   * Ask the person a question and park the run until they answer (issue #17) — `approval`,
+   * `choice`, `input` or `form`. The SECOND time this line runs (the run resumed after the answer,
+   * re-entering `run()` from the top) it returns the answer instead of asking again, which is why
+   * **`key` must be stable across attempts**: derive it from a step or a round number your code
+   * controls, never from model output that may differ on the replay. Everything after the call is
+   * on the far side of a deploy, so a side effect there still goes through `once`.
+   *
+   * A declined `approval` throws (the run is cancelled); a declined `choice` / `input` / `form` comes
+   * back as `status: 'cancelled'` for the agent to handle. Parse `payload` with
+   * `interruptPayloadSchema(spec)` from `@rocketpod/shared/ai/interrupts`.
+   */
+  interrupt(ask: AgentInterruptAsk): Promise<AgentInterruptAnswer>
+  /**
+   * The provider and model this run resolved to (per-agent `agent_models` assignment applied) —
+   * what `recordUsage` needs to ledger a `structured` call's `onUsage`. Read-only: the client
+   * itself stays with the runtime.
+   */
+  readonly chatModel: { readonly provider: AiProvider; readonly model: string }
 }
 
 /** `runToolLoop` minus what the runtime supplies. */
@@ -202,11 +270,18 @@ export function agentCtx<Input>(ctx: AgentContext<Input>): AgentCtx<Input> {
     userId: ctx.userId,
     input: ctx.input,
     tools: ctx.tools,
+    emit: tenantEmitter(
+      { db: ctx.db, config: ctx.cfg, logger: ctx.logger, env: {}, platform: ctx.env },
+      ctx.tenantId
+    ),
     prompt: vars => ctx.prompt(vars),
     step: (key, label, status, detail) => ctx.step(key, label, status, detail),
     checkCancelled: () => ctx.checkCancelled(),
     once: (key, fn) => ctx.once(key, fn),
     decide: ctx.decide,
+    interrupt: ask => ctx.interrupt(ask),
+    chatModel: { provider: ctx.chat.client.provider, model: ctx.chat.model },
+    storage: () => filesStorage(ctx.env),
     toolLoop: options =>
       runToolLoop(ctx.chat.client, {
         ...options,
@@ -224,5 +299,42 @@ export function agentCtx<Input>(ctx: AgentContext<Input>): AgentCtx<Input> {
   }
 }
 
+/**
+ * Would a chat model resolve for this prompt key and tenant? Answers the same question
+ * `resolveChat` will, without building a client, so a plugin's route or UI can say "no model" up
+ * front instead of failing inside a run. A function-scope import, for the barrel cycle `./agent-runs`
+ * explains: `services/ai/resolve` reads the prompt registry, which reads the plugin barrel.
+ */
+export async function chatModelAvailable(
+  ctx: Pick<PluginContext, 'db' | 'config'>,
+  tenantId: string,
+  promptKey: string
+): Promise<boolean> {
+  const { planChat, platformChat } = await import('../../api/services/ai/resolve')
+  const { config: row } = await planChat(ctx.db, tenantId, promptKey as PromptKey)
+  // The platform tier is the `.env` keys alone, so it needs nothing from the runtime.
+  return row !== undefined || platformChat(ctx.config, {}) !== null
+}
+
 /** A plugin's agent, as `ServerPlugin.agents` takes it. */
 export type PluginAgent<Input = unknown, Output = unknown> = AgentDefinition<Input, Output>
+
+/** One registered agent, as a catalogue lists it: no schemas, nothing tenant-specific. */
+export interface AgentSummary {
+  key: string
+  title: string
+  description: string
+}
+
+/**
+ * Every registered agent — the kit's and every installed plugin's — as `{ key, title, description }`,
+ * the same catalogue `GET /api/agents` serves. For a plugin that lists or searches agents (a
+ * command palette); the caller decides who may see it (`read AgentRun` is the kit's guard).
+ *
+ * Loaded at CALL time: the registry reads the server barrel, which must stay off `@/plugins/api`'s
+ * load path (`tests/config/plugin-api-load-order.test.ts`).
+ */
+export async function listAgents(): Promise<readonly AgentSummary[]> {
+  const { listAgentInfo } = await import('../../api/services/agents/registry')
+  return listAgentInfo().map(a => ({ key: a.key, title: a.title, description: a.description }))
+}

@@ -1,6 +1,6 @@
 # CONCEPTS — what is built, and why
 
-> **Rocketpod (D41).** A Node 24 server in containers: Postgres (+ pgvector) for everything stateful,
+> **Rocketpod (D41).** A Node 26 server in containers: Postgres (+ pgvector) for everything stateful,
 > an S3-compatible store for files, a model provider key for AI. Jobs and cron run on pg-boss,
 > durable agent runs on OpenWorkflow, realtime on `ws` + LISTEN/NOTIFY — all in Postgres. Why it
 > runs this way: `docs/DESIGN-SELFHOSTED.md`.
@@ -38,13 +38,24 @@ suites on vitest 4, §9 — never part of the gate).
   tenants via `tenant_users`, the session carries the current one. `single`: one tenant, every
   admitted user auto-joins as `member`; multi-only surface is 404 `tenancy_mode_single`
   (`requireMultiTenant`) and hidden via `useTenancyMode()`. Switching to `multi` needs no migration.
+  The auto-join (`onNoTenant`) runs for a NEW person `SIGNUP_MODE` admits, for dev login and for a
+  `BOOTSTRAP_ADMIN_EMAILS` admin (who creates the tenant on an empty database); a returning person
+  with no membership gets a tenant-less session instead. Enterprise identity in single mode: the
+  one tenant IS the deployment, so the identity seam takes only its id (another is a tenant that
+  does not exist), a plugin's `deprovision` BLOCKS the leaver (§16), `OIDC_MANAGED_TENANCY` refuses
+  to load (it creates one tenant per issuer org), and the admin console's issuer-org link and
+  organisation delete answer 404 `tenancy_mode_single`.
 - **`SIGNUP_MODE = open | invite_only | approval` (D9)**, default `invite_only`. Uninvited logins
   land on `/pending`; `approval` also files an `access_requests` row at *verify* time and
   queues an email to every active global admin for a NEW row (never for a re-login);
   `open` gives a personal tenant through `onNoTenant`. Whatever the mode, the `BOOTSTRAP_ADMIN_EMAILS`
   admin's first login on an install with NO tenant yet creates the first one (named `APP_NAME`, as
   owner) — the only other way to it was SQL — and never again once any tenant exists. Invitations are handled first on every login
-  path, and every fallback gates on "has no memberships", not "is new".
+  path, and every fallback gates on "has no memberships", not "is new". `POST /api/tenants` refuses
+  a person with no membership whose access request is pending or rejected (403
+  `pending_approval`; a global admin is not held by one), and one person's owned organisations stop
+  at `MAX_OWNED_TENANTS_PER_USER` (default 10, global admins exempt, 403 `tenant_limit_reached`),
+  counted under a lock on the user row so simultaneous creations cannot pass it.
 - **Roles (D10).** `owner | admin | member` plus `support` (minted from `/admin`, visible to the
   customer); `users.isGlobalAdmin` is a platform flag. Default for a new subject: owner/admin/support
   `manage`, member `read` with route-scoped writes. "Own row" is always a route predicate — **CASL
@@ -52,7 +63,23 @@ suites on vitest 4, §9 — never part of the gate).
   `role === 'owner'` check. The matrix lives in `apps/web/src/permissions/` (+ its `CLAUDE.md`).
 - **Admin area.** `/admin` + `/api/admin/*` behind `globalAdminMiddleware` is the only cross-tenant
   surface. A global admin with no membership can still reach it, so there is always someone to
-  approve the first request. Entering a tenant creates a real `support` membership.
+  approve the first request. Entering a tenant creates a real `support` membership; it lasts only
+  as long as the role: when `is_global_admin` clears, by demotion, a claim going or a suspension,
+  every `support` row of that person goes in the same transaction, their sessions pinned to those
+  tenants are unpinned, and their sockets there are closed.
+- **Invitations carry authority, so they have the same limits as a role change.** Only an
+  owner-level actor (`isOwnerLevel`) may issue or resend an `owner` invitation, on the single and
+  bulk routes alike (403 before any row). A member removed from a tenant takes their pending
+  invitations with them, in the removal's transaction, on the members route and on every path that
+  ends an `idp` or a `support` membership for good; a global admin's stay, because their authority
+  is the platform flag (so leaving support revokes nothing). Accepting over an `idp` row leaves the
+  row as it is (the invitation is still marked accepted). Mail is bounded by Postgres: a resend
+  inside `INVITATION_RESEND_COOLDOWN_SECONDS` (five minutes) answers 429 and keeps the link
+  already sent, and `invitation_send_counters` caps the mail per UTC day per person across every
+  tenant (`INVITATION_EMAILS_PER_USER_PER_DAY`, 500) and per tenant
+  (`INVITATION_EMAILS_PER_TENANT_PER_DAY`, 1000), an upsert per scope with a conditional update so
+  simultaneous sends cannot pass it. A bulk invite stops at the limit and reports the rest as
+  `failed` / `send_limit`; one that queued nothing is the 429 itself. A 429 carries `Retry-After`.
 - **Deleting a tenant has two halves.** The `tenantRef()` FK cascade removes everything in
   Postgres; the **`tenant.purge`** job (§5) removes the tenant's storage prefix and runs each
   plugin's `onTenantDeleted`. The jobs queue is checked *before* the `DELETE`.
@@ -62,7 +89,8 @@ suites on vitest 4, §9 — never part of the gate).
   plus a junction table. **The column decides and the rows only grant**, so an empty grant list
   means "owner and admins only". It never falls back to "public". The predicate is SQL in
   `services/access.ts` (`accessScopeOf` → `visibleDocuments` / plugin predicates), **ANDed with the
-  tenant predicate, never substituted for it**. Admin-level roles bypass it. Groups grant READ only.
+  tenant predicate, never substituted for it**. Admin-level roles bypass it. On kit resources groups grant READ only; a plugin may define its own
+  grants over its own resources (`edit`, `publish`) and enforces them itself.
   Deleting a group that still grants something is 409 `group_in_use` (`?force=1` narrows).
   `access.changed` nudges the affected users.
 - **Tenants managed by the OIDC issuer (IdP-managed tenancy, `OIDC_MANAGED_TENANCY`, §2).**
@@ -77,7 +105,10 @@ suites on vitest 4, §9 — never part of the gate).
   it (Admin → the organisation → Identity provider org; `PUT /api/admin/tenants/:id/external-org`,
   409 `external_org_taken` when another tenant holds the org), and can delete a duplicate the
   org's first sign-in made (`DELETE /api/admin/tenants/:id`, the owner's delete with its slug
-  confirmation), which frees the org for the link.
+  confirmation), which frees the org for the link. Under managed tenancy the issuer decides which
+  organisations exist, so `POST /api/tenants` and a slug change on `PATCH /api/tenant` answer 409
+  `idp_managed`, whoever asks; the slug-link path above is only reachable from a tenant that
+  already had the slug, made by hand or before managed tenancy.
   `idp_synced_at` on both tables records when the issuer last spoke about the row, so a stale event
   is skipped. **A tenant created this way has no owner — decided:** managed tenancy never writes
   `owner` (or `support`), so the last-owner guard only ever counts owners a person chose, and
@@ -99,15 +130,25 @@ are always `tenant`; no audit log beyond `activity_events`; no personal API keys
   `OIDC_SESSION_MAX_AGE_DAYS`, at most 30 days, the cookie ending with it), cookie `__Host-session` (`HttpOnly`,
   `SameSite=Lax`, `Secure` outside development). `authMiddleware` resolves session → user →
   membership → groups → features in one query. The second strategy is a Bearer tenant API key
-  (hashed, expiry, soft revoke).
+  (hashed, expiry, soft revoke), with scopes `authMiddleware` enforces on every request: `read`
+  allows GET/HEAD/OPTIONS, `write` or `*` allows everything; anything else is 403
+  `insufficient_scope`. The CASL check on the creator's role still applies on top.
 - **Magic link** is the zero-credential path: a 256-bit, 15-minute, single-use, SHA-256-hashed
-  token. With no `RESEND_API_KEY` the URL is logged. Opening the link consumes nothing: `GET /verify`
-  redirects to `/magic-link/confirm`, and only its "Sign in" button (`POST /verify`) spends the
-  token, so mail security scanners that fetch every link on delivery (Defender Safe Links,
-  Mimecast) cannot. Dev-login exists and 404s in production.
+  token. With no `RESEND_API_KEY` the URL is logged, except when `APP_ENV=production`, where it is
+  never written to the logs. Past five sign-in mails to one address in 15 minutes the route still
+  answers 202 but mints nothing and sends nothing (`platform.rateLimiter`, keyed by a hash of the address). Opening the
+  link consumes nothing: `GET /verify` redirects to `/magic-link/confirm`, and only its "Sign in"
+  button (`POST /verify`, same-origin only) spends the token, so mail security scanners that fetch
+  every link on delivery (Defender Safe Links, Mimecast) cannot. Dev-login exists and 404s in production.
 - **OAuth is a registry** (D11): one generic `/auth/:provider` router over `ProviderDefinition`s
-  (Google, Microsoft via arctic). Redirect URIs come from `APP_URL`, accounts link by verified email,
-  and tokens are AES-GCM encrypted under `OAUTH_ENCRYPTION_KEY`. The return path is `?returnUrl=`
+  (Google, Microsoft), each an `openid-client` code + PKCE flow (`providers/openid.ts`, HTTP Basic
+  client auth). Microsoft discovers the `common` authority, so an `id_token` naming the person's own
+  tenant is accepted and one naming another is refused; for Google and Microsoft an `id_token`'s
+  claims are checked but not its signature (identity comes from userinfo / Graph). A token
+  response must be `application/json`; an error body of any other type is `oauth_failed`.
+  Redirect URIs come from `APP_URL`, accounts link by verified email (Microsoft: the user
+  principal name, whose domain the directory must have verified, not `mail`), and tokens are AES-GCM
+  encrypted under `OAUTH_ENCRYPTION_KEY`. The return path is `?returnUrl=`
   (`?redirectTo=` still accepted); the flow cookie carries state, PKCE verifier and a nonce.
 - **Any OIDC issuer** (`providers/oidc.ts`): set `OIDC_ISSUER` + `OIDC_CLIENT_ID` (+ optional
   `OIDC_CLIENT_SECRET`) and an `oidc` provider appears, labelled `OIDC_LABEL`. Endpoints come from
@@ -119,8 +160,10 @@ are always `tenant`; no audit log beyond `activity_events`; no personal API keys
   unverified (refused as `email_unverified` — no email linking, no admission) unless
   `OIDC_TRUST_EMAIL=true` opts in an issuer that controls the claim (single-tenant Entra); an
   explicit `false` is always refused. `AUTH_OIDC_ONLY=true` leaves the login page one "Continue with <label>" button (never an
-  automatic redirect: a live issuer session must not become a silent login) and refuses `/auth/google|microsoft` — it **hides** magic link, it does not disable it (invitations
-  still use it). With an `end_session_endpoint`, `POST /auth/logout` answers
+  automatic redirect: a live issuer session must not become a silent login) and refuses
+  `/auth/google|microsoft`. It also turns the magic-link routes off on the server: `POST /auth/magic-link/request`
+  mints nothing (same 202), `POST /verify` answers `/login?error=oidc_only`, and `/auth/methods` says
+  `magicLink: false`. Invitation emails carry an accept URL, not a magic link, so nothing else changes. With an `end_session_endpoint`, `POST /auth/logout` answers
   `200 { endSessionUrl }` (RP-initiated logout back to `/login?signedOut=1`, sent as both
   `post_logout_redirect_uri` and `logout_uri` — Amazon Cognito returns only on the latter); otherwise
   204. A token exchange the issuer refuses with HTTP 400 `UserLambdaValidationException` (a Cognito
@@ -153,21 +196,77 @@ are always `tenant`; no audit log beyond `activity_events`; no personal API keys
   against `IDENTITY_WEBHOOK_SECRET` over the raw body, five minutes' tolerance, two signatures
   during a rotation — `auth/standard-webhooks.ts`). `person.suspended`, `membership.removed`,
   `membership.role_changed`, `grant.revoked` (org-wide, or one person) and `org.suspended` remove
-  or change `idp` memberships; `person.suspended` also ends the person's sessions; `org.renamed`
+  or change `idp` memberships; `person.suspended` also ends the person's sessions and the global-admin
+  role the issuer granted (a `manual` grant stays); `org.renamed`
   renames the tenant. Each does what the next sign-in's reconcile would, so nothing outlasts a
   sign-in that says otherwise (a suspended org's members are back when the issuer lets them sign
-  in). The person is found by the OIDC link (`<issuer>|<sub>`), else by email; the org by
+  in). The person is found by the OIDC link (`<issuer>|<sub>`), else by email: an event carrying a
+  `sub` with no link can still reach an account by email, but never one linked to another subject at
+  this issuer, while an event with no `sub` has only the email (a person before their first
+  sign-in); the org by
   `external_org_id`. Applied before answering, idempotently and in any order: an event older than
   the row's `idp_synced_at` is stale and skipped, and a role change never creates a membership.
   204 for applied, stale, unknown person or org, and unknown type; 400 for a malformed known type;
   401 for a bad signature; 404 when not configured.
+- **Plugin sign-in (the identity seam, §16)**: a plugin that proves a person itself — a SAML
+  assertion, a per-tenant OIDC connection — finishes with `identityFor(c, id).signIn({ subject,
+  email, emailVerified, name, tenantId?, role? })` (`plugins/api/identity.ts`), never by writing
+  a session. The kit links the identity in `oauth_providers` under provider `plugin:<id>` (the
+  plugin namespaces `subject`, e.g. `<connection>|<nameId>`), else finds the person by email, else
+  `admitUser`s them — by `SIGNUP_MODE`, or as an IdP admission (`admittedBy: 'idp'`) when
+  `tenantId` + `role` are asserted, which also upserts an `idp` membership through the same
+  primitive the OIDC reconcile uses. Then `completeLogin` pins that tenant and sets the cookie.
+  `emailVerified: false`, a blocked person, a stale tenant and a subject linked elsewhere are the
+  usual `/login?error=` redirects. `ServerPlugin.loginMethods(cfg)` adds buttons to the login page
+  (`GET /auth/methods` → `pluginMethods`, `<plugin id>:<method id>`), each a full-page navigation
+  to a `startPath` under the plugin's own `/api/hooks/<id>/`, optionally behind an email field
+  (`askEmail` → `?email=`, home-realm discovery). A method may carry `errors`, copy for its own
+  `?error=<plugin id>.<name>` codes: its routes redirect a failed navigation to `/login` with one
+  (and `?email=`, which refills that method's field), and the page shows the server-sent copy,
+  never URL text; a code outside its namespace drops the method. They show under `AUTH_OIDC_ONLY` too: they are
+  SSO, and `oidcOnly` turns the kit's non-SSO methods off. A plugin link is not listed on the profile's
+  sign-in methods and cannot be unlinked there (`DELETE /auth/providers/:provider` knows only the
+  kit's providers).
+- **SSO required per email domain (`ServerPlugin.ssoPolicy`, `api/auth/sso-policy.ts`)**: once an
+  organisation turns SSO on, its people may sign in ONLY through it. Core cannot know which
+  domains are theirs — the connections and their DNS-verified domains live in a plugin — so it
+  ASKS every installed plugin, in parallel, once per sign-in ATTEMPT (never per request: a minted
+  session is trusted until it ends): `{ required: true, methodId }` names one of that plugin's own
+  `loginMethods`, or `null`. Enforced server-side at: the magic-link request (no token is minted;
+  a token-free "use single sign-on" email links to the login page instead — still 202 with the
+  same body, so nothing leaks to the requester, and the real person learns where to go rather than
+  waiting for a link that never comes), magic-link verify (a link minted before the policy
+  existed is spent and refused), the Google / Microsoft / OIDC callback (the asserted email AND a
+  linked account's own, checked before anyone is admitted or linked), dev login (403
+  `sso_required` + `details.method`, so development shows what production does) and every
+  plugin's `identityFor().signIn` — which passes only for a plugin that CLAIMED the address and,
+  when its policy names a `connectionId`, only through that connection, so a second tenant's
+  connection cannot sidestep the first's. Where the sign-in involves two addresses (asserted and
+  account), each must be claimed by the connection signing in. `/auth/cli` and invitation acceptance
+  need a session, so they inherit it; an invitee's magic-link request gets the SSO email with the
+  invite as `returnUrl`. Refusals land on `/login?error=sso_required&method=<plugin id>:<method id>`
+  and the login page offers that method directly (email prefilled from the SSO email's link),
+  using the label `/auth/methods` gives — never text from the URL. **Decided:** a policy that
+  THROWS (or answers garbage) **fails closed** for that email, logged at `error` — failing open
+  would hand the magic-link door to anyone who can make the lookup fail; the claim is attributed to
+  the throwing plugin, so its own sign-in still works. **Break-glass:** `BOOTSTRAP_ADMIN_EMAILS`
+  are exempt (logged at `warn` when a claim is bypassed) — they live in deployment config only an
+  operator can change, so a broken connection can never lock out the console that would fix it;
+  `is_global_admin` alone is not exempt (it is a database flag). A `methodId` the plugin does not
+  offer keeps the requirement and drops the hint.
 - **Hardening (D12)**: random tokens hashed with SHA-256, a required encryption key, CSRF by origin
   allow-list (Bearer is exempt), and a sliding-window rate limit on login routes (the platform's
   `rateLimiter`: the `rate_limits` table — `src/node/limits.ts`, exact under concurrency, keyed by
-  the client IP from `TRUSTED_PROXY_HOPS`).
-- **CLI handoff (D26)**: `GET /auth/cli?redirect_uri=http://127.0.0.1:<port>/callback` only allows
-  loopback redirects. It mints a revocable tenant key `cli:<hostname>` and 302s back with it.
-  Details: `.claude/rules/api.md`.
+  the client IP from `TRUSTED_PROXY_HOPS`). Return paths pass one rule, `isSameOriginPath` in
+  `@rocketpod/shared/paths`: no control character or backslash anywhere, then same-origin
+  (`redirectToSchema`, `safeRedirectPath`, `safeReturnUrl`). The OAuth flow cookie is `__Host-`.
+  In production a sign-in link is never logged, and `/api/invite/:token` is logged as
+  `/api/invite/[redacted]`.
+- **CLI handoff (D26)**: `GET /auth/cli?redirect_uri=http://127.0.0.1:<port>/callback` allows only
+  loopback targets and creates nothing: a signed-in person goes to `/cli/confirm`, and only its
+  button (`POST /auth/cli/confirm`) mints the revocable tenant key `cli:<hostname>` and answers the
+  loopback URL to navigate to. The CLI sends a random per-login `state`, the server passes it back,
+  and the CLI ignores a callback without it. Details: `apps/web/src/api/routes/CLAUDE.md`.
 
 **Known gaps:** no provider token refresh; no session management UI
 beyond "log out everywhere"; CLI keys differ from other keys only by name. OIDC: one issuer per
@@ -185,6 +284,21 @@ sign-in or the session's end; one orgs claim, one role map and no per-org role
 overrides; the app writes nothing back to the issuer; the slug is taken from the claim once and
 never follows a later rename; `person.suspended` revokes no API keys: a key acts as its creator,
 so the keys in the tenants they lost stop working, and those in their manual tenants do not.
+Plugin sign-in: the kit trusts the plugin's word on `subject`, `email`, `emailVerified` and the
+tenant entirely (proving them is the plugin's job); one plugin may not name another's id, but
+nothing enforces that the id passed to `identityFor` is the caller's own; in multi mode
+`deprovision` is per tenant by design and never blocks — a person a tenant's IdP deactivates keeps
+their other tenants, the sessions selected to them and their keys there, and a session with NO
+pinned tenant is not ended (it re-resolves to another membership, or to none); in single mode it
+blocks (§16), but `removeMembership` alone leaves a signed-in person with no tenant, who can file
+an access request; an IdP block is lifted only by `setMembership`, so a plugin that reactivates
+without one leaves the person blocked; a link keeps working after the proof behind it is gone
+(a domain removed from a connection, an address later added to `BOOTSTRAP_ADMIN_EMAILS`): the
+plugin re-checks its domains before `signIn`; and a plugin link is invisible on the profile
+page. SSO required: sessions that already exist when a domain turns it on are not ended
+(they run to their TTL), API keys are untouched, a throwing policy locks that email's non-SSO
+sign-in until it recovers (only the bootstrap admins are exempt), linking a provider to a
+signed-in account is not checked, and the host trusts the plugin's word that it owns the domain.
 
 ## 3. API shell
 
@@ -391,6 +505,10 @@ dispatches. All three run in a `worker` (or `all`) process; a `web` process only
 - **Realtime (D8)**: **"DB is the truth, WebSocket is a nudge"**: events carry ids, and the UI
   invalidates the query-key roots from `REALTIME_INVALIDATIONS`. The `entity` of `entity.changed`
   IS the query-key root. All nudges go through `services/realtime.ts` inside `defer`, after commit.
+  `GET /ws` refuses an `Origin` outside the same allowlist as CORS and CSRF (a client with no
+  `Origin` is not a browser and is unaffected). Removing a member, signing out, blocking a person,
+  suspending a tenant, losing global admin and the identity provider's removals close the affected
+  sockets (`close{User,Session,Tenant}Sockets` → `Broadcaster.closeSockets`, close code 4001).
 - **Realtime transport: `ws` + LISTEN/NOTIFY** (`src/node/realtime.ts`). Every process PUBLISHES
   through `pg_notify('rp_realtime', {t, u?, e})` (jobs, runs and cron included), and every
   `web`/`all` process holds its own sockets (by tenant, tagged by user) and LISTENs on ONE
@@ -439,7 +557,7 @@ downtime is pg-boss's default, untested.
 ## 6. Email and storage
 
 - **Email**: Resend over `fetch`, `sendEmail(...)`, neutral templates. With no key, messages are
-  logged (`[email:dev]`), never errors. The magic link is sent inline; other email is `email.send`
+  logged (`[email:dev]`, without the link when `APP_ENV=production`), never errors. The magic link is sent inline; other email is `email.send`
   jobs.
 - **Storage (D23)**: the `StorageService` seam (`c.get('platform').storage`, any S3-compatible
   store). Keys are `tenants/<tenantId>/<scope>/<uuid>-<name>`. Bytes
@@ -491,7 +609,8 @@ calls `putStream` yet (uploads are multipart forms under `MAX_UPLOAD_BYTES`).
 
 ## 7. UI shell
 
-- **Design tokens (D20)**: two DaisyUI themes in `ui/index.css`, where the brand hexes are the only
+- **Design tokens (D20)**: two DaisyUI themes in `shared/theme-tokens.css` (read by `ui/index.css`
+  and by public-site stylesheets), where the brand hexes are the only
   hex values; `contrast.test.ts` gates them. Tailwind scanning is `source(none)` + explicit
   `@source` lines. A plugin's pages get the `../plugins/**/ui/**` line, and precompiled dependency
   CSS gets none.
@@ -509,8 +628,8 @@ is hard-coded.
 
 ## 8. Analytics
 
-**The `analytics` PLUGIN (D31) — not installed by default (see gaps).** Repository
-`rocketflare-dev/rocketflare-plugin-analytics`. Once installed, its docs are its own `CLAUDE.md`
+**The `analytics` PLUGIN (D31) — opt-in, and not installable yet (see gaps).** `plugins/analytics`
+in `rocketflare-dev/rocketflare-plugins`. Once installed, its docs are its own `CLAUDE.md`
 files. drizzle-cube cubes scope every `sql()` by tenant, dashboards are jsonb `DashboardConfig`s
 restrictable to groups, fact tables rebuild on the `:15` cron, and its cube-isolation test is
 mandatory. The kit core knows nothing about drizzle-cube, and other plugins extend it through
@@ -548,8 +667,9 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   OpenAI-compatible at `EMBEDDINGS_BASE_URL` with `EMBEDDINGS_MODEL`; `dimensions: 1024` is always
   sent, so the model must honour it) → 503. **There is no zero-key mode** (D41): no key means chat,
   agents and indexing answer 503; the gate needs none (tests point both at an in-process fake
-  OpenAI-compatible endpoint). Credentials never leave the server (`hasCredential`); every
-  error is normalised to `AiError` with secrets redacted. Every `ai_configs` WRITE goes through
+  OpenAI-compatible endpoint). Credentials never leave the server (`hasCredential`), and a stored
+  key stays with the provider and normalised base URL it was entered for: changing either needs the
+  key again; every error is normalised to `AiError` with secrets redacted. Every `ai_configs` WRITE goes through
   `services/ai/configs.ts` (validate, encrypt, upsert, default swap, delete), so a second screen
   that manages a tenant's providers cannot drift from Settings → AI.
 - **Providers**: `anthropic`, `anthropic_compatible`, `openai`, `openai_compatible`. There is no
@@ -558,8 +678,8 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   unpriced. Defaults: `claude-haiku-5-5`, `gpt-6-luna`.
 - **The request body is per MODEL, not per provider** (`shared/src/ai/models.ts`). Claude 4.5 and
   earlier take a thinking budget. 4.6+ take `adaptive`. "Off" is `disabled`, Sonnet 5.5's
-  `between_tools`, or no field on models that always think (Opus 5.5, Fable). 4.7+ refuse any
-  `temperature`. Opus/Sonnet 5.5 and Fable 5.1 refuse a forced tool, so a forced tool becomes a
+  `between_tools`, or no field on models that always think (Opus 5.5, Fable). The Claude API takes
+  no `temperature` (API version `2026-10-21`); an `anthropic_compatible` vendor still gets it. Opus/Sonnet 5.5 and Fable 5.1 refuse a forced tool, so a forced tool becomes a
   prompt instruction. First-party `openai` speaks the **Responses API** (`store: false`), because
   Chat Completions cannot call tools on GPT-6 Astra/6.1 Sol, nor on Luna while it reasons.
   Thinking off there means the lowest `reasoning.effort` the model takes. `openai_compatible` stays
@@ -593,8 +713,26 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   `compactConversation` (`services/ai/chat-compaction.ts`), callable on any thread. Document cards come from
   `kit.document` events produced by a pure mapper, so nothing about a card is stored. The admin
   inspector (`/stats`) is derived per request.
+- **A plugin's chat turn**: `streamChat` (`plugins/api/chat.ts`, §16) streams a conversation the
+  PLUGIN owns — no `conversations` row, no compaction, only the plugin's tools — over the same
+  pieces as chat: `resolveChat` (its `promptKey` may carry an `agent_models` assignment),
+  `runStreamingChat`, `aguiTextSegmenter` + `aguiToolEvents` (the tool half, shared with
+  `chat-turn.ts`), `withAgentTrace`, and `recordUsage` under the plugin's `feature`. Its CUSTOM
+  events are `<plugin id>.…`, checked at emit time. Tests script the platform model with
+  `scriptPlatformChat` (the env's fake model endpoint) rather than mocking the resolver.
 - **Agents (D7)**: `POST /api/agents/runs` enqueues (row → Workflow instance → 202); the exclusive
-  index dedupes. The Workflow runs `claim → execute#N → (resume#N | expire#N) → finish`, and
+  index dedupes, per (tenant, agent, `agent_runs.concurrency_key`) — the SLOT a run holds: `''`
+  for an exclusive agent (one per tenant), a caller's `enqueueRun({ concurrencyKey })` to narrow it
+  to one active run per key, NULL for an agent declaring `exclusive: false`, whose rows sit outside
+  the index so any number may be active at once. A caller who finds the slot held gets that run
+  back (202, `deduplicated`) only if they may see it; otherwise a bare 409 `agent_run_active`, under
+  `?strict=1` too. `enqueueRun({ idempotencyKey })` goes further —
+  at most one run EVER per (tenant, agent, key): the run id is derived from the three
+  (`idempotentRunId`, a SHA-256-shaped v8 UUID), so the primary key is the gate and a repeat
+  answers the first run, settled or not; a failed `create()` deletes the row rather than failing
+  it, so the retry can start it. A plugin starts a run from a job, cron or public handler with
+  `ctx.startAgentRun` (§16), the same `enqueueRun`. A plugin agent reaches `ctx.interrupt`, the
+  resolved `chatModel` and `storage()` through `AgentCtx` (`@/plugins/api`). The Workflow runs `claim → execute#N → (resume#N | expire#N) → finish`, and
   **every step name carries its round**, because a repeated name replays the recorded result.
   A retry resumes: `ctx.checkpoint` keeps the tool-loop transcript and `ctx.once(key, fn)` gives
   once-per-run effects (a DB unique index; at-least-once with a recorded result).
@@ -602,8 +740,10 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   `step.waitForEvent`. The key must be stable across attempts. Answering is a compare-and-set on the
   row, *then* a nudge to the instance (`not_found` → restart as `<runId>-rN`). There are four
   closed interrupt kinds (approval/choice/input/form). Model-called tools are gated on the tool
-  (`requiresApproval`) before any handler runs. Artifacts are an upserted table, and steering notes
-  are event rows delivered once.
+  (`requiresApproval`) before any handler runs, and an approval runs only the call the person was
+  shown: that tool, those arguments (or their edit), once. Chat cannot park a turn, so
+  `runStreamingChat` neither offers nor runs a tool that declares a gate. Artifacts are an upserted
+  table, and steering notes are event rows delivered once.
 - **Decisions (D37)**: `ctx.decide(key, { state, questions })` asks typed questions — `noul`
   (yes/no), `choice`, `score`, in TypeSafe's own vocabulary — and gets back an answer, a
   distribution and a `confidence` per question; `ctx.decide.sift` asks the same yes/no of every item
@@ -622,6 +762,65 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   evals score decisions per question with `DecisionJudge` (`expected.decisions`, accuracy + Brier)
   without a model call. Why: AgentRun-style decomposition — cheap, recorded, separately testable
   judgments instead of a model turn per decision.
+- **Replay (D38)**: `pnpm web agent:replay <agent> --tenant <slug>` runs the agent's CURRENT code
+  over its settled runs and reports what would change — the change you are about to make, checked
+  against a thousand past cases in minutes, not against production. The replay context answers from
+  the record: `decide` from `agent_run_decisions` (same questions about the same state → `served`;
+  reworded → `drift`; same questions about a different state, because upstream code changed what the
+  decision is about → `stale`), `once` from `agent_run_effects`, `interrupt` from
+  `agent_run_interrupts`; anything the record cannot answer is a MISS (`strict`, the default — no
+  model call at all) or asked for real (`--live`, which also re-runs a `ctx.once(key, fn, { replay:
+  'rerun' })` — a pure model call whose prompt may have changed). `--live` reads the tenant's
+  knowledge base, prompts and model choice as they are TODAY, through the server's own resolver —
+  the tenant's configs first, then the platform keys in `.env` — and warns before starting when
+  knowledge search would be unavailable (no embeddings provider resolves). Chunks do not record
+  their model, so run it with the server's `EMBEDDINGS_*`. Each run replays in a READ ONLY
+  transaction on an empty platform (no jobs, storage, realtime or run engine) and `ctx.db` refuses
+  writes before they are sent (listed, not fatal). Per run: a verdict (`match` / `differs` /
+  `incomplete`), the output diff by JSON path, and each decision's status; exit 1 unless every run
+  matches. `--candidate <file>` replays another definition with the same key — how a compiled
+  variant is proven against the full agent's history. Local script only: no route, no UI. Why: D37
+  made the judgments recorded; replay makes the CODE around them testable.
+- **Volume (D39)**: exclusivity is the `concurrency_key` slot above, so a non-exclusive agent
+  (`triage-research`) runs any number at once — how many EXECUTE at once is the workers'
+  `RUNS_CONCURRENCY`. Two tenant-wide gates sit on every enqueue:
+  `AGENT_MAX_ACTIVE_RUNS_PER_TENANT` (default 50, 429 `agent_runs_limit` — a soft cap, counted then
+  inserted) and `AGENT_TENANT_DAILY_COST_USD` (429 `ai_budget_exceeded`).
+  `POST /api/agents/runs/batch` takes up to 100 inputs of one non-exclusive agent (400
+  `agent_exclusive` otherwise), validates each and inserts them under one `batch_id`, then starts
+  each on the run engine with its own `create()` — OpenWorkflow has no batch call, and `create` is
+  idempotent on the run id — so only the rows that really cannot start are failed
+  (`GET /runs?batchId=`, `rocketpod agents run <key> --batch x.jsonl`). Inside a run,
+  `ctx.scope(prefix)` namespaces every keyed primitive (`once`, `decide`, `interrupt`, `artifact`,
+  `step` → `prefix/key`; no checkpoint) and `ctx.map(key, items, fn, { concurrency, keyOf })` runs
+  each item as a `once` in its own scope, at most `min(concurrency ?? 4, 6)` at a time: a retry
+  replays the items that finished, the first error stops scheduling, and asks from several items
+  become ONE park. No parent/child runs. Every call through `ctx.chat.client` and `ctx.decide` is
+  metered — one `ai_usage` row carrying `agent_run_id`, awaited as the call returns, so a run
+  cancelled or failed mid-loop has a row for every turn it paid for — and an agent writes no ledger
+  rows (`ctx.recordUsage` for a client of its own); `GET /runs/:id` returns `usage`. The meter
+  checks the run's budget before each call (`meta.budget` over `AGENT_RUN_MAX_TOKENS` /
+  `AGENT_RUN_MAX_COST_USD`, plus the tenant's daily cap; tokens include prompt-cache reads and
+  writes), starting from every earlier attempt's
+  rows; over → `failed`, event code `agent_budget_exceeded`, never retried. Why: "thousands of
+  cases a day" needs many runs, cheap fan-out inside one, and a ledger that can say what each run
+  cost.
+- **Policy (D39, issue #1)**: `meta.policy { maxTurns, maxToolCalls, maxConcurrentToolCalls,
+  maxDurationSeconds, repeatedFailureLimit, onExhaustion }`, passed to `runToolLoop` as `policy`, is
+  how far one run's loop may go; `AGENT_MAX_TURNS` stays the ceiling. A turn's tool calls execute
+  concurrently up to `maxConcurrentToolCalls` (default 4; 1 is sequential) even with no policy, and
+  their `tool_result` events are emitted in the model's request order; the remaining limits are
+  opt-in. Every limit counts across attempts — turns and
+  ACTIVE time ride the checkpoint (time parked on a person is not counted), tool calls and the
+  failure streak are read back out of the transcript — and every call in the turn that crosses a
+  budget still gets a result, because the next request must not carry an unanswered `tool_use`.
+  Running out is behaviour the loop owns: `'final-answer'` (the default) makes ONE forced call to
+  the loop's single terminal tool over the transcript (`salvaged: true`; what `research-topic`
+  used to do by hand), and a salvage that fails fails the run; `'fail'` throws
+  `ToolLoopExhaustedError` → `failed`, event code `agent_policy_exhausted`, never retried.
+  **`authorizeTool(call)`** on the same loop is the deny-by-rule half of #3
+  (`requiresApproval` is the ask-a-person half, #17): a refused call is never gated, never run, and
+  the model is told why.
 - **Reading runs**: `agent_run_events` is the durable log, and AG-UI is a pure read-time
   projection (`/agui`), also streamed live by tailing `seq` (`/agui/stream`, #7). A read-stream
   failure emits no `RUN_ERROR` (clients reconnect); `id:` goes on the last frame of a row's group,
@@ -631,7 +830,10 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   uploads go to storage, then the platform `converter` (`src/node/converter.ts`: `unpdf` for PDF,
   `mammoth` for .docx → markdown, HTML stripped to text, XML/text decoded), then the same indexer.
   The converter declares its `contentTypes`, and an upload it cannot convert is 415
-  `unsupported_media_type` before anything is stored. Search is hybrid dense + lexical
+  `unsupported_media_type` before anything is stored. Every text write strips NUL and the other C0
+  controls except tab / LF / CR (`stripControlChars`, `api/utils/core/text.ts`) — some PDFs
+  convert with NULs, which Postgres refuses (22021); the span store does the same over `ai_spans`
+  (jsonb refuses `\u0000`, 22P05). Search is hybrid dense + lexical
   (the lexical half matches ANY query word, ranked by `ts_rank_cd` — `anyTermTsquery` — so a
   sentence's filler words cannot veto it — over `chunks.search_vector`, a STORED generated
   `to_tsvector(SEARCH_TEXT_CONFIG, text)` behind a GIN index) with RRF, scoped by `AccessScope`
@@ -641,13 +843,34 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   the viewer and `get_document`. Agent tools resolve the requester's access at execute time.
   **External ids (D34)**: `documents.external_id` is unique per `(tenant_id, source)` (partial
   index); an ingest carrying one is an upsert — one `ON CONFLICT` statement, grants
-  replaced, chunks rebuilt, a replaced original removed from storage — so a connector's re-sync never
+  replaced, chunks rebuilt (the old chunks go in the upsert's transaction, so a pending or failed
+  re-index never serves the replaced text), a replaced original removed from storage — so a
+  connector's re-sync never
   duplicates. Plugins reach it through `ingestDocument` (§16).
+  **Platform documents**: a `documents` / `chunks` row with `tenant_id` NULL is knowledge about the
+  APP itself (a plugin's user guide), readable by EVERY tenant by design. RLS pairs
+  `tenantIsolation()` with a SELECT-only `platformReadable()` policy (`tenant_id IS NULL`), so a
+  scoped connection reads platform rows and can never insert, update or delete one; they are
+  written only on the owner connection by `ingestPlatformDocument` from a job or cron (§16). A CHECK
+  requires `source` + `externalId`, unique among platform rows. They are always embedded, by
+  `resolvePlatformEmbeddings(cfg)` (the `EMBEDDINGS_*` key, else none, and then nothing is
+  written — there is no keyless binding to fall back on), so every tenant's query meets vectors of
+  one model. `searchChunks` reaches them only when a caller names their sources
+  (`platformSources`, never from a request body). The query is embedded once per model when the
+  tenant's embedder differs, with one dense leg per corpus fused by the same RRF, and the answer
+  reports `semantic: 'used' | 'unavailable'`. Every tenant document view (the list, viewer,
+  `/search`, `get_document`, `list_documents`, delete) keeps `tenant_id = $t` and never shows one;
+  `search_knowledge` includes them for the sources `ServerPlugin.knowledgeSources` names, marked
+  `platform`, and chat and agent runs show no document card for one (the documents page cannot
+  open it). The core Guide (§18) keeps its own `guide_chunks` index rather than this corpus.
 - **Usage**: one `ai_usage` row per call, costed at write time from the one price table
   (`shared/ai/pricing`, longest prefix wins; an unknown model gets `null` and is counted as
   unpriced). The two `*_compatible` providers are priced only for VENDOR-QUALIFIED ids — Fireworks'
   `accounts/fireworks/models/<name>` on both, Google's `gemini-*` on `openai_compatible` — so a
-  self-hosted model stays unpriced.
+  self-hosted model stays unpriced. While a cost cap applies to a run the deployment pays for (the
+  platform key), a chat call on an unpriced model is refused before it is made (run event
+  `agent_budget_exceeded`, `BudgetLimit` `unpriced_model`), because its cost could never reach the
+  cap. A tenant's own key is its own spend, so it is not refused.
 - **Tracing (D32, supersedes D16's Langfuse ingestion client)**: `api/observability/`. Every AI call
   site talks to the `Tracer` seam; the recorder batches ended spans and flushes (in `waitUntil`, or
   awaited at the end of a stream, step or job) to two sinks: our own **OTLP/HTTP exporter**
@@ -662,8 +885,8 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   invocation) is a child of a root the `finish` step records once the run has settled. Covered:
   chat turns, agent runs, tools, retrieval, embeddings, the `chat.compact` / `document.index` /
   `document.convert` jobs. `OBSERVABILITY_PRESET` (`langfuse|phoenix|generic`) fills endpoint and
-  auth — existing `LANGFUSE_*` keys migrate with no new secret; `OBSERVABILITY_CAPTURE_CONTENT=false`
-  strips prompts, completions and tool I/O from both sinks; `pruneAiSpans` on the nightly cron keeps
+  auth — existing `LANGFUSE_*` keys migrate with no new secret; content capture is off by default,
+  and `OBSERVABILITY_CAPTURE_CONTENT=true` records prompts, completions and tool I/O in both sinks; `pruneAiSpans` on the nightly cron keeps
   `OBSERVABILITY_SPAN_RETENTION_DAYS` (14). Read back through `GET /api/traces[/:id]` (`read
   Trace`, admin+ — spans hold other people's prompts) and `rocketpod traces list|show`; the
   `rp-traces` skill teaches an agent to debug from the span tree. Switch recipes: `docs/DEPLOY.md`
@@ -674,7 +897,7 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   content capture is on by default, with a flag to disable · agent context comes from the CLI
   reading our own Postgres, not a backend REST adapter.
 - **Evals (D33)**: `apps/evals`, its own workspace package because vitest-evals needs vitest 4 and
-  the kit's suites are on vitest 3. `pnpm eval [suite] [--model x] [--judge-model y] [--compare]`
+  the kit's suites are on vitest 5. `pnpm eval [suite] [--model x] [--judge-model y] [--compare]`
   runs `suites/**/*.eval.ts` against the TEST database with real models (the platform
   `ANTHROPIC_API_KEY` from `.env`; no key → every suite skips and says why). **Targets are
   in-process and go through the product's own code**: the chat target drives the real
@@ -740,18 +963,42 @@ from the Models API; no `effort` setting (thinking is on/off — on means the mo
 5.5's > 100k-token price tier is not modelled (`pricing.ts` uses the ≤ 100k rate); OpenAI tools are
 sent non-strict; an assistant message's `phase` is not replayed to the Responses API;
 no Excel or OpenDocument conversion (refused at upload); no document summary or thumbnail (the card is an excerpt);
-`charOffset` does not map to PDF pages; no image input in chat or uploads (the `image` block is for callers that build their own turns), and the tracer records image bytes like any other content (redact them yourself, or turn `OBSERVABILITY_CAPTURE_CONTENT` off); no frontend tools in chat, no `STATE_DELTA`; protobuf drops
-`TOOL_CALL_RESULT` and has no stream cursor; `@ag-ui/core` is 0.0.x (pin + contract test are the
-mitigation); no token-level streaming for runs; char-based history budget
+`charOffset` does not map to PDF pages; no image input in chat or uploads (the `image` block is for callers that build their own turns), and the tracer records image bytes like any other content (redact them yourself, or leave `OBSERVABILITY_CAPTURE_CONTENT` off); no images inside rendered
+Markdown (a model's or document's image is shown as a link, `MarkdownImageLink`); no frontend tools
+in chat and no human approval in chat (a tool with an approval gate is available to agent runs
+only), no `STATE_DELTA`; protobuf has no
+stream cursor; a cancelled chat stream closes silently rather than with AG-UI 1.0's `RUN_FINISHED`
+`cancelled` outcome (the client that cancelled cannot read it); no token-level streaming for runs; char-based history budget
 not derived from the model; sliding window defeats prompt caching on long threads; `enqueueRun`
 does not pre-resolve the client; no
-rerank; HITL asks cannot be amended, have no
+rerank; platform documents cannot be opened with `get_document` (a search hit is all a model
+reads of one), are not re-embedded automatically when the platform embedder changes (the next
+`ingestPlatformDocument` re-indexes; until then they are found lexically), and have no admin view;
+HITL asks cannot be amended, have no
 reminders, and parks are bounded by `AGENT_INTERRUPT_TIMEOUT`; runs nobody opens
-stay active-looking; no budgets/quotas over `ai_usage` or prompt versioning. Decisions (D37): no
-replay of an agent's CODE over recorded answers (stored and re-askable, not yet re-runnable), no
-zod-schema → questions compiler, the `llm_self_report` fallback is uncalibrated with no vote/logprob
+stay active-looking; no prompt versioning. Volume (D39): the active-run cap is counted, not locked,
+so a burst can overshoot it; a budget is checked BEFORE a call, so a run overshoots by its last
+call and, under `ctx.map`, by the calls in flight; **chat has no spend cap**: the run budgets and the
+daily cap meter agent rows only, so a chat turn on a platform key is bounded by nothing but its turn
+and output-token limits; the daily cap is a UTC day and TypeSafe is unpriced, so decisions count
+toward tokens alone; `map`
+runs inside one step on one DB client (six in flight is the ceiling, and a tool loop inside a scope
+restarts on a retry — there is no per-scope checkpoint); a budget error raised inside a tool
+handler is reported to the model as a tool error rather than stopping the run; a batch starts its
+runs one `create()` at a time (no batch call on OpenWorkflow); no batch UI, no per-batch cancel,
+and a batch's runs are not grouped on the runs page. Policy (D39): when a handler raises an
+interrupt under concurrent execution, in-flight sibling results are discarded and run again on
+resume (sequential execution never ran them at all); a salvage that succeeds and
+then loses its step is paid for again; `maxDurationSeconds` does not count time between the last
+checkpoint and a crash; a policy reaches a loop only when the agent passes it (`runToolLoop` has
+no registry to read); `authorizeTool` is per loop, not a run- or tenant-wide rule. Decisions
+(D37): no zod-schema → questions compiler, the `llm_self_report` fallback is uncalibrated with no vote/logprob
 mode, TypeSafe calls are unpriced (no published rates), no per-agent decisions provider
-(`agent_models` is chat-only), and a `sift` over 100 items is the caller's to batch. The demo seed's
+(`agent_models` is chat-only), and a `sift` over 100 items is the caller's to batch. Replay (D38):
+a tool loop's model turns are not recorded, so a `runToolLoop` agent (`research-topic`) replays
+only `--live`; steering notes are all handed over at the first call; a run that predates a `once`
+key misses it; no route or UI (a local script over a database URL), and `--live` holds one
+read-only transaction per run. The demo seed's
 vectors are deterministic, so dense search over seeded docs is noise. Tracing: no per-tenant
 backends (BYO keys via `sealSecret`), no native `tracing.enterSpan`, no metrics export, no
 Langfuse/Phoenix MCP; inline ingest from `POST /api/ai/documents/ingest` is untraced (no active
@@ -774,7 +1021,7 @@ writes one; `--compare` against a provisional baseline with no cases compares no
 **One image, three modes, configured by environment (D41).** Runbook: `docs/DEPLOY.md`; the
 `rp-deploy` skill drives it.
 
-- **The image** (root `Dockerfile`): `pnpm build` in a build stage, then `node:24-alpine` with the
+- **The image** (root `Dockerfile`): `pnpm build` in a build stage, then `node:26-alpine` with the
   two bundles (`dist/server.js`, `dist/migrate.js`), `dist/ui` and `migrations/` — no
   `node_modules`. Non-root, `ENTRYPOINT ["node","dist/server.js"]`, `CMD ["web"]`, a `/healthz`
   `HEALTHCHECK`. `node dist/migrate.js` is the one-shot (role → drizzle migrations → pgboss and
@@ -814,9 +1061,13 @@ a second copy of the contract (D26). `api.ts` is the only `fetch` site. Config l
 `~/.rocketpod/config.json` (0600); `ROCKETPOD_API_KEY`/`ROCKETPOD_URL` override it for CI.
 `--json` is available on every read. `traces list|show` reads the local AI trace store (D32);
 `feedback list` is the thumbs queue and `evals promote <id> --dataset <name>` appends a draft eval
-case to `apps/evals/datasets/` (D33, both admin+). Exit codes: 0 ok · 1 error · 2 not logged in ·
+case to `apps/evals/datasets/` (D33, both admin+). `agents list`, `agents run <key> --input x.json |
+--batch x.jsonl` (chunks of 100, failed lines reported, exit 1) and `agents runs list [--batch id]`
+start and follow runs (D39). Exit codes: 0 ok · 1 error · 2 not logged in ·
 3 forbidden.
-No command prints a full key. Plugins register top-level commands named after their id.
+No command prints a full key. Human output shows server text as inert text: `renderTable` cells,
+free-text lines and the logger drop terminal control characters, and colour is applied after that
+(a column's `style`); `--json` is unchanged. Plugins register top-level commands named after their id.
 Detail: `.claude/rules/cli.md`.
 
 **Known gaps:** no device-code flow; one profile at a time; `logout` does not revoke the key; no
@@ -900,7 +1151,10 @@ keep their names on purpose — they are the plugin ecosystem's fixed filenames 
   surfaces and plugin-owned files, translates through the same `applyReplacements()` as the rename,
   then patches with `--reject` as a fallback. It **never** applies kit migrations (snapshots are
   cumulative), applies deletions unasked, or ports the root
-  version. The version stamp is written last, only on a clean apply.
+  version. The version stamp is written last, only on a clean apply. Every release path is checked
+  before anything is written, a plan run included: one that is not a plain path inside the
+  repository (`scripts/lib/repo-paths.mjs`), is under `.git/`, or reaches an added file through a
+  symlink stops the run.
 - **A copy hears about releases on its own**: a Claude Code `SessionStart` hook
   (`scripts/kit-update-check.mjs`, in `.claude/settings.json`) compares `kit.version` with the
   newest tag at `kit.repo` (`git ls-remote`, cached a day in the git-ignored
@@ -960,8 +1214,10 @@ The full gate stays green at every step. `SETUP.md` is the walkthrough.
 **array** (`hasFeature`, `requireFeature`, `{ feature }` nav guards), never CASL. A global admin's
 `manage all` would satisfy `access Feature:x` and expose unreleased surfaces.
 
-- **Two layers**: `FEATURES_ENABLED` in `[vars]` is the fail-closed release gate, consulted only for
-  `environmentGated` flags. Then the admin rollout: tenant override → `on`/`off` → `rollout`
+- **Two layers**: `FEATURES_ENABLED` is the fail-closed release gate, consulted only for
+  `environmentGated` flags, plus whatever an installed plugin's own config switches on
+  (`ServerPlugin.deploymentFeatures`; `deploymentFeatures(cfg)` is the union, so `resolveFeatures`
+  is async). Then the admin rollout: tenant override → `on`/`off` → `rollout`
   percentage → registry default.
 - **Keys are code** (`FEATURES` + metadata). No migration is needed to add one; orphaned rows are
   inert. The kit ships **no** flag — `example-feature`'s belongs to its plugin — so
@@ -984,7 +1240,12 @@ the Bearer path; flags cannot gate pre-tenant surfaces.
 `applyReplacements()` like kit code. Only first-party plugins for now: installing one is as trusting
 as merging a PR. A plugin repo mirrors the host tree and ships **no migration and no
 `package.json`**. Plugins share Rocketflare's ecosystem files (`rocketflare-plugin.json`), so one
-that uses only the injected context installs in either kit; one that declares Cloudflare
+that uses only the injected context installs in either kit. A plugin is written in Rocketflare's
+vocabulary (`@rocketflare/shared/…`, `ROCKETFLARE_…`), and `plugin add`/`upgrade` translate it into
+Rocketpod's first (`pluginTranslator`, `scripts/lib/rename-lib.mjs`), then into a renamed app's; the
+fixed filenames and `rocketflare-dev/…` references are kept. Known difference: `ToastType` is
+`'error' | 'warning'` here (toasts report problems only), so a plugin calling
+`showToast(…, 'success')` fails typecheck in Rocketpod. One that declares Cloudflare
 `bindings` or `workerExports` is refused at `add` and fails `check` as `<id>:cloudflare-only`.
 Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
 `docs/plugin-api.md`.
@@ -1007,7 +1268,14 @@ Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
   realtime TOPIC registry the same way (§5): a plugin declares `{ prefix: '<id>.<kind>', subject }`,
   publishes with `ctx.nudgeTopic(tenantTopic(…), entity, id)` (`JobCtx.nudgeTopic` in a handler)
   and its page subscribes with `useRealtimeTopic` from `@/plugins/api/ui`.
-- **Namespacing**: the id is `^[a-z][a-z0-9-]*$` and namespaces jobs (`<id>.x`), query keys
+- **Core edits**: a line a plugin needs in a core file outside the barrels (a Vite dev proxy
+  prefix, a resolve alias) is a `coreEdits` entry in its manifest (`{ file, after, lines[] }`) —
+  a plain path inside the repository. `add` inserts it after the anchor, `remove` reverts it byte
+  for byte, `upgrade` applies the new
+  release's list. Never a hand edit. A cron needs no edit at all: pg-boss schedules every
+  expression `scheduledTasks` names.
+- **Namespacing**: the id is `^[a-z][a-z0-9-]*$` (never a reserved barrel or host directory name —
+  `api` included) and namespaces jobs (`<id>.x`), query keys
   (`<id>:`), `/api/<id>`, CLI commands and CUSTOM events. Never `kit.`. Table prefixes are a human
   convention; **two plugins declaring the same table is a `plugin check` failure**.
 - **Record**: a `kind: 'plugin'` surface (`source: {repo, subdir, version, commit}`). In the kit or
@@ -1020,7 +1288,7 @@ Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
   HOST's kit version (`hostKitVersion` in `scripts/lib/manifest.mjs`): `.rocketflare.json`
   `kit.version` in a copy, whose root `package.json` is the app's own, and the root `package.json`
   version only in the kit itself. `requires.kit` /
-  `requires.pluginApi` are refused by name. CI proves both ends: `ci.yml` runs the gate with
+  `requires.pluginApi` are refused by name. CI proves both ends: `kit.yml` runs the gate with
   `defaultPlugins` installed (in the kit's own repository only), and plugin repos call
   `plugin-ci.yml` (floor + newest kit), which installs a plugin's `requires.plugins` from the
   same checkout first and takes the highest `minKit` across the set as the floor.
@@ -1051,6 +1319,22 @@ Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
   only the tenants that turned it on: the plugin reads its own settings row for `ctx.scope.tenantId`,
   or its flag through `ToolCtx.features()` (`example-feature` does, and its welcome note follows the
   same flag — a dark feature then costs no prompt tokens). A builder that throws is logged and skipped. `buildAgentTools` is therefore async.
+  `ToolCtx.can(action, subject)` is the requester's CASL grant, read at build time from their
+  current membership (false for a run with no requester): gate a tool that writes on your own
+  subject's `manage`, not on `scope.bypass`, which is row visibility and true for `support` too.
+- **A streamed chat turn (`streamChat`)**: `streamChat(c, { promptKey, feature, message, history?,
+  system?, variables?, tools?, maxTurns?, signal?, threadId?, onFinish? })` from `@/plugins/api` is
+  a plugin route's whole answer — the kit's resolve seam, streaming tool loop, AG-UI encoder (SSE or
+  protobuf), GenAI trace and `recordUsage`, with none of chat's conversation rows. `promptKey` must
+  be one the plugin registered in `ServerPlugin.prompts` (`promptOwner`), and that plugin's id is
+  the namespace: `feature` is `<id>`, `<id>:…` or `<id>.…`, and `emit(name, value)` — on the tool
+  context and in `onFinish(result, { emit })` — sends a CUSTOM event only when it is `<id>.…`
+  (never `kit.`); any other name ends the run with `RUN_ERROR` `invalid_custom_event`. Tools are
+  the plugin's own, built inside the stream on its database client; gated tools are withheld.
+  Budgets are chat's: `AGENT_MAX_OUTPUT_TOKENS`, `maxTurns` clamped to `CHAT_MAX_TOOL_TURNS`,
+  history trimmed to `CHAT_HISTORY_MAX_CHARS` (`kit.notice history_truncated`), not counted against
+  `AGENT_TENANT_DAILY_COST_USD`. No provider is the JSON 503 before any frame. A plugin test drives
+  it with `scriptPlatformChat` from `@testkit/integration` (§9).
 - **Credentials**: a plugin stores a tenant's key with `sealSecret` / `openSecret` from
   `@/plugins/api`. That is the kit's AES-GCM under `OAUTH_ENCRYPTION_KEY`, with a 503 when the key
   is unset. Store the sealed value in a `*_enc` column and answer `hasCredential`.
@@ -1062,15 +1346,229 @@ Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
   proves the caller before naming a tenant. `signState` / `verifyState` are the proof for a
   round-trip the plugin started: HMAC-SHA256 under a key HKDF-derived from
   `OAUTH_ENCRYPTION_KEY`, a `purpose` that is part of the signed body, an absolute expiry
-  (default 10 min), `null` for every failure. Signed, not encrypted.
-- **Background feature checks (D34)**: `JobCtx`, `CronCtx` and `PublicCtx` carry
-  `features(tenantId)` — the same resolution as `auth.features`, with no user, so a cron that fans
-  out across tenants can skip the ones whose flag is off.
+  (default 10 min), `null` for every failure. Signed, not encrypted. The host guards every
+  public mount before its router runs (`api/middleware/public-mounts.ts`): a per-IP sliding
+  window over `platform.rateLimiter` (the `rate_limits` table) in a bucket named after the prefix
+  — default 120 / 60 s, `rateLimit: false` to opt out (a webhook sender with fixed IPs that
+  batches), a no-op on a platform without a limiter like every kit limit — and the body cap, chosen at middleware step 5 before any parsing: 1 MB unless the
+  mount declares `bodyLimitBytes` (≤ 10 MB; the config test refuses more), which then replaces
+  it beneath that prefix for every content type, so a ~200 KB SAML form POST or a SCIM bulk body
+  is neither refused nor unbounded. Both are the optional third tuple element,
+  `[prefix, router, { rateLimit?, bodyLimitBytes? }]`; a path is throttled by the longest public
+  prefix it falls under only.
+- **Public sites**: `ServerPlugin.publicSites` serves whole hosts from a plugin's router, for
+  anonymous readers. `hosts(config)` lists the hosts it answers (lowercase, no port); `null` means
+  the plugin's config is bad and it is **dormant**, so every host other than `APP_URL`'s and
+  loopback gets a plain, uncached 503. `api/middleware/public-sites.ts` runs after
+  `databaseMiddleware` and before every mount, and reads the host from the request URL, which
+  `@hono/node-server` builds from the `Host` the ingress passes (no forwarded header is trusted).
+  There is no host routing in front of the app: the Node server receives every host the proxy
+  sends, and the ingress, DNS and the plugin's hosts var are the deployment's (`docs/DEPLOY.md`
+  § Public site hosts; the Helm chart's `publicSites.hosts`). On a matching host the plugin's
+  router answers everything, so `/api/*`, `/auth/*` and `/ws` are never reached there. GET and
+  HEAD are allowed, plus POST on a path declared in `forms`; anything else is 405. Page requests
+  are never rate limited; a form POST bypasses the cache and has its own body limit (default
+  64 KiB, at most `MAX_PUBLIC_MOUNT_BODY_BYTES`) and rate-limit bucket. Two plugins claiming one
+  host, or a claim on `APP_URL`'s host, fail the gate (`publicSiteIssues`); at runtime the claim is
+  ignored and logged. A site host always gets the strict public CSP from
+  `api/middleware/security-headers.ts`: no script, frame, connection or form target unless
+  `csp(host, config, pathname)` declares one (`pathname` lets one path carry less than the rest of
+  the host; a `connectSrc` or `formAction` path such as `/submit` is pinned to the request's
+  origin), and a page may add its own through `PUBLIC_SITE_PAGE_CSP_HEADER` (JSON
+  `PublicSiteCsp`, stripped before the browser sees it); `style-src <request origin>/site-assets/`
+  (the same source joins `script-src` once a site declares any script, so a page cannot load the
+  admin bundle from `/assets/*`; `publicSiteIssues` refuses a declared script source reaching that
+  path, including `'self'`, and at runtime it is dropped) and `frame-ancestors 'none'`. Inline
+  script stays banned: a declared source containing `'unsafe-inline'`, `'unsafe-eval'`, `*`,
+  `data:` or `;` fails `publicSiteIssues` and is dropped at runtime. The server serves only
+  `/assets/*` and `/site-assets/*` before the app (`node/assets.ts`), so a root file on a site host
+  is the plugin's, and the SPA catch-all serves `index.html` for a browser navigation only — a
+  missing file is a 404. HSTS carries `includeSubDomains` on `APP_URL`'s host only.
+  `ServerPlugin.uploadPaths` (under `/api/<id>/`) skip the 1 MB body cap, and each such route mounts
+  its own limit. **Known gap:** `publicSites.cache` (generation, TTL, variants) is accepted and
+  inert — Rocketflare stores pages in the Workers Cache API and a Node process has no `caches`
+  global, so every page request reaches the router; put a CDN in front of the site hosts.
+- **The `publicSites` manifest field**: `"publicSites": { "hostsVar": "SITES_HOSTS" }` in
+  `rocketflare-plugin.json` names a declared, non-secret var holding the plugin's hosts.
+  `plugin check` refuses a hosts var that is not one; `plugin add` prints the human step of
+  routing those hosts to the app (ingress hosts, DNS, TLS) and `remove` its inverse. Rocketflare's
+  toml half (`run_worker_first`, `not_found_handling`, one route per host, the `images` binding)
+  has no Rocketpod equivalent: every request already reaches the server.
+- **`appOwned` paths** (`"appOwned": ["apps/web/src/plugins/<id>/app"]`, inside `paths`): the
+  developer's. `plugin upgrade` never touches them, and `plugin remove` lists a file changed or
+  added since the pinned commit (a symlink compared by its target) and needs `--force-app-owned` to
+  delete it. `plugin upgrade` also rewrites the anchor `plugin.json` from the release it installs,
+  and refuses a release whose manifest fails `plugin check`'s manifest rules before writing
+  anything.
+- **`workspace` route tier**: a `UiPlugin` route with `tier: 'workspace'` renders inside `Layout`,
+  in the shell's route table, for a page that needs the whole space under the app header (an
+  editor canvas). It requires sign-in and a tenant, and its `guard` is honoured, as on `shell`. On a
+  workspace route from `lg` up the sidebar collapses to its icon rail whatever the reader saved,
+  the saved preference is untouched and returns on leaving, and the collapse toggle is hidden;
+  below `lg` the drawer is unchanged. `<main>` has no padding and the page fills the viewport under
+  the 56 px header (`h-full` in a plugin page), scrolling only its own panes. The other tiers are
+  `shell` (the default), `noTenant` and `public`. `Breadcrumbs` (from `@/plugins/api/ui`) is the
+  trail on its own, for a surface with no page title.
+- **Header items (`UiPlugin.header`)**: `{ id, Component, guard?, order?, placement? }[]` adds
+  controls to the top bar — `placement: 'center'` (a search box, in `Layout`'s `headerCenter`) or
+  `'end'` (the default, ahead of the kit's status, Guide help, bell and user menu). `App.tsx`
+  renders them with `PluginHeaderSlot` for every shell and workspace page, ordered by `order`, then
+  plugin id, then item id; each behind its guard (the same `useNavGuard` semantics as nav and
+  routes), inside its own `Suspense` and error boundary, so a slow or throwing item renders nothing
+  and the shell stands. `Component` is `lazy(() => import(...))` like a page. The host reserves no
+  width and collapses nothing on a narrow screen: an item is a compact control and opens anything
+  large as its own lazy chunk. `headerItemIssues` (`plugins.test.ts`) refuses a duplicate id or an
+  unknown placement.
+- **Destinations (`useNavigationEntries()`)**, from `@/plugins/api/ui`: every place the reader may
+  open as one flat list of `{ id, label, to, group, icon?, keywords?, source }` — the side nav as
+  `SideNav` composes it (`composeNav` over `CORE_NAVIGATION` and every plugin's `nav`), the
+  `/settings?tab=` tabs (the core list in `pages/settings/tabs.ts`, which `SettingsLayout` renders,
+  plus every plugin's `settingsTabs({ can })`, all behind the page's `admin`), and the Home quick
+  links (plugins' `homeLinks`, then the core ones). Each is filtered by `useNavGuard`, the first
+  entry for a path wins, and `source` is `kit` or the contributing plugin's id. It is what a
+  command palette searches; `navigationEntries(plugins, checks)` is the pure half.
+- **UI registries (`UiPlugin.extensions`)**: the browser twin of `ServerPlugin.extensions` — plain
+  data under a key the OWNING plugin names (`global-search.commands`), read with `uiExtensions(key)`
+  (and `uiExtensionSources(key)` for the error message) from `@/plugins/api/ui` and narrowed by
+  that owner's schema. It ships in the main bundle with the UI entry, so data only.
+- **`listAgents()`** from `@/plugins/api`: every registered agent (the kit's and each plugin's) as
+  `{ key, title, description }` — the catalogue `GET /api/agents` serves, for a plugin that lists
+  or searches agents. Loaded at call time, off the API's load path; the caller applies the guard
+  (`read AgentRun`).
+- **`resolveOwnerTenant(db, config, ownerSlug?)`** from `@/plugins/api` finds the tenant that owns a
+  public surface: `getSingleTenant` under `single`, by slug under `multi`. It returns null for a
+  missing slug under `multi`, an unknown slug, and any tenant whose `status` is not `active`. This
+  and the plugin's config parser are the only places a plugin should branch on `TENANCY_MODE`.
+  **Known gap:** under `multi` it matches a slug, and a slug can be renamed or reused, so a tenant
+  that renames or is deleted frees a public host for whoever registers that slug next. Bind by id
+  before tenants can own public sites themselves.
+- **`chatModelAvailable(ctx, tenantId, promptKey)`** from `@/plugins/api` answers whether
+  `resolveChat` would find a model (a tenant row or the `.env` platform keys) without building a
+  client, so a plugin can say "no model" before it starts a run.
+- **Identity (the identity seam)**: a public handler that has proved a person signs them in with
+  `identityFor(c, id).signIn(...)` — the kit links, admits, applies an `idp` membership and mints
+  the session (§2) and the plugin returns the redirect it answers; it never touches
+  `user_sessions`, cookies or `tenant_users`. **Linking by email is opt-in — decided:** a sign-in
+  (or `upsertUser`) whose email belongs to an account with no link from this plugin is refused
+  (`account_exists`) unless it passes `linkByEmail: true`, which a plugin sets only when it has
+  proved its IdP owns the email's domain (a DNS-verified domain on the connection) — a per-tenant
+  IdP can assert any address, so linking by email alone would let one customer's IdP sign in as
+  anyone. **A subject with no link also needs it to CREATE an account**, with the same
+  `account_exists` either way: otherwise the IdP could reserve an address before its owner arrives
+  and keep a working link to the account they sign in to. A `BOOTSTRAP_ADMIN_EMAILS` address is
+  never created or linked through the seam (admission's `proof: 'plugin'` never earns the platform
+  role either); the operator signs in with a kit method. A suspended tenant is refused on every
+  tenant-taking method: 403 `tenant_suspended`, and `signIn` naming it answers `no_access`. `provisionFor(ctx, id)` is the cookie-free half, from
+  any `PluginContext` (SCIM, a directory sync): `findUser`, `upsertUser` (creates with a link and
+  no session; a block stays; an unverified email never links to an existing account),
+  `setMembership` / `removeMembership` (`source = 'idp'` only, so read-only in the app — 409
+  `idp_managed` — and never an owner, support or manual row), `deprovision` and `listMembers`.
+  **`removeMembership` is the membership only** (the IdP stopped granting the tenant: its sessions
+  are UNPINNED and fall back to another membership); **`deprovision` is a leaver** (SCIM
+  `active: false`): the same removal plus DELETING the sessions pinned to that tenant, answering
+  `{ removed, sessionsEnded, retained }` — `retained` is a manual/owner/support row it left, with
+  its sessions — and `blocked`. **Decided: never global in multi mode** — no `blocked_at`, no
+  other tenant's sessions or memberships, because a tenant's IdP speaks for that tenant only; the
+  person's API keys in that tenant stop authenticating because `validateApiKey` joins the
+  creator's membership there (401). **Decided: in single mode `deprovision` BLOCKS** — the one
+  tenant is the deployment, so the multi-mode reason (the person's other tenants) does not exist,
+  and without a block a magic link, Google, another plugin's sign-in, dev login's `onNoTenant` or
+  the session left with no pinned tenant would let the leaver straight back in. It sets
+  `users.blocked_at` with `blocked_source = 'plugin:<id>'` and deletes EVERY session (keys answer
+  403 `blocked`), answering `blocked: true` — only for a person the IdP speaks for (it just
+  removed their `idp` row, or they carry this plugin's link), never with a `retained` row, and
+  never a global or bootstrap admin (logged: no IdP locks the operator out). The block has a
+  source so reactivation cannot undo an operator: the SAME plugin's `setMembership` (SCIM
+  `active: true`, a role again) lifts a `plugin:<id>` block and nothing else; the admin console's
+  Block writes `manual` (and takes over an IdP block), Unblock clears either, NULL means manual;
+  `upsertUser` and `signIn` never lift one. A tombstone `onNoTenant` checks was rejected: it would
+  close one door of six, where `blocked_at` is already checked by every sign-in, the session
+  middleware and API keys. In single mode every tenant-taking method also accepts only THE tenant
+  (`getSingleTenant`), `tests/api/tenancy-single-identity.test.ts` proves the mode end to end.
+  `tests/driver/identity.test.ts` runs sign-in, provisioning and the single-mode block through the
+  request path's `openDatabase`. Every tenant-taking method 404s a missing tenant; the CALLER must have proved its right
+  to that tenant, the `PublicCtx` contract. `loginMethods(cfg)` contributes login-page buttons whose `startPath`
+  must sit under `/api/hooks/<id>/`, and whose `errors` copy is keyed `<id>.<name>` —
+  `plugins.test.ts` fails a stray one, and `GET /auth/methods` drops it with a log. `example-feature`'s dev-only `/api/hooks/example-feature/sso/*` is the
+  worked example.
+- **SSO required (`ssoPolicy`)**: `(db, email, { config }) => Promise<{ required: true; methodId;
+  label?; connectionId? } | null>` — "my connection claims this email's domain; send them to my login method
+  `methodId`". The host asks every plugin once per sign-in attempt and enforces the answer on all
+  of its own methods and on every OTHER plugin's `signIn` (§2); `evaluateSsoPolicy` is pure over
+  the plugin list and `plugins.test.ts` drives it with fixtures (claim, other plugin, throw,
+  malformed answer, undeclared method, break-glass). Keep it to one indexed lookup on the domain,
+  answer `null` for a domain no connection claims, and let a real failure throw (the host fails
+  closed). The host does not verify the domain, end existing sessions or check `provisionFor`.
+  `example-feature/api/sso-policy.ts` claims `@sso-required.example.test`, development only.
+- **A callback completing a signed flow**: `verifyState` proves who minted the state and when, not
+  that they still may. `memberCan(ctx, { tenantId, userId }, action, subject)` from `@/plugins/api`
+  re-reads the membership, role, account block and tenant status now; a public callback calls it
+  right after `verifyState`, with the action and subject the start route guarded.
+- **Background feature checks (D34)**: `JobCtx`, `CronCtx` and `PublicCtx` carry `storage()`
+  (`platform.storage`, the same service `RequestCtx.storage()` returns, 503
+  `storage_not_configured` without one; keys under `tenants/<id>/<plugin id>/…` are purged with the
+  tenant) and `features(tenantId)` — the same resolution as `auth.features`, with no user, so a cron that fans
+  out across tenants can skip the ones whose flag is off. `AgentCtx` and `ToolCtx` carry the same
+  `storage()` (one `filesStorage(platform)` behind every context's), keyed under the run's tenant.
+- **Starting agent runs from the background**: the same three contexts carry
+  `startAgentRun({ agentKey, tenantId, input, idempotencyKey?, concurrencyKey?, triggeredBy? })`
+  → `{ runId, status, deduplicated }` — `POST /api/agents/runs` without a request, through the
+  same `enqueueRun` (validation, exclusive slot, active-run cap, daily budget, the run-engine
+  start; each refusal a throw, so a job retries). A job passes an `idempotencyKey` naming the WORK
+  (`receipt:<documentId>`), so a redelivery answers the first run instead of starting a second
+  (§9). `triggeredBy` is the requester whose access the run's tools read; omitted, a system run.
+  It is part of `feature-agents` and reaches the runtime by a function-scope import (the agent
+  registry reads the plugin barrel). `@testkit/unit`'s `makeJobCtx` / `makeCronCtx` record every
+  call in `startedRuns` and take a `startAgentRun` replacement.
+- **Plugin events (D42)**: "something happened in a plugin" as a declared, durable, tenant-scoped
+  fact. **Declare** in the shared entry, `events: { '<id>.<thing>.<happened>': zodSchema }` (never
+  `kit.`; listed in `plugin.json` `"events"`; `plugins.test.ts` and `plugin check` refuse a
+  mis-prefixed, colliding or undeclared name), so `EventName` / `EventPayload<E>` are derived
+  types. **Emit** with `ctx.emit(name, { payload, idempotencyKey? })` on `RequestCtx`, `AgentCtx`
+  and `EventCtx` (tenant-bound), or `{ tenantId, payload, … }` on `JobCtx`, `CronCtx` and
+  `PublicCtx`: it validates the payload (400), writes one `plugin_events` row (deduplicated per
+  `(tenant, name, key)`; an emit that recorded but never queued is re-queued by the same key), then
+  queues ONE `event.deliver` job per subscriber on `platform.jobs` carrying ids only — it never runs
+  a handler. The payload is kept `EVENTS_RETENTION_DAYS` (7, the nightly `pruneEvents` task on
+  the `0 4 * * *` pg-boss schedule), purged with the tenant, re-read and re-validated under the
+  tenant predicate on delivery, and never logged. **Subscribe** with
+  `ServerPlugin.eventHandlers: [{ event, name, handle(event, ctx) }]` (adapt with `eventCtx(ctx)`:
+  tenant-bound `emit`, `enqueue`, `nudge`, `features()`, `storage()`, `startAgentRun`,
+  `startBoundAgent`) or, for a copy's own code, `APP_EVENT_HANDLERS` in
+  `apps/web/src/api/services/events/app-handlers.ts` (app-owned: `kit:upgrade` never ports it).
+  A throw retries that subscriber alone (pg-boss's backoff); a 4xx `ApiError` is logged and acked.
+  **Agent triggers**: `AgentDefinition.triggers: [eventTrigger(event, { where?, input })]` starts
+  a run per matching event through `enqueueRun` (input schema, exclusive slot, active-run cap,
+  daily budget), idempotent per (event, agent) via the run key `event:<eventId>`; the run records
+  `trigger_event` / `trigger_event_id`, the runs page and run page show the event, and the
+  `agent_run.requested` activity row says `via: 'event'`. **Bindable agents** (a no-code "On
+  submit, start" picker): an agent opts in with `bindable: [eventBinding(event, { input })]`;
+  `GET /api/agents/bindable?event=` (any member) and `listBindableAgents(event)` list them;
+  `EventCtx.startBoundAgent(key)` starts one for the DELIVERED event and re-checks the opt-in on
+  the server — an unknown key, a plain agent and a merely triggered one are all 403
+  `agent_not_bindable`, so a forged key starts nothing. `@testkit/integration`'s
+  `deliverEvents(env, db)` runs the queued deliveries through the real consumer. Worked example:
+  `example-feature` (`POST /notes` emits `example-feature.note.created`, `events/note-created.ts`
+  audits it, `agents/note-stats.ts` is triggered unless the title starts "draft", and bindable).
+  `pnpm plugin check` also fails an event two installed plugins both declare and one the manifest
+  lists but the plugin's shared source never names.
 - **Knowledge ingest (D34)**: `ingestDocument` / `ingestDocumentFile` / `deleteIngestedDocument`
   over the kit's ingest paths (§9). With an `externalId`, the same `(tenant, source, externalId)`
   UPDATES the row — text, owner, visibility, grants, chunks, the stored original — so a sync can
   replay safely. Group ids are checked against the tenant first. This file belongs to the
   `feature-knowledge` surface; a plugin that ingests requires it.
+- **Platform knowledge**: `ingestPlatformDocument(ctx, { source, externalId, title, text })` /
+  `prunePlatformDocuments(ctx, { source, keepExternalIds })` write the tenant-less corpus (§9).
+  They take ONLY `JobCtx | CronCtx`, which now carry `kind: 'job' | 'cron'`, so the structurally
+  identical `PublicCtx` is a type error, and they check at run time too. The
+  `source` must be `<installed plugin id>:<kind>` (never `kit:`). Ingest embeds synchronously with
+  the platform embedder, throws `PlatformEmbeddingsError` (503) with nothing written when there is
+  none, and returns `unchanged` for the same title and text. `searchKnowledge(ctx, { query, limit,
+  sources?, platformSources?, signal? })` → `{ hits, semantic }` works from any context with a
+  `scope` and falls back to keyword search. `ServerPlugin.knowledgeSources?(scope)` adds platform
+  sources to the kit's `search_knowledge` tool (unioned; an unnamespaced source is dropped, a throw
+  skipped). `fuseByRank` / `anyTermTsquery` / `candidatePoolSize` are exported for a plugin's own
+  corpus. **Never put tenant data in a platform document**: every organisation can read it.
 - **Skills**: a plugin ships agent skills at `skills/<dir>/` in its own tree and declares them in
   `"skills"`; `add` copies each to `.claude/skills/<dir>/` (the one place outside its roots a
   plugin may write) and records it on the surface, `upgrade` REPLACES it (never patches — an agent's
@@ -1079,6 +1577,27 @@ Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
   directory is a refusal. `plugin check` fails a declared skill that is missing, misnamed or
   undescribed, and a directory in the plugin's namespace it does not declare. `.claude/` in a
   plugin repository stays that repository's own tooling. `example-feature` ships one.
+- **Claude Code hooks** (`claudeHooks`): `{ "<Event>": [{ command, matcher?, timeout? }] }`, merged
+  by `add` into the host's `.claude/settings.json` (created if absent) as one matcher group per hook
+  at the end of its event; `upgrade` replaces them and `remove` takes out exactly them, so a round
+  trip is byte-identical (and deletes a file `add` created). The command may only be
+  `node "$CLAUDE_PROJECT_DIR/.claude/skills/<dir>/<script>"` plus plain flags, over a script one of
+  its declared skills ships: a hook runs in the developer's coding agent, so it can run nothing the
+  plugin does not ship and `remove` does not delete. That skill directory is also what identifies
+  the plugin's entries (the longer id wins on a shared prefix). `plugin check` fails a declared hook
+  missing from the file, an undeclared one in the plugin's namespace, a missing script and a
+  settings file that is not valid JSON. **Known gap:** `.claude/settings.json` is `manual` in
+  `.rocketflare.json`, so an upstream release changing the host's own hooks arrives as a hand merge.
+- **Host files** (`hostFiles`): `[{ path, from }]`, a file or directory the plugin SEEDS for the
+  developer under `docs/<id>/`, `apps/web/src/ui/public/<id>/` (Vite's `publicDir`, served from
+  `dist/ui`) or `apps/web/src/host/<id>/` (nowhere else; `apps/web/public/<id>/` is also accepted
+  so a Rocketflare plugin that declares it installs, but nothing serves that directory). `add`
+  copies only what is absent; `upgrade` never touches one, and seeds only an entry the release
+  adds; `remove` leaves them and lists them. The surface records them in `hostFiles`, outside
+  `paths`, so the file classification knows whose they are and `remove` deletes none. A plugin
+  imports its own `apps/web/src/host/<id>/` as `@/host/<id>/…` (the existing `@/*` alias), and only
+  its own id's (`tests/helpers/plugins.ts`). **Known gap:** `plugin export` does not write host
+  files back to `from` — they are the app's content, not the plugin's.
 - **Hooks** (`onTenantCreated`, `onTenantDeleted`, `seedDemo`) run post-commit, are idempotent,
   and are try/caught. State a plugin keeps outside Postgres (its own storage prefix, an external
   system) is purged in `onTenantDeleted`, addressed by names **derived** from the tenant id.
@@ -1094,10 +1613,10 @@ Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
 | # | Choice |
 |---|---|
 | 1 | First-party only; the install plan waits for a human |
-| 2 | The kit is bare; `defaultPlugins` + a bootstrap step keep a fresh clone unchanged |
+| 2 | The kit is bare; `defaultPlugins` + a bootstrap step install an app's own set on its fresh clones (empty in the kit) |
 | 3 | `example-feature` is the reference plugin |
 | 4 | A plugin is recorded as a `kind: 'plugin'` surface; `readManifest()` is the one kit-vs-app predicate |
-| 5 | Compatibility is proved in CI from both ends (`ci.yml` with defaults installed; `plugin-ci.yml`; `kit:release` refusal) |
+| 5 | Compatibility is proved in CI from both ends (`kit.yml` with `defaultPlugins` installed; `plugin-ci.yml`; `kit:release` refusal) |
 | 5b | *(reversed)* a `PLUGIN_API` integer beside `requires.kit` |
 | 5c | Compatibility is observed: derived `uses` against the emitted ledger, plus a `minKit` floor |
 | 6 | Cubes/fact tables/dashboards are plugin-owned registries via `extensions`, narrowed by the owner |
@@ -1118,12 +1637,42 @@ Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
 | 21 | `plugin check` is an exhaustive, untiered oracle that reads comment-free code |
 | 22 | Table prefixes are convention; collisions are the check |
 | 23 | A plugin ships agent skills: `skills/<dir>/` → `.claude/skills/<dir>/`, namespaced by id, replaced on upgrade |
+| 24 | (Rocketflare's inbound-email slot — not ported, see the known gaps) |
+| 25 | A background context starts an agent run through the route's own `enqueueRun`; idempotency is a derived run id, not a new column |
+| 26 | Plugin identity is `identityFor(c, id)` / `provisionFor(ctx, id)`, links under `plugin:<id>`, memberships through the core `idp` primitives; login buttons are declared, never rendered by the plugin |
+
+**D42 decisions** (plugin events and agent triggers):
+
+| # | Choice |
+|---|---|
+| 1 | Events are declared in the shared entry (zod), namespaced `<id>.`, never `kit.`; the registry is server-side, derived from the shared barrel |
+| 2 | Emit records then queues; one delivery job per subscriber, ids only; the payload lives in `plugin_events` for `EVENTS_RETENTION_DAYS` |
+| 3 | Emit on a tenant-bound context takes no `tenantId`; only the background contexts name it |
+| 4 | A trigger and a binding start through `enqueueRun` with the key `event:<eventId>` — at most one run per (event, agent) |
+| 5 | `triggeredBy` stays a person; the event is its own two columns on `agent_runs` |
+| 6 | A bound start is a method on the DELIVERED event's context, so neither the event nor its tenant can be forged, and the opt-in is re-checked there |
+| 7 | A subscriber's 4xx refusal is acked; anything else retries that subscriber only |
+
+**Plugin events known gaps (D42):** an app cannot DECLARE events of its own (it only subscribes,
+through `APP_EVENT_HANDLERS`); emit is not transactional with the caller's write (emit after the
+row is stored, with a key naming it); a binding has no `where`; there is no event log UI and no
+replay of a pruned event; subscribers run in queue order, with no ordering guarantee between
+events.
 
 **Known gaps:** no sandbox, review or signing; no rename migrations (expand/contract only); no
 cross-plugin FK tooling or `many()` onto core tables; `grants` is additive by convention only;
 a plugin cannot register a durable workflow or a Node service of its own (only jobs, crons,
 routes, agents and tools); `defaultPlugins` is empty until the analytics plugin has a release
-without Cloudflare bindings;
+without Cloudflare bindings; no inbound email — Rocketflare's `emailHandlers` slot rides
+Cloudflare Email Routing, which has no Rocketpod equivalent (a plugin can take a provider's inbound
+webhook on a `publicRoute` instead); `startAgentRun`'s `idempotencyKey` is forever per (tenant,
+agent, key) — there is no expiry, so a plugin that wants to re-run the same work later must vary
+the key; `RequestCtx` has no `startAgentRun` (a route calls `POST /api/agents/runs`, or enqueues a
+job that does); `streamChat` stores no turn (the plugin owns its history and sends it back), has
+no feedback thumbs (its STATE_SNAPSHOT says `feedback: false`), no summary of a trimmed history
+and no daily cost cap, and a CUSTOM name a TOOL refuses still reaches the model as that tool's
+error result before the run ends; header items get no overflow menu — on a narrow screen each
+plugin keeps its own control compact;
 the ledger judges only ledgered entries, ignores namespace imports, truncates types over 300
 chars, and `uses` is only as fresh as the last export; table collisions are caught by `check`, not
 refused at `add`; the isolation check proves a test exists, not that it is right; no database-free
@@ -1131,8 +1680,9 @@ test of data-touching handlers; no purge-intent ledger;
 `plugin-ci.yml` input changes reach callers only via `main`, and nothing tests versions between
 floor and ceiling. `addedDependencies` starts after 0.17.1: a plugin installed by 0.17.1 or earlier has its
 older packages kept, never removed, when a release drops them, and a package a plugin added that
-the kit later starts declaring too is still the plugin's to remove. Public mounts (D34) get no rate limit of their own and no `@testkit` builder
-(test them through `request()`); `verifyState` has no replay ledger — a token is reusable until it
+the kit later starts declaring too is still the plugin's to remove. Public mounts (D34) have no `@testkit` builder
+(test them through `request()`), and their rate limit is the kit's Postgres window, keyed
+on the client IP (`TRUSTED_PROXY_HOPS` decides which address that is) — a sender behind a shared egress shares one bucket; `verifyState` has no replay ledger — a token is reusable until it
 expires, so a plugin whose callback must run once records that itself; an ingested document's
 upsert reads the previous row before writing, so two racing re-ingests of a FILE may leave one
 replaced original behind in storage; a plugin skill edited in place is overwritten by the next

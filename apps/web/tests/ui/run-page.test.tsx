@@ -14,7 +14,7 @@
  *   `['agent-run-agui']` — the key the stream owns — untouched.
  */
 import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
-import { Route, Routes } from 'react-router-dom'
+import { Route, Routes } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WebSocketProvider } from '@/ui/components/WebSocketProvider'
 import { RUN_POLL_MS, runOwesAnswer, runPollInterval } from '@/ui/hooks/useAgents'

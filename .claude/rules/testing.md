@@ -19,8 +19,7 @@ Vitest in `apps/web` (all commands below are root scripts that delegate there, o
 helpers, the driver guards `driver-results.test.ts` and `driver-conformance.test.ts`, and every
 installed plugin's own `src/plugins/*/tests/config/**`), and `kit-only` (Node, no database:
 `tests/kit-only/**`, the KIT's own tests — see below). The web suite is two `vitest run`
-invocations (`api` with `--no-isolate`, then the rest) because vitest 3 resolves `isolate` per
-run, not per project.
+invocations (`api` with `--no-isolate`, then the rest).
 
 **`pnpm test` is the one full test run** (`scripts/test.mjs`, the plan in
 `scripts/lib/test-plan.mjs`, unit-tested in `tests/config/gate.test.ts`), and the `test` step of
@@ -224,6 +223,11 @@ a fake `WebSocket` factory left set) is on you.
   rows. **Assert the step NAMES are distinct** — the engine replays a repeated name's recorded
   result, which reads as "the agent ignored my approval", and only `names` can catch it. Test the claim-row gate: `claimRun` on a settled row returns
   `null` and `claimStep` returns `false`; a cancel while `queued` never reaches `execute`
+- A route that resolves chat through the REAL seam (a plugin's `streamChat`): `scriptPlatformChat(env,
+  turns)` (`tests/helpers/ai.ts`, re-exported by `@testkit/integration`) scripts the env's fake
+  model endpoint's chat answers — `{ text?, toolCalls?: [{ name, input }], usage? }` per turn — and
+  returns the recorded calls; `createTestEnv({ ANTHROPIC_API_KEY: '', ai: null })` is the 503
+  (`plugin-stream-chat.test.ts`)
 - AI seam: `vi.mock('@/api/services/ai/resolve', async importOriginal => ({ ...(await importOriginal()),
   resolveChat: vi.fn(async () => ({ client: new FakeChatClient(script), provider, model, source,
   maxOutputTokens })) }))` in a `// @vitest-isolate` file (`chat.test.ts`, `agent-run-workflow.test.ts`).
@@ -325,6 +329,7 @@ a fake `WebSocket` factory left set) is on you.
 ## UI tests
 
 `apps/web/tests/ui/setup.ts` (jest-dom). `renderWithProviders()` gives QueryClient + Auth + Ability + Router.
+The `ui` project resolves with Vite's `defaultClientConditions`, as the browser bundle does: without them `react-router` loads as CommonJS and an ESM importer (`react-router-dom`, which plugins still use) gets a second copy with its own context — `router-instance.test.tsx` holds it.
 Shallow component tests; mock `fetch` where needed, no MSW. No test gates colour contrast.
 Polling hooks (`agents-page`, `run-page`, `documents-page`): test the pure decision
 (`runPollInterval(status)` over `runOwesAnswer`, so a parked run polls NEVER), not `refetchInterval`
@@ -386,7 +391,10 @@ the whole rule, and it is why neither half duplicates the other.
   entries, split by what a test needs: `@testkit/integration` is the harness (`setupTestDatabase`,
   `request` / `json`, `createTestEnv` / `stubs`, the auth factories, `renderWithProviders`) and
   `@testkit/unit` the context builders (`makeRequestCtx`, `makeJobCtx`, `makeCronCtx`,
-  `makeWorkflowCtx`, `makeToolCtx`). Both are re-exports, so a plugin and a kit test run the same
+  `makeWorkflowCtx`, `makeToolCtx`). The two background builders record every
+  `ctx.startAgentRun` call in `startedRuns` (`{ input, result?, error? }`), run the REAL starter
+  by default (a row on the test database, a run on `stubs(env).workflow`) and take a
+  `startAgentRun` option to answer without one. Both are re-exports, so a plugin and a kit test run the same
   code. The alias is in `tsconfig.json` and `vitest.config.ts` and **deliberately not in
   `vite.config.ts`**, so a `src/` file importing it fails `build:ui` rather than shipping the
   harness into a browser bundle — `tests/config/testkit-alias.test.ts` pins all three halves and

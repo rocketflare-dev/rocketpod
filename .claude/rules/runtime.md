@@ -12,7 +12,7 @@ paths:
 
 # The runtime (Node in a container)
 
-One image, one Node 24 process per container, in one of three modes (`src/node/server.ts`):
+One image, one Node 26 process per container, in one of three modes (`src/node/server.ts`):
 `web` (Hono on `@hono/node-server`, the UI from `dist/ui`, `/ws`, `/healthz` + `/readyz`),
 `worker` (pg-boss jobs and cron, OpenWorkflow agent runs) or `all` (both — dev and small installs).
 Every runtime capability comes through the `Platform` (D41) — never a binding read off an env or an
@@ -39,7 +39,7 @@ entry (`src/node/platform.ts`) and read as `c.get('platform')` / `ctx.platform`:
 |---|---|
 | `jobs` | pg-boss producer (`src/node/jobs.ts`); the consumer runs `processJobsBatch` |
 | `runs` | OpenWorkflow (`src/node/runs.ts`) driving `runAgentRun` (`api/workflows/agent-run-body.ts`) |
-| `realtime` | `ws` on `/ws` + Postgres LISTEN/NOTIFY fan-out (`src/node/realtime.ts`): per tenant, per user, or per subscribed TOPIC (`toTopic`, gated by `canSubscribeTopic`) |
+| `realtime` | `ws` on `/ws` + Postgres LISTEN/NOTIFY fan-out (`src/node/realtime.ts`): per tenant, per user, or per subscribed TOPIC (`toTopic`, gated by `canSubscribeTopic`); `closeSockets` ends a revoked member's or session's sockets (4001) on every process |
 | `storage` | any S3-compatible store (`src/node/storage.ts`, `STORAGE_*`): ranged `get` (`StorageRange` → `StoredRange`, `StorageRangeNotSatisfiableError`), multipart `putStream` (`@aws-sdk/lib-storage`, pinned to `client-s3`'s version) |
 | `rateLimiter`, `locks` | Postgres tables `rate_limits`, `operation_locks` (`src/node/limits.ts`) |
 | `converter` | unpdf / mammoth (`src/node/converter.ts`) |

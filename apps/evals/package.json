@@ -14,15 +14,16 @@
   },
   "dependencies": {
     "@rocketpod/shared": "workspace:*",
-    "drizzle-orm": "^0.45.2",
+    "drizzle-orm": "^0.45.4",
     "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@types/node": "^24.0.0",
-    "dotenv": "^17.4.2",
-    "tsx": "^4.23.13",
+    "@types/node": "^26.6.6",
+    "dotenv": "^18.0.10",
+    "postgres": "^4.1.0",
+    "tsx": "^4.23.15",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.11",
+    "vitest": "^4.1.12",
     "vitest-evals": "^0.17.0"
   }
 }

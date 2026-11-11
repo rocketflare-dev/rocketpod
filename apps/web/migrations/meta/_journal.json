@@ -50,6 +50,41 @@
       "when": 1793526320436,
       "tag": "0006_idp-managed-tenancy",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1794325606446,
+      "tag": "0007_agent-volume",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1794333230089,
+      "tag": "0008_idp-blocked-source",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1794335146497,
+      "tag": "0009_invitation-send-limits",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1794337405529,
+      "tag": "0010_kit-platform-knowledge",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1794338059423,
+      "tag": "0011_kit-plugin-events",
+      "breakpoints": true
     }
   ]
 }

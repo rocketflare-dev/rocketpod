@@ -17,6 +17,9 @@
  * `agent_run_decisions`, so "why was this passage ignored?" has a row, and changing the threshold
  * below is a code change that can be checked against recorded answers rather than a prompt edit.
  *
+ * It is NON-exclusive: the shape is meant for volume, so a batch of a hundred questions is a
+ * hundred concurrent runs, each metered and held to the run budget.
+ *
  * Retry safety: the search runs inside `ctx.once`, so a re-entered `run()` screens the SAME
  * passages its recorded decision was about — a decision replayed over a different item list would
  * be quietly wrong. The decisions themselves replay by key; the answer call is behind `ctx.once`.
@@ -31,7 +34,7 @@ import {
 import { KNOWLEDGE_TOOLS } from '@rocketpod/shared/ai/embeddings'
 import { z } from 'zod'
 import { callStructuredTool } from '../../ai/agent-loop'
-import { recordUsage } from '../../ai/usage'
+import { withFanout } from '../fanout'
 import type { AgentContext, AgentDefinition } from '../registry'
 import type { SearchKnowledgeResult } from '../tools/search-knowledge'
 import { researchTopicAgent } from './research-topic'
@@ -77,7 +80,9 @@ export const triageResearchAgent: AgentDefinition<TriageResearchInput, TriageRes
     inputSchema: triageResearchInputSchema,
     outputSchema: triageResearchOutputSchema,
     promptKey: 'triage-research',
-    exclusive: true,
+    // One run per question, and nothing shared between two of them — so any number may run at
+    // once, and `POST /runs/batch` takes a file of questions. The kit's one non-exclusive agent.
+    exclusive: false,
   },
 
   async run(ctx: AgentContext<TriageResearchInput>) {
@@ -175,31 +180,29 @@ async function answer(
   screen: Screen
 ): Promise<TriageResearchOutput> {
   await ctx.step('answer', 'Writing the answer', 'running')
-  const result = await ctx.once('triage:answer', async () => {
-    const context = screen.kept
-      .map(p => `<passage documentId="${p.documentId}" title="${p.title}">\n${p.text}\n</passage>`)
-      .join('\n\n')
-    return callStructuredTool(ctx.chat.client, {
-      model: ctx.chat.model,
-      maxTokens: Math.min(ctx.chat.maxOutputTokens, ANSWER_MAX_TOKENS),
-      system: await ctx.prompt(),
-      messages: [{ role: 'user', content: `${context}\n\nQuestion: ${question}` }],
-      tool: {
-        name: SUBMIT_TRIAGE_ANSWER_TOOL,
-        description: 'Submit the answer and the documents it used. Call exactly once.',
-        schema: answerSchema,
-      },
-      onUsage: usage =>
-        void recordUsage(ctx.db, {
-          tenantId: ctx.tenantId,
-          userId: ctx.userId,
-          feature: 'agent:triage-research',
-          provider: ctx.chat.client.provider,
-          model: ctx.chat.model,
-          usage,
-        }).catch(err => ctx.logger.warn({ err }, 'triage-research: usage write failed')),
-    })
-  })
+  // `rerun`: a pure model call, so a live replay asks again and a prompt change shows.
+  const result = await ctx.once(
+    'triage:answer',
+    async () => {
+      const context = screen.kept
+        .map(
+          p => `<passage documentId="${p.documentId}" title="${p.title}">\n${p.text}\n</passage>`
+        )
+        .join('\n\n')
+      return callStructuredTool(ctx.chat.client, {
+        model: ctx.chat.model,
+        maxTokens: Math.min(ctx.chat.maxOutputTokens, ANSWER_MAX_TOKENS),
+        system: await ctx.prompt(),
+        messages: [{ role: 'user', content: `${context}\n\nQuestion: ${question}` }],
+        tool: {
+          name: SUBMIT_TRIAGE_ANSWER_TOOL,
+          description: 'Submit the answer and the documents it used. Call exactly once.',
+          schema: answerSchema,
+        },
+      })
+    },
+    { replay: 'rerun' }
+  )
   // Citations only from what the screen kept — a model-supplied id outside it is dropped.
   const titles = new Map(screen.kept.map(p => [p.documentId, p.title]))
   const citations = [...new Set(result.documentIds)]
@@ -246,11 +249,15 @@ async function escalate(
 ): Promise<TriageResearchOutput> {
   await ctx.step('escalate', 'Unsure — handing over to the research agent', 'running')
   await screenArtifact(ctx, passages, screen.p)
-  const full = await researchTopicAgent.run({
-    ...ctx,
-    input: { topic: question },
-    prompt: vars => ctx.prompt(vars, 'research-topic'),
-  })
+  // NOT a scope: `research-topic` resumes its tool loop from the run's checkpoint, and a
+  // scope has none. Its keys share this run's namespace, and none of them is a `triage:*` key.
+  const full = await researchTopicAgent.run(
+    withFanout({
+      ...ctx,
+      input: { topic: question },
+      prompt: vars => ctx.prompt(vars, 'research-topic'),
+    })
+  )
   await ctx.step('escalate', 'Unsure — handing over to the research agent', 'done')
   return {
     answer: full.answer,

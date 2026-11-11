@@ -1240,7 +1240,12 @@ the Bearer path; flags cannot gate pre-tenant surfaces.
 `applyReplacements()` like kit code. Only first-party plugins for now: installing one is as trusting
 as merging a PR. A plugin repo mirrors the host tree and ships **no migration and no
 `package.json`**. Plugins share Rocketflare's ecosystem files (`rocketflare-plugin.json`), so one
-that uses only the injected context installs in either kit; one that declares Cloudflare
+that uses only the injected context installs in either kit. A plugin is written in Rocketflare's
+vocabulary (`@rocketflare/shared/…`, `ROCKETFLARE_…`), and `plugin add`/`upgrade` translate it into
+Rocketpod's first (`pluginTranslator`, `scripts/lib/rename-lib.mjs`), then into a renamed app's; the
+fixed filenames and `rocketflare-dev/…` references are kept. Known difference: `ToastType` is
+`'error' | 'warning'` here (toasts report problems only), so a plugin calling
+`showToast(…, 'success')` fails typecheck in Rocketpod. One that declares Cloudflare
 `bindings` or `workerExports` is refused at `add` and fails `check` as `<id>:cloudflare-only`.
 Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
 `docs/plugin-api.md`.

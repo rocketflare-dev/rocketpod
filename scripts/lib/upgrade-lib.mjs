@@ -359,12 +359,13 @@ export class BinaryPatchError extends Error {
  * the body only when `translate` is true. Mode lines are left verbatim — that is what preserves
  * the `120000` symlink the kit ships. `index` lines are dropped. `names` null — the kit itself,
  * which has no app to translate into (`pnpm plugin upgrade` in the kit repository) — translates
- * nothing at all, path lines included.
+ * nothing at all, path lines included. `sub` overrides the names translation: `pnpm plugin upgrade`
+ * passes its plugin translator, which also moves the ecosystem's vocabulary into the kit's.
  */
-export function translateBlock(block, names, { translate = true } = {}) {
+export function translateBlock(block, names, { translate = true, sub: subOverride } = {}) {
   const lines = block.raw.split('\n')
   const out = []
-  const sub = s => (names ? applyReplacements(s, names).text : s)
+  const sub = subOverride ?? (s => (names ? applyReplacements(s, names).text : s))
   let inBody = false
   for (const line of lines) {
     if (BINARY_MARK.test(line)) throw new BinaryPatchError(block.header)

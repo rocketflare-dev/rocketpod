@@ -41,6 +41,7 @@ Rocketpod catches up with Rocketflare 0.32.2 and takes its version: identity sea
 - Platform knowledge: tenant-less documents a plugin ingests from a job or cron, searched beside the tenant's own; `streamChat`, header items, navigation entries, UI extensions, `claudeHooks` and `hostFiles` for plugins.
 - Plugin events: declared `<id>.<name>` events, one delivery job per subscriber, agents triggered by or bindable to an event.
 - New skill `rp-agent-docs`; a WCAG contrast test over both themes; agent docs split into per-directory `CLAUDE.md` files.
+- Plugins written for Rocketflare install here: `pnpm plugin add`/`upgrade` translate their names (`@rocketflare/*`, `ROCKETFLARE_…`, `Rocketflare`) into Rocketpod's, then into a renamed app's (`pluginTranslator`); a plugin's own tests (`src/plugins/<id>/tests/`) may import `node:` modules. One known difference remains: there is no `'success'` toast (`docs/FORK.md`).
 - Not ported (no Rocketpod equivalent): inbound email, the `images` binding, `publicSites.cache` storage, the Workers AI GLM parser.
 
 ## How to apply
@@ -55,7 +56,8 @@ Rocketpod catches up with Rocketflare 0.32.2 and takes its version: identity sea
 8. Move any headless caller of `GET /auth/cli` to `POST /auth/cli/confirm`; the GET no longer creates a key.
 9. Update calls in your own code: `enqueueRun(db, cfg, platform, …)`; `actor` on `createInvitation`, `bulkInvite` and `resendInvitation`; `proof` on `admitUser`; `closeSockets` on any custom `Broadcaster`; and delete every `recordUsage` or usage-writing `onUsage` in your own agents, because the runtime now writes one row per call.
 10. For a plugin that declares `publicSites`, list its hosts in Helm `publicSites.hosts` with `publicSites.hostsVar` (`docs/DEPLOY.md` § Public site hosts).
-11. For a change not covered by steps 1–10, follow the Rocketflare porting note named in that release's `docs/FORK.md` row, as translated in the row.
+11. If you added a Rocketflare plugin before this release, it was copied in Rocketflare's names: rewrite its imports with `rg -l '@rocketflare/' apps packages | xargs sed -i '' 's#@rocketflare/#@rocketpod/#g'`; later `pnpm plugin upgrade` runs translate on their own.
+12. For a change not covered by steps 1–11, follow the Rocketflare porting note named in that release's `docs/FORK.md` row, as translated in the row.
 
 ## Conflicts to expect
 
@@ -73,3 +75,4 @@ Rocketpod catches up with Rocketflare 0.32.2 and takes its version: identity sea
 3. `pnpm audit` reports no known vulnerabilities.
 4. `psql "$DATABASE_URL" -c '\d plugin_events'` shows the table, and `\d agent_runs` lists `batch_id`, `trigger_event` and `trigger_event_id`.
 5. `pnpm web test:api -- tests/api/security` passes, including the socket revocation case (close code 4001).
+6. `pnpm plugin add <a Rocketflare plugin repo> --subdir <dir>` prints `Names       translated from the ecosystem's vocabulary into the kit's on the way in`, and after `--apply`, `rg -l '@rocketflare/' apps/web/src/plugins/<id>` prints nothing.

@@ -48,7 +48,8 @@ A **repo URL** is mirrored under `.upgrade/plugins/` (`--no-fetch` reuses the ca
 blocks and **"Nothing written. Read the plan, then re-run with --apply to install."** at the end:
 
 - `Plugin` / `Source` / `Host` / `Names` — what, from where, into which manifest file, and whether
-  the names are being translated into this app's vocabulary or copied in kit vocabulary.
+  the names are being translated (a plugin is written in Rocketflare's vocabulary, moved into
+  Rocketpod's and then the app's) or copied in kit vocabulary.
 - `Requirements` — four `✔` lines or one `✖` per unmet requirement: the kit is at or above the
   plugin's `minKit` floor (or `⚠` when it declares none, meaning no kit version is ever checked
   against it); **`surface`, the measured one** — every symbol the plugin `uses` is in this kit's

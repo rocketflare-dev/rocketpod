@@ -54,7 +54,16 @@ export interface ReplacementClass {
   pattern: RegExp
   replacement: string
 }
-export function buildReplacements(names: Names): ReplacementClass[]
+/** A vocabulary replacements start from: the kit's own (`KIT`) or the ecosystem's. */
+export interface Vocabulary {
+  readonly slug: string
+  readonly upper: string
+  readonly display: string
+  readonly domains: readonly string[]
+}
+/** The plugin ecosystem's vocabulary (Rocketflare's) — what a plugin repository is written in. */
+export const ECOSYSTEM_VOCABULARY: Vocabulary
+export function buildReplacements(names: Names, from?: Vocabulary): ReplacementClass[]
 export const CLASS_IDS: readonly ClassId[]
 
 export interface ReplacementResult {
@@ -65,7 +74,12 @@ export interface ReplacementResult {
   /** Occurrences of `KIT.preservedPattern` and `KIT.preserved` literals that were protected. */
   preserved: number
 }
-export function applyReplacements(text: string, names: Names): ReplacementResult
+export function applyReplacements(text: string, names: Names, from?: Vocabulary): ReplacementResult
+/**
+ * Plugin text → host text: ecosystem names into this kit's, then into the app's when `names` is
+ * given. Null when nothing would change.
+ */
+export function pluginTranslator(names: Names | null): ((text: string) => string) | null
 
 /** `launch.kit.json` — the Launch kit contract, kept by every copy. */
 export const KIT_MANIFEST_FILE: string

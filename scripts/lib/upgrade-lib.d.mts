@@ -171,7 +171,8 @@ export function translateBlock(
   block: DiffBlock,
   /** null: the kit itself — nothing is translated. */
   names: Names | null,
-  options?: { translate?: boolean }
+  /** `sub` replaces the names translation for every translated line (a plugin's translator). */
+  options?: { translate?: boolean; sub?: (text: string) => string }
 ): string
 export function countLines(text: string): number
 export function stripIndexLines(text: string): string

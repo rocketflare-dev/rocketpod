@@ -1278,7 +1278,7 @@ export function renderAddPlan(plan) {
     `Source      ${plan.source.repo}${plan.source.subdir ? `#${plan.source.subdir}` : ''}` +
       `${plan.source.ref ? ` @ ${plan.source.ref}` : ''}${plan.source.commit ? ` (${plan.source.commit.slice(0, 12)})` : ''}`,
     `Host        ${plan.host.label} at kit ${plan.host.kitVersion} — records into ${plan.host.recordsIn}`,
-    `Names       ${plan.host.translated ? `translated into ${plan.host.label}'s vocabulary on the way in` : 'kit vocabulary, copied verbatim'}`,
+    `Names       ${plan.host.translated ? `translated from the ecosystem's vocabulary into ${plan.host.label === 'the kit itself' ? "the kit's" : `${plan.host.label}'s`} on the way in` : 'kit vocabulary, copied verbatim'}`,
     '',
     'Requirements',
   ]

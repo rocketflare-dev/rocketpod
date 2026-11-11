@@ -117,9 +117,35 @@ export function deriveNames(slug, display, options = {}) {
 
 const escapeRegExp = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
-/** The ordered classes for one set of names. Each `pattern` is a fresh global RegExp. */
-export function buildReplacements(names) {
-  const kit = KIT.slug
+/**
+ * The vocabulary a plugin is written in: the plugin ecosystem's, which is Rocketflare's
+ * (`KIT.ecosystem`). A plugin repository serves both kits, so its files say `@rocketflare/shared`,
+ * `ROCKETFLARE_…` and `Rocketflare`, and `pluginTranslator` moves them into this kit's names.
+ */
+export const ECOSYSTEM_VOCABULARY = Object.freeze({
+  slug: KIT.ecosystem,
+  upper: KIT.ecosystem.toUpperCase(),
+  display: KIT.ecosystem[0].toUpperCase() + KIT.ecosystem.slice(1),
+  domains: [`${KIT.ecosystem}.dev`, `${KIT.ecosystem}.local`],
+})
+
+/** This kit's own names, as `deriveNames` would give them (it refuses the kit's own slug). */
+const KIT_NAMES = Object.freeze({
+  slug: KIT.slug,
+  snake: KIT.slug.replaceAll('-', '_'),
+  upper: KIT.upper,
+  display: KIT.display,
+  domain: KIT.domains[0],
+  prefix: `${KIT.slug.replaceAll('-', '_')}_`,
+  colour: null,
+})
+
+/**
+ * The ordered classes for one set of names. Each `pattern` is a fresh global RegExp. `from` is the
+ * vocabulary being replaced: the kit's own by default, the ecosystem's for a plugin's files.
+ */
+export function buildReplacements(names, from = KIT) {
+  const kit = from.slug
   return [
     {
       id: 'scope',
@@ -127,12 +153,17 @@ export function buildReplacements(names) {
       pattern: new RegExp(`@${kit}/`, 'g'),
       replacement: `@${names.slug}/`,
     },
-    { id: 'env', label: KIT.upper, pattern: new RegExp(KIT.upper, 'g'), replacement: names.upper },
+    {
+      id: 'env',
+      label: from.upper,
+      pattern: new RegExp(from.upper, 'g'),
+      replacement: names.upper,
+    },
     {
       id: 'domain',
-      label: KIT.domains.join(' | '),
+      label: from.domains.join(' | '),
       pattern: new RegExp(
-        `(?:${KIT.domains.map(d => d.replaceAll('.', '\\.')).join('|')})\\b`,
+        `(?:${from.domains.map(d => d.replaceAll('.', '\\.')).join('|')})\\b`,
         'g'
       ),
       replacement: names.domain,
@@ -163,8 +194,8 @@ export function buildReplacements(names) {
     },
     {
       id: 'display',
-      label: KIT.display,
-      pattern: new RegExp(escapeRegExp(KIT.display), 'g'),
+      label: from.display,
+      pattern: new RegExp(escapeRegExp(from.display), 'g'),
       replacement: names.display,
     },
     { id: 'bare', label: kit, pattern: new RegExp(`\\b${kit}\\b`, 'g'), replacement: names.slug },
@@ -181,7 +212,7 @@ const UPSTREAM_MARK = i => `\u0000U${i}\u0000`
  * One pass over `text`: every class in order, counting matches per class. Returns the new text
  * (identical object when nothing matched) and `counts` keyed by class id.
  */
-export function applyReplacements(text, names) {
+export function applyReplacements(text, names, from = KIT) {
   const counts = Object.fromEntries(CLASS_IDS.map(id => [id, 0]))
   let out = text
   let preservedHits = 0
@@ -196,7 +227,7 @@ export function applyReplacements(text, names) {
     preservedHits += parts.length - 1
     out = parts.join(PRESERVE_MARK(i))
   })
-  for (const cls of buildReplacements(names)) {
+  for (const cls of buildReplacements(names, from)) {
     out = out.replace(cls.pattern, (...m) => {
       counts[cls.id] += 1
       // `$1` in the replacement is the captured context (dbuser); everything else is literal.
@@ -211,6 +242,24 @@ export function applyReplacements(text, names) {
   })
   const total = Object.values(counts).reduce((a, b) => a + b, 0)
   return { text: total === 0 ? text : out, counts, total, preserved: preservedHits }
+}
+
+/**
+ * Text from a plugin repository → the text that lands in this host. A plugin is written in the
+ * ecosystem's vocabulary, so it is first moved into this kit's names (a no-op when the kit IS the
+ * ecosystem), then into the app's when the host has been renamed (`names`, else null). Returns
+ * null when there is nothing to translate, so callers can copy bytes verbatim. Never changes a
+ * line count: the replacements are all within a line.
+ */
+export function pluginTranslator(names) {
+  const fromEcosystem = KIT.slug !== ECOSYSTEM_VOCABULARY.slug
+  if (!fromEcosystem && !names) return null
+  return text => {
+    const inKit = fromEcosystem
+      ? applyReplacements(text, KIT_NAMES, ECOSYSTEM_VOCABULARY).text
+      : text
+    return names ? applyReplacements(inKit, names).text : inKit
+  }
 }
 
 /**

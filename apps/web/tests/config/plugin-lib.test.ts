@@ -758,7 +758,17 @@ describe('the install plan', () => {
     expect(text).toContain('orders@1.1.0 — Orders')
     expect(text).toContain('@ 1.1.0 (abc123def456)')
     expect(text).toContain(`records into ${MANIFEST_FILE}`)
-    expect(text).toContain("translated into Acme Logistics (acme)'s vocabulary")
+    expect(text).toContain(
+      "translated from the ecosystem's vocabulary into Acme Logistics (acme)'s on the way in"
+    )
+    const inKit = renderAddPlan({
+      ...plan,
+      barrels: [...plan.barrels],
+      host: { ...plan.host, label: 'the kit itself' },
+    }).join('\n')
+    expect(inKit).toContain(
+      "translated from the ecosystem's vocabulary into the kit's on the way in"
+    )
     expect(text).toContain("Verify (from the plugin's own note)")
     expect(text).toContain('The Orders page lists one order.')
     for (const kind of BARREL_KINDS) expect(text).toContain(BARRELS[kind].file)

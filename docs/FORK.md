@@ -27,6 +27,12 @@ follows it directly.
 `pnpm kit:upgrade` and `/rp-upgrade`, exactly as Rocketflare copies do. `.rocketflare.json` and
 `rocketflare-plugin.json` keep their names on purpose: they are the plugin ecosystem's fixed
 filenames, so a plugin that uses only the neutral plugin context installs in either kit.
+Plugins are written in Rocketflare's names; `pnpm plugin add` and `upgrade` translate them into
+Rocketpod's as they copy them in.
+
+**Deliberate differences a plugin can meet.** `ToastType` is `'error' | 'warning'`: Rocketpod
+toasts report problems only, so a plugin that shows a `'success'` toast fails typecheck here (the
+commercial SSO plugin does, 7 calls). This stays until Rocketflare's UX is reviewed.
 
 The design is in [`DESIGN-SELFHOSTED.md`](DESIGN-SELFHOSTED.md); the milestones are in
 [`ROADMAP.md`](ROADMAP.md).

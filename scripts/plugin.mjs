@@ -121,7 +121,7 @@ import {
   undeclaredSkillDirs,
   withoutDependencies,
 } from './lib/plugin-lib.mjs'
-import { applyReplacements, deriveNames, isBinary } from './lib/rename-lib.mjs'
+import { deriveNames, isBinary, pluginTranslator } from './lib/rename-lib.mjs'
 import { containedPath, writePathProblem } from './lib/repo-paths.mjs'
 import { missingFrom, readLedger, usesOf } from './lib/surface.mjs'
 import {
@@ -298,6 +298,7 @@ function loadHost() {
     sidecarPath,
     kitVersion,
     names,
+    translate: pluginTranslator(names),
     tracked,
     label: manifest.app ? `${manifest.app.display} (${manifest.app.slug})` : 'the kit itself',
     kitRepo: manifest.kit.repo,
@@ -564,11 +565,14 @@ function openSource(spec, args) {
   }
 }
 
-/** Bytes → the text that lands in the host, translated when the host has been renamed. */
-function materialise(buffer, names) {
+/**
+ * Bytes → the text that lands in the host: the plugin's ecosystem vocabulary moved into this kit's
+ * names, then the app's when the host has been renamed (`pluginTranslator`; null copies verbatim).
+ */
+function materialise(buffer, translate) {
   if (isBinary(buffer)) return buffer
   const text = buffer.toString('utf8')
-  return names ? applyReplacements(text, names).text : text
+  return translate ? translate(text) : text
 }
 
 function writeInto(rel, content) {
@@ -806,7 +810,7 @@ function cmdAdd(args, host) {
       label: host.label,
       kitVersion: host.kitVersion,
       recordsIn: local ? path.basename(host.sidecarPath) : path.basename(host.manifestPath),
-      translated: Boolean(host.names),
+      translated: Boolean(host.translate),
     },
     vendored,
     problems,
@@ -835,7 +839,7 @@ function cmdAdd(args, host) {
   const targets = []
   for (const f of files) {
     if (f.role !== 'copy' && f.role !== 'note') continue
-    writeInto(f.target, materialise(source.read(f.path), host.names))
+    writeInto(f.target, materialise(source.read(f.path), host.translate))
     targets.push(f.target)
     written += 1
   }
@@ -844,7 +848,7 @@ function cmdAdd(args, host) {
   const seededTargets = []
   for (const f of files) {
     if (f.role !== 'seed' || existsSync(abs(f.target))) continue
-    writeInto(f.target, materialise(source.read(f.path), host.names))
+    writeInto(f.target, materialise(source.read(f.path), host.translate))
     seededTargets.push(f.target)
   }
   writeClaudeSettings(settings)
@@ -853,7 +857,7 @@ function cmdAdd(args, host) {
   // one and not the other: every install of `analytics` 2.0.1 then failed the audit with "plugin.json
   // says X and the surface says Y", over code that was perfectly correct. Writing it from the source
   // manifest here makes that state unrepresentable.
-  writeInto(anchorPath, materialise(source.read(PLUGIN_MANIFEST_FILE), host.names))
+  writeInto(anchorPath, materialise(source.read(PLUGIN_MANIFEST_FILE), host.translate))
   if (!targets.includes(anchorPath)) targets.push(anchorPath)
   for (const kind of barrels) {
     const file = abs(BARRELS[kind].file)
@@ -890,7 +894,7 @@ function cmdAdd(args, host) {
   )
   out(
     '',
-    `✔ ${written} file(s) copied${host.names ? ' and translated' : ''}`,
+    `✔ ${written} file(s) copied${host.translate ? ' and translated' : ''}`,
     `✔ ${barrels.length} barrel line(s) written`,
     ...(coreEdits.size > 0
       ? [`✔ core edit(s) applied to ${[...coreEdits.keys()].join(', ')}`]
@@ -1247,7 +1251,7 @@ function cmdUpgrade(args, host) {
       else {
         artifacts.write(
           path.join('added', f.target),
-          materialise(m.showRaw(to, subdir === '' ? f.path : `${subdir}/${f.path}`), host.names)
+          materialise(m.showRaw(to, subdir === '' ? f.path : `${subdir}/${f.path}`), host.translate)
         )
         added.push(f.target)
       }
@@ -1274,7 +1278,7 @@ function cmdUpgrade(args, host) {
     if (f.change === 'added' || !local.has(f.target)) {
       const body = materialise(
         m.showRaw(to, subdir === '' ? f.path : `${subdir}/${f.path}`),
-        host.names
+        host.translate
       )
       artifacts.write(path.join('added', f.target), body)
       added.push(f.target)
@@ -1294,10 +1298,13 @@ function cmdUpgrade(args, host) {
     try {
       const translated = blocks
         .map(b => {
-          // The kit itself (no `app`) has no names to translate into: null leaves every line as
-          // the plugin wrote it. `deriveNames('rocketpod')` used to stand in here and threw
-          // ("the kit's own name"), so every patched file became a warning and nothing applied.
-          const t = translateBlock(b, host.names, { translate: Boolean(host.names) })
+          // `host.translate` moves the plugin's ecosystem vocabulary into this kit's names, then
+          // the app's when the host is renamed; the kit has no app names of its own, which is why
+          // `deriveNames('rocketpod')` cannot stand in (it refuses "the kit's own name").
+          const t = translateBlock(b, host.names, {
+            translate: Boolean(host.translate),
+            sub: host.translate ?? undefined,
+          })
           if (countLines(stripIndexLines(b.raw)) !== countLines(t)) {
             throw new Error(`translation changed the line count of ${f.path}`)
           }
@@ -1452,7 +1459,7 @@ function cmdUpgrade(args, host) {
   for (const s of newSeeds) {
     writeInto(
       s.target,
-      materialise(m.showRaw(to, subdir === '' ? s.path : `${subdir}/${s.path}`), host.names)
+      materialise(m.showRaw(to, subdir === '' ? s.path : `${subdir}/${s.path}`), host.translate)
     )
   }
   writeClaudeSettings(settings)
@@ -1581,7 +1588,7 @@ function cmdUpgrade(args, host) {
     if (targetManifest) {
       // The same copy `add` writes. `remove` and the next upgrade read this file, so a stale one
       // would have them act on the manifest of the release before this.
-      writeInto(surface.anchor, materialise(m.showRaw(to, pluginManifestPath), host.names))
+      writeInto(surface.anchor, materialise(m.showRaw(to, pluginManifestPath), host.translate))
       formatWritten([surface.anchor])
       entry.minKit = floorOf(targetManifest)
       entry.requires = {
@@ -1681,7 +1688,7 @@ function changedAppOwnedFiles(manifest, surface, host, args) {
     const disk = lstatSync(abs(rel)).isSymbolicLink()
       ? Buffer.from(readlinkSync(abs(rel)))
       : readFileSync(abs(rel))
-    const pristine = Buffer.from(materialise(m.showRaw(source.commit, inRepo(rel)), host.names))
+    const pristine = Buffer.from(materialise(m.showRaw(source.commit, inRepo(rel)), host.translate))
     return disk.equals(pristine) || disk.equals(Buffer.from(formattedLikeAdd(rel, pristine)))
       ? []
       : [{ path: rel, reason: 'changed' }]

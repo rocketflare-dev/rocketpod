@@ -166,6 +166,12 @@ function leftmostExpression(expr: ts.PropertyAccessExpression): ts.Expression {
 const NODE_ONLY = /^src\/node\//
 
 /**
+ * A plugin's own tests (`src/plugins/<id>/tests/`) run under vitest beside the kit's `tests/`, and
+ * are never bundled into the server — so, like `tests/`, they may use any Node module.
+ */
+const PLUGIN_TESTS = /^src\/plugins\/[^/]+\/tests\//
+
+/**
  * `node:*` modules the app's own code may use anywhere — the ones that are runtime plumbing rather
  * than a server. Everything else (`node:fs`, `node:http`, `node:net`…) is the Node entry's business.
  */
@@ -218,10 +224,10 @@ function nodeReferences(file: string, text: string): Finding[] {
 
 describe('the Node entry stays in src/node/', () => {
   it(
-    'no process, Node server module or Node-entry import anywhere else under src/',
+    "no process, Node server module or Node-entry import anywhere else under src/ (a plugin's tests aside)",
     () => {
       const offenders = sources()
-        .filter(file => !NODE_ONLY.test(file))
+        .filter(file => !NODE_ONLY.test(file) && !PLUGIN_TESTS.test(file))
         .flatMap(file => nodeReferences(file, read(file)))
         .map(f => `${f.file}:${f.line} ${f.what}`)
       expect(offenders, 'config comes through loadConfig(env); runtime through Platform').toEqual(
@@ -230,6 +236,13 @@ describe('the Node entry stays in src/node/', () => {
     },
     SCAN_TIMEOUT_MS
   )
+
+  it("exempts a plugin's own tests and nothing else in the plugin", () => {
+    expect(PLUGIN_TESTS.test('src/plugins/sso/tests/scim.test.ts')).toBe(true)
+    expect(PLUGIN_TESTS.test('src/plugins/sso/tests/helpers/saml.ts')).toBe(true)
+    expect(PLUGIN_TESTS.test('src/plugins/sso/api/scim.ts')).toBe(false)
+    expect(PLUGIN_TESTS.test('src/plugins/tests/x.ts')).toBe(false)
+  })
 
   it('sees what it is looking for', () => {
     const probe = [

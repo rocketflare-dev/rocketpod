@@ -45,6 +45,7 @@ import { identityEventsRouter } from './routes/identity-events'
 import { invitationsRouter } from './routes/invitations'
 import { inviteRouter } from './routes/invite'
 import { keysRouter } from './routes/keys'
+import { mcpRouter } from './routes/mcp'
 import { meRouter } from './routes/me'
 import { membersRouter } from './routes/members'
 import { notificationsRouter } from './routes/notifications'
@@ -87,6 +88,7 @@ for (const prefix of serverPlugins.flatMap(p => p.apiPrefixes ?? [])) {
   if (!isUnderPrefix(prefix, '/api')) app.use(`${prefix}/*`, jsonBodyLimit)
 }
 app.use('/auth/*', jsonBodyLimit)
+app.use('/mcp', jsonBodyLimit)
 
 // 6–7. CORS answers preflights before CSRF can reject them; CSRF is cookie-only, no DB.
 app.use('*', corsMiddleware)
@@ -117,6 +119,10 @@ app.use('/api/admin/*', globalAdminMiddleware)
 app.route('/api/admin', adminRouter)
 // WebSocket upgrade resolves the cookie itself (no authMiddleware: browsers can't set headers here).
 app.route('/ws', wsRouter)
+// The remote MCP server and its protected-resource metadata: an OAuth access token from
+// MCP_AUTHORIZATION_SERVER is the credential (`routes/mcp.ts`), never the cookie or an API key;
+// 404 while that is unset. Before the authed table and every plugin mount, so `/mcp` is core's.
+app.route('/', mcpRouter)
 // A mount may carry a third element: a feature gate. `requireFeature('x')` 404s
 // `feature_disabled` on every route beneath the prefix, so a surface that ships dark is dark as a
 // WHOLE rather than route by route — declared once here, like auth, instead of remembered in each

@@ -78,6 +78,7 @@ config:
   OIDC_ADMIT_CLAIM: ""
   OIDC_GLOBAL_ADMIN_CLAIM: ""
   OIDC_SESSION_MAX_AGE_DAYS: ""
+  MCP_AUTHORIZATION_SERVER: ""
 
 # Secrets → a Secret, unless `existingSecret` names one you manage (External Secrets, Sealed
 # Secrets, Vault…) with the same keys. Empty values are left out.

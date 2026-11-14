@@ -351,6 +351,16 @@ const coreConfigSchema = z.object({
     value => (value === undefined || value === null || String(value).trim() === '' ? 7 : value),
     z.coerce.number().int().positive().max(30)
   ),
+  /**
+   * The remote MCP server (`api/routes/mcp.ts`, docs/CONCEPTS.md §19): the OAuth authorization
+   * server whose access tokens `/mcp` accepts, its RFC 8414 `issuer` VERBATIM. Unset → `/mcp` and
+   * its protected-resource metadata answer 404. The resource is `${APP_URL}/mcp`: register that
+   * exact URL with the authorization server, which must bind each token to it (`aud`).
+   */
+  MCP_AUTHORIZATION_SERVER: z.preprocess(
+    value => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+    z.string().url().optional()
+  ),
 
   // ---- Secrets (.env locally, the deployment's secret store deployed) — all optional here;
   //      features gate on presence (zero-creds first run) or demand them at use time. -------
@@ -502,6 +512,12 @@ export function configuredOAuthProviders(cfg: AppConfig): OAuthProviderName[] {
 }
 
 /** An OIDC issuer is configured — issuer + client id (the secret is optional: public clients). */
+/** The remote MCP server is on (`MCP_AUTHORIZATION_SERVER` set). */
+export const hasMcp = (cfg: AppConfig): boolean => Boolean(cfg.MCP_AUTHORIZATION_SERVER)
+
+/** The MCP resource this deployment serves: what every accepted token's `aud` must be. */
+export const mcpResource = (cfg: AppConfig): string => `${new URL(cfg.APP_URL).origin}/mcp`
+
 export const hasOidc = (cfg: AppConfig): boolean => Boolean(cfg.OIDC_ISSUER && cfg.OIDC_CLIENT_ID)
 
 /** IdP-managed tenancy in force (loadConfig has already refused it without an issuer). */

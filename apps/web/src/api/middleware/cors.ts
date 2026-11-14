@@ -70,6 +70,32 @@ export function isWebSocketUpgrade(c: { req: { header(name: string): string | un
   return c.req.header('Upgrade')?.toLowerCase() === 'websocket'
 }
 
-export const corsMiddleware = createMiddleware<AppEnv>((c, next) =>
-  isWebSocketUpgrade(c) ? next() : corsHandler(c, next)
-)
+/**
+ * The remote MCP server and its metadata answer any origin WITHOUT credentials: a browser-based
+ * MCP client (the MCP Inspector) calls them cross-origin with a Bearer token, and the cookie is
+ * never a credential there (`routes/mcp.ts`). The client must read `WWW-Authenticate` to find the
+ * authorization server, so it is exposed.
+ */
+const mcpCors = cors({
+  origin: '*',
+  allowMethods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
+  allowHeaders: [
+    'Authorization',
+    'Content-Type',
+    'Accept',
+    'Mcp-Protocol-Version',
+    'Mcp-Session-Id',
+    'Mcp-Tenant',
+    'Last-Event-Id',
+  ],
+  exposeHeaders: ['WWW-Authenticate', 'Mcp-Session-Id'],
+  maxAge: 86400,
+})
+
+const isMcpPath = (path: string) =>
+  path === '/mcp' || path.startsWith('/.well-known/oauth-protected-resource')
+
+export const corsMiddleware = createMiddleware<AppEnv>((c, next) => {
+  if (isWebSocketUpgrade(c)) return next()
+  return isMcpPath(c.req.path) ? mcpCors(c, next) : corsHandler(c, next)
+})

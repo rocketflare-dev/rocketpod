@@ -34,6 +34,8 @@ import { sourceFiles, WEB_ROOT } from '../helpers/source-files'
  * is correct. Adding an entry is a design decision — say so in the PR; it is not a refactor.
  */
 const CORE_UNSCOPED_ALLOWLIST: Record<string, string> = {
+  'src/api/auth/mcp.ts':
+    "an MCP caller has no tenant until it names one: mcpTenantsOf lists the caller's own memberships (by their user id) to choose from, and lastReconciledAt reads the newest issuer sync across those memberships, so an older token never rolls them back",
   'src/api/auth/api-keys.ts':
     'touchApiKeyUsage stamps last_used_at by primary key on a key that has already authenticated (and which carries its own tenantId)',
   'src/api/services/auth.ts':

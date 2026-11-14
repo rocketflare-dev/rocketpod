@@ -1796,3 +1796,49 @@ re-ranker; no screenshot ships in the kit (the manifest is empty); one fixed set
 no per-tenant pages or overrides; no i18n; `screenForRoute` knows only the kit's routes and the
 Settings `?tab=`; the image `COPY` needs `content/guide/` to exist (it always holds
 `screenshots.yaml`); Ask the Guide keeps no history across tabs or reloads.
+
+## 19. The remote MCP server
+
+Server: `api/routes/mcp.ts`, `api/auth/mcp.ts`; CORS in `api/middleware/cors.ts`. Contract:
+`@rocketpod/shared/mcp`. Config: `MCP_AUTHORIZATION_SERVER`.
+
+`/mcp` lets an MCP client (Claude Code, a Claude.ai connector, Cursor, VS Code) use the app as
+the person who connected it. The kit is the OAuth **resource server** only: an outside
+authorization server signs the person in, asks their consent and issues an access token bound to
+`<APP_URL origin>/mcp` (RFC 8707). Off until `MCP_AUTHORIZATION_SERVER` names that server: `/mcp`
+and its metadata answer 404.
+
+- **Discovery.** `/.well-known/oauth-protected-resource` and `/.well-known/oauth-protected-resource/mcp`
+  (RFC 9728) name the resource and the authorization server. A call without a valid token is 401
+  `unauthorized`, with `WWW-Authenticate: Bearer resource_metadata="…"` (plus `error="invalid_token"`
+  for a bad one), which is how a client finds where to sign in. Both answer any origin without
+  credentials and expose `WWW-Authenticate`, so a browser-based client works; the session cookie
+  is never a credential there, and an API key is not one either.
+- **The token.** A JWT (`typ: at+jwt`, ES256 or RS256) verified against the server's JWKS, found
+  through its RFC 8414 metadata (`jwks_uri`) and re-read for an unknown `kid`, with `iss` = the
+  server, `aud` = the resource and an `email`. The server is trusted for that address as the OIDC
+  issuer is.
+- **The person** goes through the sign-in path's own rules, so `/mcp` is not a side door: the SSO
+  policy (`ssoDecisionFor(…)`, as `core`), then `admitUser` (`SIGNUP_MODE`, blocking,
+  `BOOTSTRAP_ADMIN_EMAILS`). Under `OIDC_MANAGED_TENANCY` the token's orgs claim is reconciled
+  exactly as an id_token's (`reconcileIdpClaims`, §2), once per token: a token no newer than the
+  person's newest `tenant_users.idp_synced_at` changes nothing. The authorization server must then
+  put the same claims in its access tokens as the issuer puts in id_tokens (Labs Access does).
+- **The tools are the agents' tools.** `buildAgentTools` (the knowledge tools and every installed
+  plugin's `agentTools`) built from the call's own `AuthContext` (scope, CASL grant) as chat builds
+  them, so a plugin's tool is on `/mcp` with no extra code. A tool gated on approval
+  (`requiresApproval`, `requiresApprovalWhen`) is left out, and so is one with no handler.
+  `get_document` windows are capped at `MCP_GET_DOCUMENT_MAX_CHARS` (20 000). Plus `list_tenants`.
+- **One tenant per call, never picked silently.** One membership → that tenant. Several → a call
+  names one by the `tenant` argument every tool takes (required then) or the `mcp-tenant` header,
+  by id, slug or the issuer's org id; naming none, or one that is not theirs, is a tool error
+  (`tenant_required`) listing their slugs. Listing tools with several tenants and none named shows
+  the union.
+- **Stateless.** One MCP `Server` per request over the SDK's web-standard Streamable HTTP
+  transport, JSON responses, no session id and no SSE stream: any replica answers any call. GET
+  and DELETE are 405.
+
+**Known gaps:** no MCP resources or prompts, only tools; no per-tool scopes (the token's `scope` is
+not read: a connection may do whatever its person may); no progress notifications or streaming
+results; tool results are text (the tools' JSON), never structured content; the analytics
+plugin's own `/mcp` is shadowed by this one until it contributes its cubes as `agentTools`.

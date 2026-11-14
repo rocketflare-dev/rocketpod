@@ -44,7 +44,8 @@ worker loops. Keeping the entry out of `api/index.ts` is what lets tests drive
 8. `tracerMiddleware` on `/api/*` — the request's span recorder, flushed after the handler
 9. Mounts, in order: `/api/health|ready` → `/auth` (rate-limited login routes) → `/api/identity`
    (signed events, no session) → `/api/invite` → `/api/admin/*` behind `globalAdminMiddleware` →
-   `/ws` (no `authMiddleware`; the route resolves the cookie) → plugin `publicMounts` under
+   `/ws` (no `authMiddleware`; the route resolves the cookie) → `/mcp` + its RFC 9728 metadata
+   (no `authMiddleware`; an outside OAuth server's access token, `routes/mcp.ts`) → plugin `publicMounts` under
    `/api/hooks/<id>` (no auth, per-IP rate limit) → the mount table, each entry with
    `authMiddleware` → **plugin authed mounts, last** (Hono matches in registration order, so a plugin
    can never shadow a kit prefix)

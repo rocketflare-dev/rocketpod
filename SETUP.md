@@ -415,6 +415,25 @@ Absent (`OIDC_MANAGED_TENANCY` blank): plain OIDC, the claims are not read and
 `/auth/session` shows that tenant with the mapped role and `accessRequest: null`; the tenants table
 has a row with `external_org_id` = the org id.
 
+### 2.3d Remote MCP server (`MCP_AUTHORIZATION_SERVER`)
+
+MCP clients (Claude Code, Claude.ai connectors, Cursor) can use the app at `{APP_URL}/mcp`, with
+the agents' tools, as the person who connected them (`docs/CONCEPTS.md` §19). The app is only the
+resource server: an OAuth authorization server you already run signs people in and issues the
+tokens.
+
+1. Register `{APP_URL}/mcp` (the origin, no trailing slash) with the authorization server as this
+   app's resource. Its access tokens for it must be JWTs (`typ: at+jwt`, ES256 or RS256) with `aud`
+   = that URL and the person's `email`; under IdP-managed tenancy (2.3c) they must also carry the
+   orgs claim, as its id_tokens do.
+2. Set `MCP_AUTHORIZATION_SERVER` to the server's `issuer`, verbatim. It must publish RFC 8414
+   metadata at `<issuer>/.well-known/oauth-authorization-server` with a `jwks_uri`.
+
+Verify: `curl {APP_URL}/.well-known/oauth-protected-resource/mcp` names the resource and the
+server; `claude mcp add --transport http myapp {APP_URL}/mcp`, then `/mcp` in Claude Code, signs you
+in at the server and lists `list_tenants`, `search_knowledge`, `get_document` and
+`list_documents`. Blank: `/mcp` answers 404.
+
 ### 2.4 First admin
 `BOOTSTRAP_ADMIN_EMAILS=you@example.com` (comma-separated). Promoted to global admin on the first
 **verified** login, logged loudly. Absent: promote by hand once —

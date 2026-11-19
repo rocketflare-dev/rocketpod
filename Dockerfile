@@ -37,7 +37,10 @@ RUN pnpm --filter @rocketpod/web build
 # Alpine: the bundles are pure JavaScript (no native addons), so musl is fine. npm, npx, corepack
 # and yarn are removed — the image runs `node` and nothing else installs anything.
 FROM node:${NODE_VERSION}-alpine AS runtime
-RUN rm -rf /usr/local/lib/node_modules /usr/local/bin/npm /usr/local/bin/npx \
+# apk upgrade: Alpine security fixes published since the node image was built (openssl, zlib
+# and the rest), so a release clears ECR's high and critical findings (weekly check, A.8.8).
+RUN apk upgrade --no-cache \
+ && rm -rf /usr/local/lib/node_modules /usr/local/bin/npm /usr/local/bin/npx \
       /usr/local/bin/corepack /usr/local/bin/yarn /usr/local/bin/yarnpkg /opt/yarn-*
 WORKDIR /app
 ENV NODE_ENV=production \

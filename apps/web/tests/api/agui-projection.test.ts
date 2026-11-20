@@ -51,6 +51,9 @@ const run = (over: Partial<AgentRun> = {}): AgentRun => ({
   batchId: null,
   triggerEvent: null,
   triggerEventId: null,
+  agentVersion: 1,
+  workerVersionId: null,
+  parentRunId: null,
   ...over,
 })
 
@@ -209,6 +212,46 @@ describe('projectRunToAgui', () => {
     })
   })
 
+  it('projects a lookup_facts result into the same entity cards a live chat shows', () => {
+    const entity = { kind: 'staging', type: 'customer', id: 'e-1', name: 'Harbour View Dental' }
+    const out = projectRunToAgui(run(), [
+      event('tool.start', { name: 'lookup_facts', input: { entity: 'Harbour View' } }),
+      event('tool.end', {
+        name: 'lookup_facts',
+        isError: false,
+        result: {
+          entities: [
+            {
+              entity,
+              facts: [
+                {
+                  factId: '70000000-0000-4000-8000-000000000001',
+                  entity,
+                  key: 'monthly_fee_gbp',
+                  value: 285,
+                  valueText: '285',
+                  state: 'accepted',
+                  preferred: true,
+                  conflictsWith: [],
+                  sourceKind: 'upload',
+                  documentId: '55555555-5555-4555-8555-555555555555',
+                  documentTitle: 'Contract',
+                  quote: '£285 a month',
+                  validFrom: null,
+                  validTo: null,
+                  observedAt: '2026-01-01T00:00:00Z',
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    ])
+    expect(customEvent(out, KIT_CUSTOM_EVENTS.entity)).toMatchObject({
+      card: { entity, facts: [{ key: 'monthly_fee_gbp', valueText: '285' }], moreFacts: 0 },
+    })
+  })
+
   it('emits no cards when a tool answer does not carry documents', () => {
     // A retuned tool must degrade to "no cards", never to a crash — the mapper `safeParse`s.
     const out = projectRunToAgui(run(), [
@@ -248,9 +291,13 @@ describe('projectRunToAgui', () => {
 
   it('distinguishes a cancelled run from one that is still going', () => {
     // A finite array cannot say "cancelled" by omitting the terminal event: that is how an ACTIVE
-    // run is represented. A settled cancel is a coded RUN_ERROR.
+    // run is represented. A settled cancel is RUN_FINISHED with AG-UI's own `cancelled` outcome.
     const cancelled = projectRunToAgui(run({ status: 'cancelled', output: null }), [])
-    expect(cancelled.at(-1)).toMatchObject({ type: 'RUN_ERROR', code: 'agent_run_cancelled' })
+    expect(cancelled.at(-1)).toMatchObject({
+      type: 'RUN_FINISHED',
+      outcome: { type: 'cancelled' },
+    })
+    expect(aguiTypes(cancelled)).not.toContain('RUN_ERROR')
     for (const status of ['queued', 'running'] as const) {
       const active = projectRunToAgui(run({ status, output: null }), [])
       expect(aguiTypes(active)).toEqual(['RUN_STARTED', 'STATE_SNAPSHOT'])

@@ -19,7 +19,7 @@
  * `Tool.requiresApproval` with edits allowed, saving the approved finding as a document artifact.
  */
 import { researchTopicOutputSchema } from '@rocketpod/shared/ai/agents'
-import { eq } from 'drizzle-orm'
+import { and, eq, isNotNull } from 'drizzle-orm'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { listArtifacts } from '@/api/services/agents/artifacts'
 import { listInterrupts, resolveInterrupt } from '@/api/services/agents/interrupts'
@@ -179,7 +179,10 @@ describe('research-topic agent', () => {
     expect(events.some(e => e.type === 'text')).toBe(false)
 
     // One row per turn, each billed to the run under the agent's feature key.
-    const usage = await db.query.aiUsage.findMany({ where: eq(aiUsage.tenantId, tenant.id) })
+    // The run's own rows: the knowledge base meters its embeddings separately (`knowledge.*`).
+    const usage = await db.query.aiUsage.findMany({
+      where: and(eq(aiUsage.tenantId, tenant.id), isNotNull(aiUsage.agentRunId)),
+    })
     expect(usage).toHaveLength(2)
     expect(usage.every(u => u.feature === 'agent:research-topic' && u.agentRunId === runId)).toBe(
       true
@@ -240,7 +243,10 @@ describe('research-topic agent', () => {
     expect(client.calls[1]?.toolChoice).toEqual({ type: 'tool', name: 'submit_answer' })
     // Two ledger rows, one per call: the loop's turn and the recovery — each written by the meter
     // as it returned, so a recovery that FAILED would still leave the loop's tokens recorded.
-    const usage = await db.query.aiUsage.findMany({ where: eq(aiUsage.tenantId, tenant.id) })
+    // The run's own rows: the knowledge base meters its embeddings separately (`knowledge.*`).
+    const usage = await db.query.aiUsage.findMany({
+      where: and(eq(aiUsage.tenantId, tenant.id), isNotNull(aiUsage.agentRunId)),
+    })
     expect(usage).toHaveLength(2)
     expect(usage.every(u => u.feature === 'agent:research-topic')).toBe(true)
     const output = researchTopicOutputSchema.parse((await getRun(db, tenant.id, runId))?.output)
@@ -303,8 +309,13 @@ describe('research-topic agent', () => {
     // One row per call that RETURNED, across both attempts: attempt 1's turn was ledgered the
     // moment it came back, the failed call cost nothing, and the resumed attempt's turn is the
     // second row — the carried-forward checkpoint usage is never written again.
-    const usage = await db.query.aiUsage.findMany({ where: eq(aiUsage.tenantId, tenant.id) })
-    expect(usage.map(u => [u.inputTokens, u.outputTokens]).sort((a, b) => a[0]! - b[0]!)).toEqual([
+    // The run's own rows: the knowledge base meters its embeddings separately (`knowledge.*`).
+    const usage = await db.query.aiUsage.findMany({
+      where: and(eq(aiUsage.tenantId, tenant.id), isNotNull(aiUsage.agentRunId)),
+    })
+    expect(
+      usage.map(u => [u.inputTokens, u.outputTokens]).sort((a, b) => (a[0] ?? 0) - (b[0] ?? 0))
+    ).toEqual([
       [40, 10],
       [60, 20],
     ])

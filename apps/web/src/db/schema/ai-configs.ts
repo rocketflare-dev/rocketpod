@@ -34,6 +34,7 @@ export const AI_SCOPE_VALUES = [
   'chat',
   'embeddings',
   'decisions',
+  'rerank',
 ] as const satisfies readonly AiScope[]
 
 export const aiConfigs = pgTable(

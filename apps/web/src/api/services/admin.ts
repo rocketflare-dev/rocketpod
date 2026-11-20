@@ -24,6 +24,7 @@ import { type AppConfig, isIdpManaged } from '../../config'
 import type { Database } from '../../db/client'
 import {
   accessRequests,
+  agentRuns,
   oauthProviders,
   tenants,
   tenantUsers,
@@ -32,18 +33,27 @@ import {
   users,
 } from '../../db/schema'
 import { deleteUserSessions, updateSelectedTenant, userTenantIds } from '../auth/sessions'
+import type { AppBindings } from '../types'
 import { ConflictError, isUniqueViolation, NotFoundError } from '../utils/core/errors'
 import type { Logger } from '../utils/core/logger'
-import { createTenantForUser } from '../utils/db/tenant-helpers'
+import { createTenantForUser, runTenantStatusChangedHooks } from '../utils/db/tenant-helpers'
 import { asCount, pageWindow } from '../utils/routes/pagination'
 import { recordActivity } from './activity'
+import { type AgentRunsEnv, requestCancel } from './agents/runs'
 import { nameFromEmail } from './auth'
 import { accessRequestDecidedEmail } from './email'
 import { platformFeatures } from './features'
+import { revokeEveryInvitationIssuedBy } from './invitations'
 import { enqueueJob, type JobsQueue } from './jobs'
 import { endSupportMemberships } from './members'
 import { notify } from './notifications'
-import { closeTenantSockets, closeUserSockets, type Realtime } from './realtime'
+import {
+  closeTenantSockets,
+  closeUserSockets,
+  nudge,
+  type Realtime,
+  realtimeEvent,
+} from './realtime'
 
 type AdminLogger = Pick<Logger, 'info' | 'warn' | 'error'>
 
@@ -342,28 +352,65 @@ function externalOrgTaken(holder: { name: string; slug: string } | undefined) {
   )
 }
 
-export async function setTenantSuspended(
-  db: Database,
-  tenantId: string,
-  suspended: boolean,
-  admin: User,
+export interface SetTenantSuspendedInput {
+  tenantId: string
+  suspended: boolean
+  admin: User
+  env: AppBindings
+  /** The run engine, for a forced cancel (`c.get('platform')`). */
+  platform: AgentRunsEnv
+  logger: AdminLogger
   realtime?: Realtime
-) {
+}
+
+/**
+ * Suspend or reactivate an organisation. Suspending also ends the runs that are not executing —
+ * `queued` and `awaiting_input` settle `cancelled` — and a running one stops at its next cancel
+ * poll, so a suspended organisation runs no agents. Either way every plugin's
+ * `onTenantStatusChanged` runs last, best-effort.
+ */
+export async function setTenantSuspended(db: Database, input: SetTenantSuspendedInput) {
+  const { tenantId, suspended } = input
   const [row] = await db
     .update(tenants)
     .set({ status: suspended ? 'suspended' : 'active' })
     .where(eq(tenants.id, tenantId))
     .returning()
   if (!row) throw new NotFoundError('Organisation not found')
-  if (suspended) closeTenantSockets(realtime, tenantId)
+  if (suspended) {
+    closeTenantSockets(input.realtime, tenantId)
+    await cancelIdleRuns(db, tenantId, input)
+  }
   await recordActivity(db, {
     tenantId,
-    userId: admin.id,
+    userId: input.admin.id,
     type: suspended ? 'tenant.suspended' : 'tenant.reactivated',
     subjectType: 'Tenant',
     subjectId: tenantId,
   })
+  await runTenantStatusChangedHooks(db, tenantId, row.status, input.env, input.logger)
   return row
+}
+
+/** Cancel the tenant's queued and parked runs. Best effort per run: the runtime re-checks anyway. */
+async function cancelIdleRuns(
+  db: Database,
+  tenantId: string,
+  input: Pick<SetTenantSuspendedInput, 'platform' | 'logger' | 'realtime'>
+) {
+  const idle = await db
+    .select({ id: agentRuns.id })
+    .from(agentRuns)
+    .where(
+      and(eq(agentRuns.tenantId, tenantId), inArray(agentRuns.status, ['queued', 'awaiting_input']))
+    )
+  for (const run of idle) {
+    try {
+      await requestCancel(db, tenantId, run.id, input.realtime, input.platform)
+    } catch (err) {
+      input.logger.warn({ err, tenantId, runId: run.id }, 'suspend: could not cancel a run')
+    }
+  }
 }
 
 /** Mint (or keep) a `support` membership and point the admin's session at the tenant. */
@@ -547,21 +594,33 @@ export async function setGlobalAdmin(
  * Blocking deletes every session — the account is out immediately, not at the next expiry. A block
  * set here is `manual`, so an identity provider's reactivation (`provisionFor().setMembership`)
  * never lifts it; it also turns an IdP's block into a manual one. Unblocking clears either.
+ * Blocking also revokes every pending invitation the person issued, in the same transaction;
+ * unblocking restores none.
  */
 export async function setUserBlocked(
   db: Database,
   input: { userId: string; blocked: boolean; realtime?: Realtime }
 ) {
-  const [updated] = await db
-    .update(users)
-    .set(
-      input.blocked
-        ? { blockedAt: new Date(), blockedSource: 'manual' }
-        : { blockedAt: null, blockedSource: null }
-    )
-    .where(eq(users.id, input.userId))
-    .returning()
-  if (!updated) throw new NotFoundError('User not found')
+  const { updated, revoked } = await db.transaction(async tx => {
+    const [row] = await tx
+      .update(users)
+      .set(
+        input.blocked
+          ? { blockedAt: new Date(), blockedSource: 'manual' }
+          : { blockedAt: null, blockedSource: null }
+      )
+      .where(eq(users.id, input.userId))
+      .returning()
+    if (!row) throw new NotFoundError('User not found')
+    // A blocked person issues nothing: their pending invitations end with the block.
+    const revoked = input.blocked
+      ? await revokeEveryInvitationIssuedBy(tx as unknown as Database, input.userId)
+      : []
+    return { updated: row, revoked }
+  })
+  for (const tenantId of new Set(revoked.map(r => r.tenantId))) {
+    nudge(input.realtime, realtimeEvent('invitation.changed', tenantId))
+  }
   if (input.blocked) {
     await deleteUserSessions(db, input.userId)
     closeUserSockets(input.realtime, await userTenantIds(db, input.userId), input.userId)

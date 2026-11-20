@@ -4,6 +4,7 @@
  * A case runs in its own tenant, so "every row in the tenant except the judge's" is exactly the
  * target's spend — chat turn, agent tool loop and anything they triggered.
  */
+import { createHash } from 'node:crypto'
 import { and, eq, ne, sql } from 'drizzle-orm'
 import type { UsageSummary } from 'vitest-evals'
 import type { Database } from '@/db/client'
@@ -31,5 +32,25 @@ export async function tenantSpend(
     totalTokens: inputTokens + outputTokens,
     // microcents → USD. Null (an unpriced model) stays unknown rather than reading as free.
     ...(row?.cost !== null && row?.cost !== undefined ? { costUsd: Number(row.cost) / 1e8 } : {}),
+  }
+}
+
+/** A short, stable hash of the prompt text a case ran with — what `--compare` groups runs by. */
+export function promptHash(text: string): string {
+  return createHash('sha256').update(text).digest('hex').slice(0, 12)
+}
+
+type Spent = Awaited<ReturnType<typeof tenantSpend>>
+
+/** `after` minus `before` — a case's spend in a tenant other cases share. `before` null = `after`. */
+export function spendSince(before: Spent | null, after: Spent): Spent {
+  if (!before) return after
+  const inputTokens = (after.inputTokens ?? 0) - (before.inputTokens ?? 0)
+  const outputTokens = (after.outputTokens ?? 0) - (before.outputTokens ?? 0)
+  return {
+    inputTokens,
+    outputTokens,
+    totalTokens: inputTokens + outputTokens,
+    ...(after.costUsd !== undefined ? { costUsd: after.costUsd - (before.costUsd ?? 0) } : {}),
   }
 }

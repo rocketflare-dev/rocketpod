@@ -12,10 +12,12 @@ metadata:
     {{- include "rocketpod.labels" . | nindent 4 }}
 data:
   {{- range $key, $value := .Values.config }}
-  {{- if ne (toString $value) "" }}
+  {{- if and (ne (toString $value) "") (ne $key "APP_VERSION_ID") }}
   {{ $key }}: {{ toString $value | quote }}
   {{- end }}
   {{- end }}
+  {{- /* The build id defaults to the image tag the pods run (agent_runs.worker_version_id). */}}
+  APP_VERSION_ID: {{ .Values.config.APP_VERSION_ID | default (.Values.image.tag | default .Chart.AppVersion) | toString | quote }}
   {{- with .Values.publicSites }}
   {{- if and .hostsVar .hosts }}
   {{ .hostsVar }}: {{ join "," .hosts | quote }}

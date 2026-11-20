@@ -22,8 +22,10 @@
  * the evidence). Short version — steps do not nest, so per-turn steps need `run()` to move outside
  * `step.do`, and the engine replays everything outside a step, which would double the
  * `agent_run_events` timeline unless every emit and tool call got its own step. Meanwhile wall clock
- * per step is ours to set (the 10 minutes below is policy, raise it if a run needs longer), and
- * resuming a retry at turn N is what `agent_runs.checkpoint` already does.
+ * per step is ours to set (the 10 minutes below is policy, raise it if a run needs longer), and a
+ * retry resumes from the run's records instead of redoing work: the checkpoint, and the turn
+ * journal (`agent_run_turns` — each model turn and tool result, so a retry neither re-bills a turn
+ * nor re-runs a finished tool).
  * Each step opens its OWN DB handle (`openDatabase`) and closes it in `finally`; the process pool
  * holds the connections.
  */
@@ -77,7 +79,7 @@ export async function runAgentRun(
   const logger = loggerFor(cfg, { handler: 'workflow', workflow: 'agent-run', ...params })
 
   const claimed = await step.do('claim', () =>
-    withStepDatabase(cfg, db => claimStep(db, platform, logger, params))
+    withStepDatabase(cfg, db => claimStep(db, platform, logger, params, { cfg }))
   )
   if (!claimed) return { runId: params.runId, status: 'skipped' }
 

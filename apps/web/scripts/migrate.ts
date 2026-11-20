@@ -59,12 +59,18 @@ export async function runMigrations(
   // any hosted Postgres that offers it and the pgvector/pgvector:pg17 compose image.
   // It lives here rather than in a hand-written 0000 SQL file so the migrations folder stays
   // 100% drizzle-kit generated and works when it is still empty.
-  const createVector = 'CREATE EXTENSION IF NOT EXISTS vector'
+  // `pg_trgm` (the trigram index on `knowledge_entities.name`, and entity resolution's
+  // `similarity()`) is created here for the same reason; the knowledge-facts migration also
+  // creates it, so a migrator that skips this script still works.
+  const createExtensions = [
+    'CREATE EXTENSION IF NOT EXISTS vector',
+    'CREATE EXTENSION IF NOT EXISTS pg_trgm',
+  ]
 
   scriptDriver(env)
   const sql = postgres(url, { max: 1, onnotice: () => {} })
   try {
-    await sql.unsafe(createVector)
+    for (const statement of createExtensions) await sql.unsafe(statement)
     await migratePostgres(drizzlePostgres(sql), { migrationsFolder })
     log('Migrations applied')
   } finally {

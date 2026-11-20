@@ -1,11 +1,16 @@
 /**
  * `/api/ai/config`: a tenant's AI providers. Credentials are encrypted on the way in and
  * NEVER come back out (`hasCredential` only). `POST /` upserts on (tenant, scope, label): omitting
- * `apiKey` on a re-save keeps the stored key; `isDefault` swaps the scope's default inside one
- * transaction (clear-others-then-set — the partial unique index rejects the reverse order). The
- * first row in a scope is always made default. `POST /test` spends money at a provider on demand,
- * so it is rate-limited per IP. `GET /readiness` is what the Home checklist reads. `manage AiConfig`
+ * `apiKey` on a re-save keeps the stored key while the provider and endpoint are unchanged, decided
+ * on the row the save overwrites (read `FOR UPDATE` inside the save's transaction,
+ * `services/ai/configs.ts`); `isDefault` swaps the scope's default inside one transaction
+ * (clear-others-then-set — the partial unique index rejects the reverse order). The first row in a
+ * scope is always made default. `POST /test` spends money at a provider on demand, so it is
+ * rate-limited per IP. `GET /readiness` is what the Home checklist reads. `manage AiConfig`
  * = admin+; members may `read` (the list shows what will answer them, not how to change it).
+ * A save or delete that changes which EMBEDDINGS model the tenant resolves enqueues a
+ * `document.reembed` once it has committed (`reembedAfterEmbeddingsChange`) — and still succeeds
+ * when it cannot: the stale count on `GET /api/ai/documents/health` and `POST …/reembed` remain.
  */
 import {
   aiReadinessSchema,
@@ -18,7 +23,8 @@ import { recordActivity } from '../services/activity'
 import { deleteAiConfig, listAiConfigs, toAiConfig, upsertAiConfig } from '../services/ai/configs'
 import { testConfig } from '../services/ai/connection-test'
 import { PROVIDERS } from '../services/ai/providers'
-import { readiness } from '../services/ai/resolve'
+import { reembedAfterEmbeddingsChange } from '../services/ai/reindex'
+import { readiness, resolveEmbeddingsModel } from '../services/ai/resolve'
 import { NotFoundError } from '../utils/core/errors'
 import { uuidParam, withAuthAndDb } from '../utils/routes/route-helpers'
 import { createRouter } from '../utils/routes/router'
@@ -70,9 +76,25 @@ aiConfigRouter.post(
 // ---- POST /api/ai/config (upsert) -----------------------------------------------------------------
 
 aiConfigRouter.post('/', validate('json', upsertAiConfigRequestSchema), async c => {
-  const { db, tenantId, user, cfg, defer } = withAuthAndDb(c)
+  const { db, tenantId, user, cfg, defer, logger } = withAuthAndDb(c)
   guardPermission(c, 'manage', 'AiConfig')
-  const { row: saved, created } = await upsertAiConfig(db, cfg, tenantId, c.req.valid('json'))
+  const body = c.req.valid('json')
+  const platform = c.get('platform')
+  const embeddingsBefore =
+    body.scope === 'embeddings' ? await resolveEmbeddingsModel(db, cfg, platform, tenantId) : null
+  const { row: saved, created } = await upsertAiConfig(db, cfg, tenantId, body)
+  // After the commit: a re-embed job must never see the old default.
+  if (body.scope === 'embeddings') {
+    await reembedAfterEmbeddingsChange(
+      db,
+      cfg,
+      platform,
+      logger,
+      platform.jobs,
+      tenantId,
+      embeddingsBefore
+    )
+  }
 
   defer(() =>
     recordActivity(db, {
@@ -95,11 +117,24 @@ aiConfigRouter.post('/', validate('json', upsertAiConfigRequestSchema), async c 
 // ---- DELETE /api/ai/config/:id --------------------------------------------------------------------
 
 aiConfigRouter.delete('/:id', async c => {
-  const { db, tenantId, user, defer } = withAuthAndDb(c)
+  const { db, tenantId, user, cfg, defer, logger } = withAuthAndDb(c)
   guardPermission(c, 'manage', 'AiConfig')
   const id = uuidParam(c, 'id')
+  const platform = c.get('platform')
+  const embeddingsBefore = await resolveEmbeddingsModel(db, cfg, platform, tenantId)
   const row = await deleteAiConfig(db, tenantId, id)
   if (!row) throw new NotFoundError('AI config not found')
+  if (row.scope === 'embeddings') {
+    await reembedAfterEmbeddingsChange(
+      db,
+      cfg,
+      platform,
+      logger,
+      platform.jobs,
+      tenantId,
+      embeddingsBefore
+    )
+  }
   defer(() =>
     recordActivity(db, {
       tenantId,

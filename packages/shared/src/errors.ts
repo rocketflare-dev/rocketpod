@@ -62,6 +62,10 @@ export const ERROR_CODES = {
   agentBudgetExceeded: 'agent_budget_exceeded',
   /** Event code, not a status: a run's tool loop ran out under its `policy` with no answer. */
   agentPolicyExhausted: 'agent_policy_exhausted',
+  /** Two keyed calls of one agent run shared a key in one attempt (`ctx.once`, a tool loop). */
+  agentEffectKeyConflict: 'agent_effect_key_conflict',
+  agentVersionChanged: 'agent_version_changed',
+  agentChildFailed: 'agent_child_failed',
   /** 404: `POST /api/agui/run` was given a `threadId` that exists but is not this user's. */
   aguiThreadNotFound: 'agui_thread_not_found',
   /** 400: the last message of a `RunAgentInput` was not a user turn. */
@@ -103,6 +107,21 @@ export const ERROR_CODES = {
    * it may claim (no `linkByEmail`) — linking it would let one tenant's IdP take over that account.
    */
   accountExists: 'account_exists',
+  /** 409: `confirm` on a fact in conflict — settle it with `prefer` (use this one) or `reject`. */
+  factConflicting: 'fact_conflicting',
+  /**
+   * 403: `prefer` would reject a fact the reader may not settle themselves — another person
+   * reviews it, it has no reviewer, or another person confirmed it. An admin decides the conflict.
+   */
+  factConflictNeedsAdmin: 'fact_conflict_needs_admin',
+  /** 409: the fact is `rejected` or `superseded` — history, nothing left to review. */
+  factNotReviewable: 'fact_not_reviewable',
+  /** 409: the staging entity was already merged or promoted, so it cannot be merged or promoted again. */
+  entitySettled: 'entity_settled',
+  /** 400: a merge or promote target that does not exist in this tenant (or is not of the same type). */
+  entityTargetNotFound: 'entity_target_not_found',
+  /** 400: promote on an entity type with no domain table or resolver — there is no row to promote to. */
+  entityTypeNotPromotable: 'entity_type_not_promotable',
   /** 416: the `Range` asked for starts past the end of the object (`Content-Range: bytes *\/n`). */
   rangeNotSatisfiable: 'range_not_satisfiable',
 } as const

@@ -2,11 +2,14 @@
  * `chunks` — the retrievable pieces of a document with their embedding: pgvector on
  * Postgres, so vectors stay inside the tenant's rows and under RLS. The column is
  * `vector(EMBEDDING_DIM)` (1024 — every provider is asked for `dimensions: 1024`); changing the
- * dimension is a NEW table, not an `ALTER`. Dense retrieval is cosine (`<=>`) over the HNSW index; the lexical half
- * reads `search_vector`, the stored `to_tsvector('english', text)` behind a GIN index (computed at
- * query time it ran over every row twice, for the match and the rank — measured at 444 ms over
- * 3,400 chunks). Every query carries the tenant predicate first — `tenant_id = $t`, or
- * `tenant_id is null` for a PLATFORM document's chunks (read by every tenant, `platformReadable`).
+ * dimension is a NEW table, not an `ALTER`. Dense retrieval is cosine (`<=>`) over the HNSW index,
+ * limited to the chunks `embedding_model` says were embedded by the query vector's model. The
+ * lexical half reads `search_vector`, a stored generated tsvector over heading path + table header
+ * + text behind a GIN index (computed at query time it ran over every row twice, for the match and
+ * the rank — measured at 444 ms over 3,400 chunks). `text` is an exact slice of
+ * `documents.content` at `[char_start, char_end)` (null only on rows written before 0.40.0). Every
+ * query carries the tenant predicate first — `tenant_id = $t`, or `tenant_id is null` for a
+ * PLATFORM document's chunks (read by every tenant, `platformReadable`).
  */
 import { EMBEDDING_DIM, SEARCH_TEXT_CONFIG } from '@rocketpod/shared/ai/config'
 import { relations, sql } from 'drizzle-orm'
@@ -43,13 +46,29 @@ export const chunks = pgTable(
     /** Character-based estimate (`estimateTokens`), not a tokenizer count. */
     tokenCount: integer('token_count').notNull().default(0),
     embedding: vector('embedding', { dimensions: EMBEDDING_DIM }).notNull(),
+    /** The embeddings model that produced `embedding` — the dense leg's filter. */
+    embeddingModel: text('embedding_model'),
+    /** Enclosing markdown headings joined with ` › ` (`HEADING_PATH_SEPARATOR`); null when none. */
+    headingPath: text('heading_path'),
+    /** A table's header + delimiter rows, when this chunk holds its rows but not its header. */
+    tableHeader: text('table_header'),
+    /** Page of the source document; null — the converter emits no page markers. */
+    page: integer('page'),
+    /** `text` is `documents.content.slice(charStart, charEnd)` (JS UTF-16 offsets). */
+    charStart: integer('char_start'),
+    charEnd: integer('char_end'),
     /**
-     * The lexical half's vector, stored: `to_tsvector(SEARCH_TEXT_CONFIG, text)`. Raw SQL on
-     * purpose — a generated expression cannot take a bind parameter, and the constant is ours.
+     * The lexical half's vector, stored: heading path + table header + text in
+     * `SEARCH_TEXT_CONFIG`. Raw SQL on purpose — a generated expression cannot take a bind
+     * parameter, and the constant is ours.
      */
     searchVector: tsvector('search_vector')
       .notNull()
-      .generatedAlwaysAs(sql.raw(`to_tsvector('${SEARCH_TEXT_CONFIG}', text)`)),
+      .generatedAlwaysAs(
+        sql.raw(
+          `to_tsvector('${SEARCH_TEXT_CONFIG}', coalesce(heading_path, '') || ' ' || coalesce(table_header, '') || ' ' || text)`
+        )
+      ),
     ...timestamps(),
   },
   table => [

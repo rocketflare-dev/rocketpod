@@ -617,6 +617,7 @@ describe('local port blocks — every copy gets its own ports', () => {
       'Vite (:3000) and `:3001`',
       'export const DEFAULT_UI_PORT = 3000',
       'export const DEFAULT_API_PORT: 3001',
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: a shell default, not a template
       'PORT=${DEV_API_PORT:-3001} node',
       '# DEV_UI_PORT=3000',
       // Not dev ports: a duration, the container's port, a longer number, a kept line.
@@ -632,6 +633,7 @@ describe('local port blocks — every copy gets its own ports', () => {
       'Vite (:5810) and `:5811`',
       'export const DEFAULT_UI_PORT = 5810',
       'export const DEFAULT_API_PORT: 5811',
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: a shell default, not a template
       'PORT=${DEV_API_PORT:-5811} node',
       '# DEV_UI_PORT=5810',
       'const GRACE_MS = 3000',

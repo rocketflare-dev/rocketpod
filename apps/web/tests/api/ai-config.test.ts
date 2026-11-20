@@ -345,6 +345,8 @@ describe('GET /api/ai/config/readiness', () => {
       chat: { ready: false, source: 'none' },
       embeddings: { ready: false, source: 'none' },
       decisions: { ready: false, source: 'none' },
+      // No rerank row: no reranking — search keeps its fused order.
+      rerank: { ready: false, source: 'none' },
     })
 
     const platform = createTestEnv({

@@ -139,9 +139,14 @@ describe('ctx.checkpoint', () => {
 
     // One row per call that RETURNED, across both attempts: attempt 1's turn was ledgered the
     // moment it came back, the failed call cost nothing, and the resumed attempt's turn is the
-    // second row — the carried-forward checkpoint usage is never written again.
-    const usage = await db.query.aiUsage.findMany({ where: eq(aiUsage.tenantId, tenant.id) })
-    expect(usage.map(u => [u.inputTokens, u.outputTokens]).sort((a, b) => a[0]! - b[0]!)).toEqual([
+    // second row — the carried-forward checkpoint usage is never written again. (The search's
+    // query embedding is its own `knowledge.embeddings` row, not a model turn.)
+    const usage = (
+      await db.query.aiUsage.findMany({ where: eq(aiUsage.tenantId, tenant.id) })
+    ).filter(u => !u.feature.startsWith('knowledge.'))
+    expect(
+      usage.map(u => [u.inputTokens, u.outputTokens]).sort((a, b) => (a[0] ?? 0) - (b[0] ?? 0))
+    ).toEqual([
       [40, 10],
       [60, 20],
     ])

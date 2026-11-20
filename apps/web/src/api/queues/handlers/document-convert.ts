@@ -13,7 +13,7 @@ import { documents } from '../../../db/schema'
 import { noopTracer } from '../../observability/tracer'
 import { withAgentTrace } from '../../observability/tracing'
 import { ConversionFailedError } from '../../services/ai/convert'
-import { convertAndIndexDocument } from '../../services/ai/ingest'
+import { afterTextIndexed, convertAndIndexDocument } from '../../services/ai/ingest'
 import type { JobContext } from '../jobs'
 
 export async function handleDocumentConvert(
@@ -36,14 +36,14 @@ export async function handleDocumentConvert(
     )
   }
   try {
-    // A `job document.convert` span, so each embeddings batch nests under something.
+    // An `invoke_workflow document.convert` span, so each embeddings batch nests under something.
     const indexed = await withAgentTrace(
       'document.convert',
       {
         tracer: ctx.tracer ?? noopTracer,
         tenantId,
         kind: 'job',
-        spanName: 'job document.convert',
+        spanName: 'invoke_workflow document.convert',
         metadata: { documentId },
       },
       () => convertAndIndexDocument(ctx.db, ctx.config, ctx.platform, storage, tenantId, documentId)
@@ -52,6 +52,8 @@ export async function handleDocumentConvert(
       { tenantId, documentId, chunkCount: indexed.chunkCount, model: indexed.embeddingModel },
       'document.convert: indexed'
     )
+    // Knowledge facts (D43): a converted upload is always new text. Never throws.
+    await afterTextIndexed(ctx.db, ctx.config, ctx.platform.jobs, indexed)
   } catch (err) {
     if (err instanceof ConversionFailedError) {
       ctx.logger.warn({ tenantId, documentId, reason: err.message }, 'document.convert: failed')

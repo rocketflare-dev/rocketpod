@@ -39,7 +39,6 @@ vi.mock('@/api/queues/handlers/activity-record', async importOriginal => {
     }) as typeof actual.handleActivityRecord,
   }
 })
-const TENANT = '11111111-1111-4111-8111-111111111111'
 
 function fakeLogger() {
   const log = {
@@ -100,6 +99,8 @@ describe('processJobsBatch', () => {
   it('email.send without RESEND_API_KEY: dev fallback logged, message acked, DB handle closed', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch')
     const { deps: d, logger, close } = deps({ RESEND_API_KEY: '' })
+    // A job naming a tenant runs only while that tenant is active, so the tenant must exist.
+    const { tenant } = await createTestTenantWithUser(db, 'owner')
     const job = buildJobEnvelope({
       type: 'email.send',
       payload: {
@@ -108,7 +109,7 @@ describe('processJobsBatch', () => {
         html: '<p>hi</p>',
         text: 'hi',
         link: 'http://localhost:3001/invite/tok',
-        tenantId: TENANT,
+        tenantId: tenant.id,
         reason: 'test',
       },
     })

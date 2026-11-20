@@ -4,6 +4,14 @@
  */
 export { agentHarness } from './agent-target'
 export { chatHarness } from './chat-target'
+export {
+  type Corpus,
+  type CorpusDoc,
+  checkCorpus,
+  listCorpora,
+  loadCorpus,
+  type RetrievalCase,
+} from './corpus'
 export { loadDataset, parseDataset } from './dataset'
 export { type DescribeCasesOptions, describeCases } from './describe'
 export {
@@ -14,6 +22,7 @@ export {
   evalSkipReason,
   skipEvals,
 } from './env'
+export { type CorpusWorld, corpusWorld } from './fixtures'
 export { contextFromGuideResult, guideHarness } from './guide-target'
 export { judgeHarness } from './judge-harness'
 export {
@@ -28,5 +37,6 @@ export {
   SchemaJudge,
   TrajectoryJudge,
 } from './judges'
-export { EVAL_PROVIDERS, type EvalProviderName } from './providers'
+export { EVAL_PROVIDERS, type EvalProviderName, evalEmbeddings } from './providers'
+export { ContextPrecision, MRR, RecallAtK, retrievalHarness } from './retrieval'
 export * from './scoring'

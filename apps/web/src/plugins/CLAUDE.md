@@ -208,8 +208,19 @@ release.
   `source: '<id>:<kind>'` + the item's upstream `externalId`, so a re-sync UPDATES the row rather
   than adding one; `deleteIngestedDocument` for upstream deletes. Visibility defaults to the whole
   organisation — a plugin syncing ONE person's data passes the owner's `userId` + `visibility:
-  'groups'` + `groupIds: []` (owner and admins only). A plugin that ingests declares
+  'groups'` + `groupIds: []` (owner and admins only). Pass `reviewerUserId` (the person who
+  connected the source) so the facts extracted from it reach someone who can judge them — without
+  one they go to the document's owner (tenant admins see every review item either way); a
+  plugin's document is `origin: 'integration'`, the lowest fact trust. A plain ingest (no
+  `externalId`) whose text matches a tenant-wide document of the same `source` answers that
+  document with `deduplicated: true`. A plugin that ingests declares
   `requires.surfaces: ["feature-knowledge"]`.
+- **`knowledgeEntityTypes`** — a FIELD, not a barrel: `EntityTypeRegistration`s from
+  `@/plugins/api`, `type` `<id>.<name>`, snake_case fact keys whose value schemas render as JSON
+  schema (`z.iso.date()`, never `z.date()`), and optionally one of YOUR tables with `labelColumn`
+  (the default trigram resolver) or your own `resolve` filtering by `scope.access.tenantId`.
+  `knowledgeEntityTypes()` throws on a bad one. Worked example:
+  `example-feature/knowledge/entity-types.ts`.
 - **Platform knowledge** (content about the APP, readable by every tenant): `ingestPlatformDocument`
   / `prunePlatformDocuments` from a `JobCtx` / `CronCtx` only (`kind` brands them; any other
   context is a type error), `source: '<your id>:<kind>'`, embedded synchronously by the platform
@@ -220,11 +231,15 @@ release.
 - **`jobHandlers` is checked against the plugin's OWN `shared.jobs`** (`{ [T in JobTypeOf<S>]: … }`),
   so a declared variant with no handler is a type error in the plugin. Namespace every `type`
   `<id>.verb`; the handler contract is the kit's (own DB client, await everything, throw to retry —
-  `../api/queues/CLAUDE.md`).
+  `../api/queues/CLAUDE.md`). A job whose payload carries a `tenantId` is acked unrun while that
+  tenant is not `active` (suspended or deleted), so work that must happen on suspension belongs in
+  `onTenantStatusChanged`, not in a job.
 - **`agentTools(ctx)` is bound to the run's `AgentToolContext`**, which carries the `AccessScope` —
   so a plugin tool reads what its REQUESTER may read, never a bare `tenantId` it chose itself. A
   tool that writes is offered on `ToolCtx.can('manage', YOUR_SUBJECT)`, never on `scope.bypass`,
-  which is row visibility.
+  which is row visibility. A tool that fetches a URL reads only one in `ToolCtx.requesterUrls`
+  (what the person typed) or one its own search returned — never a URL the model, a page or a
+  document supplied.
   Appended after the kit's three knowledge tools (async allowed, `[]` for a tenant that has not
   turned the tool on, a throw is logged and skipped); a test that pinned the exact tool list must
   become a prefix assertion.
@@ -232,11 +247,14 @@ release.
   `SharedPlugin.subjects`), run after the kit's matrix in `buildAbility`. CASL can take a rule back
   only with `cannot`, so a plugin that revoked a kit grant would change what every role may do
   merely by being installed.
-- **`hooks.onTenantCreated`, `hooks.onTenantDeleted` and `hooks.seedDemo` are post-commit, idempotent
-  and best-effort**, each try/caught by the host after the kit's own — a plugin hook that throws must
+- **`hooks.onTenantCreated`, `hooks.onTenantDeleted`, `hooks.onTenantStatusChanged` and
+  `hooks.seedDemo` are post-commit, idempotent and best-effort**, each try/caught by the host after the kit's own — a plugin hook that throws must
   never break sign-up or invite accept, so nothing a tenant NEEDS may arrive only that way.
   `onTenantCreated` is handed `features` (a hook that CREATES rows gates on them itself). `seedDemo`
   gets a `demoId` already namespaced with the plugin's id; fixed ids + `onConflictDoNothing`.
+- **`onTenantStatusChanged(db, tenantId, status, env)`** runs after a suspend / reactivate
+  (`setTenantSuspended`), each failure logged and swallowed — invalidate anything the plugin
+  serves or caches for the tenant outside the auth middleware (public pages, a CDN in front).
 - **`onTenantDeleted` is for state the FK cascade cannot reach**, and nothing else: a plugin's
   TABLES are already gone. It runs from the `tenant.purge` job with the tenant id and the platform,
   so a plugin reaches its own storage prefix or external system through `ctx.platform` rather than a

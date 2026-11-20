@@ -53,6 +53,7 @@ import { ConflictError, isUniqueViolation } from '../../utils/core/errors'
 import { streamDatabase, withAuthAndDb } from '../../utils/routes/route-helpers'
 import { accessScopeOf } from '../access'
 import { buildAgentTools, CHAT_GET_DOCUMENT_MAX_CHARS } from '../agents/tools'
+import { requesterUrlsFromTexts } from '../agents/tools/requester-urls'
 import { enqueueJob } from '../jobs'
 import { resolvePrompt } from '../prompts'
 import { runStreamingChat, type Tool } from './agent-loop'
@@ -394,10 +395,18 @@ export async function prepareChatTurn(
             // reader could not open on the Knowledge page.
             scope,
             can: (action, subject) => auth.ability.can(action, subject),
+            // The request's own flags — `lookup_facts` rides on `knowledge-facts`.
+            features: auth.features,
             // An agent run may read 50 000 characters of a document because that is the job; a chat
             // turn may not, because the result sits in the same window as the history and every
             // turn after it. The prompt already discourages it — this is the limit.
             maxDocumentChars: CHAT_GET_DOCUMENT_MAX_CHARS,
+            // What this person typed — their own turns (a conversation has one owner) and this
+            // one. Never the assistant's turns, a tool result or the summary of older turns.
+            requesterUrls: requesterUrlsFromTexts([
+              ...window.filter(m => m.role === 'user').map(m => m.content),
+              turnText,
+            ]),
           })
       : async () => [],
     maxTurns: Math.min(cfg.AGENT_MAX_TURNS, CHAT_MAX_TOOL_TURNS),

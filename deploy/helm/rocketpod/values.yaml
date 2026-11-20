@@ -20,6 +20,8 @@ config:
   APP_URL: ""
   APP_NAME: ""
   RELEASE_VERSION: ""
+  # The build an agent run records per attempt (agent_runs.worker_version_id). Empty = the image tag.
+  APP_VERSION_ID: ""
   LOG_LEVEL: info
   EMAIL_FROM: ""
   TENANCY_MODE: multi
@@ -53,6 +55,8 @@ config:
   OBSERVABILITY_SPAN_RETENTION_DAYS: ""
   # Days of recorded plugin events kept (default 7); payloads may hold personal data.
   EVENTS_RETENTION_DAYS: ""
+  # Days a settled agent run keeps its tool-loop journal (default 30).
+  AGENT_TRANSCRIPT_RETENTION_DAYS: ""
   AGENT_MAX_OUTPUT_TOKENS: ""
   AGENT_MAX_TURNS: ""
   AGENT_MAX_ACTIVE_RUNS_PER_TENANT: ""
@@ -62,6 +66,9 @@ config:
   AGENT_RUN_MAX_TOKENS: ""
   AGENT_RUN_MAX_COST_USD: ""
   AGENT_TENANT_DAILY_COST_USD: ""
+  KNOWLEDGE_TENANT_DAILY_COST_USD: ""
+  RERANK_CANDIDATES: ""
+  RERANK_MIN_SCORE: ""
   CHAT_KNOWLEDGE_TOOLS: ""
   AGENT_INTERRUPT_TIMEOUT: ""
   CHAT_HISTORY_MAX_CHARS: ""

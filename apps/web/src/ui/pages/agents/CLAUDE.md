@@ -1,7 +1,25 @@
-# Agents UI (`/agents`, `/agents/runs/:runId`)
+# Agents UI (`/agents`, `/agents/:agentKey`, `/agents/runs`, `/agents/runs/:runId`)
 
-`AgentsPage` (roster + runs table) and `RunPage` (its OWN lazy chunk), both `read AgentRun`. Also
-covers `hooks/useAgents.ts`, `hooks/useRunStream.ts`, `hooks/useNavBadges.ts`,
+Four pages, each its own lazy chunk, all `read AgentRun`, all full width:
+- `AgentsPage` (`/agents`): ONE row per agent — title (→ its page), one-line description, badges,
+  last run (status + time ago → the run), 30-day runs / tokens / avg time / cost, Run. Every metric
+  comes from ONE `GET /api/agents/stats` (`useAgentStats`), never a request per agent; no runs
+  table here — it must stay readable at fifty agents. "N waiting on you" → `/agents/runs?awaiting=1`.
+- `AgentPage` (`/agents/:agentKey`): description, Run, four metric cards, and `RunsTable` fixed to
+  the agent (`fixedAgentKey`: no agent filter, no agent column). An unknown key is an empty state.
+- `AllRunsPage` (`/agents/runs`): `RunsTable` across agents, with the agent filter. The static
+  `runs` segment outranks `:agentKey`, so no agent may be keyed `runs`.
+- `RunPage`: breadcrumbs Agents → the agent → the run.
+Metric formatting is `agentMetrics.tsx` (compact tokens; costs under $1 keep four decimals).
+Whole rows are clickable through `rowLink.ts` (`LINK_ROW` + the row's one real `<Link>` stretched
+over it; `ABOVE_ROW` lifts the other controls above the overlay), so middle-click still works.
+The run page's admin **Inspect** tab (`run/output/RunInspectTab.tsx`, `useAgentRunTimeline`,
+`queryKeys.agentRuns.timeline`) renders `GET /runs/:id/timeline` — versions, spend against the
+budget, turns, effects, decisions, asks and children — the same contract as `rocketpod agents
+inspect`. A SETTLED run's open stages and tool calls render as stopped (`stopOpenWork` in the
+timeline model), never spinning.
+
+Also covers `hooks/useAgents.ts`, `hooks/useRunStream.ts`, `hooks/useNavBadges.ts`,
 `lib/runAguiStream.ts`, `lib/notificationLink.ts`. Polling and the `['agent-run-agui']` cache rule
 are in `.claude/rules/ui.md`.
 
@@ -157,8 +175,8 @@ are in `.claude/rules/ui.md`.
   posts `POST …/steering` while the run is active; the note is an event row, so the timeline shows
   it where it happened and the runtime delivers it once. Requested-by is "You" / short id /
   "system" — the row carries only a user id (resolving names is on the to-document list).
-- **Finding what is waiting**: the runs table's filters live in `useSearchParams`, so
-  `/agents?awaiting=1` is a URL and there is a chip for it, and every row is a real `<Link>` (so
+- **Finding what is waiting**: `RunsTable`'s filters live in `useSearchParams`, so
+  `/agents/runs?awaiting=1` is a URL and there is a chip for it, and every row is a real `<Link>` (so
   middle-click and open-in-new-tab work — half the point of a run being a page). The SideNav badge
   is `NavItem.badgeKey`/`badgeTone` resolved by `useNavBadges()` inside `SideNav` (the nav-badge
   convention, `.claude/rules/ui.md`), fed by `GET /interrupts?status=pending&pageSize=1` under

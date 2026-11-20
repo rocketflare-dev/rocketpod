@@ -33,6 +33,7 @@ import type { AnyAgentDefinition } from '../api/services/agents/registry'
 import type { AgentToolContext } from '../api/services/agents/tools'
 import type { Tool } from '../api/services/ai/agent-loop'
 import type { EventHandler } from '../api/services/events/types'
+import type { EntityTypeRegistration } from '../api/services/knowledge/types'
 import type { AppBindings, AppEnv } from '../api/types'
 import type { AppConfig } from '../config'
 import type { Database } from '../db/client'
@@ -217,8 +218,8 @@ export interface ServerPlugin<S extends SharedPlugin = SharedPlugin> {
   // A job type that is not one literal — `AnyServerPlugin`'s `string` — takes any handler. Mapped
   // through `Extract`, it became `JobHandler<never>`, and under zod 4 TypeScript's variance shortcut
   // then refused every real plugin's handlers in some programs (apps/evals) and not others.
-  // biome-ignore lint/suspicious/noExplicitAny: the wide plugin type must accept every handler
   jobHandlers?: {
+    // biome-ignore lint/suspicious/noExplicitAny: the wide plugin type must accept every handler
     [T in JobTypeOf<S> & string]: T extends JobType ? JobHandler<T> : JobHandler<any>
   }
   /** Agent definitions, one per key in `shared.agentKeys`. */
@@ -242,6 +243,17 @@ export interface ServerPlugin<S extends SharedPlugin = SharedPlugin> {
    * documents readable through `get_document` or `list_documents` — those stay tenant-only.
    */
   knowledgeSources?: (scope: AccessScope) => readonly string[] | Promise<readonly string[]>
+  /**
+   * Knowledge entity types (D43) whose rows extraction may attach facts to — composed with the
+   * app's own (`api/services/knowledge/entity-types.ts`) by `knowledgeEntityTypes()`. Each `type`
+   * is `<plugin id>.<name>`; fact keys are snake_case and every value schema renders as JSON
+   * schema; `table` (optional — without one the type lives only as staging entities) is one of
+   * THIS plugin's tables, with `labelColumn` for the default trigram resolver or a `resolve` of its
+   * own that filters by `scope.access.tenantId`. A bad registration throws at composition
+   * (`tests/config/knowledge-entity-types.test.ts` runs it over the installed set). The host does
+   * NOT write a fact into the plugin's columns: applying one is an approved action, never automatic.
+   */
+  knowledgeEntityTypes?: readonly EntityTypeRegistration[]
   /**
    * Cron expression → tasks, merged into `SCHEDULED_TASKS` (tasks on a cron core already runs
    * are appended after the core ones). A new expression needs no other edit: the worker process
@@ -269,9 +281,10 @@ export interface ServerPlugin<S extends SharedPlugin = SharedPlugin> {
   /** Per-role CASL rules, applied after the core matrix — additive, never a replacement. */
   grants?: Partial<Record<EffectiveRole, RoleGrant>>
   /**
-   * Prefixes that skip the global 1 MB body cap, for a route taking a file. Each must be under
-   * `/api/<id>/` (`tests/config/plugins.test.ts`), and its route MUST mount its own `bodyLimit`:
-   * nothing else caps it.
+   * Prefixes where a NON-JSON body (a multipart file) gets the upload-path cap — 10 MB + 64 KB
+   * (`MAX_UPLOAD_PATH_BODY_BYTES`) — instead of the global 1 MB; a JSON body beneath one keeps the
+   * 1 MB cap. Each must be under `/api/<id>/` (`tests/config/plugins.test.ts`), and its route
+   * mounts its own `bodyLimit` at the file size it takes (at most 10 MB plus multipart overhead).
    */
   uploadPaths?: readonly string[]
   /** Plugin tables with no `tenant_id`, unioned into `RLS_EXCLUDED_TABLES` with a reason each. */
@@ -317,6 +330,21 @@ export interface ServerPlugin<S extends SharedPlugin = SharedPlugin> {
      * credentials and endpoints through it, never through a module-level global.
      */
     onTenantDeleted?: (db: Database, tenantId: string, env: AppBindings) => Promise<void>
+    /**
+     * A global admin suspended (`'suspended'`) or reactivated (`'active'`) a tenant. Run after the
+     * status update has committed, per plugin, each in its own try/catch — best-effort like the
+     * other two, with a failure logged as a warning and swallowed, so the admin's action stands.
+     *
+     * For a plugin that caches or serves the tenant's content where the auth middleware does not
+     * look — a public page, an edge cache, a KV copy — and must stop serving it, or start again.
+     * Idempotent: it may hear the same status twice.
+     */
+    onTenantStatusChanged?: (
+      db: Database,
+      tenantId: string,
+      status: 'active' | 'suspended',
+      env: AppBindings
+    ) => Promise<void>
     /** `pnpm seed --demo`, after the core block. Fixed ids + `onConflictDoNothing`. */
     seedDemo?: (db: Database, ctx: PluginSeedContext) => Promise<void>
   }

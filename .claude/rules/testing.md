@@ -109,7 +109,7 @@ reintroduce them:
   a `RecordingQueue` (`jobs`), a `MemoryStorage` (`storage`), a `RecordingRealtime` (`realtime`), a
   `RecordingAi` (`stubs(env).ai` — an OpenAI-compatible model endpoint at `FAKE_MODELS_BASE_URL`,
   reached through `fetch` and routed in-process; the env's `AI_*`/`EMBEDDINGS_*` vars point at it,
-  `ai: null` leaves them to `process.env`; deterministic 1024-dim vectors, `respond` overridable,
+  `ai: null` leaves them to `process.env`; deterministic 1024-dim vectors, a Cohere-style `POST /rerank` that scores in input order, `respond` overridable,
   `runs` records each call; its `toMarkdown` backs the `converter`, which declares every `convert`
   upload type), a `RecordingWorkflow` (`runs`, records `create({ id, params })` and `sendEvent`,
   `setStatus(id, …)` drives `instance.status()`, `terminated[]` records a forced cancel, `get()` of

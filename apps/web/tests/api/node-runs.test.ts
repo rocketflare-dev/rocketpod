@@ -15,7 +15,9 @@
  *
  * The agent run itself, end to end: `enqueueRun` → the worker runs `runAgentRun` → `succeeded`;
  * an interrupt parks the run, the resolve-route sequence wakes it and it completes with the answer;
- * nobody answering expires the park `cancelled`; and a `runOnce` effect is not repeated by a replay.
+ * nobody answering expires the park `cancelled`; a `runOnce` effect is not repeated by a replay; a
+ * cancel reaches a model call in flight and the run settles `cancelled` with the engine run
+ * COMPLETED (not failed, not retried); and a second cancel terminates the engine run.
  */
 import { and, eq } from 'drizzle-orm'
 import { OpenWorkflow } from 'openworkflow'
@@ -30,6 +32,7 @@ import {
   getRun,
   nudgeOrRestartInstance,
   reconcileRun,
+  requestCancel,
   resumeRun,
   runOnce,
 } from '@/api/services/agents/runs'
@@ -526,7 +529,8 @@ describe('agent runs on the Node worker', () => {
       st => st.status === 'complete'
     )
     // reconcileRun leaves a settled row alone and agrees with the engine.
-    expect((await reconcileRun(db, platform, done!)).status).toBe('succeeded')
+    if (!done) throw new Error('the run never settled')
+    expect((await reconcileRun(db, platform, done)).status).toBe('succeeded')
   })
 
   it('an interrupt parks the run; the resolve-route sequence wakes it and it completes', async () => {
@@ -590,6 +594,79 @@ describe('agent runs on the Node worker', () => {
     )
     expect(done).toMatchObject({ status: 'cancelled', error: null })
     expect((await listInterrupts(db, tenant.id, run.id)).map(i => i.status)).toEqual(['expired'])
+  })
+
+  /** A provider that never answers and ignores its abort signal — only the race can stop waiting. */
+  function hangingClient(onCall: () => void): ChatClient {
+    return {
+      provider: 'anthropic_compatible',
+      complete: () => {
+        onCall()
+        return new Promise(() => {})
+      },
+      // biome-ignore lint/correctness/useYield: never reached — the agent only calls complete.
+      async *stream() {
+        throw new Error('unused')
+      },
+    }
+  }
+
+  it('a cancel reaches the model call in flight: settled cancelled, the engine run completes, no retry', async () => {
+    let calls = 0
+    let executions = 0
+    state.client = hangingClient(() => {
+      calls += 1
+    })
+    installAgent(async ctx => {
+      executions += 1
+      await ctx.chat.client.complete({ model: ctx.chat.model, maxTokens: 64, messages: [] })
+      return 'never'
+    })
+    const { run, tenant } = await queuedRun()
+    await until(
+      async () => calls,
+      n => n === 1
+    )
+    await requestCancel(db, tenant.id, run.id, undefined, platform)
+    const done = await until(
+      () => status(tenant.id, run.id),
+      row => row?.status === 'cancelled'
+    )
+    expect(done?.error).toBeNull()
+    // The abort is a cancel, never a retryable failure: the body finished, and ran once.
+    const instance = await runs.engine.get(run.instanceId as string)
+    await until(
+      () => instance.status(),
+      st => st.status === 'complete'
+    )
+    expect(executions).toBe(1)
+    expect(calls).toBe(1)
+  })
+
+  it('a second cancel forces it: the engine run is terminated and the row settles at once', async () => {
+    let calls = 0
+    state.client = hangingClient(() => {
+      calls += 1
+    })
+    installAgent(async ctx => {
+      await ctx.chat.client.complete({ model: ctx.chat.model, maxTokens: 64, messages: [] })
+      return 'never'
+    })
+    const { run, tenant } = await queuedRun()
+    await until(
+      async () => calls,
+      n => n === 1
+    )
+    const first = await requestCancel(db, tenant.id, run.id, undefined, platform)
+    expect(first?.status).toBe('running')
+    expect(first?.cancelRequestedAt).toBeTruthy()
+    const forced = await requestCancel(db, tenant.id, run.id, undefined, platform)
+    expect(forced?.status).toBe('cancelled')
+    const instance = await runs.engine.get(run.instanceId as string)
+    await until(
+      () => instance.status(),
+      st => st.status === 'terminated'
+    )
   })
 
   it('a runOnce effect is recorded once even when the step that wrote it runs again', async () => {

@@ -118,11 +118,15 @@ The server surface: the context family, and the types a plugin must be able to n
   - `step( key: string, label: string, status: 'running' \| 'done' \| 'error', detail?: string ): Promise<void>`
     A durable timeline row. Never throws — progress must not be able to fail a run.
   - `checkCancelled(): Promise<void>`
-    Throws when the run was asked to stop. Call it between model turns; the loop takes no signal.
-  - `once<T>(key: string, fn: () => Promise<T>): Promise<T>`
+    Throws when the run was asked to stop. Call it between model turns.
+  - `signal: AbortSignal`
+    Aborts when the run is asked to stop. `toolLoop` and `structured` already pass it; hand it to your own `fetch`es so a cancel reaches them in flight.
+  - `once<T>(key: string, fn: () => Promise<T>, options?: { inputs?: unknown }): Promise<T>`
     Run `fn` at most once per `key` across every attempt, replaying its recorded result after.
+  - `spawn<Output = unknown>(key: string, agentKey: AgentKey, input: unknown): Promise<Output>`
+    Start another agent (a kit one or a plugin's) as a CHILD run and resolve with its output. This run parks while the child runs and is woken when it settles; a failed or cancelled…
   - `toolLoop(options: PluginToolLoopOptions): Promise<ToolLoopResult>`
-    The agentic loop, with this run's client, model, ceiling and approval plumbing already bound.
+    The agentic loop, with this run's client, model, ceiling, approval plumbing and journal already bound: a retried attempt is served the turns and tool results it already recorded,…
   - `structured<T>(options: PluginStructuredOptions<T>): Promise<T>`
     One forced tool call, zod-validated, one retry with the issues fed back.
   - `decide: AgentDecide`
@@ -189,6 +193,10 @@ The server surface: the context family, and the types a plugin must be able to n
 - `interface DatabaseHandle`
 - `interface Decision`
   What `ctx.decide(...)` resolves to.
+- `const DEFAULT_RESOLVE_MIN_SCORE: 0.3`
+  `pg_trgm`'s own default `similarity_threshold`: below it, two names share too little.
+- `function defaultEntityResolver( reg: EntityTypeRegistration, minScore = DEFAULT_RESOLVE_MIN_SCORE ): EntityResolver`
+  The resolver a registration with a table gets when it brings none. Builds its column set once (throwing on a bad registration, which `knowledgeEntityTypes()` has already refused).
 - `function defineTool<Input>(tool: Tool<Input>): Tool<Input>`
   Declare a tool. A thin helper, and its only job is to be the thing a plugin imports instead of the `Tool` type from a core path — but it is also where the two rules in this file's…
 - `async function deleteIngestedDocument( ctx: PluginContext, input: { tenantId: string; source: string; externalId: string } ): Promise<boolean>`
@@ -212,6 +220,12 @@ The server surface: the context family, and the types a plugin must be able to n
   The background `emit`: the tenant is named per call, as every background method takes it.
 - `interface EmittedEvent`
   What `ctx.emit` answers.
+- `type EntityResolver = ( name: string, scope: EntityResolveScope ) => Promise<readonly EntityCandidate[]>`
+  Maps a mention ("Brightside", "order 1042") to candidate rows of the type, best first, every one in `scope.access.tenantId`. Scores are in [0, 1]; extraction links only above its…
+- `interface EntityResolveScope`
+  What a resolver is given besides the mention: a database and WHOSE tenant (and reader) it is.
+- `interface EntityTypeRegistration<F extends EntityFactsSchema = EntityFactsSchema> extends EntityTypeDeclaration<F>`
+  One registered entity type.
 - `function eventBinding<E extends EventName, Input = unknown>( event: E, spec: Omit<AgentEventBinding<E, Input>, 'event'> ): AgentEventBinding<E, Input>`
   Declare an OPT-IN: this agent may be started by `event` when a subject names it (an editor's "On submit, start" choice) — never by the event alone. Listed by…
 - `interface EventContext extends JobContext`
@@ -408,7 +422,7 @@ The server surface: the context family, and the types a plugin must be able to n
   What a plugin's IdP proved about the person, handed to `signIn`.
 - `type PluginStructuredOptions = Omit< CallStructuredToolOptions<T>, 'model' \| 'maxTokens' > & { maxTokens?: number }`
   `callStructuredTool` minus what the runtime supplies.
-- `type PluginToolLoopOptions = Omit< RunToolLoopOptions, 'model' \| 'maxTokens' \| 'approvals' \| 'runApproved' > & { maxTokens?: number }`
+- `type PluginToolLoopOptions = Omit< RunToolLoopOptions, 'model' \| 'maxTokens' \| 'approvals' \| 'runApproved' \| 'journal' > & { maxTokens?: number }`
   `runToolLoop` minus what the runtime supplies.
 - `function provisionFor(ctx: PluginContext, pluginId: string): PluginProvision`
   The cookie-free half: usable from any `PluginContext` — a public handler, a job, a cron.
@@ -539,6 +553,8 @@ The server surface: the context family, and the types a plugin must be able to n
     Tools added to every agent run, beside the three built-in knowledge tools. Bound to the run's access scope, so a plugin tool reads what its REQUESTER may read and nothing more.…
   - `knowledgeSources?: (scope: AccessScope) => readonly string[] \| Promise<readonly string[]>`
     PLATFORM knowledge sources (`<id>:<kind>`, written with `ingestPlatformDocument`) the kit's `search_knowledge` tool also searches for this reader — chat and every agent run.…
+  - `knowledgeEntityTypes?: readonly EntityTypeRegistration[]`
+    Knowledge entity types (D43) whose rows extraction may attach facts to — composed with the app's own (`api/services/knowledge/entity-types.ts`) by `knowledgeEntityTypes()`. Each…
   - `scheduledTasks?: Readonly<Record<string, ScheduledTask[]>>`
     Cron expression → tasks, merged into `SCHEDULED_TASKS` (tasks on a cron core already runs are appended after the core ones). A new expression needs no other edit: the worker…
   - `eventHandlers?: readonly EventHandler[]`
@@ -548,14 +564,14 @@ The server surface: the context family, and the types a plugin must be able to n
   - `grants?: Partial<Record<EffectiveRole, RoleGrant>>`
     Per-role CASL rules, applied after the core matrix — additive, never a replacement.
   - `uploadPaths?: readonly string[]`
-    Prefixes that skip the global 1 MB body cap, for a route taking a file. Each must be under `/api/<id>/` (`tests/config/plugins.test.ts`), and its route MUST mount its own…
+    Prefixes where a NON-JSON body (a multipart file) gets the upload-path cap — 10 MB + 64 KB (`MAX_UPLOAD_PATH_BODY_BYTES`) — instead of the global 1 MB; a JSON body beneath one…
   - `rlsExcludedTables?: readonly string[]`
     Plugin tables with no `tenant_id`, unioned into `RLS_EXCLUDED_TABLES` with a reason each.
   - `unscopedAllowlist?: Readonly<Record<string, string>>`
     Source files the cross-tenant allow-list scan may skip, keyed the way that test keys its own: a path relative to `apps/web/` (`src/plugins/<id>/…`) mapped to the REASON it is…
   - `visibilityResources?: readonly VisibilityResource[]`
     Rows of this plugin that a group may restrict. Read by `services/access.ts`.
-  - `hooks?: { onTenantCreated?: ( db: Database, tenant: Tenant, userId: string, features: readonly string[] ) => Promise<void> onTenantDeleted?: (db: Database, tenantId: string, env: AppBindings) => Promise<void> seedDemo?: (db: Database, ctx: PluginSeedContext) => Promise<void> }`
+  - `hooks?: { onTenantCreated?: ( db: Database, tenant: Tenant, userId: string, features: readonly string[] ) => Promise<void> onTenantDeleted?: (db: Database, tenantId: string, env: AppBindings) => Promise<void> onTenantStatusChanged?: ( db: Database, tenantId: string, status: 'active' \| 'suspended', env: AppBindings ) => Promise<void> seedDemo?: (db: Database, ctx: PluginSeedContext) => Promise<void> }`
   - `extensions?: Readonly<Record<string, readonly unknown[]>>`
     Cross-plugin registries: the analytics plugin reads `extensions.cubes` and friends from every installed plugin and narrows them with zod, failing loudly on anything it cannot…
 - `interface SetResourceGroupsInput`
@@ -650,6 +666,8 @@ The server surface: the context family, and the types a plugin must be able to n
     Does the requester hold this CASL grant now? Offer a tool that writes only when they hold your subject's manage (`ctx.can('manage', MY_SUBJECT)`) — never decide that from…
   - `maxDocumentChars?: number`
     The CALLER's budget for one document window, in characters. An agent run's is far larger than a chat turn's.
+  - `requesterUrls: ReadonlySet<string>`
+    The http(s) URLs the person behind this call wrote themselves, normalised with `new URL()` and no fragment: the chat person's own messages, or an agent run's input when a person…
   - `features(): Promise<readonly string[]>`
     The feature keys the run's organisation has — what `ctx.features(tenantId)` answers in a job. A plugin whose tool belongs to a flagged surface returns `[]` when the flag is off,…
   - `storage(): StorageService`
@@ -963,6 +981,8 @@ Components and hooks, for a lazy PAGE. Never for the UI entry.
     Tools added to every agent run, beside the three built-in knowledge tools. Bound to the run's access scope, so a plugin tool reads what its REQUESTER may read and nothing more.…
   - `knowledgeSources?: (scope: AccessScope) => readonly string[] \| Promise<readonly string[]>`
     PLATFORM knowledge sources (`<id>:<kind>`, written with `ingestPlatformDocument`) the kit's `search_knowledge` tool also searches for this reader — chat and every agent run.…
+  - `knowledgeEntityTypes?: readonly EntityTypeRegistration[]`
+    Knowledge entity types (D43) whose rows extraction may attach facts to — composed with the app's own (`api/services/knowledge/entity-types.ts`) by `knowledgeEntityTypes()`. Each…
   - `scheduledTasks?: Readonly<Record<string, ScheduledTask[]>>`
     Cron expression → tasks, merged into `SCHEDULED_TASKS` (tasks on a cron core already runs are appended after the core ones). A new expression needs no other edit: the worker…
   - `eventHandlers?: readonly EventHandler[]`
@@ -972,14 +992,14 @@ Components and hooks, for a lazy PAGE. Never for the UI entry.
   - `grants?: Partial<Record<EffectiveRole, RoleGrant>>`
     Per-role CASL rules, applied after the core matrix — additive, never a replacement.
   - `uploadPaths?: readonly string[]`
-    Prefixes that skip the global 1 MB body cap, for a route taking a file. Each must be under `/api/<id>/` (`tests/config/plugins.test.ts`), and its route MUST mount its own…
+    Prefixes where a NON-JSON body (a multipart file) gets the upload-path cap — 10 MB + 64 KB (`MAX_UPLOAD_PATH_BODY_BYTES`) — instead of the global 1 MB; a JSON body beneath one…
   - `rlsExcludedTables?: readonly string[]`
     Plugin tables with no `tenant_id`, unioned into `RLS_EXCLUDED_TABLES` with a reason each.
   - `unscopedAllowlist?: Readonly<Record<string, string>>`
     Source files the cross-tenant allow-list scan may skip, keyed the way that test keys its own: a path relative to `apps/web/` (`src/plugins/<id>/…`) mapped to the REASON it is…
   - `visibilityResources?: readonly VisibilityResource[]`
     Rows of this plugin that a group may restrict. Read by `services/access.ts`.
-  - `hooks?: { onTenantCreated?: ( db: Database, tenant: Tenant, userId: string, features: readonly string[] ) => Promise<void> onTenantDeleted?: (db: Database, tenantId: string, env: AppBindings) => Promise<void> seedDemo?: (db: Database, ctx: PluginSeedContext) => Promise<void> }`
+  - `hooks?: { onTenantCreated?: ( db: Database, tenant: Tenant, userId: string, features: readonly string[] ) => Promise<void> onTenantDeleted?: (db: Database, tenantId: string, env: AppBindings) => Promise<void> onTenantStatusChanged?: ( db: Database, tenantId: string, status: 'active' \| 'suspended', env: AppBindings ) => Promise<void> seedDemo?: (db: Database, ctx: PluginSeedContext) => Promise<void> }`
   - `extensions?: Readonly<Record<string, readonly unknown[]>>`
     Cross-plugin registries: the analytics plugin reads `extensions.cubes` and friends from every installed plugin and narrows them with zod, failing loudly on anything it cannot…
 - `interface UiPlugin<S extends SharedPlugin = SharedPlugin>`
@@ -1358,7 +1378,9 @@ nothing in the comparison that can throw.
 @/plugins/api :: member :: AgentCtx.emit :: emit: TenantEmit
 @/plugins/api :: member :: AgentCtx.step :: step( key: string, label: string, status: 'running' | 'done' | 'error', detail?: string ): Promise<void>
 @/plugins/api :: member :: AgentCtx.checkCancelled :: checkCancelled(): Promise<void>
-@/plugins/api :: member :: AgentCtx.once :: once<T>(key: string, fn: () => Promise<T>): Promise<T>
+@/plugins/api :: member :: AgentCtx.signal :: signal: AbortSignal
+@/plugins/api :: member :: AgentCtx.once :: once<T>(key: string, fn: () => Promise<T>, options?: { inputs?: unknown }): Promise<T>
+@/plugins/api :: member :: AgentCtx.spawn :: spawn<Output = unknown>(key: string, agentKey: AgentKey, input: unknown): Promise<Output>
 @/plugins/api :: member :: AgentCtx.toolLoop :: toolLoop(options: PluginToolLoopOptions): Promise<ToolLoopResult>
 @/plugins/api :: member :: AgentCtx.structured :: structured<T>(options: PluginStructuredOptions<T>): Promise<T>
 @/plugins/api :: member :: AgentCtx.decide :: decide: AgentDecide
@@ -1398,6 +1420,8 @@ nothing in the comparison that can throw.
 @/plugins/api :: type :: Database :: type Database = PgDatabase<PgQueryResultHKT, typeof schema>
 @/plugins/api :: interface :: DatabaseHandle :: interface DatabaseHandle
 @/plugins/api :: interface :: Decision :: interface Decision
+@/plugins/api :: const :: DEFAULT_RESOLVE_MIN_SCORE :: const DEFAULT_RESOLVE_MIN_SCORE: 0.3
+@/plugins/api :: function :: defaultEntityResolver :: function defaultEntityResolver( reg: EntityTypeRegistration, minScore = DEFAULT_RESOLVE_MIN_SCORE ): EntityResolver
 @/plugins/api :: function :: defineTool :: function defineTool<Input>(tool: Tool<Input>): Tool<Input>
 @/plugins/api :: function :: deleteIngestedDocument :: async function deleteIngestedDocument( ctx: PluginContext, input: { tenantId: string; source: string; externalId: string } ): Promise<boolean>
 @/plugins/api :: interface :: DeliveredEvent :: interface DeliveredEvent<E extends EventName = EventName>
@@ -1413,6 +1437,9 @@ nothing in the comparison that can throw.
 @/plugins/api :: type :: Emit :: type Emit = <E extends EventName>(event: E, input: EmitInput<E>) => Promise<EmittedEvent>
 @/plugins/api :: interface :: EmitInput :: interface EmitInput<E extends EventName>
 @/plugins/api :: interface :: EmittedEvent :: interface EmittedEvent
+@/plugins/api :: type :: EntityResolver :: type EntityResolver = ( name: string, scope: EntityResolveScope ) => Promise<readonly EntityCandidate[]>
+@/plugins/api :: interface :: EntityResolveScope :: interface EntityResolveScope
+@/plugins/api :: interface :: EntityTypeRegistration :: interface EntityTypeRegistration<F extends EntityFactsSchema = EntityFactsSchema> extends EntityTypeDeclaration<F>
 @/plugins/api :: function :: eventBinding :: function eventBinding<E extends EventName, Input = unknown>( event: E, spec: Omit<AgentEventBinding<E, Input>, 'event'> ): AgentEventBinding<E, Input>
 @/plugins/api :: interface :: EventContext :: interface EventContext extends JobContext
 @/plugins/api :: function :: eventCtx :: function eventCtx(ctx: EventContext): EventCtx
@@ -1527,7 +1554,7 @@ nothing in the comparison that can throw.
 @/plugins/api :: interface :: PluginSeedContext :: interface PluginSeedContext
 @/plugins/api :: interface :: PluginSignInInput :: interface PluginSignInInput
 @/plugins/api :: type :: PluginStructuredOptions :: type PluginStructuredOptions = Omit< CallStructuredToolOptions<T>, 'model' | 'maxTokens' > & { maxTokens?: number }
-@/plugins/api :: type :: PluginToolLoopOptions :: type PluginToolLoopOptions = Omit< RunToolLoopOptions, 'model' | 'maxTokens' | 'approvals' | 'runApproved' > & { maxTokens?: number }
+@/plugins/api :: type :: PluginToolLoopOptions :: type PluginToolLoopOptions = Omit< RunToolLoopOptions, 'model' | 'maxTokens' | 'approvals' | 'runApproved' | 'journal' > & { maxTokens?: number }
 @/plugins/api :: function :: provisionFor :: function provisionFor(ctx: PluginContext, pluginId: string): PluginProvision
 @/plugins/api :: function :: prunePlatformDocuments :: async function prunePlatformDocuments( ctx: JobCtx | CronCtx, input: { source: string; keepExternalIds: readonly string[] } ): Promise<number>
 @/plugins/api :: const :: PUBLIC_MOUNT_ROOT :: const PUBLIC_MOUNT_ROOT: "/api/hooks"
@@ -1606,6 +1633,7 @@ nothing in the comparison that can throw.
 @/plugins/api :: member :: ServerPlugin.prompts :: prompts?: { [K in PromptKeyOf<S> & string]: PromptDefinition }
 @/plugins/api :: member :: ServerPlugin.agentTools :: agentTools?: (ctx: AgentToolContext) => Tool[] | Promise<Tool[]>
 @/plugins/api :: member :: ServerPlugin.knowledgeSources :: knowledgeSources?: (scope: AccessScope) => readonly string[] | Promise<readonly string[]>
+@/plugins/api :: member :: ServerPlugin.knowledgeEntityTypes :: knowledgeEntityTypes?: readonly EntityTypeRegistration[]
 @/plugins/api :: member :: ServerPlugin.scheduledTasks :: scheduledTasks?: Readonly<Record<string, ScheduledTask[]>>
 @/plugins/api :: member :: ServerPlugin.eventHandlers :: eventHandlers?: readonly EventHandler[]
 @/plugins/api :: member :: ServerPlugin.deploymentFeatures :: deploymentFeatures?: (config: AppConfig) => readonly string[]
@@ -1614,7 +1642,7 @@ nothing in the comparison that can throw.
 @/plugins/api :: member :: ServerPlugin.rlsExcludedTables :: rlsExcludedTables?: readonly string[]
 @/plugins/api :: member :: ServerPlugin.unscopedAllowlist :: unscopedAllowlist?: Readonly<Record<string, string>>
 @/plugins/api :: member :: ServerPlugin.visibilityResources :: visibilityResources?: readonly VisibilityResource[]
-@/plugins/api :: member :: ServerPlugin.hooks :: hooks?: { onTenantCreated?: ( db: Database, tenant: Tenant, userId: string, features: readonly string[] ) => Promise<void> onTenantDeleted?: (db: Database, tenantId: string, env: AppBindings) => Promise<void> seedDemo?: (db: Database, ctx: PluginSeedContext) => Promise<void> }
+@/plugins/api :: member :: ServerPlugin.hooks :: hooks?: { onTenantCreated?: ( db: Database, tenant: Tenant, userId: string, features: readonly string[] ) => Promise<void> onTenantDeleted?: (db: Database, tenantId: string, env: AppBindings) => Promise<void> onTenantStatusChanged?: ( db: Database, tenantId: string, status: 'active' | 'suspended', env: AppBindings ) => Promise<void> seedDemo?: (db: Database, ctx: PluginSeedContext) => Promise<void> }
 @/plugins/api :: member :: ServerPlugin.extensions :: extensions?: Readonly<Record<string, readonly unknown[]>>
 @/plugins/api :: interface :: SetResourceGroupsInput :: interface SetResourceGroupsInput
 @/plugins/api :: function :: sharedWithMyGroups :: function sharedWithMyGroups( scope: AccessScope, junction: string, foreignKey: string, resourceId: SQL ): SQL
@@ -1676,6 +1704,7 @@ nothing in the comparison that can throw.
 @/plugins/api :: member :: ToolCtx.tenantId :: tenantId: string
 @/plugins/api :: member :: ToolCtx.can :: can: AbilityCheck
 @/plugins/api :: member :: ToolCtx.maxDocumentChars :: maxDocumentChars?: number
+@/plugins/api :: member :: ToolCtx.requesterUrls :: requesterUrls: ReadonlySet<string>
 @/plugins/api :: member :: ToolCtx.features :: features(): Promise<readonly string[]>
 @/plugins/api :: member :: ToolCtx.storage :: storage(): StorageService
 @/plugins/api :: function :: toolInputSchema :: function toolInputSchema(schema: ZodType): JsonSchema
@@ -1851,6 +1880,7 @@ nothing in the comparison that can throw.
 @/plugins/types :: member :: ServerPlugin.prompts :: prompts?: { [K in PromptKeyOf<S> & string]: PromptDefinition }
 @/plugins/types :: member :: ServerPlugin.agentTools :: agentTools?: (ctx: AgentToolContext) => Tool[] | Promise<Tool[]>
 @/plugins/types :: member :: ServerPlugin.knowledgeSources :: knowledgeSources?: (scope: AccessScope) => readonly string[] | Promise<readonly string[]>
+@/plugins/types :: member :: ServerPlugin.knowledgeEntityTypes :: knowledgeEntityTypes?: readonly EntityTypeRegistration[]
 @/plugins/types :: member :: ServerPlugin.scheduledTasks :: scheduledTasks?: Readonly<Record<string, ScheduledTask[]>>
 @/plugins/types :: member :: ServerPlugin.eventHandlers :: eventHandlers?: readonly EventHandler[]
 @/plugins/types :: member :: ServerPlugin.deploymentFeatures :: deploymentFeatures?: (config: AppConfig) => readonly string[]
@@ -1859,7 +1889,7 @@ nothing in the comparison that can throw.
 @/plugins/types :: member :: ServerPlugin.rlsExcludedTables :: rlsExcludedTables?: readonly string[]
 @/plugins/types :: member :: ServerPlugin.unscopedAllowlist :: unscopedAllowlist?: Readonly<Record<string, string>>
 @/plugins/types :: member :: ServerPlugin.visibilityResources :: visibilityResources?: readonly VisibilityResource[]
-@/plugins/types :: member :: ServerPlugin.hooks :: hooks?: { onTenantCreated?: ( db: Database, tenant: Tenant, userId: string, features: readonly string[] ) => Promise<void> onTenantDeleted?: (db: Database, tenantId: string, env: AppBindings) => Promise<void> seedDemo?: (db: Database, ctx: PluginSeedContext) => Promise<void> }
+@/plugins/types :: member :: ServerPlugin.hooks :: hooks?: { onTenantCreated?: ( db: Database, tenant: Tenant, userId: string, features: readonly string[] ) => Promise<void> onTenantDeleted?: (db: Database, tenantId: string, env: AppBindings) => Promise<void> onTenantStatusChanged?: ( db: Database, tenantId: string, status: 'active' | 'suspended', env: AppBindings ) => Promise<void> seedDemo?: (db: Database, ctx: PluginSeedContext) => Promise<void> }
 @/plugins/types :: member :: ServerPlugin.extensions :: extensions?: Readonly<Record<string, readonly unknown[]>>
 @/plugins/types :: interface :: UiPlugin :: interface UiPlugin<S extends SharedPlugin = SharedPlugin>
 @/plugins/types :: member :: UiPlugin.shared :: shared: S

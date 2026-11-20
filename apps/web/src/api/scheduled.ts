@@ -5,17 +5,32 @@
  * logged individually; one failing task never blocks the others. Config is validated the same way
  * `fetch` does. To run one expression now, call `dispatchScheduled` (the tests do).
  */
-import { lt, sql } from 'drizzle-orm'
+import { ACTIVE_RUN_STATUSES } from '@rocketpod/shared/ai/agents'
+import { and, asc, eq, exists, inArray, isNull, lt, sql } from 'drizzle-orm'
 import { type AppConfig, loadConfig } from '../config'
 import { affected, type Database, openDatabase } from '../db/client'
-import { aiSpans, operationLocks, pluginEvents, rateLimits, userSessions } from '../db/schema'
+import {
+  agentRunEvents,
+  agentRunInterrupts,
+  agentRuns,
+  agentRunTurns,
+  aiSpans,
+  operationLocks,
+  pluginEvents,
+  rateLimits,
+  userSessions,
+} from '../db/schema'
 import { resolvePlatform } from '../platform'
 import type { Platform, WaitUntil } from '../platform/types'
 import { serverPlugins } from '../plugins/server'
 import { pruneMagicLinkTokens } from './auth/magic-link'
+import { claimReminder, notifyApprovers } from './services/agents/hitl'
+import { getAgent, isAgentKey } from './services/agents/registry'
+import { sweepRun } from './services/agents/runs'
 import { pruneInvitationSendCounters, pruneInvitations } from './services/invitations'
 import type { AppBindings } from './types'
 import { type Logger, loggerFor } from './utils/core/logger'
+import { pruneTenantCreationCounters } from './utils/db/tenant-helpers'
 
 export interface TaskContext {
   env: AppBindings
@@ -42,8 +57,9 @@ export interface TaskReport {
 }
 
 /**
- * Expired sessions, expired/consumed magic links, expired invitations older than 30 days, and the
- * Node platform's expired rate-limit windows and abandoned operation locks.
+ * Expired sessions, expired/consumed magic links, expired invitations older than 30 days, the daily
+ * invitation-mail and organisation-creation counters from before yesterday, and the Node
+ * platform's expired rate-limit windows and abandoned operation locks.
  */
 export async function runPruneExpired(db: Database) {
   const sessions = (
@@ -55,6 +71,7 @@ export async function runPruneExpired(db: Database) {
   const magicLinks = await pruneMagicLinkTokens(db)
   const invitations = await pruneInvitations(db)
   const invitationSendCounters = await pruneInvitationSendCounters(db)
+  const tenantCreationCounters = await pruneTenantCreationCounters(db)
   // The platform's limiter and locks: a key whose newest hit left its window, a lock whose
   // holder never released it.
   const rateLimitKeys = affected(
@@ -68,6 +85,7 @@ export async function runPruneExpired(db: Database) {
     magicLinks,
     invitations,
     invitationSendCounters,
+    tenantCreationCounters,
     rateLimitKeys,
     operationLockKeys,
   }
@@ -105,6 +123,150 @@ export async function runPruneAiSpans(db: Database, retentionDays: number, now =
   return { spans, cutoff: cutoff.toISOString() }
 }
 
+/**
+ * Drop the tool-loop journal (`agent_run_turns`) of runs that settled more than
+ * `AGENT_TRANSCRIPT_RETENTION_DAYS` ago — after that a strict replay of the run reports a miss,
+ * which is the documented trade. ONE statement across every tenant, like the span prune: a row
+ * goes when it is itself older than the cutoff (the `(tenant_id, updated_at)` index) AND its run
+ * settled before it. An ACTIVE run's journal is never touched however old it is — `finished_at`
+ * stays NULL until the run settles, and a parked run resumes from it.
+ */
+export async function runPruneAgentTurns(db: Database, retentionDays: number, now = new Date()) {
+  const cutoff = new Date(now.getTime() - retentionDays * 24 * 60 * 60 * 1000)
+  const turns = affected(
+    await db.delete(agentRunTurns).where(
+      and(
+        lt(agentRunTurns.updatedAt, cutoff),
+        exists(
+          db
+            .select({ one: sql`1` })
+            .from(agentRuns)
+            .where(and(eq(agentRuns.id, agentRunTurns.runId), lt(agentRuns.finishedAt, cutoff)))
+        )
+      )
+    )
+  )
+  return { turns, cutoff: cutoff.toISOString() }
+}
+
+/** An active run whose row has not changed for this long is checked against the runtime. */
+export const SWEEP_STALE_MS = 10 * 60 * 1000
+/** Runs checked per sweep: each costs one run-engine `status()` read. Oldest first. */
+export const SWEEP_BATCH = 100
+
+/**
+ * Find active runs nobody has touched for {@link SWEEP_STALE_MS} — across every tenant, which is why
+ * it lives here — and hand each to `sweepRun`, which settles only what the runtime says has
+ * ended. The newest event time goes with each row so a run that wrote an event recently is never
+ * probed. One failing row is logged and skipped: the next sweep tries it again.
+ */
+export async function runSweepLostRuns(
+  db: Database,
+  platform: Pick<Platform, 'runs'>,
+  logger: Logger,
+  now = new Date()
+) {
+  const stale = new Date(now.getTime() - SWEEP_STALE_MS)
+  const candidates = await db
+    .select({
+      run: agentRuns,
+      // Text, parsed below: a raw subquery's timestamp comes back as a string from both drivers.
+      lastEventAt: sql<
+        string | null
+      >`(SELECT max(${agentRunEvents.at})::text FROM ${agentRunEvents} WHERE ${agentRunEvents.runId} = ${agentRuns.id})`,
+    })
+    .from(agentRuns)
+    .where(and(inArray(agentRuns.status, [...ACTIVE_RUN_STATUSES]), lt(agentRuns.updatedAt, stale)))
+    .orderBy(asc(agentRuns.updatedAt))
+    .limit(SWEEP_BATCH)
+  const counts = { checked: candidates.length, dispatched: 0, settled: 0, failed: 0 }
+  for (const { run, lastEventAt } of candidates) {
+    try {
+      const at = lastEventAt ? new Date(lastEventAt) : null
+      const { action } = await sweepRun(db, platform, run, { lastEventAt: at })
+      if (action !== 'none') counts[action]++
+    } catch (err) {
+      counts.failed++
+      logger.warn({ err, runId: run.id }, 'sweepLostRuns: could not check run')
+    }
+  }
+  return counts
+}
+
+/** Reminders sent per sweep. */
+export const REMIND_BATCH = 100
+
+/**
+ * Remind whoever can answer an ask that is still pending past its `remind_at`
+ * (`meta.hitl.remindAfter`) — ONCE: `claimReminder` is a compare-and-set on `reminded_at`. Across
+ * every tenant, which is why it lives here; each reminder then goes through the tenant-scoped
+ * `notifyApprovers`. An ask of an agent no longer registered is reminded under `requester`.
+ */
+export async function runSendReminders(db: Database, logger: Logger, now = new Date()) {
+  const due = await db
+    .select({ ask: agentRunInterrupts, run: agentRuns })
+    .from(agentRunInterrupts)
+    .innerJoin(agentRuns, eq(agentRuns.id, agentRunInterrupts.runId))
+    .where(
+      and(
+        eq(agentRunInterrupts.status, 'pending'),
+        isNull(agentRunInterrupts.remindedAt),
+        lt(agentRunInterrupts.remindAt, now)
+      )
+    )
+    .orderBy(asc(agentRunInterrupts.remindAt))
+    .limit(REMIND_BATCH)
+  let sent = 0
+  for (const { ask, run } of due) {
+    try {
+      if (!(await claimReminder(db, ask))) continue
+      const meta = isAgentKey(run.agentKey) ? getAgent(run.agentKey).meta : undefined
+      await notifyApprovers(
+        db,
+        run,
+        meta?.title ?? run.agentKey,
+        meta?.approvers ?? 'requester',
+        ask,
+        undefined,
+        {
+          reminder: true,
+        }
+      )
+      sent++
+    } catch (err) {
+      logger.warn({ err, interruptId: ask.id }, 'sendReminders: could not remind')
+    }
+  }
+  return { due: due.length, sent }
+}
+
+/** Every ten minutes: remind the people an agent is still waiting on. */
+export const sendReminders: ScheduledTask = {
+  name: 'sendReminders',
+  async run({ db, logger }) {
+    const result = await runSendReminders(db, logger)
+    if (result.due > 0) logger.info(result, 'sendReminders: reminded pending asks')
+  },
+}
+
+/** Every ten minutes: settle agent runs whose engine run ended without settling them. */
+export const sweepLostRuns: ScheduledTask = {
+  name: 'sweepLostRuns',
+  async run({ db, platform, logger }) {
+    const result = await runSweepLostRuns(db, platform, logger)
+    if (result.checked > 0) logger.info(result, 'sweepLostRuns: checked stale active runs')
+  },
+}
+
+/** Nightly retention for the tool-loop journal. */
+export const pruneAgentTurns: ScheduledTask = {
+  name: 'pruneAgentTurns',
+  async run({ db, config, logger }) {
+    const result = await runPruneAgentTurns(db, config.AGENT_TRANSCRIPT_RETENTION_DAYS)
+    logger.info(result, 'pruneAgentTurns: removed expired tool-loop journals')
+  },
+}
+
 /** Nightly retention for the local trace store. */
 export const pruneAiSpans: ScheduledTask = {
   name: 'pruneAiSpans',
@@ -138,7 +300,8 @@ export const pruneEvents: ScheduledTask = {
 
 /** Cron expression → tasks. The registry IS the schedule: nothing else lists an expression. */
 const CORE_SCHEDULED_TASKS: Record<string, ScheduledTask[]> = {
-  '0 4 * * *': [pruneExpired, pruneAiSpans, pruneEvents],
+  '0 4 * * *': [pruneExpired, pruneAiSpans, pruneEvents, pruneAgentTurns],
+  '*/10 * * * *': [sweepLostRuns, sendReminders],
 }
 
 /**

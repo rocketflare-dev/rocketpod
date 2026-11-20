@@ -38,6 +38,7 @@ import { admitUser } from '../../services/auth'
 import { magicLinkEmail, sendEmail, ssoRequiredEmail } from '../../services/email'
 import { hashToken } from '../../utils/core/hash'
 import type { Logger } from '../../utils/core/logger'
+import { canonicalMailbox } from '../../utils/core/mailbox'
 import { createRouter } from '../../utils/routes/router'
 import { validate } from '../../utils/routes/validate'
 import { completeLogin, loginErrorRedirect, safeRedirectPath, ssoRequiredRedirect } from './helpers'
@@ -101,10 +102,13 @@ export async function requestSignInEmail(
 export const RECIPIENT_MAIL_MAX = 5
 export const RECIPIENT_MAIL_WINDOW_SECONDS = 15 * 60
 
-/** Whether this address has mail budget left; the bucket key holds a hash, never the address. */
+/**
+ * Whether this address's MAILBOX has mail budget left (`canonicalMailbox`: `a+1@x` and `a+2@x` are
+ * one window); the bucket key holds a hash, never the address.
+ */
 async function recipientMailAllowed(limiter: RateLimiter | null, email: string): Promise<boolean> {
   if (!limiter) return true
-  const bucket = await hashToken(email.toLowerCase())
+  const bucket = await hashToken(canonicalMailbox(email))
   const decision = await limiter.check(`rl:auth-email:${bucket}`, {
     max: RECIPIENT_MAIL_MAX,
     windowSeconds: RECIPIENT_MAIL_WINDOW_SECONDS,

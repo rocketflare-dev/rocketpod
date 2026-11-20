@@ -24,7 +24,7 @@ run (`../services/agents/CLAUDE.md`).
 
 - `(job: JobOf<'x'>, ctx: { env, platform, config, logger, db, tracer? })`. `tracer` is the
   message's span recorder, flushed by the consumer before `db` closes — an AI handler brackets its
-  work in `withAgentTrace(..., { kind: 'job', spanName: 'job <type>' })`. Each message gets its own
+  work in `withAgentTrace(..., { kind: 'job', spanName: 'invoke_workflow <type>' })`. Each message gets its own
   DB client, closed in `finally`
 - **Never `waitUntil` in a consumer — await everything.** A handler that throws is retried, one that
   returns is acked
@@ -33,14 +33,41 @@ run (`../services/agents/CLAUDE.md`).
   doubling to a 15 min cap — but the queue's policy (same curve, jittered up to 2×, 3 retries, then
   `rocketpod-jobs-dlq`) picks the actual delay, so `retry()`'s figure is a floor. Unknown queue →
   `ackAll()`
+- **A job naming a tenant runs only while it is `active`**: before dispatch the consumer reads
+  `tenants.status` for a payload `tenantId` (a UUID) and acks the message unrun otherwise —
+  suspended or deleted, kit and plugin jobs alike, and a delayed re-enqueue (the extract job's
+  next-UTC-day `startAfter`) is the same message through the same check; `RUN_FOR_ANY_TENANT`
+  (`tenant.purge`, `activity.record`) is the exception list. `afterDropped` leaves a dropped
+  `document.index` / `document.convert`'s `pending` row `failed` for Retry. A test consuming such
+  a job creates the tenant first (`docs/CONCEPTS.md` §1)
 - Missing jobs queue → `JobsQueueNotConfiguredError` (503 `jobs_not_configured`), never a silent
   inline fallback
 
 ## The kit's jobs
 
 - Queued in the kit: `tenant.purge`, invitation (create/bulk/resend) and access-request-decided
-  emails (`email.send`), `activity.record`, `document.index`, `document.convert`, `chat.compact`,
-  `event.deliver`. The **magic-link email stays inline** — a person is waiting on it
+  emails (`email.send`), `activity.record`, `document.index`, `document.convert`,
+  `document.reembed`, `chat.compact`, `event.deliver`, `knowledge.extract`. The **magic-link email
+  stays inline** — a person is waiting on it
+- A message that throws on every retry goes to the dead-letter queue (`rocketpod-jobs-dlq`).
+  Nothing consumes it, so a handler must leave its rows in a state a person can recover from
+  (`failed` + Retry, a re-requestable job), never half-written
+- `knowledge.extract` (`{ tenantId, documentId, contentHash? }`) reads typed facts from one
+  indexed document (`extractDocumentFacts`, `../services/knowledge/CLAUDE.md`; a run that wrote
+  or removed facts nudges `entity.changed { entity: 'knowledge' }` through `collectingRealtime`,
+  flushed before the handler returns). Only `afterTextIndexed` (`services/ai/ingest.ts`) enqueues
+  it — after an inline index, a `document.index` or a `document.convert` that changed the text —
+  and only with the `knowledge-facts` flag on and an entity type registered; a producer whose text
+  is unchanged sets `document.index`'s `skipExtraction`. The job re-checks every gate, skips (acks)
+  a document whose hash moved on, and at the tenant's `KNOWLEDGE_TENANT_DAILY_COST_USD` cap
+  re-enqueues ITSELF with a delay to the next UTC day (≤ 12 h a hop, pg-boss's `startAfter`)
+  instead of throwing. Re-extraction replaces the document's facts, so a redelivery is idempotent
+- `document.reembed` (`{ tenantId, model }`) is a self-continuing chain: ONE bounded batch of the
+  tenant's stale documents per message (`reembedBatch`, `services/ai/reindex.ts`), then the same
+  payload re-enqueued while any remain — the stale predicate is the cursor, so a retry resumes. A
+  message for a model the tenant no longer resolves is acked (the newer chain owns the work); a
+  transient provider error throws with the old chunks intact; a provider refusal of one document
+  marks it `failed` and the batch moves on
 - `event.deliver` is ONE subscriber of one `plugin_events` row: `{ tenantId, eventId,
   subscriber }`, never the payload. It re-reads the row under the tenant, re-validates, and calls
   that subscriber only; a missing row (pruned, other tenant) or subscriber is acked, a 4xx

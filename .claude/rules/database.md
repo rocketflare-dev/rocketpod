@@ -86,12 +86,15 @@ predicate**, not SQL injection — the app role can `set_config` itself.
   `index('chunks_embedding_idx').using('hnsw', table.embedding.op('vector_cosine_ops'))` — cosine,
   matching the `<=>` operator `services/ai/retrieval.ts` orders by; the tenant predicate still comes
   first in every query and in every btree index. The `vector` extension is created by
-  `apps/web/scripts/migrate.ts` (`CREATE EXTENSION IF NOT EXISTS vector`) before the migrations run,
-  not by a migration file. Lexical search reads `chunks.search_vector`, a STORED generated
-  `to_tsvector(SEARCH_TEXT_CONFIG, text)` behind a GIN index (`chunks_search_vector_idx`);
+  `apps/web/scripts/migrate.ts` (`CREATE EXTENSION IF NOT EXISTS vector`, and `pg_trgm` for the
+  `knowledge_entities` trigram index — also in `0014`) before the migrations run. Lexical search reads `chunks.search_vector`, a STORED generated
+  `to_tsvector(SEARCH_TEXT_CONFIG, heading_path + table_header + text)` behind a GIN index (`chunks_search_vector_idx`); a
+  rebuilt generated column drops its index with it, so a migration that regenerates it recreates the index by hand;
   `SEARCH_TEXT_CONFIG` (`@rocketpod/shared/ai/config`) is the one constant both the column and
   `retrieval.ts`'s `to_tsquery` read, so changing it is a `pnpm db:generate`. Drizzle omits a
   generated column from inserts; a raw insert into `chunks` never names it
+- Every dense read filters on `chunks.embedding_model` = the query vector's model; a chunk written
+  without one is invisible to dense search (`0014` backfilled it from the document)
 - Query vectors are parameters: `vectorLiteral(v)` (`[0.1,0.2,…]`) interpolated through the drizzle
   `sql` tag and cast `::vector` — never string-concatenate a query; `embedding` values are inserted as
   `number[]` through drizzle

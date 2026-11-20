@@ -88,6 +88,12 @@ const coreConfigSchema = z.object({
   APP_NAME: z.string().min(1).default('Rocketpod'),
   /** Set at deploy time to the release tag. */
   RELEASE_VERSION: z.string().min(1).default('dev'),
+  /**
+   * The deployed build — what an agent run records as `agent_runs.worker_version_id` on each
+   * attempt (`services/agents/versions.ts`). Helm sets it from the image tag, Compose passes it
+   * through; unset = null, and nothing else reads it.
+   */
+  APP_VERSION_ID: optionalString,
   LOG_LEVEL: z.enum(LOG_LEVELS).default('info'),
   EMAIL_FROM: z.string().min(1).default('Rocketpod <noreply@example.com>'),
   /** The schema is identical in both modes; `single` disables the multi-org surface. */
@@ -192,6 +198,11 @@ const coreConfigSchema = z.object({
    * personal data (a form's fields), and a delivery's retries end within the hour.
    */
   EVENTS_RETENTION_DAYS: optionalPositiveInt(7),
+  /**
+   * Days a SETTLED agent run keeps its tool-loop journal (`agent_run_turns` — every model turn and
+   * tool result), which is what a strict replay answers from. Runs, events and decisions are kept.
+   */
+  AGENT_TRANSCRIPT_RETENTION_DAYS: optionalPositiveInt(30),
   /** Per-call `max_tokens` when a tenant config sets none; and the tool-loop turn cap. */
   AGENT_MAX_OUTPUT_TOKENS: optionalPositiveInt(16384),
   AGENT_MAX_TURNS: optionalPositiveInt(30),
@@ -221,6 +232,32 @@ const coreConfigSchema = z.object({
    * enqueue (429 `ai_budget_exceeded`) and before every metered call of a run already going.
    */
   AGENT_TENANT_DAILY_COST_USD: optionalCap('number'),
+  /**
+   * What one tenant's KNOWLEDGE work — document and query embeddings, reranking and (phase 2)
+   * fact extraction — may spend per UTC day, in USD. Unset = no cap. Only extraction pauses at it
+   * (`knowledgeExtractionAllowed`); indexing and search never do, because search must keep working.
+   */
+  KNOWLEDGE_TENANT_DAILY_COST_USD: optionalCap('number'),
+  /**
+   * How many fused candidates go to the reranker (5–100; unset = 20). The reranker's latency grows
+   * with it — on Rocketflare's fixture corpus, qwen3-reranker-8b took a median 810 ms for 50 chunks and 465 ms
+   * for 20, at the same recall — and a corpus whose answers sit deeper in the fused order may want
+   * more; set it from `RERANK_CANDIDATES=… pnpm eval retrieval --rerank …` (docs/EVALS.md).
+   */
+  RERANK_CANDIDATES: z.preprocess(
+    value =>
+      value === undefined || value === null || String(value).trim() === '' ? undefined : value,
+    z.coerce.number().int().min(5).max(100).optional()
+  ),
+  /**
+   * Drop a reranked search hit whose reranker score (0–1, every reranker on that scale) is below
+   * this. Unset = off: the reranker reorders and nothing is dropped. No effect without a reranker.
+   */
+  RERANK_MIN_SCORE: z.preprocess(
+    value =>
+      value === undefined || value === null || String(value).trim() === '' ? undefined : value,
+    z.coerce.number().min(0).max(1).optional()
+  ),
   /**
    * Give the chat box the knowledge tools (`search_knowledge`, `get_document`,
    * `list_documents`), so it answers from the workspace's own material. It costs more tokens per

@@ -49,7 +49,12 @@ Built to `dist/ui`, served in production by the Node server (`src/node/assets.ts
   PaginationControls, FieldError…) plus the visibility trio (`AccessPicker`, `AccessBadge`,
   `VisibilityModal`), `DocumentCard` / `DocumentLink` and `GuideLink`, all markdown-free — the eager
   barrel. `components/ai/` (`Markdown`, `ChatBubble`, `StatRows`, `FeedbackThumbs`) — lazy chunks
-  only. `components/guide/` — `pages/guide/CLAUDE.md`.
+  only. `components/guide/` — `pages/guide/CLAUDE.md`. `components/knowledge/` — knowledge facts:
+  `FactParts` (`FactStateBadge`, `FactItem`, `FactDoubt` — the inline "Is this still right?" —,
+  `useCanSettle`), `PossibleMatch`, `ReviewItem`, `EntityFactsCard` (the chat card).
+  Markdown-free, NOT in the eager barrel: only lazy pages (documents, knowledge, chat via
+  `ChatBubble`) import them. Hooks: `useKnowledge.ts`, all under `['knowledge']`, which the server
+  nudges.
 - `hooks/` — `useAuth` (session, `status`, `selectTenant`, `logout`, `applySession`,
   `useTenancyMode`), `usePermissions` (`can/cannot/isOwnerLevel/isAdminLevel/isGlobalAdmin`),
   `useNavGuard` (the ONE place nav and route guards are decided), `useFeature` (in
@@ -71,7 +76,8 @@ Built to `dist/ui`, served in production by the Node server (`src/node/assets.ts
 |---|---|---|
 | `/chat/:conversationId?` | `read Conversation` | lazy, carries the markdown chunk |
 | `/agents`, `/agents/runs/:runId` | `read AgentRun` | `RunPage` is its own lazy chunk |
-| `/documents`, `/documents/:documentId`, `/search` | `read Document` | the viewer has no nav entry |
+| `/documents`, `/documents/:documentId`, `/search` | `read Document` | the viewer has no nav entry; `/documents?view=review` is the knowledge-facts review list and `?view=facts` the Facts browse view, `/documents/:id?tab=facts` a document's facts (all behind `KNOWLEDGE_FACTS_GUARD`) |
+| `/knowledge/entities/:type/:id` | `KNOWLEDGE_FACTS_GUARD` (`knowledge-facts` flag AND `read KnowledgeFact`) | the entity page (`pages/knowledge/EntityPage.tsx`, lazy, no nav entry) |
 | `/guide` | none | the server answers each reader with their audience's pages |
 | `/settings?tab=…` | `guard="admin"` | tabs gate further — `pages/settings/CLAUDE.md` |
 | `/admin/*` | `globalAdmin` | reachable with no tenant |
@@ -105,6 +111,9 @@ The AI pages read the contracts in
   tenant-scoped is linked), `OrgSwitcher` reads "No organisation", `NotificationsBell` and the
   Profile / Notifications menu links render nothing, and `WebSocketProvider` never connects (it
   needs a tenant id).
+- "Create organisation" (`OrgSwitcher`, `/select-tenant`, its `?create=1` link) renders only when
+  `canCreateTenant` (from the session — `tenantCreationRefusal` server-side) is true: never under
+  IdP-managed tenancy or while an access request is pending or rejected.
 - Single-tenant mode (`useTenancyMode()`, D25) hides `OrgSwitcher`, `/select-tenant` (redirects
   home), org create/delete and the slug field, the `new_org` approve branch, and collapses
   `/admin/tenants` to the one detail.

@@ -42,6 +42,15 @@ function fail(message) {
   process.exit(1)
 }
 
+// vitest under an older Node dies on startup with `code.charCodeAt is not a function` — Vite's
+// source-map handler failing on the real error — which says nothing about the cause.
+const nodeMajor = Number(process.versions.node.split('.')[0])
+if (nodeMajor < 26) {
+  fail(
+    `Node ${process.versions.node} is on PATH; the kit needs Node 26 (\`nvm use\` reads .nvmrc).`
+  )
+}
+
 const args = parseTestArgs(process.argv.slice(2))
 if ('help' in args) {
   console.log(TEST_USAGE)

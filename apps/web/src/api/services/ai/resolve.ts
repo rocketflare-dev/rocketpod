@@ -10,6 +10,9 @@
  *   decisions:  tenant default `ai_configs(scope='decisions')` (TypeSafe) → platform
  *               `TYPESAFE_API_KEY` → the chat model on prompt key `agent-decide` (the
  *               uncalibrated `llm_self_report` fallback) → 503 from `resolveChat`
+ *   rerank:     tenant default `ai_configs(scope='rerank')` (a Cohere-style `/rerank` endpoint
+ *               as `openai_compatible`) → null = no reranking (never a 503: search answers in
+ *               fused order). There is no platform reranker
  * Credentials are decrypted here and nowhere else. `readiness()` mirrors both orders WITHOUT
  * building a client or throwing (the Home checklist must not turn a page load into a 503).
  * Feature code never queries `ai_configs`; the chat route, connection test and agents
@@ -58,6 +61,7 @@ import { createLlmDecisionClient } from './decisions/llm'
 import type { DecisionClient } from './decisions/types'
 import { createTypesafeClient } from './decisions/typesafe'
 import { AiNotConfiguredError } from './errors'
+import { createRerankClient, type RerankClient } from './rerank'
 import type { AiEnv, ChatClient, EmbeddingsClient, SystemPrompt } from './types'
 
 export interface ResolvedChat {
@@ -91,6 +95,14 @@ export interface ResolvedDecisions {
   method: DecisionMethod
   /** `fallback` = no TypeSafe key anywhere, so the chat model answers (uncalibrated). */
   source: 'tenant' | 'platform' | 'fallback'
+  configId?: string
+}
+
+export interface ResolvedRerank {
+  client: RerankClient
+  provider: AiProvider
+  model: string
+  source: 'tenant' | 'platform'
   configId?: string
 }
 
@@ -225,7 +237,7 @@ export async function credentialOf(
 export async function chatClientFromRow(
   row: AiConfigRow,
   cfg: AppConfig,
-  env: AiEnv,
+  _env: AiEnv,
   fetchImpl?: FetchLike
 ): Promise<ChatClient> {
   return createChatClient({
@@ -294,7 +306,7 @@ export interface PlatformChat {
  * without one) → nothing. The ONE definition `resolveChat`, `readiness` and the agent-models list all read, so
  * the three can never disagree.
  */
-export function platformChat(cfg: AppConfig, env: AiEnv): PlatformChat | null {
+export function platformChat(cfg: AppConfig, _env: AiEnv): PlatformChat | null {
   if (cfg.ANTHROPIC_API_KEY) {
     const apiKey = cfg.ANTHROPIC_API_KEY
     return {
@@ -310,7 +322,7 @@ export function platformChat(cfg: AppConfig, env: AiEnv): PlatformChat | null {
 export async function embeddingsClientFromRow(
   row: AiConfigRow,
   cfg: AppConfig,
-  env: AiEnv,
+  _env: AiEnv,
   fetchImpl?: FetchLike
 ): Promise<EmbeddingsClient> {
   return createEmbeddingsClient({
@@ -320,6 +332,49 @@ export async function embeddingsClientFromRow(
     baseUrl: row.baseUrl,
     fetch: fetchImpl,
   })
+}
+
+/**
+ * Build a reranker from ONE config row — the connection test probes through it: a Cohere-style
+ * `POST {base}/rerank` behind the row's bearer key, its dialect read from the base URL's host.
+ */
+export async function rerankClientFromRow(
+  row: AiConfigRow,
+  cfg: AppConfig,
+  _env: AiEnv,
+  fetchImpl?: FetchLike
+): Promise<RerankClient> {
+  return createRerankClient({
+    baseUrl: row.baseUrl,
+    model: row.model,
+    apiKey: await credentialOf(row, cfg),
+    fetch: fetchImpl,
+  })
+}
+
+/**
+ * The reranker knowledge search uses, or null — no reranking, the fused order stands, exactly as
+ * before rerank existed. Never throws for "not configured": reranking is an improvement, never a
+ * requirement. Order: the tenant's default `rerank` row → null.
+ */
+export async function resolveRerank(
+  db: Database,
+  cfg: AppConfig,
+  env: AiEnv,
+  tenantId: string,
+  options: Pick<ResolveOptions, 'fetch'> = {}
+): Promise<ResolvedRerank | null> {
+  const row = await findDefaultConfig(db, tenantId, 'rerank')
+  if (row) {
+    return {
+      client: await rerankClientFromRow(row, cfg, env, options.fetch),
+      provider: row.provider,
+      model: row.model,
+      source: 'tenant',
+      configId: row.id,
+    }
+  }
+  return null
 }
 
 /** Build a decisions client from ONE config row (TypeSafe) — the connection test probes through it. */
@@ -347,8 +402,20 @@ export async function resolveDecisions(
   tenantId: string,
   options: ResolveOptions & {
     fallbackSystem: SystemPrompt
-    /** Wraps the fallback's chat client — the runtime passes `traceChatClient` so its calls are spans. */
-    wrapChat?: (client: ChatClient, provider: AiProvider) => ChatClient
+    /**
+     * The prompt key the chat fallback resolves its model on (`agent_models` pins apply) —
+     * `DECISIONS_FALLBACK_PROMPT_KEY` unless a caller has its own (knowledge facts: `knowledge-decide`).
+     */
+    fallbackPromptKey?: PromptKey
+    /**
+     * Wraps the fallback's chat client — the runtime traces and METERS it, so every call is a
+     * span and an `ai_usage` row. `chat` is the `agent-decide` resolution: whether THAT model is
+     * billed to the deployment, which need not match the agent's own chat model.
+     */
+    wrapChat?: (
+      client: ChatClient,
+      chat: { provider: AiProvider; billedToPlatform: boolean }
+    ) => ChatClient
   }
 ): Promise<ResolvedDecisions> {
   const row = await findDefaultConfig(db, tenantId, 'decisions')
@@ -372,12 +439,17 @@ export async function resolveDecisions(
     }
   }
   const chat = await resolveChat(db, cfg, env, tenantId, {
-    promptKey: DECISIONS_FALLBACK_PROMPT_KEY,
+    promptKey: options.fallbackPromptKey ?? DECISIONS_FALLBACK_PROMPT_KEY,
     fetch: options.fetch,
   })
   return {
     client: createLlmDecisionClient({
-      chat: options.wrapChat ? options.wrapChat(chat.client, chat.provider) : chat.client,
+      chat: options.wrapChat
+        ? options.wrapChat(chat.client, {
+            provider: chat.provider,
+            billedToPlatform: chat.billedToPlatform,
+          })
+        : chat.client,
       system: options.fallbackSystem,
     }),
     provider: chat.provider,
@@ -488,36 +560,53 @@ export async function resolveEmbeddings(
   throw new AiNotConfiguredError('embeddings')
 }
 
-/** What the three resolvers WOULD pick — no client is built, no credential decrypted, nothing thrown. */
+/** What `resolveEmbeddings` would pick for a tenant whose default row is `row` — no client, no throw. */
+function embeddingsReadiness(row: AiConfigRow | undefined, cfg: AppConfig): AiScopeReadiness {
+  if (row) return { ready: true, source: 'tenant', provider: row.provider, model: row.model }
+  const keyed = platformKeyEmbeddings(cfg)
+  if (keyed)
+    return { ready: true, source: 'platform', provider: keyed.provider, model: keyed.model }
+  return { ready: false, source: 'none' }
+}
+
+/**
+ * The embeddings MODEL a tenant resolves to today, or null when none would — the same chain as
+ * `resolveEmbeddings`, without building a client or decrypting a key. What the stale-embeddings
+ * count compares chunks against, and what `routes/ai-config.ts` compares before and after a save.
+ * `env` is unused (the platform tier is the `EMBEDDINGS_*` key alone); it keeps the resolver
+ * family's signature.
+ */
+export async function resolveEmbeddingsModel(
+  db: Database,
+  cfg: AppConfig,
+  _env: AiEnv,
+  tenantId: string
+): Promise<string | null> {
+  const row = await findDefaultConfig(db, tenantId, 'embeddings')
+  return embeddingsReadiness(row, cfg).model ?? null
+}
+
+/** What the four resolvers WOULD pick — no client is built, no credential decrypted, nothing thrown. */
 export async function readiness(
   db: Database,
   cfg: AppConfig,
   env: AiEnv,
   tenantId: string
 ): Promise<AiReadiness> {
-  const [chatRow, embRow, decisionsRow] = await Promise.all([
+  const [chatRow, embRow, decisionsRow, rerankRow] = await Promise.all([
     findDefaultConfig(db, tenantId, 'chat'),
     findDefaultConfig(db, tenantId, 'embeddings'),
     findDefaultConfig(db, tenantId, 'decisions'),
+    findDefaultConfig(db, tenantId, 'rerank'),
   ])
   const none: AiScopeReadiness = { ready: false, source: 'none' }
   const platform = platformChat(cfg, env)
-  const platformEmbeddings = platformKeyEmbeddings(cfg)
   const chat: AiScopeReadiness = chatRow
     ? { ready: true, source: 'tenant', provider: chatRow.provider, model: chatRow.model }
     : platform
       ? { ready: true, source: 'platform', provider: platform.provider, model: platform.model }
       : none
-  const embeddings: AiScopeReadiness = embRow
-    ? { ready: true, source: 'tenant', provider: embRow.provider, model: embRow.model }
-    : platformEmbeddings
-      ? {
-          ready: true,
-          source: 'platform',
-          provider: platformEmbeddings.provider,
-          model: platformEmbeddings.model,
-        }
-      : none
+  const embeddings = embeddingsReadiness(embRow, cfg)
   const decisions: AiScopeReadiness = decisionsRow
     ? { ready: true, source: 'tenant', provider: decisionsRow.provider, model: decisionsRow.model }
     : cfg.TYPESAFE_API_KEY
@@ -525,5 +614,8 @@ export async function readiness(
       : chat.ready
         ? { ready: true, source: 'fallback', provider: chat.provider, model: chat.model }
         : none
-  return { chat, embeddings, decisions }
+  const rerank: AiScopeReadiness = rerankRow
+    ? { ready: true, source: 'tenant', provider: rerankRow.provider, model: rerankRow.model }
+    : none
+  return { chat, embeddings, decisions, rerank }
 }

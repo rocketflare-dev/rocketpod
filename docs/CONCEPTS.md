@@ -55,7 +55,13 @@ suites on vitest 4, §9 — never part of the gate).
   a person with no membership whose access request is pending or rejected (403
   `pending_approval`; a global admin is not held by one), and one person's owned organisations stop
   at `MAX_OWNED_TENANTS_PER_USER` (default 10, global admins exempt, 403 `tenant_limit_reached`),
-  counted under a lock on the user row so simultaneous creations cannot pass it.
+  counted under a lock on the user row so simultaneous grants cannot pass it. The ceiling holds
+  wherever ownership is gained: creating an organisation, a promotion to `owner` on the members
+  route, and accepting an `owner` invitation (refused, the invitation left pending). The same
+  number bounds the organisations one person may CREATE per UTC day through `POST /api/tenants`
+  (`tenant_creation_counters`, no foreign key to `tenants`, pruned nightly), so deleting an
+  organisation frees a place under the ceiling but not the day's creation: one account's daily
+  agent allowance is bounded by `AGENT_TENANT_DAILY_COST_USD` × the ceiling × 2 at most.
 - **Roles (D10).** `owner | admin | member` plus `support` (minted from `/admin`, visible to the
   customer); `users.isGlobalAdmin` is a platform flag. Default for a new subject: owner/admin/support
   `manage`, member `read` with route-scoped writes. "Own row" is always a route predicate — **CASL
@@ -72,7 +78,39 @@ suites on vitest 4, §9 — never part of the gate).
   bulk routes alike (403 before any row). A member removed from a tenant takes their pending
   invitations with them, in the removal's transaction, on the members route and on every path that
   ends an `idp` or a `support` membership for good; a global admin's stay, because their authority
-  is the platform flag (so leaving support revokes nothing). Accepting over an `idp` row leaves the
+  is the platform flag (so leaving support revokes nothing). A role change ends the target's
+  pending invitations the new role could not issue, in the same transaction (to `admin`: the
+  `owner` ones; to `member`: all). And an invitation is accepted only while its issuer could still
+  issue it: accept re-checks, inside its transaction, that the issuer exists, is not blocked and is
+  a global admin or a member of the tenant whose role could issue the invitation's (`owner` needs
+  an owner, `admin` / `member` an owner or an admin) — otherwise the row is marked revoked and
+  the answer is 410 `invitation_revoked`. That covers every path that withdraws authority without
+  revoking anything itself: an identity provider's block, a lost global-admin flag, an
+  issuer-managed role change. The same rule (`issuerMayIssue`, one function) decides admission: a
+  login counts as invited, under any `SIGNUP_MODE`, only for an open invitation whose issuer could
+  still issue it, so a stale invitation admits no account under `invite_only`. Blocking a person
+  from `/admin` revokes every pending invitation they issued, in every tenant and global admin or
+  not, in the block's transaction; unblocking restores none.
+- **A suspended tenant is closed to its members and runs no agents.** `POST
+  /api/admin/tenants/:id/suspend` sets `tenants.status`; every authenticating path (cookie, API
+  key, `/ws`, the identity seam's tenant-taking methods) then answers 403 `tenant_suspended`, and
+  the tenant's sockets close. `enqueueRun` / `enqueueRunBatch` refuse it the same way whoever asks
+  (a plugin, an event trigger — `event.deliver` acknowledges the 403 rather than retrying). The
+  suspension cancels the runs nothing is executing (`queued`, `awaiting_input`); a run already
+  executing stops at its next cancel poll, and one whose run engine reaches `execute` afterwards
+  settles `cancelled` (status event `reason: 'tenant_suspended'`) before any model call.
+  Reactivating starts nothing again: the cancelled runs stay cancelled. Its queued jobs do not run
+  either: the jobs consumer (`queues/jobs.ts`, under pg-boss) reads `tenants.status` (one
+  primary-key read) for every job whose payload names a tenant, and acks it unrun, with a log
+  line, unless the tenant is `active` — a re-embed chain, an index or conversion, fact extraction
+  (its next-day delayed re-enqueue is a pg-boss job like any other and meets the same check),
+  chat compaction, an email, an event delivery, a plugin's job. Dropped rather than deferred,
+  because each restarts from its own state after reactivation: a re-embed from the stale count, a
+  document from Retry (a dropped index or conversion leaves a `pending` document `failed`),
+  compaction on the next turn. Two always run: `tenant.purge` (the teardown of a tenant that no
+  longer exists) and `activity.record` (a record of what already happened). A deleted tenant's
+  jobs read as not active too.
+  Accepting over an `idp` row leaves the
   row as it is (the invitation is still marked accepted). Mail is bounded by Postgres: a resend
   inside `INVITATION_RESEND_COOLDOWN_SECONDS` (five minutes) answers 429 and keeps the link
   already sent, and `invitation_send_counters` caps the mail per UTC day per person across every
@@ -107,7 +145,8 @@ suites on vitest 4, §9 — never part of the gate).
   org's first sign-in made (`DELETE /api/admin/tenants/:id`, the owner's delete with its slug
   confirmation), which frees the org for the link. Under managed tenancy the issuer decides which
   organisations exist, so `POST /api/tenants` and a slug change on `PATCH /api/tenant` answer 409
-  `idp_managed`, whoever asks; the slug-link path above is only reachable from a tenant that
+  `idp_managed`, whoever asks, and the session's `canCreateTenant` is false so the UI offers no
+  "Create organisation"; the slug-link path above is only reachable from a tenant that
   already had the slug, made by hand or before managed tenancy.
   `idp_synced_at` on both tables records when the issuer last spoke about the row, so a stale event
   is skipped. **A tenant created this way has no owner — decided:** managed tenancy never writes
@@ -122,6 +161,9 @@ suites on vitest 4, §9 — never part of the gate).
 **Known gaps:** no IdP group sync (SCIM/SAML claims); no group hierarchy or per-group roles;
 conversations, runs, prompts and non-Knowledge files have no visibility; agent-written documents
 are always `tenant`; no audit log beyond `activity_events`; no personal API keys (tenant keys only).
+`AGENT_TENANT_DAILY_COST_USD` is per organisation, not per person — the creation limit above is
+what bounds one account. A deleted organisation's `ai_usage` rows go with it (the FK cascade), so
+the operator's record of what it spent is lost with the organisation.
 
 ## 2. Auth
 
@@ -132,11 +174,18 @@ are always `tenant`; no audit log beyond `activity_events`; no personal API keys
   membership → groups → features in one query. The second strategy is a Bearer tenant API key
   (hashed, expiry, soft revoke), with scopes `authMiddleware` enforces on every request: `read`
   allows GET/HEAD/OPTIONS, `write` or `*` allows everything; anything else is 403
-  `insufficient_scope`. The CASL check on the creator's role still applies on top.
+  `insufficient_scope`. The CASL check on the creator's role still applies on top. A key acts only
+  within its organisation, plus its creator's own profile (`GET`/`PATCH /api/me`): `GET
+  /api/tenants` lists that one organisation, and the routes about the person's whole account —
+  `POST /api/tenants`, `GET /api/invitations/pending`, `POST /api/access-requests` — answer 403
+  `insufficient_scope` to a key (`withAccountAuth`).
 - **Magic link** is the zero-credential path: a 256-bit, 15-minute, single-use, SHA-256-hashed
   token. With no `RESEND_API_KEY` the URL is logged, except when `APP_ENV=production`, where it is
-  never written to the logs. Past five sign-in mails to one address in 15 minutes the route still
-  answers 202 but mints nothing and sends nothing (`platform.rateLimiter`, keyed by a hash of the address). Opening the
+  never written to the logs. Past five sign-in mails to one mailbox in 15 minutes the route still
+  answers 202 but mints nothing and sends nothing (`platform.rateLimiter`, keyed by a hash of the
+  canonical mailbox — lower-cased, a `+tag` dropped, and for `gmail.com` / `googlemail.com` the
+  local part's dots dropped, so `a+1@x` and `a+2@x` share one window; the mail still goes to the
+  address as typed). Opening the
   link consumes nothing: `GET /verify` redirects to `/magic-link/confirm`, and only its "Sign in"
   button (`POST /verify`, same-origin only) spends the token, so mail security scanners that fetch
   every link on delivery (Defender Safe Links, Mimecast) cannot. Dev-login exists and 404s in production.
@@ -147,7 +196,11 @@ are always `tenant`; no audit log beyond `activity_events`; no personal API keys
   claims are checked but not its signature (identity comes from userinfo / Graph). A token
   response must be `application/json`; an error body of any other type is `oauth_failed`.
   Redirect URIs come from `APP_URL`, accounts link by verified email (Microsoft: the user
-  principal name, whose domain the directory must have verified, not `mail`), and tokens are AES-GCM
+  principal name, not `mail`, trusted only when its domain is among the signing-in directory's
+  verified domains from Graph `/organization` — a personal account, an unlisted domain or a failed
+  lookup is unverified), and an unverified address (`email_verified: false`) is refused with
+  `email_unverified` only where it would match or admit an account: an identity already linked
+  signs in, and link mode from a signed-in session links it. Tokens are AES-GCM
   encrypted under `OAUTH_ENCRYPTION_KEY`. The return path is `?returnUrl=`
   (`?redirectTo=` still accepted); the flow cookie carries state, PKCE verifier and a nonce.
 - **Any OIDC issuer** (`providers/oidc.ts`): set `OIDC_ISSUER` + `OIDC_CLIENT_ID` (+ optional
@@ -269,7 +322,9 @@ are always `tenant`; no audit log beyond `activity_events`; no personal API keys
   and the CLI ignores a callback without it. Details: `apps/web/src/api/routes/CLAUDE.md`.
 
 **Known gaps:** no provider token refresh; no session management UI
-beyond "log out everywhere"; CLI keys differ from other keys only by name. OIDC: one issuer per
+beyond "log out everywhere"; a personal Microsoft account cannot sign up or be matched by address
+— it signs in only after being linked from account settings, and a directory's verified domains
+are read on each sign-in, never cached; CLI keys differ from other keys only by name. OIDC: one issuer per
 deployment; the `groups` claim is read into the profile but **not stored or mapped** to kit groups
 or roles; no `id_token_hint` on logout (id_tokens are not kept, so the issuer may ask to confirm);
 no back-channel or front-channel logout; `OIDC_TRUST_EMAIL=true` trusts every email the issuer
@@ -335,6 +390,12 @@ signed-in account is not checked, and the host trusts the plugin's word that it 
   limit → CORS → CSRF → DB → tracing → mounts). Auth is per mount. The static-file catch-all 404s
   every API prefix as JSON, so a missing route never returns `index.html`. Order and exceptions:
   `.claude/rules/api.md`.
+- **Body limits**: 1 MB on `/api/*`, `/auth/*` and a plugin's prefixes outside `/api`, before any
+  parsing (413 `payload_too_large`). Beneath an upload prefix (`/api/files`,
+  `/api/ai/documents/upload`, a plugin's `uploadPaths`) a JSON body keeps the 1 MB cap, and any
+  other body is capped at `MAX_UPLOAD_PATH_BODY_BYTES` (10 MB + 64 KB multipart overhead, the
+  largest file an upload route may take); each upload route mounts its own tighter cap and checks
+  the exact per-file size itself. A public mount's `bodyLimitBytes` replaces the cap (§16).
 - **Contracts (D13)**: zod schemas from `@rocketpod/shared` are used by the server, UI and CLI.
   There is no `hono/client` RPC. Errors are `{ error, statusCode, code?, details? }` everywhere,
   and success bodies are bare.
@@ -496,9 +557,13 @@ dispatches. All three run in a `worker` (or `all`) process; a `web` process only
   `concurrency_key`) — `''` for an exclusive agent, a caller's key to narrow it (one run per
   `document:<id>`, say), NULL for a run that holds no slot; `ACTIVE_RUN_STATUSES` (exclusive index,
   includes parked runs) ⊃ `CLAIMABLE_RUN_STATUSES` (the claim). Keep those two lists separate. A
-  lost instance is settled on read, and there is no sweeper cron.
-- **Cron**: `scheduled.ts` looks up the task by expression. `0 4 * * *` prunes; plugins add their
-  own tasks to the registry. Every `SCHEDULED_TASKS` expression is a pg-boss schedule (UTC) synced
+  lost engine run is settled on read, and by the `sweepLostRuns` cron for a run nobody reads.
+- **Cron**: `scheduled.ts` looks up the task by expression. `0 4 * * *` prunes; `*/10 * * * *`
+  runs `sweepLostRuns` and `sendReminders`. The sweep takes up to 100 active runs untouched for 10
+  minutes, oldest first, through `sweepRun`: a `queued` row that never got an engine run gets one,
+  `queued`/`running` goes through `reconcileRun` (it settles only what the engine says has ended),
+  `awaiting_input` through `expireParkedRun`. Without it a dead run nobody opens holds its exclusive
+  slot and counts toward the tenant cap forever. Plugins add their own tasks to the registry. Every `SCHEDULED_TASKS` expression is a pg-boss schedule (UTC) synced
   at worker start (stale ones dropped); pg-boss claims each cron pass in the database and files each
   occurrence under a singleton key, so N worker replicas run an occurrence once. A failed cron task
   is not retried.
@@ -669,7 +734,8 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   agents and indexing answer 503; the gate needs none (tests point both at an in-process fake
   OpenAI-compatible endpoint). Credentials never leave the server (`hasCredential`), and a stored
   key stays with the provider and normalised base URL it was entered for: changing either needs the
-  key again; every error is normalised to `AiError` with secrets redacted. Every `ai_configs` WRITE goes through
+  key again. A save decides that on the row it overwrites, read `FOR UPDATE` inside its
+  transaction, so of two concurrent saves the second decides on what the first wrote; every error is normalised to `AiError` with secrets redacted. Every `ai_configs` WRITE goes through
   `services/ai/configs.ts` (validate, encrypt, upsert, default swap, delete), so a second screen
   that manages a tenant's providers cannot drift from Settings → AI.
 - **Providers**: `anthropic`, `anthropic_compatible`, `openai`, `openai_compatible`. There is no
@@ -736,6 +802,84 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   **every step name carries its round**, because a repeated name replays the recorded result.
   A retry resumes: `ctx.checkpoint` keeps the tool-loop transcript and `ctx.once(key, fn)` gives
   once-per-run effects (a DB unique index; at-least-once with a recorded result).
+- **Durable loop**: the whole tool loop runs inside one `execute` step, so what a retry of that
+  step must not redo is recorded beside it. `runToolLoop({ journal: ctx.journal })` writes every
+  model turn and every tool result to `agent_run_turns` as it settles, and checkpoints the
+  assistant turn before its tools run. A retry (the step's 10-minute timeout, a worker that died
+  and lost its lease, a database blip) is served what was recorded: a model turn asked about the
+  same transcript (`request_hash`) is not billed again, a tool call whose result settled (keyed by
+  the model's `toolCallId`) is not run again — even part-way through a turn — and steering notes
+  folded into a recorded turn are re-applied, not re-asked. If the transcript changed underneath a
+  record (an unrecorded read ran again and answered differently), the model is asked and the record
+  replaced. Reads simply run again. A tool marked `sideEffects` writes `started` before its
+  handler; a retry that finds `started` and no result settles the call as an **unknown outcome**
+  the model sees (`UNKNOWN_OUTCOME_RESULT`), unless the tool is also `durable`, in which case it
+  re-runs with `call.idempotencyKey` for the system it writes to. The policy's salvage call is
+  journaled too (turn 0). A loop inside a `ctx.scope` / `ctx.map` item has a journal of its own
+  (`items[2]/tool-loop`), so it resumes although scopes have no checkpoint; a plugin's
+  `ctx.toolLoop` binds the journal for it. The journal outlives the settle for
+  `AGENT_TRANSCRIPT_RETENTION_DAYS` (30, pruned nightly by `pruneAgentTurns`), which is what makes
+  a tool-loop run strictly replayable. **Keys**: a loop's own key is `RunToolLoopOptions.key`
+  (default `tool-loop`); `ctx.once(label, fn, { inputs })` keys on the label plus a hash of
+  `inputs` (`label#<12 hex>`), so `for (q of queries) ctx.once('search', fn, { inputs: q })` is one
+  record per query; any key used twice in ONE attempt — two `once` calls, two loops — throws
+  `EffectKeyConflictError` (event code `agent_effect_key_conflict`, never retried). Keys come from
+  data, not order: a run parked across a deploy resumes on the new code, and positions would point
+  at the wrong records.
+- **Cancel reaches the call in flight**: each `execute` attempt polls its own row every 3 s
+  (`watchCancel`, `services/agents/cancel.ts`) and aborts `ctx.signal` on a cancel. Every call
+  through `ctx.chat.client` (and `decide`'s client) carries the signal and is raced against it, so
+  even a provider that ignores the signal stops being waited for, and the aborted attempt settles
+  `cancelled` with the engine run completed — never a retryable `unavailable`
+  (`node-runs.test.ts` holds this on the real engine). Pass `ctx.signal` to `runToolLoop` and your
+  own `fetch`es; a plugin's `ctx.toolLoop` / `ctx.structured` already do. A second cancel still
+  forces it: `terminate()` the engine run, settle the row. A cancelled run projects as AG-UI's
+  `RUN_FINISHED { outcome: { type: 'cancelled' } }`, not a `RUN_ERROR`. A cancel of a `running`
+  run silent for longer than a step can run (`ATTEMPT_DEAD_MS`, 12 min — its worker died) settles at
+  once, and a run settled outside its attempt (cancel, force, the sweeper, a read reconciling)
+  still ends its log with a `status` event carrying a `reason`; the timeline shows a settled run's
+  unclosed work as stopped.
+- **Tracing a run**: the first claim exports a zero-length `run started` span under the run's root
+  id (`rocketpod.run.pending` names and tags the trace), so a backend lists the run while it is
+  still going. The root `invoke_agent <key>` is still recorded once, at `finish`: an OTLP span
+  cannot be updated, and a backend that keeps the first copy of an id would keep the unfinished
+  one. Every span of a run carries `gen_ai.conversation.id` = the run id (AG-UI's `threadId`);
+  the `ai_spans.conversation_id` column stays a chat thread's. A job's AI span is
+  `invoke_workflow <type>`; the GenAI names follow semconv 1.45.0 (sent as `schemaUrl`).
+- **Versions, children, inspector**: every run records the agent's `meta.version`
+  (`agent_runs.agent_version`, default 1) and the build it last ran on (`worker_version_id`, from
+  `APP_VERSION_ID` — Helm fills it from the image tag; unset, it stays NULL). An attempt that finds
+  a different `meta.version` applies `meta.onVersionChange`: `continue` (the default, sound because
+  every key is data-derived; a `status` event `reason: 'version_changed'` says so), `fail` (code
+  `agent_version_changed`), or `rerun` (cancel, then a NEW run of the same input under idempotency
+  key `rerun:<runId>`; the old run's record is the audit trail). `pinned: true` forces `fail` and is
+  the one place order-derived keys are allowed — a repeated `ctx.once` label becomes `label@2`,
+  `label@3` instead of a conflict. **Bump `meta.version` when a change moves or renames a
+  top-level `once`/`decide` key or changes what a decision is about**: the recordings check
+  (`apps/web/tests/agent-recordings/*.json`, written by `agent:replay --record <dir>`) replays each
+  committed run on every gate and fails with "bump `meta.version`" when such a change arrives at
+  the same version. **HITL**: `meta.hitl = { timeout, remindAfter, onTimeout }` — an ask's deadline
+  is `timeout` capped at `AGENT_INTERRUPT_TIMEOUT`; the `*/10` `sendReminders` reminds ONCE at
+  `remindAfter`; `onTimeout: 'reject'` answers an expired ask as a rejection by nobody
+  (`cancelled`, note `Nobody answered before the deadline`) and wakes the run, where the default
+  `expire` cancels it. An ask may name `assignees: { userIds, groupIds }` (visibility groups): they
+  are notified, see it in their inbox, may read the run and answer it — the requester then may
+  not; an owner or admin always may. **Child runs**: `ctx.spawn(key, agentKey, input)` starts
+  another agent as its own run (`parent_run_id`; id from `spawn:<parent>:<key>`, so a retried
+  parent finds the same child), parks the parent with NO ask while it runs, and the child's
+  `finish` (or a cancel of it) wakes the parent, which gets the output (recorded as effect
+  `spawn:<key>`, what replay serves) or `ChildRunFailedError`. The child's budget is what the parent
+  could still spend (`agent_runs.budget`), and the parent's meter counts every descendant's spend;
+  a cancel cascades down, and a parent that ends unsuccessfully cancels its active children.
+  `GET /runs` leaves children out unless `?parentRunId=`; their spans carry
+  `rocketpod.parent_run_id` / `parent_trace_id`. **Inspector**: `GET
+  /api/agents/runs/:id/timeline` (`@rocketpod/shared/ai/agent-timeline`, admin) merges events,
+  turns, tool calls, effects, decisions, asks and children by time, with versions and spend against
+  budget — `rocketpod agents inspect <runId>` and the run page's admin **Inspect** tab read it;
+  `agents runs list` gains `--parent`, `--since`, `--agent-version`. The agents UI scales by agent:
+  `/agents` is one row per agent (last run, 30-day runs/tokens/avg time/cost from ONE `GET
+  /api/agents/stats`, scoped like the runs list), each agent has `/agents/:agentKey` (metrics and
+  its runs), and `/agents/runs` lists every run.
 - **Human-in-the-loop (#17)**: `ctx.interrupt({ key, spec })` parks the run on
   `step.waitForEvent`. The key must be stable across attempts. Answering is a compare-and-set on the
   row, *then* a nudge to the instance (`not_found` → restart as `<runId>-rN`). There are four
@@ -768,7 +912,9 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   the record: `decide` from `agent_run_decisions` (same questions about the same state → `served`;
   reworded → `drift`; same questions about a different state, because upstream code changed what the
   decision is about → `stale`), `once` from `agent_run_effects`, `interrupt` from
-  `agent_run_interrupts`; anything the record cannot answer is a MISS (`strict`, the default — no
+  `agent_run_interrupts`, a tool loop's turns and tool results from its journal (`agent_run_turns`
+  — same transcript and system prompt → `served`; changed → served and flagged `drift` in strict,
+  asked again in live); anything the record cannot answer is a MISS (`strict`, the default — no
   model call at all) or asked for real (`--live`, which also re-runs a `ctx.once(key, fn, { replay:
   'rerun' })` — a pure model call whose prompt may have changed). `--live` reads the tenant's
   knowledge base, prompts and model choice as they are TODAY, through the server's own resolver —
@@ -777,15 +923,18 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   their model, so run it with the server's `EMBEDDINGS_*`. Each run replays in a READ ONLY
   transaction on an empty platform (no jobs, storage, realtime or run engine) and `ctx.db` refuses
   writes before they are sent (listed, not fatal). Per run: a verdict (`match` / `differs` /
-  `incomplete`), the output diff by JSON path, and each decision's status; exit 1 unless every run
-  matches. `--candidate <file>` replays another definition with the same key — how a compiled
+  `incomplete`), the output diff by JSON path, each decision's status, each loop turn's
+  (`turns`), and `orderDrift` when today's code asks its top-level `once` / `decide` keys in a
+  different order from the run (a moved step — what a run parked across that deploy would meet); a
+  drifted turn or a moved key makes the verdict `differs`; exit 1 unless every run matches. `--candidate <file>` replays another definition with the same key — how a compiled
   variant is proven against the full agent's history. Local script only: no route, no UI. Why: D37
   made the judgments recorded; replay makes the CODE around them testable.
 - **Volume (D39)**: exclusivity is the `concurrency_key` slot above, so a non-exclusive agent
   (`triage-research`) runs any number at once — how many EXECUTE at once is the workers'
   `RUNS_CONCURRENCY`. Two tenant-wide gates sit on every enqueue:
   `AGENT_MAX_ACTIVE_RUNS_PER_TENANT` (default 50, 429 `agent_runs_limit` — a soft cap, counted then
-  inserted) and `AGENT_TENANT_DAILY_COST_USD` (429 `ai_budget_exceeded`).
+  inserted) and `AGENT_TENANT_DAILY_COST_USD` (429 `ai_budget_exceeded`), after the tenant
+  itself — a suspended one is 403 `tenant_suspended` (§1).
   `POST /api/agents/runs/batch` takes up to 100 inputs of one non-exclusive agent (400
   `agent_exclusive` otherwise), validates each and inserts them under one `batch_id`, then starts
   each on the run engine with its own `create()` — OpenWorkflow has no batch call, and `create` is
@@ -795,8 +944,8 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   `step` → `prefix/key`; no checkpoint) and `ctx.map(key, items, fn, { concurrency, keyOf })` runs
   each item as a `once` in its own scope, at most `min(concurrency ?? 4, 6)` at a time: a retry
   replays the items that finished, the first error stops scheduling, and asks from several items
-  become ONE park. No parent/child runs. Every call through `ctx.chat.client` and `ctx.decide` is
-  metered — one `ai_usage` row carrying `agent_run_id`, awaited as the call returns, so a run
+  become ONE park. A child run is `ctx.spawn` (above). Every call through `ctx.chat.client` and
+  `ctx.decide` is metered — one `ai_usage` row carrying `agent_run_id`, awaited as the call returns, so a run
   cancelled or failed mid-loop has a row for every turn it paid for — and an agent writes no ledger
   rows (`ctx.recordUsage` for a client of its own); `GET /runs/:id` returns `usage`. The meter
   checks the run's budget before each call (`meta.budget` over `AGENT_RUN_MAX_TOKENS` /
@@ -836,7 +985,7 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   (jsonb refuses `\u0000`, 22P05). Search is hybrid dense + lexical
   (the lexical half matches ANY query word, ranked by `ts_rank_cd` — `anyTermTsquery` — so a
   sentence's filler words cannot veto it — over `chunks.search_vector`, a STORED generated
-  `to_tsvector(SEARCH_TEXT_CONFIG, text)` behind a GIN index) with RRF, scoped by `AccessScope`
+  `to_tsvector(SEARCH_TEXT_CONFIG, heading path + table header + text)` behind a GIN index) with RRF, scoped by `AccessScope`
   (§1). `searchChunks` takes an optional `documents` corpus (a predicate over `documents`) that is
   ANDed with the reader's visibility, so it narrows a search and can never widen it.
   `document-content.ts` is the one text reader behind both
@@ -863,6 +1012,76 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   `search_knowledge` includes them for the sources `ServerPlugin.knowledgeSources` names, marked
   `platform`, and chat and agent runs show no document card for one (the documents page cannot
   open it). The core Guide (§18) keeps its own `guide_chunks` index rather than this corpus.
+- **Structured chunks and upkeep**: the chunker cuts at headings and between table rows, and each
+  chunk is an exact `[charStart, charEnd)` slice of the stored text carrying its `headingPath` and
+  `tableHeader` — the whole header when it fits a quarter of the window, else its first columns
+  and ` …`, so header plus rows always fit one window. Both are prefixed to what is embedded and
+  folded into the generated `search_vector`, but never into the stored text, and the embedded
+  prefix is cut to `EMBEDDING_CONTEXT_MAX_CHARS` (a heading title to `HEADING_TITLE_MAX_CHARS`).
+  Headings and table delimiter rows are found by a linear scan of each line, never a backtracking
+  regex, so an upload's chunking work grows with its length. Each chunk records its `embeddingModel`, and
+  every dense leg filters on it, so a query vector only ever meets vectors from its own model.
+  When a tenant's embeddings config changes the resolved model, the `document.reembed` job
+  re-embeds the stale documents one bounded batch per message. `GET /api/ai/documents/health`
+  counts what is stale, and a `failed` document has a Retry. An unchanged upsert (same
+  `contentHash`, current model) re-embeds nothing. A plain ingest whose text matches a tenant-wide
+  document of the same source answers that document (`deduplicated: true`).
+- **Search filters**: `POST /api/ai/documents/search` takes `filters` (`sources`, `contentTypes`,
+  `createdFrom` / `createdTo` as inclusive UTC days). They become one predicate over `documents`
+  (`documentFilterPredicate`) ANDed with the tenant and visibility predicates, so a filter can only
+  remove hits. `GET /api/ai/documents/facets` lists what the reader's visible indexed documents
+  offer (sources and types with counts, the date span) and `staleEmbeddings`, how many of them are
+  embedded by another model than today's. The Search page (`/search`) builds its filter column from
+  the facets, keeps every filter in the URL, and shows a "Re-index now" notice to `manage Document`
+  while anything is stale. The response's `lexical` is `no_terms` when Postgres leaves no lexeme
+  after stopwording, and the page then says the word is too common instead of "no matches".
+- **Reranking**: a tenant `rerank` config (an OpenAI-compatible base URL with a Cohere-style
+  `/rerank`: Cohere, Voyage, Fireworks or a self-hosted cross-encoder) reorders the head
+  (`RERANK_CANDIDATES`, default 20) of the fused list. Logits are sigmoided onto 0–1, and
+  `RERANK_MIN_SCORE` drops weak hits when it is set. No reranker, a failure or a timeout falls
+  back to the fused order. Rocketpod has no platform reranker, so a deployment without a tenant
+  row never reranks.
+- **Knowledge facts** (flag `knowledge-facts`, default off): the `knowledge.extract` job reads typed
+  facts out of an indexed document for the entity types a plugin registers
+  (`ServerPlugin.knowledgeEntityTypes`, §16). The facts go into `knowledge_facts` and are tied to
+  a domain row or a staging `knowledge_entities` row, which is matched by trigram (`pg_trgm`) and
+  by embedding. What the extraction prompt and the decision model are shown — known entities,
+  accepted facts, held values — comes from TENANT-VISIBLE documents only, whatever the visibility
+  of the document being read, so nothing from a group-restricted document reaches a prompt for a
+  wider audience; only a tenant-visible document adds aliases to an entity. States are still
+  decided against every fact the tenant holds, and readers mask what they cannot see: a fact
+  superseded only by a hidden one reads as its restored state with no `superseded_by_id`, and is
+  answerable, counted and reviewable for that reader, and `lookup_facts` resolves names through
+  the reader's view, so an entity known only from hidden documents answers like an unknown name.
+  Because `prefer` settles the other sides too, a member may prefer only when every visible
+  conflict is theirs to review and no other person confirmed it; otherwise it is a 403
+  `fact_conflict_needs_admin` with nothing written, and the member can still `reject` their own
+  side. A fact inherits its document's visibility, and its trust comes from the
+  document's `origin`. Disagreements are stored as `conflicting` and are never resolved silently.
+  `lookup_facts` and `search_knowledge`'s `facts` block cite every side. People confirm, reject or
+  prefer facts, and merge, promote or keep separate possible matches, under
+  `/documents?view=review` and on the entity page (`/api/knowledge`).
+  Where comparing text would be guessing, a **decision model** is asked (`services/knowledge/judge.ts`,
+  typed choices through `resolveDecisions`: TypeSafe's Jev when `TYPESAFE_API_KEY` is set, else the
+  chat model on the `knowledge-decide` prompt key). A mention that links to nothing but sits near
+  known entities of its type is put beside them (same entity, or new?), and two differing values
+  for one entity and key over overlapping windows are judged `same` (corroborates),
+  `more_specific` (compatible, neither confirms nor conflicts) or `different` (conflicts). Only an
+  answer at `JUDGE_MIN_PROBABILITY` (0.8) acts; an unsure, failed or absent model keeps the literal
+  rule, so it can leave a false alarm but never hide a disagreement. Verdicts are stored once per
+  pair in `knowledge_value_judgements` (moved on a merge or promote) and read by every later state
+  decision, including a person's decision carrying over a re-read value judged the same. A closed
+  set of values belongs in the entity type as a `z.enum`; a key naming another entity is declared
+  in `refs` (`{ account_manager: 'person' }`), resolved like any mention, stored as
+  `knowledge_facts.value_ref` and compared by the entity, not the text.
+  Facts are also browsable: a document's facts (`GET /api/knowledge/documents/:id/facts`, the
+  viewer's Facts tab, whose "Show in document" marks the quoted span), every entity with current
+  visible facts (`GET /api/knowledge/entities`, the Knowledge page's `?view=facts`), and the facts
+  about the entities a query names (`GET /api/knowledge/mentioned`, cards above the Search
+  results). Chat and the run timeline show an entity card per entity for `lookup_facts` and the
+  `search_knowledge` facts block. Extraction is metered
+  (`knowledge.extraction`, beside `knowledge.embeddings` and `knowledge.rerank`), and it pauses
+  until the next UTC day at `KNOWLEDGE_TENANT_DAILY_COST_USD`.
 - **Usage**: one `ai_usage` row per call, costed at write time from the one price table
   (`shared/ai/pricing`, longest prefix wins; an unknown model gets `null` and is counted as
   unpriced). The two `*_compatible` providers are priced only for VENDOR-QUALIFIED ids — Fireworks'
@@ -871,6 +1090,10 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   platform key), a chat call on an unpriced model is refused before it is made (run event
   `agent_budget_exceeded`, `BudgetLimit` `unpriced_model`), because its cost could never reach the
   cap. A tenant's own key is its own spend, so it is not refused.
+  `ctx.decide`'s chat fallback (no TypeSafe key anywhere, prompt key `agent-decide`) is metered the
+  same way, call by call: refused before the call on an unpriced model the deployment pays for —
+  judged on who pays for the `agent-decide` model, not the agent's own — and ledgered as each call
+  returns, so a decide whose answer fails validation twice still leaves both rows.
 - **Tracing (D32, supersedes D16's Langfuse ingestion client)**: `api/observability/`. Every AI call
   site talks to the `Tracer` seam; the recorder batches ended spans and flushes (in `waitUntil`, or
   awaited at the end of a stream, step or job) to two sinks: our own **OTLP/HTTP exporter**
@@ -962,47 +1185,76 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
 from the Models API; no `effort` setting (thinking is on/off — on means the model's default); Haiku
 5.5's > 100k-token price tier is not modelled (`pricing.ts` uses the ≤ 100k rate); OpenAI tools are
 sent non-strict; an assistant message's `phase` is not replayed to the Responses API;
-no Excel or OpenDocument conversion (refused at upload); no document summary or thumbnail (the card is an excerpt);
+no page numbers on chunks (`page` is always null); no platform reranker; knowledge facts have no `private` visibility yet and ship no entity type of their own (a plugin registers them); an entity's name is the first document's wording, so one created from a group-restricted document keeps that name once a tenant-visible document links to it, and aliases stored before 0.40.0 stay on their entity; the decision model is asked about an entity only when trigram or embedding puts a known one nearby, so two names sharing no words stay two entities, and never about a `refs` key; a person's decision survives a re-read only when the value repeats or was judged the same; no Excel or OpenDocument conversion (refused at upload); no document summary or thumbnail (the card is an excerpt);
 `charOffset` does not map to PDF pages; no image input in chat or uploads (the `image` block is for callers that build their own turns), and the tracer records image bytes like any other content (redact them yourself, or leave `OBSERVABILITY_CAPTURE_CONTENT` off); no images inside rendered
 Markdown (a model's or document's image is shown as a link, `MarkdownImageLink`); no frontend tools
 in chat and no human approval in chat (a tool with an approval gate is available to agent runs
 only), no `STATE_DELTA`; protobuf has no
-stream cursor; a cancelled chat stream closes silently rather than with AG-UI 1.0's `RUN_FINISHED`
-`cancelled` outcome (the client that cancelled cannot read it); no token-level streaming for runs; char-based history budget
+stream cursor; a cancelled CHAT stream closes silently rather than with AG-UI 1.0's `RUN_FINISHED`
+`cancelled` outcome (the client that cancelled cannot read it — agent runs do emit it); no token-level streaming for runs; char-based history budget
 not derived from the model; sliding window defeats prompt caching on long threads; `enqueueRun`
 does not pre-resolve the client; no
 rerank; platform documents cannot be opened with `get_document` (a search hit is all a model
 reads of one), are not re-embedded automatically when the platform embedder changes (the next
 `ingestPlatformDocument` re-indexes; until then they are found lexically), and have no admin view;
-HITL asks cannot be amended, have no
-reminders, and parks are bounded by `AGENT_INTERRUPT_TIMEOUT`; runs nobody opens
-stay active-looking; no prompt versioning. Volume (D39): the active-run cap is counted, not locked,
+HITL asks cannot be amended, get one reminder each, and parks are bounded by
+`AGENT_INTERRUPT_TIMEOUT`; no prompt versioning. Volume (D39): the active-run cap is counted, not locked,
 so a burst can overshoot it; a budget is checked BEFORE a call, so a run overshoots by its last
 call and, under `ctx.map`, by the calls in flight; **chat has no spend cap**: the run budgets and the
 daily cap meter agent rows only, so a chat turn on a platform key is bounded by nothing but its turn
 and output-token limits; the daily cap is a UTC day and TypeSafe is unpriced, so decisions count
 toward tokens alone; `map`
-runs inside one step on one DB client (six in flight is the ceiling, and a tool loop inside a scope
-restarts on a retry — there is no per-scope checkpoint); a budget error raised inside a tool
+runs inside one step on one DB client (six in flight is the ceiling; a tool loop inside a scope
+has no checkpoint and resumes only through its journal, re-reading every recorded turn); a budget error raised inside a tool
 handler is reported to the model as a tool error rather than stopping the run; a batch starts its
 runs one `create()` at a time (no batch call on OpenWorkflow); no batch UI, no per-batch cancel,
 and a batch's runs are not grouped on the runs page. Policy (D39): when a handler raises an
 interrupt under concurrent execution, in-flight sibling results are discarded and run again on
-resume (sequential execution never ran them at all); a salvage that succeeds and
-then loses its step is paid for again; `maxDurationSeconds` does not count time between the last
+resume unless the loop has a journal, which keeps the siblings that settled; without a journal a
+salvage that succeeds and then loses its step is paid for again; `maxDurationSeconds` does not count time between the last
 checkpoint and a crash; a policy reaches a loop only when the agent passes it (`runToolLoop` has
 no registry to read); `authorizeTool` is per loop, not a run- or tenant-wide rule. Decisions
 (D37): no zod-schema → questions compiler, the `llm_self_report` fallback is uncalibrated with no vote/logprob
 mode, TypeSafe calls are unpriced (no published rates), no per-agent decisions provider
-(`agent_models` is chat-only), and a `sift` over 100 items is the caller's to batch. Replay (D38):
-a tool loop's model turns are not recorded, so a `runToolLoop` agent (`research-topic`) replays
-only `--live`; steering notes are all handed over at the first call; a run that predates a `once`
+(`agent_models` is chat-only), and a `sift` over 100 items is the caller's to batch. Durable loop: only a loop given `journal` records anything (a hand-built `runToolLoop` without
+it behaves as before); a `started` marker is written before the handler, so a side-effect call that
+died before it sent anything still settles as an unknown outcome; an unrecorded read re-runs and
+may answer differently, which re-asks every later turn; a recorded tool result is trusted by
+`toolCallId` alone (provider ids are unique per response — an adapter minting repeating ids would
+collide); a key conflict is detected within one attempt, not between two attempts that reached
+different code; a `ctx.once` without `inputs` is still the author's key; `callStructuredTool` and
+`ctx.chat.client` calls outside a loop are not journaled (wrap them in `once`). Cancel is polled
+(up to 3 s late, one indexed read per poll while an attempt runs), and a model call abandoned
+mid-flight may be billed by the provider with no `ai_usage` row; the sweeper checks 100 runs per
+10 minutes, so a backlog of lost runs drains over several sweeps; there is no platform-wide cap on
+running agent runs beyond each worker's `RUNS_CONCURRENCY`. Versions are detected, never
+prevented — OpenWorkflow resumes a parked run on today's code and `onVersionChange` only decides
+what happens next; the recordings check sees only the runs you commit (record from dev or seeded
+tenants — a recording holds the run's input and model turns), and does not check turn drift (a
+system prompt naming the tenant drifts by design); `rerun` is a new run, so a parent waiting on a
+child that reran sees the child `cancelled`; an `hitl.timeout` deadline (`reject` or `expire`) is
+applied by the 10-minute sweeper, which only looks at a run untouched for 10 minutes, so it lands
+up to ~20 minutes late (opening the run applies it at once), and at the `AGENT_INTERRUPT_TIMEOUT`
+cap the engine's own wait ends first and cancels — keep `hitl.timeout` shorter; an `expire`
+cancels the run's row but leaves the engine run parked on its wait until that cap (it holds no
+worker slot; its `expire` step then runs over a row already settled); reminders are one per
+ask; assignees are checked against tenant membership at notify and answer time, not when the ask
+is raised; a child's budget share is fixed when it is spawned (two children spawned together may
+each get the whole remainder — the parent's meter, which counts both, stops the overspend at the
+parent's next call); there is no fan-in primitive beyond `Promise.all` of spawns, no depth limit
+beyond the budget, and a child never steers its parent; the inspector is read-only and shows no
+transcript (the trace and replay do). Replay (D38): a tool loop replays strictly only inside the
+journal's retention window — an older run's first turn is a `chat` miss, and `--live` is the
+fallback; steering notes are all handed over at the first call; a run that predates a `once`
 key misses it; no route or UI (a local script over a database URL), and `--live` holds one
 read-only transaction per run. The demo seed's
 vectors are deterministic, so dense search over seeded docs is noise. Tracing: no per-tenant
 backends (BYO keys via `sealSecret`), no native `tracing.enterSpan`, no metrics export, no
 Langfuse/Phoenix MCP; inline ingest from `POST /api/ai/documents/ingest` is untraced (no active
-span); the backend receives a run's root only at `finish`, so an in-flight run has no root there;
+span); the backend receives a run's root only at `finish` — before that it has the `run started` span
+and each finished `execute#N`, never a long step's spans before the step ends; the GenAI names are
+pinned to semconv `GENAI_SEMCONV_VERSION` (1.45.0) and the agent spans are still Development
+upstream;
 exported content is capped at 32 000 chars per value. Evals: no in-app eval UI or dataset editor;
 the report UI has no side-by-side view (the diff is `eval:view`'s terminal table); no HTTP targets
 against a deployed instance, no red-teaming, no push to Langfuse datasets; a run that parks on a
@@ -1062,8 +1314,9 @@ a second copy of the contract (D26). `api.ts` is the only `fetch` site. Config l
 `--json` is available on every read. `traces list|show` reads the local AI trace store (D32);
 `feedback list` is the thumbs queue and `evals promote <id> --dataset <name>` appends a draft eval
 case to `apps/evals/datasets/` (D33, both admin+). `agents list`, `agents run <key> --input x.json |
---batch x.jsonl` (chunks of 100, failed lines reported, exit 1) and `agents runs list [--batch id]`
-start and follow runs (D39). Exit codes: 0 ok · 1 error · 2 not logged in ·
+--batch x.jsonl` (chunks of 100, failed lines reported, exit 1) and `agents runs list [--batch id] [--parent id]
+[--since iso] [--agent-version n]` start and follow runs (D39); `agents inspect <runId>` prints the
+run's timeline — versions, spend against budget, turns, effects, decisions, asks, children (admin). Exit codes: 0 ok · 1 error · 2 not logged in ·
 3 forbidden.
 No command prints a full key. Human output shows server text as inert text: `renderTable` cells,
 free-text lines and the logger drop terminal control characters, and colour is applied after that
@@ -1322,6 +1575,13 @@ Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
   `ToolCtx.can(action, subject)` is the requester's CASL grant, read at build time from their
   current membership (false for a run with no requester): gate a tool that writes on your own
   subject's `manage`, not on `scope.bypass`, which is row visibility and true for `support` too.
+  `ToolCtx.requesterUrls` is the frozen set of http(s) URLs the person wrote themselves
+  (`services/agents/tools/requester-urls.ts`): in chat, their own turns in the conversation; in an
+  agent run, the input when a person submitted it through `POST /api/agents/runs` or `/runs/batch`
+  (`agent_runs.input_from_requester`), recomputed on every attempt. A run a plugin or an event
+  started, and a `streamChat` turn, carry none. A tool that fetches the web reads a URL only when
+  it is in this set or its own search returned it, so text from a page, a document, an email or
+  the model cannot point it somewhere the person never asked for.
 - **A streamed chat turn (`streamChat`)**: `streamChat(c, { promptKey, feature, message, history?,
   system?, variables?, tools?, maxTurns?, signal?, threadId?, onFinish? })` from `@/plugins/api` is
   a plugin route's whole answer — the kit's resolve seam, streaming tool loop, AG-UI encoder (SSE or
@@ -1598,9 +1858,14 @@ Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
   imports its own `apps/web/src/host/<id>/` as `@/host/<id>/…` (the existing `@/*` alias), and only
   its own id's (`tests/helpers/plugins.ts`). **Known gap:** `plugin export` does not write host
   files back to `from` — they are the app's content, not the plugin's.
-- **Hooks** (`onTenantCreated`, `onTenantDeleted`, `seedDemo`) run post-commit, are idempotent,
+- **Hooks** (`onTenantCreated`, `onTenantDeleted`, `onTenantStatusChanged`, `seedDemo`) run post-commit, are idempotent,
   and are try/caught. State a plugin keeps outside Postgres (its own storage prefix, an external
   system) is purged in `onTenantDeleted`, addressed by names **derived** from the tenant id.
+  `onTenantStatusChanged(db, tenantId, status, env)` runs after a global admin suspends
+  (`'suspended'`) or reactivates (`'active'`) a tenant, from `setTenantSuspended`
+  (`runTenantStatusChangedHooks`), each failure logged as a warning and swallowed: it is how a
+  plugin that caches or publishes a tenant's content outside the auth middleware's reach (a public
+  page, a CDN in front) stops serving it.
 - **Traps measured, now rules**: registries a plugin composes into are FUNCTIONS, not consts
   (module-evaluation order); a value a plugin needs moves to a leaf module; browser-read registries
   are separate files from composing ones; plugins declare `relations()` for their own tables only

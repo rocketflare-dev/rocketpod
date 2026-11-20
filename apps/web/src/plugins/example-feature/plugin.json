@@ -8,11 +8,14 @@
   "minKit": "0.1.0",
   "uses": {
     "@/plugins/api": [
+      "AccessScope",
       "agentCtx",
       "createRouter",
       "Database",
+      "defaultEntityResolver",
       "defineTool",
       "DeliveredEvent",
+      "EntityTypeRegistration",
       "eventBinding",
       "eventCtx",
       "EventCtx",
@@ -95,6 +98,7 @@
       "uniqueId"
     ],
     "@testkit/unit": ["makeCronCtx", "makeJobCtx", "makeToolCtx"],
+    "@rocketpod/shared/ai/knowledge-facts": ["entityTypeSchema"],
     "@rocketpod/shared/features": ["FEATURE_FLAGS", "FEATURE_KEYS", "FeatureDefinition"],
     "@rocketpod/shared/jobs": ["CoreJobType", "JOB_TYPES", "jobInputSchema", "JobOf", "JobType"],
     "@rocketpod/shared/pagination": [

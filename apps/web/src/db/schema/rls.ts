@@ -128,7 +128,9 @@ export const RLS_REVOKED_TABLES = [
  * no tenant column and no tenant data (`schema/guide-chunks.ts`); the guide route decides access
  * and retrieval applies the reader's audience. `invitation_send_counters` has no tenant column
  * either: its rows are daily counters keyed by a `user:` or `tenant:` scope (a person's count spans
- * tenants), holding numbers and no tenant data.
+ * tenants), holding numbers and no tenant data. `tenant_creation_counters` is the same shape keyed
+ * by user: a count of organisations a person created per day, which must outlive the organisations
+ * themselves.
  */
 export const RLS_EXCLUDED_TABLES = [
   ...RLS_REVOKED_TABLES,
@@ -136,6 +138,7 @@ export const RLS_EXCLUDED_TABLES = [
   'platform_agent_models',
   'guide_chunks',
   'invitation_send_counters',
+  'tenant_creation_counters',
 ] as const
 
 /**

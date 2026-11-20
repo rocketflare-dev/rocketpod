@@ -15,7 +15,7 @@
     "dev:db:down": "node scripts/dev-db.mjs down",
     "dev:db:status": "node scripts/dev-db.mjs status",
     "typecheck": "tsc --noEmit",
-    "lint": "biome check . --diagnostic-level=error",
+    "lint": "biome check . --error-on-warnings",
     "lint:all": "biome check .",
     "lint:fix": "biome check --write .",
     "format": "biome format . --write",

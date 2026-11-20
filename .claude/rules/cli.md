@@ -27,6 +27,9 @@ The package is **private**; publishing it is an app decision (docs/DEPLOY.md).
 - `apps/cli/src/config.ts` — `~/.rocketpod/config.json` (`ROCKETPOD_CONFIG_DIR` relocates it; tests use a temp
   dir): directory `0700`, file `0600`, re-tightened on every write. Env overrides win over the file:
   `ROCKETPOD_API_KEY`, `ROCKETPOD_URL` (for CI — no browser); `ROCKETPOD_DEBUG` enables debug lines
+  — and `createContext` warns when either overrides a DIFFERENT saved login (`envOverridesLogin`).
+  `pnpm cli` runs from `apps/cli`, so `cli.ts` `chdir`s to pnpm's `INIT_CWD`: a typed path means
+  the person's own directory
 - `apps/cli/src/auth.ts` — the browser handoff: loopback `http.Server` on the first free port in
   `127.0.0.1:8765–8770`, `open(<server>/auth/cli?redirect_uri=http://127.0.0.1:<port>/callback&state=<random>)`,
   (plus `&hostname=<os.hostname()>` so the server can name the key `cli:<hostname>`), the person
@@ -53,7 +56,9 @@ confirmed TTY prompt (tests inject `confirm`), and refuses a duplicate case id.
 Agents (D39): `agents list` (which agents can batch), `agents run <key> --input x.json` (one run)
 or `--batch x.jsonl` (one run per line, sent to `POST /api/agents/runs/batch` in chunks of
 `AGENT_RUN_BATCH_MAX`; every line that did not start is reported by number and the command exits 1
-AFTER the rest have started), and `agents runs list [--batch <id>]`.
+AFTER the rest have started), and `agents runs list [--batch <id>] [--parent <runId>] [--since <date>]
+[--agent-version <n>]` (children are left out unless `--parent`). `agents inspect <runId>` prints
+`GET /runs/:id/timeline` (`agentRunTimelineSchema`): versions, spend vs budget, children, every record by time.
 
 Groups (D29) are READ-only here: `groups list` and `groups members <id>`. Creating or deleting a
 group is a decision about who sees what, and the confirmation the web UI gives before a delete

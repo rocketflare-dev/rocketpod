@@ -12,7 +12,7 @@ sources:
   - apps/web/src/permissions/abilities.ts
   - packages/shared/src/tenants.ts
   - apps/web/src/api/services/members.ts
-verified: 790a55b
+verified: 77399c3
 ---
 
 # Members and invitations
@@ -40,7 +40,10 @@ themselves from this page.
 3. Pick the role they will join with, then send.
 
 Each person gets an email with a link. The link works for {{fact:team.invitation_days}} days.
-Only an owner can invite someone as an owner.
+Only an owner can invite someone as an owner. An invitation carries the authority of the person
+who sent it: if the sender is blocked, leaves, or no longer has a role that could send it, the
+link stops working, and it no longer counts as an invitation when that person signs up. Blocking
+someone revokes every invitation they sent that is still pending, in every organisation.
 
 Invitation emails have a daily limit, per sender and per organisation. Past it, the invite is
 refused until the next day (UTC); in a long list, the addresses past the limit are reported as
@@ -65,6 +68,10 @@ When someone accepts, they move to **Members** with the role you chose.
 In **Members**, change the role with the select on their row, or remove them with the button at
 the end of it. A removed person loses access to the organisation straight away: their open pages
 lose their live connection, and any invitations they sent that are still pending are revoked.
+Lowering someone's role revokes the pending invitations they sent that their new role could not
+send: an admin's owner invitations, a member's every invitation. There is a limit on how many
+organisations one person may own, so making someone an owner, or their accepting an owner
+invitation, is refused once they are at it.
 
 A row marked **Managed** belongs to your identity provider, not to this app: it has no role
 select and no remove button. Change that person's role or access in the identity provider; it

@@ -43,9 +43,11 @@ const CORE_UNSCOPED_ALLOWLIST: Record<string, string> = {
   'src/api/services/storage.ts':
     'deleteStoredFile removes a row by primary key that its caller already resolved under the tenant predicate',
   'src/api/services/invitations.ts':
-    'pruneInvitations is the nightly cron: expired invitations are deleted across every tenant, which is the job',
+    "pruneInvitations is the nightly cron: expired invitations are deleted across every tenant, which is the job; revokeEveryInvitationIssuedBy ends a blocked person's pending invitations in every tenant, because a block withdraws their authority everywhere",
   'src/api/scheduled.ts':
-    'runPruneAiSpans is the nightly trace-store retention: spans past the cutoff are deleted across every tenant in ONE statement, which Postgres answers from the (tenant_id, started_at) index — one DELETE per tenant cost a round trip each under neon; runPruneEvents is the same for plugin_events past EVENTS_RETENTION_DAYS, from its (tenant_id, created_at) index',
+    'runPruneAiSpans is the nightly trace-store retention: spans past the cutoff are deleted across every tenant in ONE statement, which Postgres answers from the (tenant_id, started_at) index — one DELETE per tenant cost a round trip each under neon; runPruneEvents is the same for plugin_events past EVENTS_RETENTION_DAYS, from its (tenant_id, created_at) index; runPruneAgentTurns the same for the agent_run_turns journal of runs settled past AGENT_TRANSCRIPT_RETENTION_DAYS, from its (tenant_id, updated_at) index',
+  'src/api/utils/db/tenant-helpers.ts':
+    'assertMayOwnAnother counts the organisations ONE person owns across every tenant — that is the MAX_OWNED_TENANTS_PER_USER ceiling, read under a lock on the user row',
   'src/api/observability/span-store.ts':
     'insertSpans is an INSERT, never a read: every row carries the tenant_id of the trace that recorded it (a span without one is dropped by toSpanRow), and one flush may hold spans from more than one tenant',
 }

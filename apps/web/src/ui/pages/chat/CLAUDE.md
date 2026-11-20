@@ -28,6 +28,11 @@ Streaming, the frame order in `lib/CLAUDE.md`.
 - A `CUSTOM kit.notice` renders as a quiet italic line above the reply (`NOTICE_TEXT` in `ChatPage`
   is the one place its wording lives) — it is information, not a failure, so it never takes the
   error styling.
+- **Entity cards**: `CUSTOM kit.entity` (one per entity, first wins) collects into
+  `turn.entities` while streaming; a persisted message derives the same cards with
+  `entityCardsFromToolCalls(message.toolCalls)`. `ChatBubble` renders them (`EntityFactsCard`)
+  only when the page passes them — and it passes them only behind `KNOWLEDGE_FACTS_GUARD`, since
+  each links to the entity page, which 404s with the flag off.
 
 ## Not configured
 

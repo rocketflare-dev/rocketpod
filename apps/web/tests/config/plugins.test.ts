@@ -489,7 +489,6 @@ describe('sso policy', () => {
 
   it('a malformed answer also fails closed; an undeclared method keeps the rule and drops the hint', async () => {
     const malformed = { shared: { id: 'odd' }, ssoPolicy: async () => ({ required: 'yes' }) }
-    // biome-ignore lint/suspicious/noExplicitAny: a plugin answering outside its type is the case
     const bad = await evaluateSsoPolicy([malformed as any], db, cfg, 'j@x.test', silent)
     expect(bad).toMatchObject({ required: true, method: null })
     const undeclared = await evaluateSsoPolicy(
@@ -936,9 +935,11 @@ describe('the closed sets a plugin opens', () => {
       | 'activity.record'
       | 'document.index'
       | 'document.convert'
+      | 'document.reembed'
       | 'chat.compact'
       | 'tenant.purge'
       | 'event.deliver'
+      | 'knowledge.extract'
     >()
     // A plugin may only WIDEN the core set — the property that keeps variants as data. Which types
     // a particular plugin adds is that plugin's own test to make.

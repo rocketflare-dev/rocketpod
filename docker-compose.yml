@@ -23,6 +23,8 @@ x-app: &app
     APP_URL: ${APP_URL:-http://localhost:3001}
     APP_NAME: ${APP_NAME:-Rocketpod}
     LOG_LEVEL: ${LOG_LEVEL:-info}
+    # The build an agent run records per attempt (agent_runs.worker_version_id); blank = none.
+    APP_VERSION_ID: ${APP_VERSION_ID:-}
     SIGNUP_MODE: ${SIGNUP_MODE:-invite_only}
     TENANCY_MODE: ${TENANCY_MODE:-multi}
     BOOTSTRAP_ADMIN_EMAILS: ${BOOTSTRAP_ADMIN_EMAILS:-}

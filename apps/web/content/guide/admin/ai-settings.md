@@ -11,7 +11,7 @@ sources:
   - apps/web/src/api/services/ai/resolve.ts
   - apps/web/src/api/services/ai/configs.ts
   - packages/shared/src/ai/config.ts
-verified: 05dc27c
+verified: f2b9137
 ---
 
 # AI settings

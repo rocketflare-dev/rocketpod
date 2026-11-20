@@ -12,7 +12,7 @@ sources:
   - apps/web/src/api/routes/keys.ts
   - apps/web/src/ui/pages/settings/ApiKeys.tsx
   - packages/shared/src/api-keys.ts
-verified: a473396
+verified: f2b9137
 ---
 
 # API keys and the CLI

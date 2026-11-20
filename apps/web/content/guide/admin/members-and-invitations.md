@@ -12,7 +12,7 @@ sources:
   - apps/web/src/permissions/abilities.ts
   - packages/shared/src/tenants.ts
   - apps/web/src/api/services/members.ts
-verified: 05dc27c
+verified: f2b9137
 ---
 
 # Members and invitations

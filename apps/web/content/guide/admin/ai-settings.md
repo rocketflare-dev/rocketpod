@@ -11,7 +11,7 @@ sources:
   - apps/web/src/api/services/ai/resolve.ts
   - apps/web/src/api/services/ai/configs.ts
   - packages/shared/src/ai/config.ts
-verified: a473396
+verified: 05dc27c
 ---
 
 # AI settings
@@ -26,14 +26,18 @@ The **Readiness** panel shows one line per kind of work: {{fact:ai.scopes}}.
 - **Embeddings** turns documents into vectors so the knowledge base can search by meaning.
 - **Decisions** answers the typed questions some agents ask. Without a decision provider, the chat
   model answers them itself, and its numbers are marked as uncalibrated.
+- **Reranking** reorders knowledge-search results by how well each passage answers the question.
+  It is optional: without a reranker the line says **Off**, and search keeps its own order.
 
 Each line says **Ready** or **Not configured**, and where the answer comes from: **this
 workspace** (a provider you added) or **platform default** (the key the operator of this server
-set up for everyone). When neither exists, chat and indexing are switched off until you add one.
+set up for everyone). When neither exists, chat and indexing are switched off until you add one. Reranking has no
+platform default: it runs only once you add a reranker.
 
 ## Add a provider
 
-1. In the section for the kind of work, select **Add chat provider** (or embedding, or decision).
+1. In the section for the kind of work, select **Add chat provider** (or embedding, decision or
+   reranker).
 2. Choose the provider — one of {{fact:ai.providers}}. A preset fills in the address and a model
    for well-known services.
 3. Paste the API key from your provider's own console, and give the entry a label.

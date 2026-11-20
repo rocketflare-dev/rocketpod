@@ -36,14 +36,14 @@ export async function handleDocumentConvert(
     )
   }
   try {
-    // A `job document.convert` span, so each embeddings batch nests under something.
+    // An `invoke_workflow document.convert` span, so each embeddings batch nests under something.
     const indexed = await withAgentTrace(
       'document.convert',
       {
         tracer: ctx.tracer ?? noopTracer,
         tenantId,
         kind: 'job',
-        spanName: 'job document.convert',
+        spanName: 'invoke_workflow document.convert',
         metadata: { documentId },
       },
       () => convertAndIndexDocument(ctx.db, ctx.config, ctx.platform, storage, tenantId, documentId)

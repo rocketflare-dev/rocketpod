@@ -32,7 +32,7 @@ import type {
   StoredObjectMeta,
   StoredRange,
 } from '@/platform/types'
-import { StorageRangeNotSatisfiableError } from '@/platform/types'
+import { RunInstanceNotFoundError, StorageRangeNotSatisfiableError } from '@/platform/types'
 
 // ---- Key/value store ----------------------------------------------------------------------
 
@@ -651,7 +651,7 @@ export class RecordingWorkflow {
 
   async get(id: string) {
     if (!this.created.some(c => c.id === id) && !this.statuses.has(id)) {
-      throw new Error(`instance.not_found: no instance with id ${id}`)
+      throw new RunInstanceNotFoundError(id)
     }
     return this.instance(id)
   }
@@ -677,7 +677,7 @@ export class RecordingWorkflow {
       restart: async () => {},
       sendEvent: async (event: { type: string; payload?: unknown }) => {
         if (this.notFoundOnSendEvent) {
-          throw new Error(`instance.not_found: no instance with id ${id}`)
+          throw new RunInstanceNotFoundError(id)
         }
         this.events.push({ instanceId: id, type: event.type, payload: event.payload ?? null })
       },

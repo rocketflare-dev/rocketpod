@@ -161,7 +161,7 @@ server sends the browser to `/cli/confirm`, whose `POST /auth/cli/confirm` mints
 `cli:<host>` → `?key=&tenant_id=&tenant_name=&state=` (the CLI checks its per-login `state`); stored `0600` in
 `~/.rocketpod/config.json` (`ROCKETPOD_API_KEY`/`ROCKETPOD_URL` for CI). Also `logout|whoami|status|config`,
 `members|keys|activity|groups|features list --json`, `groups members`, `traces list|show`,
-`feedback list`, `evals promote`, `agents list|run <key> --input|--batch|runs list` (D39) (`.claude/rules/cli.md`)
+`feedback list`, `evals promote`, `agents list|run <key> --input|--batch|runs list|inspect <runId>` (D39; `inspect` is the run timeline) (`.claude/rules/cli.md`)
 
 ## Config model
 
@@ -179,7 +179,9 @@ LISTEN; direct or session-mode when PgBouncer runs in transaction mode), `DATABA
 `AGENT_MAX_ACTIVE_RUNS_PER_TENANT` (50; 429 above), `MAX_OWNED_TENANTS_PER_USER` (10),
 `INVITATION_EMAILS_PER_USER_PER_DAY` (500), `INVITATION_EMAILS_PER_TENANT_PER_DAY` (1000),
 `AGENT_RUN_MAX_TOKENS` / `AGENT_RUN_MAX_COST_USD` /
-`AGENT_TENANT_DAILY_COST_USD` (D39 budgets, unset = no cap; `meta.budget` overrides per agent) · **storage**: `STORAGE_DRIVER` (`s3`),
+`AGENT_TENANT_DAILY_COST_USD` (D39 budgets, unset = no cap; `meta.budget` overrides per agent) ·
+`AGENT_TRANSCRIPT_RETENTION_DAYS` (30 — days a settled run keeps its tool-loop journal, `agent_run_turns`) ·
+`APP_VERSION_ID` (the build an agent run records per attempt; Helm sets the image tag) · **storage**: `STORAGE_DRIVER` (`s3`),
 `STORAGE_ENDPOINT`, `STORAGE_REGION`, `STORAGE_BUCKET`, `STORAGE_FORCE_PATH_STYLE`, secrets
 `STORAGE_ACCESS_KEY_ID`/`STORAGE_SECRET_ACCESS_KEY` · **AI**: secrets `ANTHROPIC_API_KEY`,
 `AI_API_KEY` (+ `AI_BASE_URL`, `AI_MODEL` — OpenAI-compatible), `EMBEDDINGS_API_KEY` (+

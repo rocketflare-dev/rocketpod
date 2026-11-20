@@ -406,7 +406,7 @@ function installedDependencyDeclarations(host) {
     })
 }
 
-function requireClean(host, args) {
+function requireClean(args) {
   if (args.allowDirty) return
   const dirty = dirtyTree(REPO_ROOT)
   if (dirty !== '') {
@@ -634,7 +634,7 @@ function verifyText(source, version) {
 function cmdAdd(args, host) {
   const spec = args.positional[0]
   if (!spec) stop(2, 'error: add needs a repository or a path', '', USAGE)
-  if (args.apply) requireClean(host, args)
+  if (args.apply) requireClean(args)
 
   const source = openSource(spec, args)
   if (!source.has(PLUGIN_MANIFEST_FILE)) {
@@ -1073,7 +1073,7 @@ function cmdUpgrade(args, host) {
     )
     return 0
   }
-  if (args.apply) requireClean(host, args)
+  if (args.apply) requireClean(args)
 
   const m = ensureMirror(source.repo, pluginMirrorDir(source.repo), {
     fetch: args.fetch,
@@ -1699,7 +1699,7 @@ function cmdRemove(args, host) {
   const id = args.positional[0]
   if (!id) stop(2, 'error: remove needs a plugin id', '', USAGE)
   const surface = findSurface(host, id)
-  if (args.apply) requireClean(host, args)
+  if (args.apply) requireClean(args)
 
   // A plugin another plugin depends on is not removable, and the check is not advisory: the
   // dependent's code imports the four published entries of this one, so removing it is a build

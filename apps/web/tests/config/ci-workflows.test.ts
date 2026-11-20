@@ -5,7 +5,7 @@
  * is `tests/config/release-version-only.test.ts`. What `ci.yml` runs is checked by running it
  * (`.claude/rules/testing.md`: no test reads workflow YAML). The `config` project: no database.
  */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { gatedDecision, successfulCiRuns } from '../../../../scripts/release-check.mjs'
 
 const SHA = 'a'.repeat(40)
@@ -15,7 +15,10 @@ describe('gatedDecision', () => {
   const versionOnly =
     (problems: string[] = []) =>
     () => ({ parent: PARENT, problems })
-  const runs = (counts: Record<string, number | null>) => (sha: string) => counts[sha] ?? 0
+  const runs = (counts: Record<string, number | null>) => (sha: string) => {
+    const count = counts[sha]
+    return count === undefined ? 0 : count
+  }
 
   it('(a) is gated when the commit itself has a successful CI run — today’s rule', () => {
     const asked: string[] = []
@@ -59,16 +62,26 @@ describe('gatedDecision', () => {
   })
 
   it('treats an unreadable API as no proof, for the commit and for its parent', () => {
-    expect(gatedDecision({ sha: SHA, runs: () => null, versionOnly: versionOnly() }).gated).toBe(
-      false
-    )
-    expect(
-      gatedDecision({
-        sha: SHA,
-        runs: runs({ [SHA]: null, [PARENT]: null }),
-        versionOnly: versionOnly(),
-      }).gated
-    ).toBe(false)
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+    try {
+      expect(gatedDecision({ sha: SHA, runs: () => null, versionOnly: versionOnly() }).gated).toBe(
+        false
+      )
+      expect(
+        gatedDecision({
+          sha: SHA,
+          runs: runs({ [SHA]: null, [PARENT]: null }),
+          versionOnly: versionOnly(),
+        }).gated
+      ).toBe(false)
+      const warnings = [
+        `::warning::Could not read CI runs for ${SHA}.\n`,
+        `::warning::Could not read CI runs for ${PARENT}.\n`,
+      ]
+      expect(write.mock.calls.map(([line]) => line)).toEqual([...warnings, ...warnings])
+    } finally {
+      write.mockRestore()
+    }
   })
 
   it('gates here when the version-only check itself throws', () => {

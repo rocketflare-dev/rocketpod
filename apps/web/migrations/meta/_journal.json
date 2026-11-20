@@ -113,6 +113,13 @@
       "when": 1795157553507,
       "tag": "0015_kit-knowledge-judgements-and-refs",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1795158872387,
+      "tag": "0016_kit-agent-durable-runtime",
+      "breakpoints": true
     }
   ]
 }

@@ -32,15 +32,16 @@ import type { AppBindings } from '../api/types'
 import { runAgentRun } from '../api/workflows/agent-run-body'
 import type { AppConfig } from '../config'
 import { resolveDatabaseUrl } from '../db/client'
-import type {
-  Duration,
-  Platform,
-  RunEngine,
-  RunInstance,
-  RunStatus,
-  Step,
-  StepOptions,
-  WaitForEventOptions,
+import {
+  type Duration,
+  type Platform,
+  type RunEngine,
+  type RunInstance,
+  RunInstanceNotFoundError,
+  type RunStatus,
+  type Step,
+  type StepOptions,
+  type WaitForEventOptions,
 } from '../platform/types'
 
 import { AGENT_RUN_WORKFLOW_NAME, RUNS_SCHEMA } from './runs-schema'
@@ -247,7 +248,7 @@ export function openWorkflowInstance(
     id,
     async status() {
       const run = await backend.getWorkflowRun({ workflowRunId: id })
-      if (!run) throw new Error(`instance.not_found: workflow run ${id}`)
+      if (!run) throw new RunInstanceNotFoundError(id)
       return mapRunStatus(run)
     },
     async terminate() {
@@ -263,7 +264,7 @@ export function openWorkflowInstance(
         })
         if (sent.workflowRunIds.includes(id)) return
         const run = await backend.getWorkflowRun({ workflowRunId: id })
-        if (!run) throw new Error(`instance.not_found: workflow run ${id}`)
+        if (!run) throw new RunInstanceNotFoundError(id)
         // Over: nothing will ever wait again — the caller restarts it (`nudgeOrRestartInstance`).
         if (TERMINAL.has(run.status))
           throw new Error(`instance ${id} is ${run.status}, not waiting`)

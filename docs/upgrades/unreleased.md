@@ -2,12 +2,13 @@
 version: unreleased
 previous: 0.32.2
 date: null
-breaking: false
+breaking: true
 migrations:
   - "agent_runs gains input_from_requester, a boolean NOT NULL DEFAULT false"
   - "new table tenant_creation_counters (user_id, day, created), no foreign key to tenants"
   - "the pg_trgm extension; knowledge_entities + knowledge_facts; chunks gain embedding_model (backfilled), heading_path, table_header, page, char_start, char_end and a rebuilt search_vector (table rewrite); documents gain content_hash, origin, reviewer_user_id"
   - "new table knowledge_value_judgements (tenant-isolated); knowledge_facts gains value_ref"
+  - "new table agent_run_turns (tenant-isolated, the tool-loop journal); agent_runs gains agent_version, worker_version_id, parent_run_id (self-FK cascade) and budget; agent_run_interrupts gains assignee_user_ids, assignee_group_ids, remind_at and reminded_at"
 areas: [api, config, shared, docs, db, ui, evals]
 touches_surfaces: []
 requires_surfaces: []
@@ -161,3 +162,49 @@ page, facts on each document and in a Facts view, and typed same-entity / same-v
 
 1. `tests/api/{knowledge-search-filters,knowledge-browse,knowledge-extract}.test.ts`, `tests/config/knowledge-judge.test.ts` and `tests/ui/{search-page,knowledge-browse,run-tool-result-cards}.test.tsx` pass.
 2. `psql "$DATABASE_URL" -c '\d knowledge_value_judgements'` shows the table.
+
+## Rocketflare 0.39.0
+
+**Breaking.** Agent runs survive what used to cost them: a retried step replays its recorded model
+turns and tool results, a cancel stops the call in flight, lost runs are swept, and runs record
+their agent version and build, spawn child runs and can be inspected turn by turn.
+
+### What changed
+
+- **Breaking — AG-UI:** a cancelled run now projects as `RUN_FINISHED { outcome: { type: 'cancelled' } }`, not `RUN_ERROR` `agent_run_cancelled`. A client that keyed on the error code must read the outcome.
+- **Breaking — `ctx.once` keys:** `ctx.once(label, fn, { inputs })` stores the key as `label#<hash of inputs>`; the same key twice in one attempt throws `EffectKeyConflictError` (event code `agent_effect_key_conflict`, never retried). A `once` in a loop that reused one key must pass what differs as `inputs`.
+- The turn journal (`agent_run_turns`, `ctx.journal`, `runToolLoop({ journal })`), `Tool.sideEffects` / `Tool.durable`, `ToolCallInfo { toolCallId, idempotencyKey }`; pruned nightly after `AGENT_TRANSCRIPT_RETENTION_DAYS` (30).
+- Cancel in flight: `watchCancel`, `abortableChatClient`, `ctx.signal`; a silent `running` run settles at once (`ATTEMPT_DEAD_MS`).
+- New `*/10 * * * *` cron: `sweepLostRuns` and `sendReminders`; `0 4 * * *` adds `pruneAgentTurns`.
+- Versions: `meta.version`, `meta.onVersionChange` (`continue|fail|rerun`), `pinned`; `agent_runs.worker_version_id` from `APP_VERSION_ID`; the recordings check (`tests/agent-recordings/*.json`, `agent:replay --record`).
+- HITL: `meta.hitl { timeout, remindAfter, onTimeout }`, ask `assignees { userIds, groupIds }`.
+- Child runs: `ctx.spawn`, `agent_runs.parent_run_id` / `budget`; `GET /runs` leaves children out unless `?parentRunId=`.
+- Inspector: `GET /api/agents/runs/:id/timeline`, `GET /api/agents/stats`, `rocketpod agents inspect`, `agents runs list --parent|--since|--agent-version`; new `/agents/:agentKey` and `/agents/runs` pages and the run page's Inspect tab.
+- Tracing: a job's AI span is `invoke_workflow <type>` (was `job <type>`); a `run started` span at the first claim; `gen_ai.conversation.id` on every run span; `schemaUrl` semconv 1.45.0.
+- Lint: `biome check . --error-on-warnings` — a warning now fails the gate.
+
+### How to apply
+
+1. Follow Rocketflare's `docs/upgrades/0.39.0.md`, with these Rocketpod differences:
+   - The build id is `APP_VERSION_ID` (optional, `src/config.ts`), not the `CF_VERSION_METADATA` binding: add it to `.env.example`, Helm (`config.APP_VERSION_ID`, defaulted in `templates/configmap.yaml` to `.Values.image.tag | default .Chart.AppVersion`) and compose (`APP_VERSION_ID: ${APP_VERSION_ID:-}`). Add `AGENT_TRANSCRIPT_RETENTION_DAYS` to the same three.
+   - The run engine is `env.runs` / `platform.runs`, not `env.AGENT_RUN_WORKFLOW`. A missing engine run is the typed `RunInstanceNotFoundError` (`src/platform/types.ts`), thrown by `src/node/runs.ts` and the test `RecordingWorkflow`; `isMissingInstanceError` matches the type or its `code`, never the message.
+   - The crons are `SCHEDULED_TASKS` entries (`api/scheduled.ts`); there is no toml. `runSweepLostRuns` takes `Pick<Platform, 'runs'>`.
+   - `claimStep(db, platform, logger, params, { cfg })` from `agent-run-body.ts`.
+   - Skip the wrangler tomls, `[version_metadata]`, `wrangler types`, `provision.ts`, `AgentRunWorkflow` and the cloudflare-workers mock.
+   - `scripts/plugin.mjs`: every `requireClean` call is `requireClean(args)`.
+2. Run `pnpm db:generate` (migration `0016_kit-agent-durable-runtime`, upstream's `0031` + `0032` in one, apart from the role), then `pnpm db:migrate`.
+3. Fix every Biome warning (`pnpm lint` now fails on them).
+4. Regenerate `docs/plugin-api.md` with `node scripts/plugin-api-doc.mjs`.
+
+### Conflicts to expect
+
+- `apps/web/src/api/services/agents/runtime.ts` → `notifyApprovers` moved to `hitl.ts`; keep `Platform` as the env type and add `cancelPollMs`.
+- `apps/web/src/api/services/agents/runs.ts` → the insert keeps `concurrencyKey` and adds `agentVersion`, `parentRunId`, `budget`.
+- `apps/web/src/ui/pages/agents/AgentsPage.tsx` → take the release's; keep the Run button behind `agent.startable`.
+- A test that runs the cross-tenant `runSweepLostRuns` against its own env settles other files' stale runs as not found; sweep one run with `sweepRun` instead (`agent-hitl.test.ts`).
+
+### Verify
+
+1. `tests/api/agent-{children,durable-loop,hitl,loop-journal,recordings,stats,sweeper,versions}.test.ts` pass.
+2. `tests/api/node-runs.test.ts` passes: a cancel reaches a hung model call and the run settles `cancelled` with the engine run complete; a second cancel terminates it.
+3. `psql "$DATABASE_URL" -c '\d agent_run_turns'` shows the table.

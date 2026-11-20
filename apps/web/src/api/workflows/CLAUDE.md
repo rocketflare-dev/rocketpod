@@ -37,10 +37,15 @@ Three more things the loop holds:
 **The whole tool loop lives in the ONE `execute` step by decision, not by omission** — one `step.do`
 per model turn was investigated and rejected (`docs/CONCEPTS.md` §9 Known gaps). Steps do not nest,
 so it needs `run()` outside a step, and the engine replays everything outside a step. Wall clock per
-step is unlimited, so a long run is a bigger `timeout`, not more steps.
+step is unlimited, so a long run is a bigger `timeout`, not more steps. What a retry of that one step
+does NOT redo is the turn journal's job (`agent_run_turns`, `ctx.journal`, `docs/CONCEPTS.md` §9
+"Durable loop"): each model turn and tool result is recorded as it settles, so a retry inside the
+step is billed only for what it still owes.
 
-Rules: idempotent steps (the `agent_runs` row is the claim); cooperative cancel (poll the row between
-turns); no `waitUntil` — await everything, including nudges (`createStepRealtime().settle()`) and events
+Rules: idempotent steps (the `agent_runs` row is the claim); cancel reaches the call in flight
+(`executeRun` watches the row every `CANCEL_POLL_MS` and aborts `ctx.signal`; an aborted attempt
+settles `cancelled`, never a retryable failure — `node-runs.test.ts` proves it on the real engine);
+no `waitUntil` — await everything, including nudges (`createStepRealtime().settle()`) and events
 (`emit`).
 `pnpm dev` runs the engine locally; inspect a run in the `openworkflow` schema
 (`workflow_runs`, `step_attempts`) by the `instanceId` on its `agent_runs` row.
@@ -69,6 +74,12 @@ Retries are in-process on Node (one OpenWorkflow step per `step.do`, with the po
 inside it), and a step that ran out of retries replays its recorded error. A repeated step name is
 auto-suffixed rather than replayed, so the per-round names are still required — a suffixed name
 would run a round's step again instead of returning its result.
+A run the engine no longer has is `RunInstanceNotFoundError` (`src/platform/types.ts`, code
+`instance_not_found`): `getWorkflowRun` answers `null`, the adapter throws the typed error, and
+`isMissingInstanceError` matches the type or the code — never a message. OpenWorkflow's statuses
+(`pending|running|sleeping|succeeded|completed|failed|canceled`) map onto `RunStatus` in
+`mapRunStatus`, which `reconcileRun` and the `*/10` sweeper (`sweepLostRuns`) read.
 `tests/api/node-runs.test.ts` drives the engine: crash replay, retries, timeouts, park and resume,
-the signal race, terminate, and the agent run end to end.
+the signal race, terminate, the agent run end to end, a cancel reaching a hung model call, and a
+forced cancel terminating the engine run.
 

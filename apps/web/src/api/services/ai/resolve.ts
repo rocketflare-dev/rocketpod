@@ -237,7 +237,7 @@ export async function credentialOf(
 export async function chatClientFromRow(
   row: AiConfigRow,
   cfg: AppConfig,
-  env: AiEnv,
+  _env: AiEnv,
   fetchImpl?: FetchLike
 ): Promise<ChatClient> {
   return createChatClient({
@@ -306,7 +306,7 @@ export interface PlatformChat {
  * without one) → nothing. The ONE definition `resolveChat`, `readiness` and the agent-models list all read, so
  * the three can never disagree.
  */
-export function platformChat(cfg: AppConfig, env: AiEnv): PlatformChat | null {
+export function platformChat(cfg: AppConfig, _env: AiEnv): PlatformChat | null {
   if (cfg.ANTHROPIC_API_KEY) {
     const apiKey = cfg.ANTHROPIC_API_KEY
     return {
@@ -322,7 +322,7 @@ export function platformChat(cfg: AppConfig, env: AiEnv): PlatformChat | null {
 export async function embeddingsClientFromRow(
   row: AiConfigRow,
   cfg: AppConfig,
-  env: AiEnv,
+  _env: AiEnv,
   fetchImpl?: FetchLike
 ): Promise<EmbeddingsClient> {
   return createEmbeddingsClient({

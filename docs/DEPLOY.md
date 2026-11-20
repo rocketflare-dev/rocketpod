@@ -102,7 +102,11 @@ helm upgrade --install rocketpod deploy/helm/rocketpod -n rocketpod --create-nam
 
 - **`config`** (→ ConfigMap) mirrors the settings in `apps/web/src/config.ts`. An empty value is left
   out, so the app's default applies. `config.APP_URL` is required (the render fails without it).
-  `TRUSTED_PROXY_HOPS` defaults to `1` (an ingress controller in front).
+  `TRUSTED_PROXY_HOPS` defaults to `1` (an ingress controller in front). `APP_VERSION_ID` — the
+  build each agent-run attempt records as `worker_version_id`, so `rocketpod agents inspect` says
+  which build a run last ran on — defaults to `image.tag` (else the chart's `appVersion`); set it
+  only to override. Compose passes `APP_VERSION_ID` through from its `.env` (blank → not recorded).
+  `AGENT_TRANSCRIPT_RETENTION_DAYS` (30) is how long a settled run keeps its tool-loop journal.
 - **`secrets`** (→ Secret) or **`existingSecret`** — the name of a Secret you manage (External
   Secrets, Sealed Secrets, Vault) with the same keys. `DATABASE_URL` is required either way. The
   migrate hook runs before the release's own Secret exists, so it reads `DATABASE_URL` and
@@ -123,7 +127,13 @@ helm upgrade --install rocketpod deploy/helm/rocketpod -n rocketpod --create-nam
 **Scaling.** `web` replicas are stateless; realtime crosses pods through `LISTEN/NOTIFY`. `worker`
 replicas share the pg-boss queue (`JOBS_CONCURRENCY` jobs each) and OpenWorkflow's runs
 (`RUNS_CONCURRENCY` each), and pg-boss keeps every cron occurrence to one run however many workers
-there are. Size Postgres `max_connections` for roughly
+there are. The worker's cron: `0 4 * * *` prunes (sessions, links, invitations, `ai_spans`,
+`plugin_events`, and the tool-loop journal `agent_run_turns` of runs settled more than
+`AGENT_TRANSCRIPT_RETENTION_DAYS` ago); `*/10 * * * *` runs `sweepLostRuns` (up to 100 active
+runs untouched for 10 minutes, oldest first: a `queued` row with no engine run gets one, a failed
+engine run → `failed`, a canceled one → `cancelled`, a completed one → `succeeded`, a park whose
+asks all expired → `cancelled`; a running or waiting run is left alone) and `sendReminders` (one
+reminder per pending ask past its `remind_at`, up to 100 a sweep). Size Postgres `max_connections` for roughly
 `(web + worker replicas) × (DATABASE_POOL_MAX + 8)`.
 
 ## Public site hosts
@@ -264,7 +274,7 @@ never fail a request.
 
 | Situation | Action |
 |---|---|
-| Bad release, schema unchanged | Deploy the previous image tag: `helm rollback rocketpod`, or `ROCKETPOD_IMAGE=…:<previous>` then `docker compose up -d` |
+| Bad release, schema unchanged | Deploy the previous image tag: `helm rollback rocketpod`, or `ROCKETPOD_IMAGE=…:<previous>` then `docker compose up -d`. Agent runs in flight resume on the rolled-back code: a rollback that also rolls back an agent's `meta.version` applies its `onVersionChange` like any other version change |
 | Schema migration must be undone | Migrations are forward-only: write a compensating migration and release it. Rolling the image back never touches the database (the migrate hook runs on install and upgrade only) |
 | RLS enforce misbehaving | `config.TENANT_SCOPE_MODE=off` and roll the pods — no migration (`docs/RLS.md`) |
 | Tenant AI keys unreadable after rotating `OAUTH_ENCRYPTION_KEY` | There is no re-encrypt path: admins re-enter the key in Settings → AI; the platform keys are unaffected |

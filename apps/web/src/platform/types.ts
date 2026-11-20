@@ -279,6 +279,21 @@ export interface RunStatus {
   error?: { name: string; message: string }
 }
 
+/**
+ * The engine has no run under that id — a definite "nothing is running", never a lookup failure.
+ * Every adapter throws THIS (`get`, `status`, `sendEvent`), so callers match it by type or `code`
+ * (`isMissingInstanceError`), never by a message an engine might reword.
+ */
+export class RunInstanceNotFoundError extends Error {
+  readonly code = 'instance_not_found'
+  readonly instanceId: string
+  constructor(instanceId: string) {
+    super(`instance.not_found: no run instance ${instanceId}`)
+    this.name = 'RunInstanceNotFoundError'
+    this.instanceId = instanceId
+  }
+}
+
 /** A handle on one durable run instance. */
 export interface RunInstance {
   readonly id: string

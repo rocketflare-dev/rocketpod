@@ -144,7 +144,9 @@ describe('ctx.checkpoint', () => {
     const usage = (
       await db.query.aiUsage.findMany({ where: eq(aiUsage.tenantId, tenant.id) })
     ).filter(u => !u.feature.startsWith('knowledge.'))
-    expect(usage.map(u => [u.inputTokens, u.outputTokens]).sort((a, b) => a[0]! - b[0]!)).toEqual([
+    expect(
+      usage.map(u => [u.inputTokens, u.outputTokens]).sort((a, b) => (a[0] ?? 0) - (b[0] ?? 0))
+    ).toEqual([
       [40, 10],
       [60, 20],
     ])

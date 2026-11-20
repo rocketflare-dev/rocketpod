@@ -88,6 +88,12 @@ const coreConfigSchema = z.object({
   APP_NAME: z.string().min(1).default('Rocketpod'),
   /** Set at deploy time to the release tag. */
   RELEASE_VERSION: z.string().min(1).default('dev'),
+  /**
+   * The deployed build — what an agent run records as `agent_runs.worker_version_id` on each
+   * attempt (`services/agents/versions.ts`). Helm sets it from the image tag, Compose passes it
+   * through; unset = null, and nothing else reads it.
+   */
+  APP_VERSION_ID: optionalString,
   LOG_LEVEL: z.enum(LOG_LEVELS).default('info'),
   EMAIL_FROM: z.string().min(1).default('Rocketpod <noreply@example.com>'),
   /** The schema is identical in both modes; `single` disables the multi-org surface. */
@@ -192,6 +198,11 @@ const coreConfigSchema = z.object({
    * personal data (a form's fields), and a delivery's retries end within the hour.
    */
   EVENTS_RETENTION_DAYS: optionalPositiveInt(7),
+  /**
+   * Days a SETTLED agent run keeps its tool-loop journal (`agent_run_turns` — every model turn and
+   * tool result), which is what a strict replay answers from. Runs, events and decisions are kept.
+   */
+  AGENT_TRANSCRIPT_RETENTION_DAYS: optionalPositiveInt(30),
   /** Per-call `max_tokens` when a tenant config sets none; and the tool-loop turn cap. */
   AGENT_MAX_OUTPUT_TOKENS: optionalPositiveInt(16384),
   AGENT_MAX_TURNS: optionalPositiveInt(30),

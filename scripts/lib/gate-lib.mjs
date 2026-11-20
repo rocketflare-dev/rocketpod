@@ -17,7 +17,7 @@ export const GATE_STEPS = Object.freeze([
   {
     id: 'lint',
     command: ['pnpm', 'lint'],
-    display: 'biome check . --diagnostic-level=error',
+    display: 'biome check . --error-on-warnings',
     database: false,
   },
   // `pnpm -r typecheck`: tsc over every package.

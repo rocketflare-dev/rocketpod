@@ -218,8 +218,8 @@ export interface ServerPlugin<S extends SharedPlugin = SharedPlugin> {
   // A job type that is not one literal — `AnyServerPlugin`'s `string` — takes any handler. Mapped
   // through `Extract`, it became `JobHandler<never>`, and under zod 4 TypeScript's variance shortcut
   // then refused every real plugin's handlers in some programs (apps/evals) and not others.
-  // biome-ignore lint/suspicious/noExplicitAny: the wide plugin type must accept every handler
   jobHandlers?: {
+    // biome-ignore lint/suspicious/noExplicitAny: the wide plugin type must accept every handler
     [T in JobTypeOf<S> & string]: T extends JobType ? JobHandler<T> : JobHandler<any>
   }
   /** Agent definitions, one per key in `shared.agentKeys`. */

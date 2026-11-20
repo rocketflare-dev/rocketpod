@@ -24,7 +24,7 @@ run (`../services/agents/CLAUDE.md`).
 
 - `(job: JobOf<'x'>, ctx: { env, platform, config, logger, db, tracer? })`. `tracer` is the
   message's span recorder, flushed by the consumer before `db` closes — an AI handler brackets its
-  work in `withAgentTrace(..., { kind: 'job', spanName: 'job <type>' })`. Each message gets its own
+  work in `withAgentTrace(..., { kind: 'job', spanName: 'invoke_workflow <type>' })`. Each message gets its own
   DB client, closed in `finally`
 - **Never `waitUntil` in a consumer — await everything.** A handler that throws is retried, one that
   returns is acked

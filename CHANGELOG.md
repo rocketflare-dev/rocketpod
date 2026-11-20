@@ -6,6 +6,11 @@ copy of the kit forward without recreating anything its owner deleted.
 
 If you are running a copy: `pnpm kit:upgrade` tells you which of these you are missing.
 
+## 0.40.0 — 2026-11-20
+
+Rocketpod catches up with Rocketflare 0.40.0: a durable agent runtime, a structured knowledge base with typed facts, two security rounds, a remote MCP server at `/mcp`, and upgrade tooling that resumes after rejects.
+[Porting note](docs/upgrades/0.40.0.md).
+
 ## 0.32.2 — 2026-11-11
 
 Rocketpod catches up with Rocketflare 0.32.2 and takes its version: identity seam, agents at volume, Node 26 and current dependencies, the security hardening round, public sites, platform knowledge and plugin events.

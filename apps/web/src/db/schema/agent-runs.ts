@@ -17,6 +17,7 @@ import type { AgentKey, AgentRunStatus } from '@rocketpod/shared/ai/agents'
 import { ACTIVE_RUN_STATUSES } from '@rocketpod/shared/ai/agents'
 import { relations, sql } from 'drizzle-orm'
 import {
+  boolean,
   index,
   integer,
   jsonb,
@@ -101,6 +102,12 @@ export const agentRuns = pgTable(
      */
     triggerEvent: text('trigger_event'),
     triggerEventId: uuid('trigger_event_id'),
+    /**
+     * A person submitted `input` through `POST /api/agents/runs` (or `/runs/batch`), so the URLs in
+     * it are theirs — `ToolCtx.requesterUrls`. False for a run a plugin or an event started, whose
+     * input may carry text from an email, a page or a webhook.
+     */
+    inputFromRequester: boolean('input_from_requester').notNull().default(false),
     ...timestamps(),
   },
   table => [

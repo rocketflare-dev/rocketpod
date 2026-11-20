@@ -29,6 +29,7 @@ inviteRouter.post('/:token/accept', async c => {
     user: auth.user,
     sessionId: auth.session.id,
     realtime: { defer: makeDefer(c), hub: c.get('platform').realtime },
+    maxOwnedTenants: cfg.MAX_OWNED_TENANTS_PER_USER,
   })
   const refreshed = await resolveCookieAuth(c)
   if (!refreshed) throw new UnauthorizedError()

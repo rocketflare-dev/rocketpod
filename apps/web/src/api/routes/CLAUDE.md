@@ -39,7 +39,7 @@ Hono routers mounted in `src/api/index.ts`. Thin controllers: validate → autho
 - `createRouter()` from `utils/routes/router.ts` — never `new Hono()`. It gives `c.get('config' | 'db' | 'logger' | 'requestId')` types.
 - Request contracts are zod schemas in `packages/shared/src/` (`@rocketpod/shared/<module>`; UI and CLI import them too). Validate with `validate('json' | 'query' | 'param', schema)` from `utils/routes/validate.ts`; a bad input becomes the shared 400 envelope with `code: 'validation_failed'`.
 - Read config via `c.get('config')`, never `c.env`. Platform capabilities are passed INTO services from the route, never read inside them: `c.get('platform').jobs` → `createInvitation(db, cfg, logger, jobs, …)`, `c.get('platform').storage` → the `StorageService`; the realtime hub only ever via the `realtime` that `withAuth` returns.
-- Body limits: the global `jsonBodyLimit` (1 MB) skips the `UPLOAD_PATHS` (`/api/files`, `/api/ai/documents/upload`; `isUploadPath`); each mounts `uploadBodyLimit` (`MAX_UPLOAD_BYTES + 64 KB`) on its `POST` — `files.ts` enforces the exact 5 MB per file (413 `payload_too_large`) and the avatar allowlist (415 `unsupported_media_type`) itself. A new upload route must do the same two things — the transport cap is not the per-file limit.
+- Body limits: beneath the `UPLOAD_PATHS` (`/api/files`, `/api/ai/documents/upload`; `isUploadPath`) the global cap is 1 MB for a JSON body and `MAX_UPLOAD_PATH_BODY_BYTES` (10 MB + 64 KB) for any other; each mounts `uploadBodyLimit` (`MAX_UPLOAD_BYTES + 64 KB`) on its `POST` — `files.ts` enforces the exact 5 MB per file (413 `payload_too_large`) and the avatar allowlist (415 `unsupported_media_type`) itself. A new upload route must do the same two things — the transport cap is not the per-file limit.
 - Throw typed errors from `utils/core/errors.ts` (`NotFoundError`, `ForbiddenError`, ...). Do not hand-roll `c.json({ error }, 4xx)`; `middleware/error-handler.ts` owns the envelope `{ error, statusCode, code?, details? }`.
 - Success bodies are bare domain objects (no envelope). Lists use `paginatedResponse(item)` from `@rocketpod/shared/pagination` → `{ items, pagination: { page, pageSize, total, totalPages } }`.
 - Auth is applied AT THE MOUNT in `index.ts` (`app.use('/api/x/*', authMiddleware); app.route('/api/x', xRouter)`), never inside a route file. Every tenant-scoped query carries `eq(table.tenantId, tenantId)` from the auth context — never from the body/query.
@@ -78,8 +78,10 @@ router.post('/', validate('json', createThingSchema), async c => {
 })
 ```
 
-`withAuth(c)` is the tenant-free variant (`tenantId: string | null`) for invite accept, pending
-invitations, access requests and `/api/admin/*`. Both also return `cfg`, `logger`, `defer` (runs a side
+`withAuth(c)` is the tenant-free variant (`tenantId: string | null`) for invite accept, the
+caller's profile and `/api/admin/*`; `withAccountAuth(c)` is the same for a route about the
+person's whole account (create an organisation, pending invitations, access requests) and refuses
+an API key with 403 `insufficient_scope` — a key acts only within its organisation. Both also return `cfg`, `logger`, `defer` (runs a side
 effect through `waitUntil` and logs instead of throwing), `realtime`
 (`{ defer, hub }` — hand it to a service that nudges) and `tracer` (the request's span
 recorder, or `noopTracer` when no sink exists, for `withAgentTrace` / `traceChatClient`). `requireMultiTenant(cfg)` → 404

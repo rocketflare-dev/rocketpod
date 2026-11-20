@@ -49,12 +49,14 @@ import {
   agentRunEffects,
   agentRunEvents,
   agentRuns,
+  tenants,
 } from '../../../db/schema'
 import type { RunEngine, RunStatus } from '../../../platform/types'
 import { traceIdForRun } from '../../observability/trace-ids'
 import {
   ApiError,
   BadRequestError,
+  ForbiddenError,
   ServiceUnavailableError,
   ValidationError,
 } from '../../utils/core/errors'
@@ -190,6 +192,11 @@ export interface EnqueueRunInput {
   idempotencyKey?: string
   /** The plugin event that started the run, stored as `trigger_event` / `trigger_event_id`. */
   trigger?: { event: string; eventId: string }
+  /**
+   * The person named by `userId` typed `input` (the API routes only) — `input_from_requester`, which
+   * makes the URLs in it `ToolCtx.requesterUrls`. Never set from a plugin or an event.
+   */
+  inputFromRequester?: boolean
 }
 
 export interface EnqueueRunResult {
@@ -257,6 +264,20 @@ export async function countActiveRuns(db: Database, tenantId: string): Promise<n
 }
 
 /**
+ * A suspended organisation starts no runs, whoever asks — a route, a plugin, an event trigger.
+ * 403 `tenant_suspended`, the refusal its members get at sign-in; a missing tenant reads the same.
+ */
+export async function assertTenantActive(db: Database, tenantId: string): Promise<void> {
+  const tenant = await db.query.tenants.findFirst({
+    columns: { status: true },
+    where: eq(tenants.id, tenantId),
+  })
+  if (tenant?.status !== 'active') {
+    throw new ForbiddenError('Organisation is suspended', ERROR_CODES.tenantSuspended)
+  }
+}
+
+/**
  * The two tenant-wide gates every enqueue passes: the active-run cap, counting the runs this
  * call would ADD, and the daily agent spend. Both are counted then inserted, not locked — a burst
  * of simultaneous requests can overshoot the cap by a few, which is fine for a brake.
@@ -295,6 +316,7 @@ export async function enqueueRun(
   const agent = getAgent(input.agentKey)
   const parsed = agent.meta.inputSchema.safeParse(input.input)
   if (!parsed.success) throw new ValidationError(parsed.error.issues, 'Invalid agent input')
+  await assertTenantActive(db, input.tenantId)
   const concurrencyKey = input.concurrencyKey ?? (agent.meta.exclusive ? '' : null)
   const runId = input.idempotencyKey
     ? await idempotentRunId(input.tenantId, input.agentKey, input.idempotencyKey)
@@ -329,6 +351,7 @@ export async function enqueueRun(
         status: 'queued',
         input: parsed.data,
         requestedByUserId: input.userId,
+        inputFromRequester: input.inputFromRequester === true && input.userId !== null,
         concurrencyKey,
         ...(input.trigger && {
           triggerEvent: input.trigger.event,
@@ -411,6 +434,8 @@ export interface EnqueueBatchInput {
   inputs: unknown[]
   userId: string | null
   realtime?: Realtime
+  /** As `EnqueueRunInput.inputFromRequester`. */
+  inputFromRequester?: boolean
 }
 
 /** One input's fate — `row` whenever a row exists, `error` whenever it did not start. */
@@ -467,6 +492,7 @@ export async function enqueueRunBatch(
     }
   })
   if (valid.length === 0) return { batchId, items }
+  await assertTenantActive(db, input.tenantId)
   await assertCapacity(db, cfg, input.tenantId, valid.length)
 
   const ids = valid.map(() => crypto.randomUUID())
@@ -481,6 +507,7 @@ export async function enqueueRunBatch(
         status: 'queued' as const,
         input: v.data,
         requestedByUserId: input.userId,
+        inputFromRequester: input.inputFromRequester === true && input.userId !== null,
         batchId,
       }))
     )
@@ -838,17 +865,31 @@ export async function expireParkedRun(
   return settled
 }
 
-/** `true` when a cancel was requested for the run — the poll a run makes between turns. */
+/**
+ * `true` when a cancel was requested for the run, or its organisation is suspended — the poll a
+ * run makes between turns.
+ */
 export async function isCancelRequested(
   db: Database,
   tenantId: string,
   runId: string
 ): Promise<boolean> {
-  const row = await db.query.agentRuns.findFirst({
-    columns: { cancelRequestedAt: true, status: true },
-    where: and(eq(agentRuns.id, runId), eq(agentRuns.tenantId, tenantId)),
-  })
-  return !row || row.cancelRequestedAt !== null || row.status === 'cancelled'
+  const [row] = await db
+    .select({
+      cancelRequestedAt: agentRuns.cancelRequestedAt,
+      status: agentRuns.status,
+      tenantStatus: tenants.status,
+    })
+    .from(agentRuns)
+    .innerJoin(tenants, eq(tenants.id, agentRuns.tenantId))
+    .where(and(eq(agentRuns.id, runId), eq(agentRuns.tenantId, tenantId)))
+  // A run whose organisation was suspended mid-flight stops at its next check, as a cancel does.
+  return (
+    !row ||
+    row.cancelRequestedAt !== null ||
+    row.status === 'cancelled' ||
+    row.tenantStatus !== 'active'
+  )
 }
 
 /** `instance.not_found` and friends — a definite "nothing is running", not a lookup failure. */

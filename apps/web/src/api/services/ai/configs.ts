@@ -8,7 +8,8 @@
  *   `hasCredential` only);
  * - an upsert keys on (tenant, scope, label); omitting `apiKey` on a re-save keeps the stored key
  *   only while the provider and the normalised base URL both match — a provider or endpoint change
- *   without a new key drops it (a key belongs to the provider and endpoint it was entered for);
+ *   without a new key drops it (a key belongs to the provider and endpoint it was entered for),
+ *   decided on the row the save overwrites, read `FOR UPDATE` inside the save's transaction;
  * - `isDefault` swaps the scope's default inside the transaction (clear-others-then-set — the
  *   partial unique index rejects the reverse order), and the first row in a scope is always made
  *   default.
@@ -152,26 +153,37 @@ export interface UpsertedAiConfig {
   created: boolean
 }
 
-/** Validate, encrypt the key if one was given, and upsert on (tenant, scope, label). */
+/** The row a save would overwrite, locked until the transaction ends (none yet → undefined). */
+async function lockConfig(
+  tx: Database,
+  tenantId: string,
+  scope: AiScope,
+  label: string
+): Promise<AiConfigRow | undefined> {
+  const [row] = await tx
+    .select()
+    .from(aiConfigs)
+    .where(
+      and(eq(aiConfigs.tenantId, tenantId), eq(aiConfigs.scope, scope), eq(aiConfigs.label, label))
+    )
+    .for('update')
+  return row
+}
+
+/**
+ * Validate, encrypt the key if one was given, and upsert on (tenant, scope, label). Whether the
+ * stored key stays is decided on the row this save overwrites, read `FOR UPDATE` inside the
+ * transaction: a concurrent save to the same (tenant, scope, label) waits, then decides on what the
+ * first one wrote — so a key never ends up beside an endpoint it was not saved with.
+ */
 export async function upsertAiConfig(
   db: Database,
   cfg: AppConfig,
   tenantId: string,
   body: UpsertAiConfigRequest
 ): Promise<UpsertedAiConfig> {
-  const existing = await db.query.aiConfigs.findFirst({
-    where: and(
-      eq(aiConfigs.tenantId, tenantId),
-      eq(aiConfigs.scope, body.scope),
-      eq(aiConfigs.label, body.label)
-    ),
-  })
-  validateAiConfigUpsert(body, existing)
   const apiKeyEnc = body.apiKey ? await encrypt(body.apiKey, requireEncryptionKey(cfg)) : undefined
-  // A provider or endpoint change without a new key must not carry the old credential along.
-  const dropKey = !body.apiKey && existing && !keepsStoredKey(existing, body)
-
-  const values = {
+  const fields = {
     tenantId,
     scope: body.scope,
     provider: body.provider,
@@ -180,28 +192,46 @@ export async function upsertAiConfig(
     model: body.model,
     thinking: body.thinking ?? { enabled: false },
     serviceTier: body.serviceTier ? body.serviceTier : null,
-    ...(apiKeyEnc !== undefined ? { apiKeyEnc } : dropKey ? { apiKeyEnc: null } : {}),
   }
 
-  const row = await db.transaction(async tx => {
-    // `isDefault` is deliberately NOT in `values`: it is a cross-row invariant applied by
-    // `makeDefault` after the row exists. `apiKeyEnc` is only in the SET when a key was supplied.
-    const [saved] = await tx
-      .insert(aiConfigs)
-      .values(values)
-      .onConflictDoUpdate({
-        target: [aiConfigs.tenantId, aiConfigs.scope, aiConfigs.label],
-        set: { ...values, updatedAt: new Date() },
-      })
-      .returning()
-    if (!saved) throw new Error('ai_configs: upsert returned no row')
-    if (body.isDefault || !(await hasDefault(tx, tenantId, body.scope))) {
-      await makeDefault(tx, tenantId, body.scope, saved.id)
-      return { ...saved, isDefault: true }
+  return db.transaction(async tx => {
+    let existing = await lockConfig(tx, tenantId, body.scope, body.label)
+    let row: AiConfigRow | undefined
+    if (!existing) {
+      validateAiConfigUpsert(body, undefined)
+      // `isDefault` is deliberately NOT in the values: it is a cross-row invariant applied by
+      // `makeDefault` after the row exists. A concurrent first save makes this a no-op; that
+      // row is then locked and decided on below like any other.
+      ;[row] = await tx
+        .insert(aiConfigs)
+        .values({ ...fields, ...(apiKeyEnc !== undefined && { apiKeyEnc }) })
+        .onConflictDoNothing({ target: [aiConfigs.tenantId, aiConfigs.scope, aiConfigs.label] })
+        .returning()
+      if (!row) existing = await lockConfig(tx, tenantId, body.scope, body.label)
     }
-    return saved
+    if (existing) {
+      validateAiConfigUpsert(body, existing)
+      // A provider or endpoint change without a new key must not carry the old credential along.
+      const keyChange =
+        apiKeyEnc !== undefined
+          ? { apiKeyEnc }
+          : keepsStoredKey(existing, body)
+            ? {}
+            : { apiKeyEnc: null }
+      ;[row] = await tx
+        .update(aiConfigs)
+        .set({ ...fields, ...keyChange, updatedAt: new Date() })
+        .where(and(eq(aiConfigs.tenantId, tenantId), eq(aiConfigs.id, existing.id)))
+        .returning()
+    }
+    if (!row) throw new Error('ai_configs: upsert returned no row')
+    const created = !existing
+    if (body.isDefault || !(await hasDefault(tx, tenantId, body.scope))) {
+      await makeDefault(tx, tenantId, body.scope, row.id)
+      return { row: { ...row, isDefault: true }, created }
+    }
+    return { row, created }
   })
-  return { row, created: !existing }
 }
 
 /** Delete one row of the tenant's; null when there is none with that id. */

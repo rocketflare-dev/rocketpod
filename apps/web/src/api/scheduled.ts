@@ -16,6 +16,7 @@ import { pruneMagicLinkTokens } from './auth/magic-link'
 import { pruneInvitationSendCounters, pruneInvitations } from './services/invitations'
 import type { AppBindings } from './types'
 import { type Logger, loggerFor } from './utils/core/logger'
+import { pruneTenantCreationCounters } from './utils/db/tenant-helpers'
 
 export interface TaskContext {
   env: AppBindings
@@ -42,8 +43,9 @@ export interface TaskReport {
 }
 
 /**
- * Expired sessions, expired/consumed magic links, expired invitations older than 30 days, and the
- * Node platform's expired rate-limit windows and abandoned operation locks.
+ * Expired sessions, expired/consumed magic links, expired invitations older than 30 days, the daily
+ * invitation-mail and organisation-creation counters from before yesterday, and the Node
+ * platform's expired rate-limit windows and abandoned operation locks.
  */
 export async function runPruneExpired(db: Database) {
   const sessions = (
@@ -55,6 +57,7 @@ export async function runPruneExpired(db: Database) {
   const magicLinks = await pruneMagicLinkTokens(db)
   const invitations = await pruneInvitations(db)
   const invitationSendCounters = await pruneInvitationSendCounters(db)
+  const tenantCreationCounters = await pruneTenantCreationCounters(db)
   // The platform's limiter and locks: a key whose newest hit left its window, a lock whose
   // holder never released it.
   const rateLimitKeys = affected(
@@ -68,6 +71,7 @@ export async function runPruneExpired(db: Database) {
     magicLinks,
     invitations,
     invitationSendCounters,
+    tenantCreationCounters,
     rateLimitKeys,
     operationLockKeys,
   }

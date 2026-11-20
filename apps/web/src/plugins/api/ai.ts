@@ -33,6 +33,7 @@ import type {
   AgentInterruptAsk,
 } from '../../api/services/agents/registry'
 import type { AgentToolContext } from '../../api/services/agents/tools'
+import { noRequesterUrls } from '../../api/services/agents/tools/requester-urls'
 import type {
   CallStructuredToolOptions,
   RunToolLoopOptions,
@@ -109,6 +110,14 @@ export interface ToolCtx {
   /** The CALLER's budget for one document window, in characters. An agent run's is far larger than a chat turn's. */
   maxDocumentChars?: number
   /**
+   * The http(s) URLs the person behind this call wrote themselves, normalised with `new URL()` and
+   * no fragment: the chat person's own messages, or an agent run's input when a person submitted it
+   * through the API. Never text from a tool result, a page, a document, an email, the model, or a run
+   * a plugin or event started (empty there). A tool that fetches the web reads a URL only when it is
+   * in here or its own search returned it — compare `new URL(x)` with its hash cleared, `toString()`.
+   */
+  requesterUrls: ReadonlySet<string>
+  /**
    * The feature keys the run's organisation has — what `ctx.features(tenantId)` answers in a job.
    * A plugin whose tool belongs to a flagged surface returns `[]` when the flag is off, so a dark
    * feature costs no prompt tokens and the model never sees a tool it could only fail with.
@@ -134,6 +143,7 @@ export function toolCtx(ctx: AgentToolContext): ToolCtx {
     features: () => tenantFeatures(ctx.db, ctx.cfg, ctx.scope.tenantId),
     storage: () => filesStorage(ctx.env),
     ...(ctx.maxDocumentChars !== undefined && { maxDocumentChars: ctx.maxDocumentChars }),
+    requesterUrls: ctx.requesterUrls ?? noRequesterUrls(),
   }
 }
 

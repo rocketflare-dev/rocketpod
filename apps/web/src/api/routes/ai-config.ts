@@ -1,10 +1,12 @@
 /**
  * `/api/ai/config`: a tenant's AI providers. Credentials are encrypted on the way in and
  * NEVER come back out (`hasCredential` only). `POST /` upserts on (tenant, scope, label): omitting
- * `apiKey` on a re-save keeps the stored key; `isDefault` swaps the scope's default inside one
- * transaction (clear-others-then-set — the partial unique index rejects the reverse order). The
- * first row in a scope is always made default. `POST /test` spends money at a provider on demand,
- * so it is rate-limited per IP. `GET /readiness` is what the Home checklist reads. `manage AiConfig`
+ * `apiKey` on a re-save keeps the stored key while the provider and endpoint are unchanged, decided
+ * on the row the save overwrites (read `FOR UPDATE` inside the save's transaction,
+ * `services/ai/configs.ts`); `isDefault` swaps the scope's default inside one transaction
+ * (clear-others-then-set — the partial unique index rejects the reverse order). The first row in a
+ * scope is always made default. `POST /test` spends money at a provider on demand, so it is
+ * rate-limited per IP. `GET /readiness` is what the Home checklist reads. `manage AiConfig`
  * = admin+; members may `read` (the list shows what will answer them, not how to change it).
  */
 import {

@@ -224,7 +224,9 @@ release.
 - **`agentTools(ctx)` is bound to the run's `AgentToolContext`**, which carries the `AccessScope` —
   so a plugin tool reads what its REQUESTER may read, never a bare `tenantId` it chose itself. A
   tool that writes is offered on `ToolCtx.can('manage', YOUR_SUBJECT)`, never on `scope.bypass`,
-  which is row visibility.
+  which is row visibility. A tool that fetches a URL reads only one in `ToolCtx.requesterUrls`
+  (what the person typed) or one its own search returned — never a URL the model, a page or a
+  document supplied.
   Appended after the kit's three knowledge tools (async allowed, `[]` for a tenant that has not
   turned the tool on, a throw is logged and skipped); a test that pinned the exact tool list must
   become a prefix assertion.
@@ -232,11 +234,14 @@ release.
   `SharedPlugin.subjects`), run after the kit's matrix in `buildAbility`. CASL can take a rule back
   only with `cannot`, so a plugin that revoked a kit grant would change what every role may do
   merely by being installed.
-- **`hooks.onTenantCreated`, `hooks.onTenantDeleted` and `hooks.seedDemo` are post-commit, idempotent
-  and best-effort**, each try/caught by the host after the kit's own — a plugin hook that throws must
+- **`hooks.onTenantCreated`, `hooks.onTenantDeleted`, `hooks.onTenantStatusChanged` and
+  `hooks.seedDemo` are post-commit, idempotent and best-effort**, each try/caught by the host after the kit's own — a plugin hook that throws must
   never break sign-up or invite accept, so nothing a tenant NEEDS may arrive only that way.
   `onTenantCreated` is handed `features` (a hook that CREATES rows gates on them itself). `seedDemo`
   gets a `demoId` already namespaced with the plugin's id; fixed ids + `onConflictDoNothing`.
+- **`onTenantStatusChanged(db, tenantId, status, env)`** runs after a suspend / reactivate
+  (`setTenantSuspended`), each failure logged and swallowed — invalidate anything the plugin
+  serves or caches for the tenant outside the auth middleware (public pages, a CDN in front).
 - **`onTenantDeleted` is for state the FK cascade cannot reach**, and nothing else: a plugin's
   TABLES are already gone. It runs from the `tenant.purge` job with the tenant id and the platform,
   so a plugin reaches its own storage prefix or external system through `ctx.platform` rather than a

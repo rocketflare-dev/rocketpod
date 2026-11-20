@@ -55,7 +55,13 @@ suites on vitest 4, §9 — never part of the gate).
   a person with no membership whose access request is pending or rejected (403
   `pending_approval`; a global admin is not held by one), and one person's owned organisations stop
   at `MAX_OWNED_TENANTS_PER_USER` (default 10, global admins exempt, 403 `tenant_limit_reached`),
-  counted under a lock on the user row so simultaneous creations cannot pass it.
+  counted under a lock on the user row so simultaneous grants cannot pass it. The ceiling holds
+  wherever ownership is gained: creating an organisation, a promotion to `owner` on the members
+  route, and accepting an `owner` invitation (refused, the invitation left pending). The same
+  number bounds the organisations one person may CREATE per UTC day through `POST /api/tenants`
+  (`tenant_creation_counters`, no foreign key to `tenants`, pruned nightly), so deleting an
+  organisation frees a place under the ceiling but not the day's creation: one account's daily
+  agent allowance is bounded by `AGENT_TENANT_DAILY_COST_USD` × the ceiling × 2 at most.
 - **Roles (D10).** `owner | admin | member` plus `support` (minted from `/admin`, visible to the
   customer); `users.isGlobalAdmin` is a platform flag. Default for a new subject: owner/admin/support
   `manage`, member `read` with route-scoped writes. "Own row" is always a route predicate — **CASL
@@ -72,7 +78,24 @@ suites on vitest 4, §9 — never part of the gate).
   bulk routes alike (403 before any row). A member removed from a tenant takes their pending
   invitations with them, in the removal's transaction, on the members route and on every path that
   ends an `idp` or a `support` membership for good; a global admin's stay, because their authority
-  is the platform flag (so leaving support revokes nothing). Accepting over an `idp` row leaves the
+  is the platform flag (so leaving support revokes nothing). A role change ends the target's
+  pending invitations the new role could not issue, in the same transaction (to `admin`: the
+  `owner` ones; to `member`: all). And an invitation is accepted only while its issuer could still
+  issue it: accept re-checks, inside its transaction, that the issuer exists, is not blocked and is
+  a global admin or a member of the tenant whose role could issue the invitation's (`owner` needs
+  an owner, `admin` / `member` an owner or an admin) — otherwise the row is marked revoked and
+  the answer is 410 `invitation_revoked`. That covers every path that withdraws authority without
+  revoking anything itself: a block, a lost global-admin flag, an issuer-managed role change.
+- **A suspended tenant is closed to its members and runs no agents.** `POST
+  /api/admin/tenants/:id/suspend` sets `tenants.status`; every authenticating path (cookie, API
+  key, `/ws`, the identity seam's tenant-taking methods) then answers 403 `tenant_suspended`, and
+  the tenant's sockets close. `enqueueRun` / `enqueueRunBatch` refuse it the same way whoever asks
+  (a plugin, an event trigger — `event.deliver` acknowledges the 403 rather than retrying). The
+  suspension cancels the runs nothing is executing (`queued`, `awaiting_input`); a run already
+  executing stops at its next cancel poll, and one whose run engine reaches `execute` afterwards
+  settles `cancelled` (status event `reason: 'tenant_suspended'`) before any model call.
+  Reactivating starts nothing again: the cancelled runs stay cancelled.
+  Accepting over an `idp` row leaves the
   row as it is (the invitation is still marked accepted). Mail is bounded by Postgres: a resend
   inside `INVITATION_RESEND_COOLDOWN_SECONDS` (five minutes) answers 429 and keeps the link
   already sent, and `invitation_send_counters` caps the mail per UTC day per person across every
@@ -107,7 +130,8 @@ suites on vitest 4, §9 — never part of the gate).
   org's first sign-in made (`DELETE /api/admin/tenants/:id`, the owner's delete with its slug
   confirmation), which frees the org for the link. Under managed tenancy the issuer decides which
   organisations exist, so `POST /api/tenants` and a slug change on `PATCH /api/tenant` answer 409
-  `idp_managed`, whoever asks; the slug-link path above is only reachable from a tenant that
+  `idp_managed`, whoever asks, and the session's `canCreateTenant` is false so the UI offers no
+  "Create organisation"; the slug-link path above is only reachable from a tenant that
   already had the slug, made by hand or before managed tenancy.
   `idp_synced_at` on both tables records when the issuer last spoke about the row, so a stale event
   is skipped. **A tenant created this way has no owner — decided:** managed tenancy never writes
@@ -122,6 +146,9 @@ suites on vitest 4, §9 — never part of the gate).
 **Known gaps:** no IdP group sync (SCIM/SAML claims); no group hierarchy or per-group roles;
 conversations, runs, prompts and non-Knowledge files have no visibility; agent-written documents
 are always `tenant`; no audit log beyond `activity_events`; no personal API keys (tenant keys only).
+`AGENT_TENANT_DAILY_COST_USD` is per organisation, not per person — the creation limit above is
+what bounds one account. A deleted organisation's `ai_usage` rows go with it (the FK cascade), so
+the operator's record of what it spent is lost with the organisation.
 
 ## 2. Auth
 
@@ -132,11 +159,18 @@ are always `tenant`; no audit log beyond `activity_events`; no personal API keys
   membership → groups → features in one query. The second strategy is a Bearer tenant API key
   (hashed, expiry, soft revoke), with scopes `authMiddleware` enforces on every request: `read`
   allows GET/HEAD/OPTIONS, `write` or `*` allows everything; anything else is 403
-  `insufficient_scope`. The CASL check on the creator's role still applies on top.
+  `insufficient_scope`. The CASL check on the creator's role still applies on top. A key acts only
+  within its organisation, plus its creator's own profile (`GET`/`PATCH /api/me`): `GET
+  /api/tenants` lists that one organisation, and the routes about the person's whole account —
+  `POST /api/tenants`, `GET /api/invitations/pending`, `POST /api/access-requests` — answer 403
+  `insufficient_scope` to a key (`withAccountAuth`).
 - **Magic link** is the zero-credential path: a 256-bit, 15-minute, single-use, SHA-256-hashed
   token. With no `RESEND_API_KEY` the URL is logged, except when `APP_ENV=production`, where it is
-  never written to the logs. Past five sign-in mails to one address in 15 minutes the route still
-  answers 202 but mints nothing and sends nothing (`platform.rateLimiter`, keyed by a hash of the address). Opening the
+  never written to the logs. Past five sign-in mails to one mailbox in 15 minutes the route still
+  answers 202 but mints nothing and sends nothing (`platform.rateLimiter`, keyed by a hash of the
+  canonical mailbox — lower-cased, a `+tag` dropped, and for `gmail.com` / `googlemail.com` the
+  local part's dots dropped, so `a+1@x` and `a+2@x` share one window; the mail still goes to the
+  address as typed). Opening the
   link consumes nothing: `GET /verify` redirects to `/magic-link/confirm`, and only its "Sign in"
   button (`POST /verify`, same-origin only) spends the token, so mail security scanners that fetch
   every link on delivery (Defender Safe Links, Mimecast) cannot. Dev-login exists and 404s in production.
@@ -147,7 +181,11 @@ are always `tenant`; no audit log beyond `activity_events`; no personal API keys
   claims are checked but not its signature (identity comes from userinfo / Graph). A token
   response must be `application/json`; an error body of any other type is `oauth_failed`.
   Redirect URIs come from `APP_URL`, accounts link by verified email (Microsoft: the user
-  principal name, whose domain the directory must have verified, not `mail`), and tokens are AES-GCM
+  principal name, not `mail`, trusted only when its domain is among the signing-in directory's
+  verified domains from Graph `/organization` — a personal account, an unlisted domain or a failed
+  lookup is unverified), and an unverified address (`email_verified: false`) is refused with
+  `email_unverified` only where it would match or admit an account: an identity already linked
+  signs in, and link mode from a signed-in session links it. Tokens are AES-GCM
   encrypted under `OAUTH_ENCRYPTION_KEY`. The return path is `?returnUrl=`
   (`?redirectTo=` still accepted); the flow cookie carries state, PKCE verifier and a nonce.
 - **Any OIDC issuer** (`providers/oidc.ts`): set `OIDC_ISSUER` + `OIDC_CLIENT_ID` (+ optional
@@ -269,7 +307,9 @@ are always `tenant`; no audit log beyond `activity_events`; no personal API keys
   and the CLI ignores a callback without it. Details: `apps/web/src/api/routes/CLAUDE.md`.
 
 **Known gaps:** no provider token refresh; no session management UI
-beyond "log out everywhere"; CLI keys differ from other keys only by name. OIDC: one issuer per
+beyond "log out everywhere"; a personal Microsoft account cannot sign up or be matched by address
+— it signs in only after being linked from account settings, and a directory's verified domains
+are read on each sign-in, never cached; CLI keys differ from other keys only by name. OIDC: one issuer per
 deployment; the `groups` claim is read into the profile but **not stored or mapped** to kit groups
 or roles; no `id_token_hint` on logout (id_tokens are not kept, so the issuer may ask to confirm);
 no back-channel or front-channel logout; `OIDC_TRUST_EMAIL=true` trusts every email the issuer
@@ -335,6 +375,12 @@ signed-in account is not checked, and the host trusts the plugin's word that it 
   limit → CORS → CSRF → DB → tracing → mounts). Auth is per mount. The static-file catch-all 404s
   every API prefix as JSON, so a missing route never returns `index.html`. Order and exceptions:
   `.claude/rules/api.md`.
+- **Body limits**: 1 MB on `/api/*`, `/auth/*` and a plugin's prefixes outside `/api`, before any
+  parsing (413 `payload_too_large`). Beneath an upload prefix (`/api/files`,
+  `/api/ai/documents/upload`, a plugin's `uploadPaths`) a JSON body keeps the 1 MB cap, and any
+  other body is capped at `MAX_UPLOAD_PATH_BODY_BYTES` (10 MB + 64 KB multipart overhead, the
+  largest file an upload route may take); each upload route mounts its own tighter cap and checks
+  the exact per-file size itself. A public mount's `bodyLimitBytes` replaces the cap (§16).
 - **Contracts (D13)**: zod schemas from `@rocketpod/shared` are used by the server, UI and CLI.
   There is no `hono/client` RPC. Errors are `{ error, statusCode, code?, details? }` everywhere,
   and success bodies are bare.
@@ -669,7 +715,8 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   agents and indexing answer 503; the gate needs none (tests point both at an in-process fake
   OpenAI-compatible endpoint). Credentials never leave the server (`hasCredential`), and a stored
   key stays with the provider and normalised base URL it was entered for: changing either needs the
-  key again; every error is normalised to `AiError` with secrets redacted. Every `ai_configs` WRITE goes through
+  key again. A save decides that on the row it overwrites, read `FOR UPDATE` inside its
+  transaction, so of two concurrent saves the second decides on what the first wrote; every error is normalised to `AiError` with secrets redacted. Every `ai_configs` WRITE goes through
   `services/ai/configs.ts` (validate, encrypt, upsert, default swap, delete), so a second screen
   that manages a tenant's providers cannot drift from Settings → AI.
 - **Providers**: `anthropic`, `anthropic_compatible`, `openai`, `openai_compatible`. There is no
@@ -785,7 +832,8 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   (`triage-research`) runs any number at once — how many EXECUTE at once is the workers'
   `RUNS_CONCURRENCY`. Two tenant-wide gates sit on every enqueue:
   `AGENT_MAX_ACTIVE_RUNS_PER_TENANT` (default 50, 429 `agent_runs_limit` — a soft cap, counted then
-  inserted) and `AGENT_TENANT_DAILY_COST_USD` (429 `ai_budget_exceeded`).
+  inserted) and `AGENT_TENANT_DAILY_COST_USD` (429 `ai_budget_exceeded`), after the tenant
+  itself — a suspended one is 403 `tenant_suspended` (§1).
   `POST /api/agents/runs/batch` takes up to 100 inputs of one non-exclusive agent (400
   `agent_exclusive` otherwise), validates each and inserts them under one `batch_id`, then starts
   each on the run engine with its own `create()` — OpenWorkflow has no batch call, and `create` is
@@ -871,6 +919,10 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   platform key), a chat call on an unpriced model is refused before it is made (run event
   `agent_budget_exceeded`, `BudgetLimit` `unpriced_model`), because its cost could never reach the
   cap. A tenant's own key is its own spend, so it is not refused.
+  `ctx.decide`'s chat fallback (no TypeSafe key anywhere, prompt key `agent-decide`) is metered the
+  same way, call by call: refused before the call on an unpriced model the deployment pays for —
+  judged on who pays for the `agent-decide` model, not the agent's own — and ledgered as each call
+  returns, so a decide whose answer fails validation twice still leaves both rows.
 - **Tracing (D32, supersedes D16's Langfuse ingestion client)**: `api/observability/`. Every AI call
   site talks to the `Tracer` seam; the recorder batches ended spans and flushes (in `waitUntil`, or
   awaited at the end of a stream, step or job) to two sinks: our own **OTLP/HTTP exporter**
@@ -1322,6 +1374,13 @@ Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
   `ToolCtx.can(action, subject)` is the requester's CASL grant, read at build time from their
   current membership (false for a run with no requester): gate a tool that writes on your own
   subject's `manage`, not on `scope.bypass`, which is row visibility and true for `support` too.
+  `ToolCtx.requesterUrls` is the frozen set of http(s) URLs the person wrote themselves
+  (`services/agents/tools/requester-urls.ts`): in chat, their own turns in the conversation; in an
+  agent run, the input when a person submitted it through `POST /api/agents/runs` or `/runs/batch`
+  (`agent_runs.input_from_requester`), recomputed on every attempt. A run a plugin or an event
+  started, and a `streamChat` turn, carry none. A tool that fetches the web reads a URL only when
+  it is in this set or its own search returned it, so text from a page, a document, an email or
+  the model cannot point it somewhere the person never asked for.
 - **A streamed chat turn (`streamChat`)**: `streamChat(c, { promptKey, feature, message, history?,
   system?, variables?, tools?, maxTurns?, signal?, threadId?, onFinish? })` from `@/plugins/api` is
   a plugin route's whole answer — the kit's resolve seam, streaming tool loop, AG-UI encoder (SSE or
@@ -1598,9 +1657,14 @@ Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
   imports its own `apps/web/src/host/<id>/` as `@/host/<id>/…` (the existing `@/*` alias), and only
   its own id's (`tests/helpers/plugins.ts`). **Known gap:** `plugin export` does not write host
   files back to `from` — they are the app's content, not the plugin's.
-- **Hooks** (`onTenantCreated`, `onTenantDeleted`, `seedDemo`) run post-commit, are idempotent,
+- **Hooks** (`onTenantCreated`, `onTenantDeleted`, `onTenantStatusChanged`, `seedDemo`) run post-commit, are idempotent,
   and are try/caught. State a plugin keeps outside Postgres (its own storage prefix, an external
   system) is purged in `onTenantDeleted`, addressed by names **derived** from the tenant id.
+  `onTenantStatusChanged(db, tenantId, status, env)` runs after a global admin suspends
+  (`'suspended'`) or reactivates (`'active'`) a tenant, from `setTenantSuspended`
+  (`runTenantStatusChangedHooks`), each failure logged as a warning and swallowed: it is how a
+  plugin that caches or publishes a tenant's content outside the auth middleware's reach (a public
+  page, a CDN in front) stops serving it.
 - **Traps measured, now rules**: registries a plugin composes into are FUNCTIONS, not consts
   (module-evaluation order); a value a plugin needs moves to a leaf module; browser-read registries
   are separate files from composing ones; plugins declare `relations()` for their own tables only

@@ -25,6 +25,7 @@ import { recordActivity } from './activity'
 import { accessRequestReceivedEmail } from './email'
 import { platformFeatures } from './features'
 import { enqueueJobs, type JobsQueue } from './jobs'
+import { tenantCreationRefusal } from './tenants'
 
 export interface AdmitInput {
   email: string
@@ -430,6 +431,7 @@ export async function buildSessionResponse(
     accessRequest,
     tenancyMode: cfg.TENANCY_MODE,
     signupMode: cfg.SIGNUP_MODE,
+    canCreateTenant: cfg.TENANCY_MODE === 'multi' && tenantCreationRefusal(cfg, auth) === null,
     version: cfg.RELEASE_VERSION,
   }
 }

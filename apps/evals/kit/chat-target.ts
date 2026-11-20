@@ -18,19 +18,38 @@ import { promptVersion } from '@/api/services/ai/prompt-version'
 import { getPrompt } from '@/api/services/prompts'
 import { aguiFrames } from '../../web/tests/helpers/ai'
 import { request } from '../../web/tests/helpers/request'
-import { caseWorld, seedHistory } from './fixtures'
-import { tenantSpend } from './spend'
+import type { Corpus } from './corpus'
+import { caseWorld, corpusWorld, seedHistory } from './fixtures'
+import { spendSince, tenantSpend } from './spend'
 import { transcriptFromAgui } from './transcript'
 
-export function chatHarness(): Harness<EvalCase, string> {
+export interface ChatHarnessOptions {
+  /**
+   * Run every case in this corpus's shared tenant (`corpusWorld`) instead of a tenant of its own:
+   * the documents are the corpus, a case's own `context` is not ingested, and its spend is the
+   * delta the turn added to that tenant's ledger.
+   */
+  corpus?: Corpus
+  /**
+   * Runs (once per case, before the turn) — memoise inside it. The conflicts suite extracts the
+   * corpus's facts here, so chat answers with them.
+   */
+  prepare?: () => Promise<void>
+}
+
+export function chatHarness(options: ChatHarnessOptions = {}): Harness<EvalCase, string> {
   return createHarness<EvalCase, string>({
-    name: 'rocketpod-chat',
+    name: options.corpus ? `rocketpod-chat · ${options.corpus.name}` : 'rocketpod-chat',
     run: async ({ input: evalCase }) => {
       if (typeof evalCase.input !== 'string') {
         throw new Error(`case ${evalCase.id}: a chat case's input is the user's message (a string)`)
       }
       const question = evalCase.input
-      const world = await caseWorld(evalCase, ['chat'])
+      await options.prepare?.()
+      const world = options.corpus
+        ? await corpusWorld(options.corpus, ['chat'])
+        : await caseWorld(evalCase, ['chat'])
+      const before = options.corpus ? await tenantSpend(world.db, world.tenantId) : null
       const started = Date.now()
       const { events, conversationId } = await withEvalScope(async () => {
         const created = await request(
@@ -68,7 +87,7 @@ export function chatHarness(): Harness<EvalCase, string> {
           provider: transcript.provider,
           model: transcript.model,
           toolCalls: transcript.toolCalls.length,
-          ...(await tenantSpend(world.db, world.tenantId)),
+          ...spendSince(before, await tenantSpend(world.db, world.tenantId)),
         },
         timings: { totalMs },
         artifacts: {

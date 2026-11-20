@@ -13,8 +13,13 @@ viewer's below), all under the `['documents']` root so one invalidation covers t
   to `upload`); Upload file checks the pick with `validateDocumentUpload` (the shared allowlist
   `DOCUMENT_UPLOAD_ACCEPT` + `MAX_UPLOAD_BYTES`) before any request, then `useUploadDocument()`
   posts multipart `file` (+ optional `title`/`source`) to `/api/ai/documents/upload`.
-- Both toast `indexed (n chunks)` / `queued for …` and invalidate `documents`; the list polls
-  every 5 s (`DOCUMENT_POLL_MS`) while a row is `pending` (there is no document nudge yet).
+- Neither toasts a success (the document appears in the list with its status); both invalidate
+  `documents`, and the list polls every 5 s (`DOCUMENT_POLL_MS`) while a row is `pending` (there
+  is no document nudge yet). Text that matches a tenant-wide document of the same source answers
+  that document (`deduplicated: true`) rather than adding a second.
+- Retry: a `failed` row carries a Retry button (owner or `manage Document`, the visibility rule)
+  → `useRetryDocument()` → `POST /:id/retry`, then the list is invalidated and polls the `pending`
+  row. Errors toast; **success toasts nothing** — the badge changing is the answer.
 - Rows show `documentTypeLabel(contentType)` under the title and a download link
   (`filePath(fileId)`) when there is an uploaded original; every title is a
   `<Link to={documentPath(doc.id)}>`, pending and failed rows included.
@@ -25,6 +30,20 @@ viewer's below), all under the `['documents']` root so one invalidation covers t
   `manage Document`) and an `AccessBadge`. `useShareableGroups()` here is the rule the picker is
   fed: every group for `manage Group`, `useMyGroups()` otherwise — exactly what
   `resolveRequestedVisibility` accepts, so the picker can never offer what the save would refuse.
+
+## To review (`ReviewList.tsx`, `?view=review`)
+
+- With `KNOWLEDGE_FACTS_GUARD` (the `knowledge-facts` flag AND `read KnowledgeFact`) the page
+  carries a Documents | To review switch (`role="tablist"`, `?view=` with `replace`); without it
+  there is no switch, `?view=review` shows the documents, and nothing under `/api/knowledge` is
+  requested. The tab's count is `useMyReviewCount()` — the SAME query as the nav badge.
+- The list is `GET /api/knowledge/review` (kind filter; "Only mine" for `manage KnowledgeFact`),
+  each item a `ReviewItem` (`components/knowledge/`): a fact with every visible other side of its
+  conflict, each with its source and inline doubt; a possible match with Merge / Keep separate;
+  every item links to its entity page (`entityPath`). The API lists each side of a conflict as
+  its own item; `withoutRepeatedConflicts` drops a later side already shown under an earlier one,
+  so a disagreement appears once (the tab's count still counts facts). Settled items update in
+  place on the `['knowledge']` refetch — no success toast.
 
 ## Viewer (`DocumentViewPage.tsx`, no SideNav entry)
 
@@ -70,5 +89,6 @@ viewer's below), all under the `['documents']` root so one invalidation covers t
 
 ## Tests
 
-`tests/ui/`: `documents-page`, `search-page`, `document-view`, `document-card`; the pure helpers in
+`tests/ui/`: `documents-page`, `search-page`, `document-view`, `document-card`,
+`knowledge-review` (the view switch, the list, the badge, the flag off), `knowledge-entity-page`; the pure helpers in
 `tests/config/document-helpers.test.ts`.

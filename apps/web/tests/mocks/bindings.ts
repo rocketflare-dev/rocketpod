@@ -418,6 +418,9 @@ const FAKE_MODELS = new Map<string, RecordingAi>()
  *   request's `input`), a chat call's are the request body (`messages`, `tools`, `stream`…).
  * - `respond(model, inputs)` shapes the answer: `{ data: number[][] }` for embeddings (default:
  *   deterministic 1024-dim vectors), `{ response, usage, tool_calls? }` for chat (default `'ok'`),
+ *   the Cohere-style `{ results: [{ index, relevance_score | score }], meta? }` for a rerank
+ *   (`POST /rerank`, inputs `{ query, documents }`; default: the documents in the order given,
+ *   descending inside [0, 1], so the fake reranker never changes a search's order),
  *   or a `ReadableStream` of OpenAI SSE bytes to drive streaming. A throw with a `status` becomes
  *   that HTTP status, so a test can stage an outage the adapter must classify.
  * - `toMarkdown()` (uploads) records `{ name, type, size }` in `conversions` and answers markdown
@@ -448,6 +451,15 @@ export class RecordingAi {
     if (Array.isArray(inputs.messages)) {
       return { response: 'ok', usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 } }
     }
+    if (Array.isArray(inputs.documents)) {
+      const n = inputs.documents.length
+      return {
+        results: inputs.documents.map((_, index) => ({
+          index,
+          relevance_score: 1 - index / (n + 1),
+        })),
+      }
+    }
     const text = inputs.text
     const texts = Array.isArray(text) ? text : [String(text ?? '')]
     return { data: texts.map(t => deterministicEmbedding(String(t))) }
@@ -466,7 +478,12 @@ export class RecordingAi {
   async handle(path: string, body: Record<string, unknown>): Promise<Response> {
     const model = String(body.model ?? '')
     const embeddings = path.endsWith('/embeddings')
-    const inputs = embeddings ? { text: body.input } : body
+    const rerank = path.endsWith('/rerank')
+    const inputs = embeddings
+      ? { text: body.input }
+      : rerank
+        ? { query: body.query, documents: body.documents }
+        : body
     this.runs.push({ model, inputs })
     let out: unknown
     try {
@@ -479,6 +496,7 @@ export class RecordingAi {
     if (out instanceof ReadableStream) {
       return new Response(out, { headers: { 'content-type': 'text/event-stream' } })
     }
+    if (rerank) return Response.json(out)
     if (embeddings) {
       const data = (out as { data?: number[][] }).data ?? []
       return Response.json({ data: data.map((embedding, index) => ({ index, embedding })) })

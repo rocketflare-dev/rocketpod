@@ -49,7 +49,12 @@ Built to `dist/ui`, served in production by the Node server (`src/node/assets.ts
   PaginationControls, FieldError…) plus the visibility trio (`AccessPicker`, `AccessBadge`,
   `VisibilityModal`), `DocumentCard` / `DocumentLink` and `GuideLink`, all markdown-free — the eager
   barrel. `components/ai/` (`Markdown`, `ChatBubble`, `StatRows`, `FeedbackThumbs`) — lazy chunks
-  only. `components/guide/` — `pages/guide/CLAUDE.md`.
+  only. `components/guide/` — `pages/guide/CLAUDE.md`. `components/knowledge/` — knowledge facts:
+  `FactParts` (`FactStateBadge`, `FactItem`, `FactDoubt` — the inline "Is this still right?" —,
+  `useCanSettle`), `PossibleMatch`, `ReviewItem`, `EntityFactsCard` (the chat card).
+  Markdown-free, NOT in the eager barrel: only lazy pages (documents, knowledge, chat via
+  `ChatBubble`) import them. Hooks: `useKnowledge.ts`, all under `['knowledge']`, which the server
+  nudges.
 - `hooks/` — `useAuth` (session, `status`, `selectTenant`, `logout`, `applySession`,
   `useTenancyMode`), `usePermissions` (`can/cannot/isOwnerLevel/isAdminLevel/isGlobalAdmin`),
   `useNavGuard` (the ONE place nav and route guards are decided), `useFeature` (in
@@ -71,7 +76,8 @@ Built to `dist/ui`, served in production by the Node server (`src/node/assets.ts
 |---|---|---|
 | `/chat/:conversationId?` | `read Conversation` | lazy, carries the markdown chunk |
 | `/agents`, `/agents/runs/:runId` | `read AgentRun` | `RunPage` is its own lazy chunk |
-| `/documents`, `/documents/:documentId`, `/search` | `read Document` | the viewer has no nav entry |
+| `/documents`, `/documents/:documentId`, `/search` | `read Document` | the viewer has no nav entry; `/documents?view=review` is the knowledge-facts review list (behind `KNOWLEDGE_FACTS_GUARD`) |
+| `/knowledge/entities/:type/:id` | `KNOWLEDGE_FACTS_GUARD` (`knowledge-facts` flag AND `read KnowledgeFact`) | the entity page (`pages/knowledge/EntityPage.tsx`, lazy, no nav entry) |
 | `/guide` | none | the server answers each reader with their audience's pages |
 | `/settings?tab=…` | `guard="admin"` | tabs gate further — `pages/settings/CLAUDE.md` |
 | `/admin/*` | `globalAdmin` | reachable with no tenant |

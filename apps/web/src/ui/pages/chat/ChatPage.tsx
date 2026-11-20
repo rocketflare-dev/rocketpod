@@ -20,6 +20,7 @@ import type { KitNoticeCode } from '@rocketpod/shared/ai/agui'
 import type { Conversation } from '@rocketpod/shared/ai/chat'
 import { shortModelName } from '@rocketpod/shared/ai/config'
 import { documentCardsFromToolCalls } from '@rocketpod/shared/ai/embeddings'
+import { entityCardsFromToolCalls } from '@rocketpod/shared/ai/knowledge-facts'
 import { type FormEvent, type KeyboardEvent, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { ChatBubble } from '@/ui/components/ai/ChatBubble'
@@ -34,8 +35,10 @@ import {
   useSendMessage,
 } from '@/ui/hooks/useChat'
 import { useMyFeedback } from '@/ui/hooks/useFeedback'
+import { useNavGuard } from '@/ui/hooks/useNavGuard'
 import { usePermissions } from '@/ui/hooks/usePermissions'
 import { isAiNotConfigured } from '@/ui/lib/aguiStream'
+import { KNOWLEDGE_FACTS_GUARD } from '@/ui/lib/feature-guards'
 import { timeAgo } from '@/ui/lib/format'
 import { ChatStatsPanel } from './ChatStatsPanel'
 
@@ -300,6 +303,8 @@ function Transcript({
     if (el && typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'end' })
   }, [count, turn.text, turn.status, conversationId])
 
+  // Entity cards link to a page behind the flag: shown only while the reader has it.
+  const facts = useNavGuard()(KNOWLEDGE_FACTS_GUARD)
   const showTurn = turn.status !== 'idle'
   return (
     <div
@@ -324,6 +329,7 @@ function Transcript({
               usage={message.usage}
               // Derived, never stored: the same mapper the stream used, over the row's tool calls.
               documents={documentCardsFromToolCalls(message.toolCalls)}
+              entities={facts ? entityCardsFromToolCalls(message.toolCalls) : undefined}
               actions={
                 message.role === 'assistant' ? (
                   <FeedbackThumbs
@@ -346,6 +352,7 @@ function Transcript({
           toolSteps={turn.toolSteps}
           notice={turn.notice ? NOTICE_TEXT[turn.notice] : undefined}
           documents={turn.documents}
+          entities={facts ? turn.entities : undefined}
           error={turn.error?.message}
         />
       )}

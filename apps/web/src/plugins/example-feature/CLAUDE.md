@@ -17,6 +17,7 @@ host depends on it. `../CLAUDE.md` is the seam it plugs into.
 | `SharedPlugin.events` + `ServerPlugin.eventHandlers` | `example-feature.note.created`, emitted by `POST /notes` with the key `note:<id>`; `events/note-created.ts` audits it (idempotent on the note); listed in `plugin.json` `"events"` |
 | `ServerPlugin.agents` / `prompts` + `triggers` / `bindable` | `example-feature.note-stats` (`agents/note-stats.ts`, no model call): TRIGGERED by the event unless the title starts "draft", and BINDABLE to it for a picker |
 | `ServerPlugin.agentTools` | `list_example_notes` on an agent run's `ctx.tools` only while the run's organisation has the flag (`ToolCtx.features()`), bound to the run's `AccessScope` |
+| `ServerPlugin.knowledgeEntityTypes` | `example-feature.note` over `example_notes` (`labelColumn: title`, facts `due_date` + `contact_name`) in `knowledge/entity-types.ts`; `tests/api/knowledge-entity-type.test.ts` pins that the kit's default resolver finds a note by title in its tenant and never another's |
 | `ServerPlugin.hooks` | `onTenantCreated` (one welcome note, only when the new organisation starts with the flag, idempotent by "only when there are none") and `seedDemo` (two notes + the flag at 50 % rollout) |
 | `UiPlugin.routes` / `nav` | `/example-feature`, `lazy()`, above the core "Organisation" group; route and nav share ONE guard |
 | `UiPlugin.queryKeys` | `example-feature:notes` — the same string the server's `entity.changed` nudge carries, declared once in `shared.ts` |

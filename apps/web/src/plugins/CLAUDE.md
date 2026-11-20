@@ -208,8 +208,19 @@ release.
   `source: '<id>:<kind>'` + the item's upstream `externalId`, so a re-sync UPDATES the row rather
   than adding one; `deleteIngestedDocument` for upstream deletes. Visibility defaults to the whole
   organisation — a plugin syncing ONE person's data passes the owner's `userId` + `visibility:
-  'groups'` + `groupIds: []` (owner and admins only). A plugin that ingests declares
+  'groups'` + `groupIds: []` (owner and admins only). Pass `reviewerUserId` (the person who
+  connected the source) so the facts extracted from it reach someone who can judge them — without
+  one they go to the document's owner (tenant admins see every review item either way); a
+  plugin's document is `origin: 'integration'`, the lowest fact trust. A plain ingest (no
+  `externalId`) whose text matches a tenant-wide document of the same `source` answers that
+  document with `deduplicated: true`. A plugin that ingests declares
   `requires.surfaces: ["feature-knowledge"]`.
+- **`knowledgeEntityTypes`** — a FIELD, not a barrel: `EntityTypeRegistration`s from
+  `@/plugins/api`, `type` `<id>.<name>`, snake_case fact keys whose value schemas render as JSON
+  schema (`z.iso.date()`, never `z.date()`), and optionally one of YOUR tables with `labelColumn`
+  (the default trigram resolver) or your own `resolve` filtering by `scope.access.tenantId`.
+  `knowledgeEntityTypes()` throws on a bad one. Worked example:
+  `example-feature/knowledge/entity-types.ts`.
 - **Platform knowledge** (content about the APP, readable by every tenant): `ingestPlatformDocument`
   / `prunePlatformDocuments` from a `JobCtx` / `CronCtx` only (`kind` brands them; any other
   context is a type error), `source: '<your id>:<kind>'`, embedded synchronously by the platform

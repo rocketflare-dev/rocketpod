@@ -884,7 +884,7 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   (jsonb refuses `\u0000`, 22P05). Search is hybrid dense + lexical
   (the lexical half matches ANY query word, ranked by `ts_rank_cd` — `anyTermTsquery` — so a
   sentence's filler words cannot veto it — over `chunks.search_vector`, a STORED generated
-  `to_tsvector(SEARCH_TEXT_CONFIG, text)` behind a GIN index) with RRF, scoped by `AccessScope`
+  `to_tsvector(SEARCH_TEXT_CONFIG, heading path + table header + text)` behind a GIN index) with RRF, scoped by `AccessScope`
   (§1). `searchChunks` takes an optional `documents` corpus (a predicate over `documents`) that is
   ANDed with the reader's visibility, so it narrows a search and can never widen it.
   `document-content.ts` is the one text reader behind both
@@ -911,6 +911,33 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   `search_knowledge` includes them for the sources `ServerPlugin.knowledgeSources` names, marked
   `platform`, and chat and agent runs show no document card for one (the documents page cannot
   open it). The core Guide (§18) keeps its own `guide_chunks` index rather than this corpus.
+- **Structured chunks and upkeep**: the chunker cuts at headings and between table rows, and each
+  chunk is an exact `[charStart, charEnd)` slice of the stored text carrying its `headingPath` and
+  `tableHeader`. Both are prefixed to what is embedded and folded into the generated
+  `search_vector`, but never into the stored text. Each chunk records its `embeddingModel`, and
+  every dense leg filters on it, so a query vector only ever meets vectors from its own model.
+  When a tenant's embeddings config changes the resolved model, the `document.reembed` job
+  re-embeds the stale documents one bounded batch per message. `GET /api/ai/documents/health`
+  counts what is stale, and a `failed` document has a Retry. An unchanged upsert (same
+  `contentHash`, current model) re-embeds nothing. A plain ingest whose text matches a tenant-wide
+  document of the same source answers that document (`deduplicated: true`).
+- **Reranking**: a tenant `rerank` config (an OpenAI-compatible base URL with a Cohere-style
+  `/rerank`: Cohere, Voyage, Fireworks or a self-hosted cross-encoder) reorders the head
+  (`RERANK_CANDIDATES`, default 20) of the fused list. Logits are sigmoided onto 0–1, and
+  `RERANK_MIN_SCORE` drops weak hits when it is set. No reranker, a failure or a timeout falls
+  back to the fused order. Rocketpod has no platform reranker, so a deployment without a tenant
+  row never reranks.
+- **Knowledge facts** (flag `knowledge-facts`, default off): the `knowledge.extract` job reads typed
+  facts out of an indexed document for the entity types a plugin registers
+  (`ServerPlugin.knowledgeEntityTypes`, §16). The facts go into `knowledge_facts` and are tied to
+  a domain row or a staging `knowledge_entities` row, which is matched by trigram (`pg_trgm`) and
+  by embedding. A fact inherits its document's visibility, and its trust comes from the
+  document's `origin`. Disagreements are stored as `conflicting` and are never resolved silently.
+  `lookup_facts` and `search_knowledge`'s `facts` block cite every side. People confirm, reject or
+  prefer facts, and merge, promote or keep separate possible matches, under
+  `/documents?view=review` and on the entity page (`/api/knowledge`). Extraction is metered
+  (`knowledge.extraction`, beside `knowledge.embeddings` and `knowledge.rerank`), and it pauses
+  until the next UTC day at `KNOWLEDGE_TENANT_DAILY_COST_USD`.
 - **Usage**: one `ai_usage` row per call, costed at write time from the one price table
   (`shared/ai/pricing`, longest prefix wins; an unknown model gets `null` and is counted as
   unpriced). The two `*_compatible` providers are priced only for VENDOR-QUALIFIED ids — Fireworks'
@@ -1014,7 +1041,7 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
 from the Models API; no `effort` setting (thinking is on/off — on means the model's default); Haiku
 5.5's > 100k-token price tier is not modelled (`pricing.ts` uses the ≤ 100k rate); OpenAI tools are
 sent non-strict; an assistant message's `phase` is not replayed to the Responses API;
-no Excel or OpenDocument conversion (refused at upload); no document summary or thumbnail (the card is an excerpt);
+no page numbers on chunks (`page` is always null); no platform reranker; knowledge facts have no `private` visibility yet and ship no entity type of their own (a plugin registers them); no Excel or OpenDocument conversion (refused at upload); no document summary or thumbnail (the card is an excerpt);
 `charOffset` does not map to PDF pages; no image input in chat or uploads (the `image` block is for callers that build their own turns), and the tracer records image bytes like any other content (redact them yourself, or leave `OBSERVABILITY_CAPTURE_CONTENT` off); no images inside rendered
 Markdown (a model's or document's image is shown as a link, `MarkdownImageLink`); no frontend tools
 in chat and no human approval in chat (a tool with an approval gate is available to agent runs

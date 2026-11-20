@@ -5,7 +5,8 @@
  * `/api/ai/documents/upload` with the optional title; the table shows status badges with the
  * failure reason, every title linking to the viewer, a download link only for uploaded originals,
  * and only offers delete on own rows
- * (any row for admin+). Search lives on `/search` (`search-page.test.tsx`).
+ * (any row for admin+); a failed row offers Retry (owner or admin+), which posts, re-reads the
+ * list. Search lives on `/search` (`search-page.test.tsx`).
  */
 import { DOCUMENT_UPLOAD_ACCEPT, INGEST_TEXT_MAX_CHARS } from '@rocketpod/shared/ai/embeddings'
 import { MAX_UPLOAD_BYTES } from '@rocketpod/shared/files'
@@ -87,7 +88,10 @@ describe('Documents page', () => {
     const fetchMock = mount({
       'POST /api/ai/documents/ingest': (init: RequestInit | undefined) => {
         const body = JSON.parse(String(init?.body)) as { title: string; text: string }
-        return jsonResponse(doc({ title: body.title, sizeBytes: body.text.length }), 201)
+        return jsonResponse(
+          { ...doc({ title: body.title, sizeBytes: body.text.length }), deduplicated: false },
+          201
+        )
       },
     })
     const form = document.getElementById('ingest-form') as HTMLFormElement
@@ -129,6 +133,7 @@ describe('Documents page', () => {
             fileId: FILE_ID,
             status: 'pending',
             chunkCount: 0,
+            deduplicated: false,
           }),
           201
         )
@@ -141,7 +146,9 @@ describe('Documents page', () => {
 
     const pdf = new File([new Uint8Array([1, 2, 3])], 'report.pdf', { type: 'application/pdf' })
     fireEvent.change(input, { target: { files: [pdf] } })
-    expect(screen.getByText('report.pdf')).toBeInTheDocument()
+    // Scoped to the form: the table's `report.pdf` row may already have rendered.
+    const form = document.getElementById('upload-form') as HTMLElement
+    expect(within(form).getByText('report.pdf')).toBeInTheDocument()
     fireEvent.change(screen.getByLabelText(/^Title/), { target: { value: 'Q3 report' } })
     fireEvent.click(screen.getByRole('button', { name: 'Upload document' }))
 
@@ -235,5 +242,45 @@ describe('Documents page', () => {
         )
       ).toBe(true)
     )
+  })
+
+  it('Retry posts a failed row back, re-reads the list and toasts nothing on success', async () => {
+    let lists = 0
+    const fetchMock = mount({
+      '/api/ai/documents': () => {
+        lists++
+        return DOCS
+      },
+      [`POST /api/ai/documents/${DOC_B}/retry`]: jsonResponse(
+        {
+          ...DOCS.items[1],
+          status: 'pending',
+          error: null,
+          job: 'document.index',
+        },
+        202
+      ),
+    })
+    await screen.findByRole('table', { name: 'Documents' })
+    // Only the failed row has one.
+    expect(screen.queryByRole('button', { name: 'Retry Onboarding guide' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Retry Quarterly report' })).not.toBeInTheDocument()
+    const listsBefore = lists
+    fireEvent.click(screen.getByRole('button', { name: 'Retry Release notes' }))
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          ([input, init]) =>
+            String(input).endsWith(`/api/ai/documents/${DOC_B}/retry`) && init?.method === 'POST'
+        )
+      ).toBe(true)
+    )
+    await waitFor(() => expect(lists).toBeGreaterThan(listsBefore))
+  })
+
+  it('a member sees no Retry on someone else’s failed document', async () => {
+    mount({}, makeSession({ tenant: makeTenant({ role: 'member' }) }))
+    await screen.findByRole('table', { name: 'Documents' })
+    expect(screen.queryByRole('button', { name: 'Retry Release notes' })).not.toBeInTheDocument()
   })
 })

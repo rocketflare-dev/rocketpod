@@ -86,7 +86,7 @@ const prodConfig = {
 function mount(routes: RouteTable = {}, session = makeSession()) {
   const fetchMock = stubFetch({
     '/api/ai/config/providers': { items: PROVIDERS, defaultMaxOutputTokens: 16_384 },
-    '/api/ai/config/readiness': { chat: NONE, embeddings: NONE, decisions: NONE },
+    '/api/ai/config/readiness': { chat: NONE, embeddings: NONE, decisions: NONE, rerank: NONE },
     '/api/ai/config': { items: [] },
     ...routes,
   })
@@ -255,7 +255,12 @@ describe('Settings → AI', () => {
 
   it('lists configs with default/credential badges and lets an admin test one', async () => {
     const fetchMock = mount({
-      '/api/ai/config/readiness': { chat: READY_CHAT, embeddings: NONE, decisions: NONE },
+      '/api/ai/config/readiness': {
+        chat: READY_CHAT,
+        embeddings: NONE,
+        decisions: NONE,
+        rerank: NONE,
+      },
       '/api/ai/config': { items: [prodConfig] },
       'POST /api/ai/config/test': {
         ok: true,
@@ -305,6 +310,7 @@ describe('Settings → AI', () => {
           embeddings: NONE,
           // With chat ready and no TypeSafe key, decisions are answered by the chat model.
           decisions: { ...READY_CHAT, source: 'fallback' },
+          rerank: NONE,
         },
         '/api/ai/config': { items: [prodConfig] },
       },

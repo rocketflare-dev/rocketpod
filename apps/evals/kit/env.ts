@@ -13,13 +13,19 @@
  */
 import { loadConfig } from '@/config'
 import { createTestEnv, type TestEnv } from '../../web/tests/mocks/bindings'
-import { evalProvider } from './providers'
+import { evalProvider, evalReranker } from './providers'
 
 export const EVAL_MODEL = process.env.EVAL_MODEL || undefined
 export const EVAL_JUDGE_MODEL = process.env.EVAL_JUDGE_MODEL || undefined
 /** `--provider` / `--judge-provider`: `anthropic` (default, the platform key), `fireworks`, `gemini`. */
 export const EVAL_PROVIDER = evalProvider(process.env.EVAL_PROVIDER)
 export const EVAL_JUDGE_PROVIDER = evalProvider(process.env.EVAL_JUDGE_PROVIDER)
+/**
+ * `--rerank none|fireworks`: which reranker knowledge search uses. `none` (the default) searches
+ * with `rerank: false`, because the test `AI` stub answers reranks in fused order and would only
+ * add noise; `fireworks` writes a tenant `rerank` row (`useRerank`) on FIREWORKS_API_KEY.
+ */
+export const EVAL_RERANK = evalReranker(process.env.EVAL_RERANK)
 
 /** Why suites cannot run here, or null when both the target's and the judge's models resolve. */
 export function evalSkipReason(): string | null {
@@ -50,7 +56,12 @@ export function skipEvals(): boolean {
  * half of hybrid search — fine for the starter cases, noted in docs/EVALS.md.
  */
 export function evalWorkerEnv(): TestEnv {
-  return createTestEnv(process.env.EMBEDDINGS_API_KEY ? { ai: null } : {})
+  // `RERANK_CANDIDATES=20 pnpm eval retrieval --rerank …` — `createTestEnv` copies only the vars it
+  // names, so a tuning knob an eval compares has to be handed over here.
+  const tuning = process.env.RERANK_CANDIDATES
+    ? { RERANK_CANDIDATES: process.env.RERANK_CANDIDATES }
+    : {}
+  return createTestEnv({ ...tuning, ...(process.env.EMBEDDINGS_API_KEY ? { ai: null } : {}) })
 }
 
 export function evalConfig(env: TestEnv = evalWorkerEnv()) {

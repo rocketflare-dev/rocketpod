@@ -21,6 +21,7 @@ import { EventEncoder } from '@ag-ui/encoder'
 import type { KitAguiEvent, KitCustomEventName } from '@rocketpod/shared/ai/agui'
 import { AguiEventType, KIT_CUSTOM_EVENTS } from '@rocketpod/shared/ai/agui'
 import { documentCardsFromToolResult } from '@rocketpod/shared/ai/embeddings'
+import { entityCardsFromToolResult } from '@rocketpod/shared/ai/knowledge-facts'
 
 /** AG-UI events the installed `@ag-ui/proto` has no message for; dropped on the protobuf wire. */
 export const PROTO_UNSUPPORTED_EVENTS: readonly KitAguiEvent['type'][] = []
@@ -151,6 +152,10 @@ export function aguiToolEvents(emit: EmitAgui, text: AguiTextSegmenter): AguiToo
       // pure and never queries, so it cannot widen scope.
       for (const card of documentCardsFromToolResult(call.name, call.result)) {
         await emit(kitCustom(KIT_CUSTOM_EVENTS.document, { card }))
+      }
+      // …and the knowledge-facts entities it touched, for the same reason.
+      for (const card of entityCardsFromToolResult(call.name, call.result)) {
+        await emit(kitCustom(KIT_CUSTOM_EVENTS.entity, { card }))
       }
     },
     async closeOpen() {

@@ -99,6 +99,13 @@
       "when": 1795155198499,
       "tag": "0013_kit-tenant-creation-counters",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1795156369308,
+      "tag": "0014_kit-knowledge-base",
+      "breakpoints": true
     }
   ]
 }

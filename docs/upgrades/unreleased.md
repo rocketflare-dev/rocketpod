@@ -6,6 +6,7 @@ breaking: false
 migrations:
   - "agent_runs gains input_from_requester, a boolean NOT NULL DEFAULT false"
   - "new table tenant_creation_counters (user_id, day, created), no foreign key to tenants"
+  - "the pg_trgm extension; knowledge_entities + knowledge_facts; chunks gain embedding_model (backfilled), heading_path, table_header, page, char_start, char_end and a rebuilt search_vector (table rewrite); documents gain content_hash, origin, reviewer_user_id"
 areas: [api, config, shared, docs, db, ui]
 touches_surfaces: []
 requires_surfaces: []
@@ -89,3 +90,39 @@ addresses.
 
 1. `tests/api/security/{requester-urls,tenant-creation,agent-run-tenant-suspension,invitation-authority,api-key-account-scope,ai-config-concurrent-saves,agent-run-budget-accounting,sign-in-mail-per-recipient,upload-path-body-limit,microsoft-sign-in-email}.test.ts` pass.
 2. `tests/api/plugin-tenant-status-hook.test.ts` and `tests/api/plugin-events.test.ts` pass.
+
+## Rocketflare 0.37.0
+
+The knowledge base gains structured chunks, re-embedding on a model change, ingest dedupe, an
+optional HTTP reranker and typed knowledge facts behind the `knowledge-facts` flag.
+
+### What changed
+
+- Chunks are exact slices cut at headings and table rows, with `headingPath`, `tableHeader`, `charStart`/`charEnd` and `embeddingModel`; every dense leg filters on the model; `search_vector` now covers heading path + table header + text.
+- `document.reembed` re-embeds stale documents after an embeddings config change; `GET /api/ai/documents/health`, `POST /reembed`, `POST /:id/retry`; an unchanged upsert skips the embed; a matching plain ingest answers `deduplicated: true`.
+- Reranking: the `rerank` scope, a Cohere-style `POST {base}/rerank` client only (no Workers AI reranker), `RERANK_CANDIDATES`, `RERANK_MIN_SCORE`.
+- Knowledge facts: `knowledge.extract`, `knowledge_entities`/`knowledge_facts`, `/api/knowledge`, `lookup_facts`, the review list, the entity page, chat entity cards, `ServerPlugin.knowledgeEntityTypes`, `KNOWLEDGE_TENANT_DAILY_COST_USD`.
+- Metering: `knowledge.embeddings` / `knowledge.rerank` / `knowledge.extraction` usage rows.
+- Tests: the fake model endpoint answers `/rerank`; the api suites install a network guard.
+
+### How to apply
+
+1. Follow Rocketflare's `docs/upgrades/0.37.0.md`, with these Rocketpod differences:
+   - Queue producers take `platform.jobs`; the cap pause re-enqueues with `delaySeconds` (pg-boss `startAfter`, ≤ 43200).
+   - `resolveRerank` reads a tenant `rerank` row only; drop every `workers_ai` reranker, preset and price.
+   - `routes/ai-config.ts` calls `reembedAfterEmbeddingsChange` around `services/ai/configs.ts`'s writes.
+   - Tests stub the reranker with `stubs(env).ai.respond` on `FAKE_MODELS_BASE_URL`, not an AI binding.
+2. Add `KNOWLEDGE_TENANT_DAILY_COST_USD`, `RERANK_CANDIDATES` and `RERANK_MIN_SCORE` to `config.ts`, `.env.example` and the Helm `values.yaml`.
+3. Run `pnpm db:generate`, then edit the SQL: `CREATE EXTENSION IF NOT EXISTS pg_trgm` first, backfill `chunks.embedding_model` from `documents`, move the `search_vector` drop and re-add after the new columns and recreate `chunks_search_vector_idx`. Then `pnpm db:migrate`.
+4. Regenerate `docs/plugin-api.md` with `node scripts/plugin-api-doc.mjs`.
+
+### Conflicts to expect
+
+- `apps/web/src/api/services/ai/resolve.ts` → keep the `EMBEDDINGS_*` platform tier; rerank has no platform tier.
+- `apps/web/src/api/services/ai/retrieval.ts` → keep the `documents` corpus option beside the rerank step.
+- `apps/web/src/ui/pages/documents/DocumentsPage.tsx` → no success toasts.
+
+### Verify
+
+1. `tests/api/{document-reembed,knowledge-*}.test.ts` and `tests/config/rerank.test.ts` pass.
+2. `tests/api/knowledge-chunk-migration.test.ts` migrates a 0013 database and finds the backfilled model.

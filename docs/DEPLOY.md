@@ -20,7 +20,11 @@ filesystem, so a read-only root filesystem works (`/tmp` is mounted for librarie
 **What it needs outside itself:**
 
 - **Postgres 17 with pgvector.** Migrate runs `CREATE EXTENSION IF NOT EXISTS vector`, so the owner
-  role must be allowed to create it, or it must already exist. One owner connection,
+  role must be allowed to create it, or it must already exist. The same goes for `pg_trgm`
+  (created the same way, used by the knowledge-facts entity matcher), which every managed Postgres
+  offers but some only allow-list on request. Migration `0014_kit-knowledge-base` rebuilds
+  `chunks.search_vector` and so rewrites the whole `chunks` table under an exclusive lock: with
+  more than about a million chunks, run it in a maintenance window. One owner connection,
   `DATABASE_URL`, is used by migrate and by every process's pool (`DATABASE_POOL_MAX`, default 10 per
   process — plus a small pool each for pg-boss and OpenWorkflow, and one dedicated connection per
   `web` process for realtime).

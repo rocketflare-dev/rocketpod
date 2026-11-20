@@ -12,7 +12,7 @@ sources:
   - apps/web/src/api/routes/keys.ts
   - apps/web/src/ui/pages/settings/ApiKeys.tsx
   - packages/shared/src/api-keys.ts
-verified: 790a55b
+verified: a473396
 ---
 
 # API keys and the CLI
@@ -75,5 +75,8 @@ everything your role allows. The CLI's own key is named after your machine and c
 Admins see every key of the organisation in **Settings → API keys**. There they can create a key
 for a script and revoke any key. A new key is shown once, when it is created — copy it then.
 Revoking a key stops every request that uses it at once.
+
+A key works only inside its own organisation. It cannot list your other organisations, create a
+new one, see invitations waiting for you, or ask for access; for those, use the browser.
 
 > **WATCH OUT** — A key acts as you. Keep it out of chat messages, tickets and source code.

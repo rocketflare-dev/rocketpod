@@ -12,7 +12,7 @@ sources:
   - apps/web/src/api/auth/magic-link.ts
   - apps/web/src/api/auth/cookies.ts
   - apps/web/src/api/auth/providers/**
-verified: 790a55b
+verified: a473396
 ---
 
 # Signing in
@@ -29,8 +29,11 @@ Some organisations use single sign-on only. Then the page shows one button and n
 email sign-in links are switched off altogether.
 
 With **Continue with Microsoft**, your account is matched on your Microsoft sign-in name (your user
-principal name), not on a separate mail address. If the two differ, sign in the way you did before
-and connect Microsoft from **Profile** first (see below).
+principal name), not on a separate mail address, and only when your company's directory has
+verified that name's domain. If the two differ, if you use a personal Microsoft account
+(outlook.com, hotmail.com, live.com), or if your company has not verified its domain, sign in
+another way first and connect Microsoft from **Profile** (see below); after that, Microsoft signs
+you in.
 
 Where your company requires its own single sign-on for your email address, the other ways in are
 refused for you: asking for an email link sends you a message pointing to your company's sign-in
@@ -45,9 +48,11 @@ it, then sign in again.
 A link works once, and only for {{fact:auth.magic_link_minutes}} minutes after it is sent. If it
 has expired, or you already used it, go back to the sign-in page and ask for a new one.
 
-At most {{fact:auth.sign_in_mail_max}} links go to one address in
+At most {{fact:auth.sign_in_mail_max}} links go to one mailbox in
 {{fact:auth.sign_in_mail_window_minutes}} minutes. Past that the page still says a link is on its
 way, but none is sent until the time is up — use the newest link you already have, or wait.
+Spellings of one mailbox count together: `name+anything@` is the same mailbox as `name@`, and for
+Gmail so is the name with or without dots.
 
 > **IN PRACTICE** — The link signs in whoever opens it, so do not forward the email.
 

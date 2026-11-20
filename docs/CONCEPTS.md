@@ -921,6 +921,15 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   counts what is stale, and a `failed` document has a Retry. An unchanged upsert (same
   `contentHash`, current model) re-embeds nothing. A plain ingest whose text matches a tenant-wide
   document of the same source answers that document (`deduplicated: true`).
+- **Search filters**: `POST /api/ai/documents/search` takes `filters` (`sources`, `contentTypes`,
+  `createdFrom` / `createdTo` as inclusive UTC days). They become one predicate over `documents`
+  (`documentFilterPredicate`) ANDed with the tenant and visibility predicates, so a filter can only
+  remove hits. `GET /api/ai/documents/facets` lists what the reader's visible indexed documents
+  offer (sources and types with counts, the date span) and `staleEmbeddings`, how many of them are
+  embedded by another model than today's. The Search page (`/search`) builds its filter column from
+  the facets, keeps every filter in the URL, and shows a "Re-index now" notice to `manage Document`
+  while anything is stale. The response's `lexical` is `no_terms` when Postgres leaves no lexeme
+  after stopwording, and the page then says the word is too common instead of "no matches".
 - **Reranking**: a tenant `rerank` config (an OpenAI-compatible base URL with a Cohere-style
   `/rerank`: Cohere, Voyage, Fireworks or a self-hosted cross-encoder) reorders the head
   (`RERANK_CANDIDATES`, default 20) of the fused list. Logits are sigmoided onto 0–1, and
@@ -935,7 +944,26 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   document's `origin`. Disagreements are stored as `conflicting` and are never resolved silently.
   `lookup_facts` and `search_knowledge`'s `facts` block cite every side. People confirm, reject or
   prefer facts, and merge, promote or keep separate possible matches, under
-  `/documents?view=review` and on the entity page (`/api/knowledge`). Extraction is metered
+  `/documents?view=review` and on the entity page (`/api/knowledge`).
+  Where comparing text would be guessing, a **decision model** is asked (`services/knowledge/judge.ts`,
+  typed choices through `resolveDecisions`: TypeSafe's Jev when `TYPESAFE_API_KEY` is set, else the
+  chat model on the `knowledge-decide` prompt key). A mention that links to nothing but sits near
+  known entities of its type is put beside them (same entity, or new?), and two differing values
+  for one entity and key over overlapping windows are judged `same` (corroborates),
+  `more_specific` (compatible, neither confirms nor conflicts) or `different` (conflicts). Only an
+  answer at `JUDGE_MIN_PROBABILITY` (0.8) acts; an unsure, failed or absent model keeps the literal
+  rule, so it can leave a false alarm but never hide a disagreement. Verdicts are stored once per
+  pair in `knowledge_value_judgements` (moved on a merge or promote) and read by every later state
+  decision, including a person's decision carrying over a re-read value judged the same. A closed
+  set of values belongs in the entity type as a `z.enum`; a key naming another entity is declared
+  in `refs` (`{ account_manager: 'person' }`), resolved like any mention, stored as
+  `knowledge_facts.value_ref` and compared by the entity, not the text.
+  Facts are also browsable: a document's facts (`GET /api/knowledge/documents/:id/facts`, the
+  viewer's Facts tab, whose "Show in document" marks the quoted span), every entity with current
+  visible facts (`GET /api/knowledge/entities`, the Knowledge page's `?view=facts`), and the facts
+  about the entities a query names (`GET /api/knowledge/mentioned`, cards above the Search
+  results). Chat and the run timeline show an entity card per entity for `lookup_facts` and the
+  `search_knowledge` facts block. Extraction is metered
   (`knowledge.extraction`, beside `knowledge.embeddings` and `knowledge.rerank`), and it pauses
   until the next UTC day at `KNOWLEDGE_TENANT_DAILY_COST_USD`.
 - **Usage**: one `ai_usage` row per call, costed at write time from the one price table
@@ -1041,7 +1069,7 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
 from the Models API; no `effort` setting (thinking is on/off — on means the model's default); Haiku
 5.5's > 100k-token price tier is not modelled (`pricing.ts` uses the ≤ 100k rate); OpenAI tools are
 sent non-strict; an assistant message's `phase` is not replayed to the Responses API;
-no page numbers on chunks (`page` is always null); no platform reranker; knowledge facts have no `private` visibility yet and ship no entity type of their own (a plugin registers them); no Excel or OpenDocument conversion (refused at upload); no document summary or thumbnail (the card is an excerpt);
+no page numbers on chunks (`page` is always null); no platform reranker; knowledge facts have no `private` visibility yet and ship no entity type of their own (a plugin registers them); the decision model is asked about an entity only when trigram or embedding puts a known one nearby, so two names sharing no words stay two entities, and never about a `refs` key; a person's decision survives a re-read only when the value repeats or was judged the same; no Excel or OpenDocument conversion (refused at upload); no document summary or thumbnail (the card is an excerpt);
 `charOffset` does not map to PDF pages; no image input in chat or uploads (the `image` block is for callers that build their own turns), and the tracer records image bytes like any other content (redact them yourself, or leave `OBSERVABILITY_CAPTURE_CONTENT` off); no images inside rendered
 Markdown (a model's or document's image is shown as a link, `MarkdownImageLink`); no frontend tools
 in chat and no human approval in chat (a tool with an approval gate is available to agent runs

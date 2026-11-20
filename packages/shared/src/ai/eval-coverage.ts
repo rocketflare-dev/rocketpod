@@ -156,6 +156,10 @@ export const CORE_PROMPT_EVAL_COVERAGE: Readonly<Record<string, EvalCoverageEntr
     exempt:
       'Fact extraction is measured by `pnpm eval facts` over a corpus of documents (`apps/evals/datasets/<name>/facts.jsonl`, docs/EVALS.md § Corpora), and this kit ships no corpus: an app adds its own, then a baseline.',
   },
+  'knowledge-decide': {
+    exempt:
+      'The chat-model fallback for the knowledge-facts decision model (same entity? same value?), asked only inside fact extraction: `pnpm eval facts` measures it with `knowledge-extract`, over a corpus this kit does not ship.',
+  },
   'evals-judge': {
     exempt: 'The LLM judge itself: it grades the suites, so no suite can grade it.',
   },

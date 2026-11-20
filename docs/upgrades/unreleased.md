@@ -7,7 +7,8 @@ migrations:
   - "agent_runs gains input_from_requester, a boolean NOT NULL DEFAULT false"
   - "new table tenant_creation_counters (user_id, day, created), no foreign key to tenants"
   - "the pg_trgm extension; knowledge_entities + knowledge_facts; chunks gain embedding_model (backfilled), heading_path, table_header, page, char_start, char_end and a rebuilt search_vector (table rewrite); documents gain content_hash, origin, reviewer_user_id"
-areas: [api, config, shared, docs, db, ui]
+  - "new table knowledge_value_judgements (tenant-isolated); knowledge_facts gains value_ref"
+areas: [api, config, shared, docs, db, ui, evals]
 touches_surfaces: []
 requires_surfaces: []
 manual: false
@@ -126,3 +127,37 @@ optional HTTP reranker and typed knowledge facts behind the `knowledge-facts` fl
 
 1. `tests/api/{document-reembed,knowledge-*}.test.ts` and `tests/config/rerank.test.ts` pass.
 2. `tests/api/knowledge-chunk-migration.test.ts` migrates a 0013 database and finds the backfilled model.
+
+## Rocketflare 0.38.0
+
+Knowledge is easier to explore and its facts are judged by a decision model: a filtered Search
+page, facts on each document and in a Facts view, and typed same-entity / same-value questions.
+
+### What changed
+
+- `POST /api/ai/documents/search` takes optional `filters` (`sources`, `contentTypes`, `createdFrom`, `createdTo`) that only narrow the visible set; the response gains `lexical: 'used' | 'no_terms'`.
+- New `GET /api/ai/documents/facets`: sources, content types, date span and `staleEmbeddings` over the reader's visible indexed documents.
+- New `/api/knowledge` reads (flag `knowledge-facts`): `GET /mentioned?q=`, `GET /documents/:id/facts`, `GET /entities`.
+- The Search page is rewritten (filter column, URL state, highlighted passages, stale-embeddings notice with "Re-index now", "too common" for a stopword-only query); the Knowledge page gains a Facts view (`?view=facts`) and the viewer a Facts tab whose "Show in document" marks the quote (`documentPath` `end`).
+- The decision model (`services/knowledge/judge.ts`, prompt key `knowledge-decide`) links a near-miss mention to a known entity and judges two differing values `same` / `more_specific` / `different`; verdicts are stored in `knowledge_value_judgements`.
+- `EntityTypeDeclaration.refs` resolves a value to an entity, stored as `knowledge_facts.value_ref` (`valueEntity` on a fact, `names` on a fact hit).
+- The run timeline shows entity cards for `lookup_facts` and `search_knowledge`'s facts block; `searchKnowledge` in the plugin API returns `rerankScore` and the `rerank` outcome; `resolveDecisions` takes `fallbackPromptKey`.
+
+### How to apply
+
+1. Follow Rocketflare's `docs/upgrades/0.38.0.md`, with these Rocketpod differences:
+   - `routes/ai-documents.ts` passes `c.get('platform')` (not `c.env`) to `searchKnowledgeChunks` and `resolveEmbeddingsModel`.
+   - The Search page's type filter groups by `documentTypeLabel`; Rocketpod has no Excel or OpenDocument upload types, so the grouping case in `tests/ui/search-page.test.tsx` uses `text/plain` + an unlisted `text/*` type (both read as Text).
+2. Run `pnpm db:generate` (migration `0015_kit-knowledge-judgements-and-refs`, the same SQL as upstream's apart from the role), then `pnpm db:migrate`.
+3. Regenerate `docs/plugin-api.md` with `node scripts/plugin-api-doc.mjs`.
+
+### Conflicts to expect
+
+- `apps/web/src/api/routes/ai-documents.ts` → keep the platform argument; register `/facets` before `GET /:id`.
+- `apps/web/src/ui/pages/documents/SearchPage.tsx` → take the release's, keep "no success toast".
+- Any test fixture building a `SearchResponse` → add `lexical: 'used'`.
+
+### Verify
+
+1. `tests/api/{knowledge-search-filters,knowledge-browse,knowledge-extract}.test.ts`, `tests/config/knowledge-judge.test.ts` and `tests/ui/{search-page,knowledge-browse,run-tool-result-cards}.test.tsx` pass.
+2. `psql "$DATABASE_URL" -c '\d knowledge_value_judgements'` shows the table.

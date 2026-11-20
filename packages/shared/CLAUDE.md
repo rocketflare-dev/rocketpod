@@ -141,7 +141,7 @@ the truth, the protocol shape is a projection of it — and the HITL pause/answe
 `default-models.ts` — `PROMPT_DEFAULT_MODELS` (prompt key → `{ provider, model, evidence }`, EMPTY in the kit; an app commits measured winners here) + `promptDefaultModel(key)`, read by `services/ai/resolve.ts` below a `platform_agent_models` row ·
 `embeddings.ts` — `documentSchema` (never the text or vectors), `INGEST_TEXT_MAX_CHARS`, `ingestTextRequestSchema`,
 `documentListQuerySchema`, `searchRequestSchema` (`SEARCH_MAX_LIMIT`), `searchHitSchema` (RRF `score`, `rank`,
-`denseRank`/`lexicalRank`, `rerankScore` 0–1 or null, `headingPath`, `page`), `searchResponseSchema`, and the read side (D18): `documentContentSchema` + `documentContentQuerySchema`
+`denseRank`/`lexicalRank`, `rerankScore` 0–1 or null, `headingPath`, `page`), `searchResponseSchema` (`lexical: 'used' | 'no_terms'` — the query had keywords left after Postgres stopwording, or not), `searchFiltersSchema`, `documentFacetsSchema` (incl. the reader-scoped `staleEmbeddings`), and the read side (D18): `documentContentSchema` + `documentContentQuerySchema`
 (`DOCUMENT_WINDOW_CHARS` 20 000, `DOCUMENT_WINDOW_MAX_CHARS` 50 000) + `windowStart()` (snap an offset
 down to a window boundary so a deep link and the reader's paging share one cache entry),
 `documentPassageSchema`, `documentCardSchema` + `DOCUMENT_EXCERPT_CHARS` + `documentPath()` (the ONE

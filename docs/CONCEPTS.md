@@ -944,8 +944,8 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   `step` → `prefix/key`; no checkpoint) and `ctx.map(key, items, fn, { concurrency, keyOf })` runs
   each item as a `once` in its own scope, at most `min(concurrency ?? 4, 6)` at a time: a retry
   replays the items that finished, the first error stops scheduling, and asks from several items
-  become ONE park. No parent/child runs. Every call through `ctx.chat.client` and `ctx.decide` is
-  metered — one `ai_usage` row carrying `agent_run_id`, awaited as the call returns, so a run
+  become ONE park. A child run is `ctx.spawn` (above). Every call through `ctx.chat.client` and
+  `ctx.decide` is metered — one `ai_usage` row carrying `agent_run_id`, awaited as the call returns, so a run
   cancelled or failed mid-loop has a row for every turn it paid for — and an agent writes no ledger
   rows (`ctx.recordUsage` for a client of its own); `GET /runs/:id` returns `usage`. The meter
   checks the run's budget before each call (`meta.budget` over `AGENT_RUN_MAX_TOKENS` /
@@ -1232,9 +1232,12 @@ prevented — OpenWorkflow resumes a parked run on today's code and `onVersionCh
 what happens next; the recordings check sees only the runs you commit (record from dev or seeded
 tenants — a recording holds the run's input and model turns), and does not check turn drift (a
 system prompt naming the tenant drifts by design); `rerun` is a new run, so a parent waiting on a
-child that reran sees the child `cancelled`; an `onTimeout: 'reject'` deadline is applied by the
-10-minute sweeper, so it lands up to ~20 minutes late, and at the `AGENT_INTERRUPT_TIMEOUT` cap
-the engine's own wait ends first and cancels — keep `hitl.timeout` shorter; reminders are one per
+child that reran sees the child `cancelled`; an `hitl.timeout` deadline (`reject` or `expire`) is
+applied by the 10-minute sweeper, which only looks at a run untouched for 10 minutes, so it lands
+up to ~20 minutes late (opening the run applies it at once), and at the `AGENT_INTERRUPT_TIMEOUT`
+cap the engine's own wait ends first and cancels — keep `hitl.timeout` shorter; an `expire`
+cancels the run's row but leaves the engine run parked on its wait until that cap (it holds no
+worker slot; its `expire` step then runs over a row already settled); reminders are one per
 ask; assignees are checked against tenant membership at notify and answer time, not when the ask
 is raised; a child's budget share is fixed when it is spawned (two children spawned together may
 each get the whole remainder — the parent's meter, which counts both, stops the overspend at the

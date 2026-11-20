@@ -12,7 +12,7 @@ sources:
   - apps/web/src/api/routes/keys.ts
   - apps/web/src/ui/pages/settings/ApiKeys.tsx
   - packages/shared/src/api-keys.ts
-verified: f2b9137
+verified: 77399c3
 ---
 
 # API keys and the CLI
@@ -53,7 +53,9 @@ key — only its first few characters.
 ```
 
 In a script or a CI job there is no browser. Set {{fact:cli.env.api_key}} (and
-{{fact:cli.env.url}} for the server) instead of running `login`.
+{{fact:cli.env.url}} for the server) instead of running `login`. They win over a saved login, so
+if your shell still exports them while you are signed in somewhere else, every command warns that
+it is using them and names the server it is talking to.
 
 ## Exit codes
 

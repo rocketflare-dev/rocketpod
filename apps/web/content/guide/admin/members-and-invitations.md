@@ -12,7 +12,7 @@ sources:
   - apps/web/src/permissions/abilities.ts
   - packages/shared/src/tenants.ts
   - apps/web/src/api/services/members.ts
-verified: f2b9137
+verified: 77399c3
 ---
 
 # Members and invitations
@@ -42,7 +42,8 @@ themselves from this page.
 Each person gets an email with a link. The link works for {{fact:team.invitation_days}} days.
 Only an owner can invite someone as an owner. An invitation carries the authority of the person
 who sent it: if the sender is blocked, leaves, or no longer has a role that could send it, the
-link stops working.
+link stops working, and it no longer counts as an invitation when that person signs up. Blocking
+someone revokes every invitation they sent that is still pending, in every organisation.
 
 Invitation emails have a daily limit, per sender and per organisation. Past it, the invite is
 refused until the next day (UTC); in a long list, the addresses past the limit are reported as

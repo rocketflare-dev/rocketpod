@@ -85,7 +85,12 @@ suites on vitest 4, §9 — never part of the gate).
   a global admin or a member of the tenant whose role could issue the invitation's (`owner` needs
   an owner, `admin` / `member` an owner or an admin) — otherwise the row is marked revoked and
   the answer is 410 `invitation_revoked`. That covers every path that withdraws authority without
-  revoking anything itself: a block, a lost global-admin flag, an issuer-managed role change.
+  revoking anything itself: an identity provider's block, a lost global-admin flag, an
+  issuer-managed role change. The same rule (`issuerMayIssue`, one function) decides admission: a
+  login counts as invited, under any `SIGNUP_MODE`, only for an open invitation whose issuer could
+  still issue it, so a stale invitation admits no account under `invite_only`. Blocking a person
+  from `/admin` revokes every pending invitation they issued, in every tenant and global admin or
+  not, in the block's transaction; unblocking restores none.
 - **A suspended tenant is closed to its members and runs no agents.** `POST
   /api/admin/tenants/:id/suspend` sets `tenants.status`; every authenticating path (cookie, API
   key, `/ws`, the identity seam's tenant-taking methods) then answers 403 `tenant_suspended`, and
@@ -94,7 +99,17 @@ suites on vitest 4, §9 — never part of the gate).
   suspension cancels the runs nothing is executing (`queued`, `awaiting_input`); a run already
   executing stops at its next cancel poll, and one whose run engine reaches `execute` afterwards
   settles `cancelled` (status event `reason: 'tenant_suspended'`) before any model call.
-  Reactivating starts nothing again: the cancelled runs stay cancelled.
+  Reactivating starts nothing again: the cancelled runs stay cancelled. Its queued jobs do not run
+  either: the jobs consumer (`queues/jobs.ts`, under pg-boss) reads `tenants.status` (one
+  primary-key read) for every job whose payload names a tenant, and acks it unrun, with a log
+  line, unless the tenant is `active` — a re-embed chain, an index or conversion, fact extraction
+  (its next-day delayed re-enqueue is a pg-boss job like any other and meets the same check),
+  chat compaction, an email, an event delivery, a plugin's job. Dropped rather than deferred,
+  because each restarts from its own state after reactivation: a re-embed from the stale count, a
+  document from Retry (a dropped index or conversion leaves a `pending` document `failed`),
+  compaction on the next turn. Two always run: `tenant.purge` (the teardown of a tenant that no
+  longer exists) and `activity.record` (a record of what already happened). A deleted tenant's
+  jobs read as not active too.
   Accepting over an `idp` row leaves the
   row as it is (the invitation is still marked accepted). Mail is bounded by Postgres: a resend
   inside `INVITATION_RESEND_COOLDOWN_SECONDS` (five minutes) answers 429 and keeps the link
@@ -999,8 +1014,12 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   open it). The core Guide (§18) keeps its own `guide_chunks` index rather than this corpus.
 - **Structured chunks and upkeep**: the chunker cuts at headings and between table rows, and each
   chunk is an exact `[charStart, charEnd)` slice of the stored text carrying its `headingPath` and
-  `tableHeader`. Both are prefixed to what is embedded and folded into the generated
-  `search_vector`, but never into the stored text. Each chunk records its `embeddingModel`, and
+  `tableHeader` — the whole header when it fits a quarter of the window, else its first columns
+  and ` …`, so header plus rows always fit one window. Both are prefixed to what is embedded and
+  folded into the generated `search_vector`, but never into the stored text, and the embedded
+  prefix is cut to `EMBEDDING_CONTEXT_MAX_CHARS` (a heading title to `HEADING_TITLE_MAX_CHARS`).
+  Headings and table delimiter rows are found by a linear scan of each line, never a backtracking
+  regex, so an upload's chunking work grows with its length. Each chunk records its `embeddingModel`, and
   every dense leg filters on it, so a query vector only ever meets vectors from its own model.
   When a tenant's embeddings config changes the resolved model, the `document.reembed` job
   re-embeds the stale documents one bounded batch per message. `GET /api/ai/documents/health`
@@ -1026,7 +1045,18 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   facts out of an indexed document for the entity types a plugin registers
   (`ServerPlugin.knowledgeEntityTypes`, §16). The facts go into `knowledge_facts` and are tied to
   a domain row or a staging `knowledge_entities` row, which is matched by trigram (`pg_trgm`) and
-  by embedding. A fact inherits its document's visibility, and its trust comes from the
+  by embedding. What the extraction prompt and the decision model are shown — known entities,
+  accepted facts, held values — comes from TENANT-VISIBLE documents only, whatever the visibility
+  of the document being read, so nothing from a group-restricted document reaches a prompt for a
+  wider audience; only a tenant-visible document adds aliases to an entity. States are still
+  decided against every fact the tenant holds, and readers mask what they cannot see: a fact
+  superseded only by a hidden one reads as its restored state with no `superseded_by_id`, and is
+  answerable, counted and reviewable for that reader, and `lookup_facts` resolves names through
+  the reader's view, so an entity known only from hidden documents answers like an unknown name.
+  Because `prefer` settles the other sides too, a member may prefer only when every visible
+  conflict is theirs to review and no other person confirmed it; otherwise it is a 403
+  `fact_conflict_needs_admin` with nothing written, and the member can still `reject` their own
+  side. A fact inherits its document's visibility, and its trust comes from the
   document's `origin`. Disagreements are stored as `conflicting` and are never resolved silently.
   `lookup_facts` and `search_knowledge`'s `facts` block cite every side. People confirm, reject or
   prefer facts, and merge, promote or keep separate possible matches, under
@@ -1155,7 +1185,7 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
 from the Models API; no `effort` setting (thinking is on/off — on means the model's default); Haiku
 5.5's > 100k-token price tier is not modelled (`pricing.ts` uses the ≤ 100k rate); OpenAI tools are
 sent non-strict; an assistant message's `phase` is not replayed to the Responses API;
-no page numbers on chunks (`page` is always null); no platform reranker; knowledge facts have no `private` visibility yet and ship no entity type of their own (a plugin registers them); the decision model is asked about an entity only when trigram or embedding puts a known one nearby, so two names sharing no words stay two entities, and never about a `refs` key; a person's decision survives a re-read only when the value repeats or was judged the same; no Excel or OpenDocument conversion (refused at upload); no document summary or thumbnail (the card is an excerpt);
+no page numbers on chunks (`page` is always null); no platform reranker; knowledge facts have no `private` visibility yet and ship no entity type of their own (a plugin registers them); an entity's name is the first document's wording, so one created from a group-restricted document keeps that name once a tenant-visible document links to it, and aliases stored before 0.40.0 stay on their entity; the decision model is asked about an entity only when trigram or embedding puts a known one nearby, so two names sharing no words stay two entities, and never about a `refs` key; a person's decision survives a re-read only when the value repeats or was judged the same; no Excel or OpenDocument conversion (refused at upload); no document summary or thumbnail (the card is an excerpt);
 `charOffset` does not map to PDF pages; no image input in chat or uploads (the `image` block is for callers that build their own turns), and the tracer records image bytes like any other content (redact them yourself, or leave `OBSERVABILITY_CAPTURE_CONTENT` off); no images inside rendered
 Markdown (a model's or document's image is shown as a link, `MarkdownImageLink`); no frontend tools
 in chat and no human approval in chat (a tool with an approval gate is available to agent runs

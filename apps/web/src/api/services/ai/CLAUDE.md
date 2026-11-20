@@ -113,7 +113,10 @@ Rules:
   every chunk an EXACT slice `[charStart, charEnd)` of the stored text, every chunk begins and ends
   at a heading — whole sections that fit a window packed together, only a longer one cut inside —
   with the shared `headingPath`, GFM tables split between rows with `tableHeader` on the later
-  chunks; `embeddingInput` prefixes path + header to what is EMBEDDED, never to the stored text;
+  chunks — bounded to a quarter of the window, so a wide header is cut, never repeated whole;
+  `embeddingInput` prefixes path + header (at most `EMBEDDING_CONTEXT_MAX_CHARS`) to what is
+  EMBEDDED, never to the stored text; line classification is a linear scan — never add a
+  backtracking regex on the upload path;
   text is normalised — `normalizeDocumentText`, control chars + CRLF — before it is stored or
   chunked). Inline indexing is ONE `ingest document` span (`IngestDeps.tracer` — the route's
   `withAuth` tracer), so its `traceEmbed` batches nest; the span's output is the outcome, never

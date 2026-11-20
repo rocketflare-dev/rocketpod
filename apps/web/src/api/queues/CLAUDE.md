@@ -33,6 +33,13 @@ run (`../services/agents/CLAUDE.md`).
   doubling to a 15 min cap — but the queue's policy (same curve, jittered up to 2×, 3 retries, then
   `rocketpod-jobs-dlq`) picks the actual delay, so `retry()`'s figure is a floor. Unknown queue →
   `ackAll()`
+- **A job naming a tenant runs only while it is `active`**: before dispatch the consumer reads
+  `tenants.status` for a payload `tenantId` (a UUID) and acks the message unrun otherwise —
+  suspended or deleted, kit and plugin jobs alike, and a delayed re-enqueue (the extract job's
+  next-UTC-day `startAfter`) is the same message through the same check; `RUN_FOR_ANY_TENANT`
+  (`tenant.purge`, `activity.record`) is the exception list. `afterDropped` leaves a dropped
+  `document.index` / `document.convert`'s `pending` row `failed` for Retry. A test consuming such
+  a job creates the tenant first (`docs/CONCEPTS.md` §1)
 - Missing jobs queue → `JobsQueueNotConfiguredError` (503 `jobs_not_configured`), never a silent
   inline fallback
 

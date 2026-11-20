@@ -241,6 +241,14 @@ The CLI (`apps/cli`) is not part of the image: it runs on people's machines
 
 - **Logs:** structured JSON (pino) on stdout from every process — collect them with whatever the
   platform uses. `LOG_LEVEL` sets the floor.
+- **Access logs carry credentials.** The app's own request lines log the path without its query
+  string and with the token in `/api/invite/<token>` redacted, but anything in front of it does
+  not: the chart's Ingress sets no logging annotations, so ingress-nginx writes its default access
+  line (`$request`: method, full URL with query string, status) for every request, and so do a
+  Compose reverse proxy, a load balancer and a CDN. Those lines record `GET
+  /auth/magic-link/verify?token=…` and `GET /api/invite/<token>` URLs, which are sign-in and
+  invitation credentials until used or expired. Treat access to those logs (and wherever they are
+  shipped) as sensitive, or strip the query string in the proxy's log format.
 - **Health:** `/healthz` (process up) and `/readyz` (database reachable, not draining) on every
   process, `worker` included.
 - **Jobs:** pg-boss's tables in the `pgboss` schema. A job that fails all its retries (`retryLimit`

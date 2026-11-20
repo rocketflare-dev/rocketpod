@@ -231,7 +231,9 @@ release.
 - **`jobHandlers` is checked against the plugin's OWN `shared.jobs`** (`{ [T in JobTypeOf<S>]: … }`),
   so a declared variant with no handler is a type error in the plugin. Namespace every `type`
   `<id>.verb`; the handler contract is the kit's (own DB client, await everything, throw to retry —
-  `../api/queues/CLAUDE.md`).
+  `../api/queues/CLAUDE.md`). A job whose payload carries a `tenantId` is acked unrun while that
+  tenant is not `active` (suspended or deleted), so work that must happen on suspension belongs in
+  `onTenantStatusChanged`, not in a job.
 - **`agentTools(ctx)` is bound to the run's `AgentToolContext`**, which carries the `AccessScope` —
   so a plugin tool reads what its REQUESTER may read, never a bare `tenantId` it chose itself. A
   tool that writes is offered on `ToolCtx.can('manage', YOUR_SUBJECT)`, never on `scope.bypass`,

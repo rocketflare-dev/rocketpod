@@ -9,7 +9,7 @@ migrations:
   - "the pg_trgm extension; knowledge_entities + knowledge_facts; chunks gain embedding_model (backfilled), heading_path, table_header, page, char_start, char_end and a rebuilt search_vector (table rewrite); documents gain content_hash, origin, reviewer_user_id"
   - "new table knowledge_value_judgements (tenant-isolated); knowledge_facts gains value_ref"
   - "new table agent_run_turns (tenant-isolated, the tool-loop journal); agent_runs gains agent_version, worker_version_id, parent_run_id (self-FK cascade) and budget; agent_run_interrupts gains assignee_user_ids, assignee_group_ids, remind_at and reminded_at"
-areas: [api, config, shared, docs, db, ui, evals]
+areas: [api, config, shared, docs, db, ui, evals, cli, tooling]
 touches_surfaces: []
 requires_surfaces: []
 manual: false
@@ -208,3 +208,68 @@ their agent version and build, spawn child runs and can be inspected turn by tur
 1. `tests/api/agent-{children,durable-loop,hitl,loop-journal,recordings,stats,sweeper,versions}.test.ts` pass.
 2. `tests/api/node-runs.test.ts` passes: a cancel reaches a hung model call and the run settles `cancelled` with the engine run complete; a second cancel terminates it.
 3. `psql "$DATABASE_URL" -c '\d agent_run_turns'` shows the table.
+
+## Rocketflare 0.40.0
+
+Knowledge facts are built only from documents every reader may see and settled only by those
+allowed, invitations follow their issuer, suspended organisations run no queued jobs, and the
+chunker runs in linear, bounded work.
+
+### What changed
+
+- Extraction and the decision model see only tenant-visible documents' entities, facts and held values (`promptScope` in `services/knowledge/extract.ts`); a group-restricted document adds no aliases (`ResolveContext.documentVisibility`, now required).
+- A fact superseded only by a fact the reader cannot see reads as its restored state with `supersededById: null`, and is answerable, counted and reviewable by that reader (`supersededOutOfViewSql` / `stateInViewSql`).
+- `findEntitiesByName` and `entitiesMentionedIn` take the reader's `AccessScope` instead of a tenant id.
+- A member's `prefer` is refused with 403 `fact_conflict_needs_admin` (new error code) when a visible conflict is someone else's to review, has no reviewer, or was confirmed by another person.
+- Sign-up admission counts an invitation only when `issuerMayIssue` holds for its issuer; blocking a person revokes every pending invitation they issued, in every tenant (`revokeEveryInvitationIssuedBy`).
+- The jobs consumer (`queues/jobs.ts`, under pg-boss) acks unrun every job whose payload names a tenant that is not `active`; `tenant.purge` and `activity.record` always run; a dropped `document.index` / `document.convert` leaves a `pending` document `failed`. The knowledge-extract job's next-day delayed re-enqueue is a normal pg-boss job and meets the same check.
+- `chunking.ts` finds ATX headings and GFM delimiter rows by linear scans; a table header wider than a quarter of the window is carried as its first columns plus ` …`; `embeddingInput` cuts the prefixed context to `EMBEDDING_CONTEXT_MAX_CHARS` (1600) and a heading title to `HEADING_TITLE_MAX_CHARS` (200).
+- `docs/DEPLOY.md` § Observability: ingress and reverse-proxy access logs record magic-link and invitation URLs with their tokens.
+
+### How to apply
+
+1. Follow Rocketflare's `docs/upgrades/0.40.0.md` steps 1–10 and 15–19, with these Rocketpod differences:
+   - Skip steps 11–14 (`rf-security`'s `public-report`): Rocketpod has not ported the security-audit skill yet (Rocketflare 0.35.0).
+   - Skip the `invocation_logs` toml step; Rocketpod has no toml.
+   - In `suspended-tenant-jobs.test.ts`, `setTenantSuspended` takes `platform: resolvePlatform(env)`, the purge case writes through `stubs(env).files`, and the batch queue is `rocketpod-jobs`.
+   - In the knowledge tests, the jobs queue is `env.jobs`.
+2. No migration.
+
+### Conflicts to expect
+
+- `apps/web/src/api/queues/jobs.ts` → Rocketpod's consumer takes `JobBatch` and a `platform` → add the imports, `tenantMayRun` / `afterDropped`, and the check at the top of `processMessage`'s `try`.
+- `apps/web/tests/api/jobs-consumer.test.ts` → its jobs name real tenants now (`createTestTenantWithUser`) → drop the fixed `TENANT` id.
+
+### Verify
+
+1. `tests/api/security/{invitation-issuer-admission,knowledge-prefer-authority,knowledge-visibility-producer,knowledge-visibility-readers,suspended-tenant-jobs}.test.ts` pass.
+2. `tests/config/chunking.test.ts` passes.
+
+## Rocketflare 0.36.0 and 0.36.1
+
+Upgrades and plugin upgrades finish cleanly after rejects, and the CLI and `pnpm test` say what
+is wrong with the shell they run in.
+
+### What changed
+
+- `pnpm kit:upgrade --continue` (`scripts/upgrade.mjs`, `stampUpgrade` / `continueUpgrade`): after an `--apply` that left rejects, records the version, commit and history once every `*.rej` is resolved and deleted.
+- `pnpm plugin upgrade <id> --continue`: the same finish for a plugin; it never re-patches.
+- `pnpm plugin upgrade` formats every file it added or patched, and `add` / `upgrade` warn when a core edit's lines were partly in the file already (`partialCoreEdits` in `scripts/lib/plugin-lib.mjs`).
+- The CLI resolves paths from the directory `pnpm cli` was typed in (`INIT_CWD`), and warns when `ROCKETPOD_API_KEY` / `ROCKETPOD_URL` from the environment override a different saved login.
+- `pnpm test` refuses Node < 26 by name.
+
+### How to apply
+
+1. Port `scripts/upgrade.mjs`, `scripts/plugin.mjs` and `scripts/lib/plugin-lib.mjs` (+ `.d.mts`) from Rocketflare 0.36.1, leaving out `writeDeclarations` (Cloudflare provisioning) and keeping `requireClean(args)` and `host.translate`.
+2. Port `apps/cli/src/{cli,config,context}.ts`, and the Node check at the top of `scripts/test.mjs`.
+3. Copy `apps/web/tests/config/upgrade-continue.test.ts`, and the new cases in `plugin-host-seams.test.ts`, `plugin-lib.test.ts` and `apps/cli/tests/config.test.ts` (env names `ROCKETPOD_*`).
+4. Port the `--continue` paragraphs into `.claude/skills/rp-upgrade/SKILL.md` and `rp-plugin/SKILL.md`.
+
+### Conflicts to expect
+
+- `scripts/plugin.mjs` → Rocketpod writes no wrangler tomls → the `--continue` branch and `formatWritten` go in without `writeWranglerTomls`.
+
+### Verify
+
+1. `pnpm kit:upgrade --help` and `pnpm plugin --help` list `--continue`.
+2. `tests/config/{upgrade-continue,plugin-host-seams,plugin-lib}.test.ts` pass.

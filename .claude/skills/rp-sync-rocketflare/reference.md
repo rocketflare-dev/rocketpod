@@ -47,7 +47,13 @@ the same commit, so the next port starts from it.
 
 | Rocketflare test | Rocketpod test |
 |---|---|
-| `fixture-agents.ts` | `tests/helpers/test-agents{,-shared}.ts` (`TEST_SUMMARIZE`, `TEST_RESEARCH`, `withTestAgents`, `testAgentsServerBarrel`) |
+| `fixture-agents.ts` (`FIXTURE_AGENT`, `FIXTURE_AGENT_B`, `fixtureShared`/`fixtureServer`) | `tests/helpers/test-agents{,-shared}.ts` (`TEST_SUMMARIZE`, `TEST_RESEARCH`, `TEST_AGENTS_SHARED`/`TEST_AGENTS_SERVER`); `api-fixtures-setup.ts` pushes the latter two |
+| `// @vitest-fixture-agents` on a converted upstream file | The same marker on Rocketpod's file, its two barrel `vi.mock`s deleted, any `AGENTS` swap restored after (the registry outlives the file) |
+| `withFixtureShared` in a UI test | `withTestAgents` in the shared-barrel mock (the file lands in `ui-isolated` by heuristic) |
+| `agent-run-routes` / `agent-run-runtime` (0.43.0's split of the run tests) | Rocketpod's own `agent-runs.test.ts` / `agent-run-workflow.test.ts`, which already cover the same cases on the test agents |
+| A `vi.mock` of `ai/resolve` | `overrideResolveChatForTests` / `overrideResolveDecisionsForTests` (include `billedToPlatform: false`) |
+| A test plan with a `neon` driver step | One `postgres` step: a plan test's step count and labels drop the driver (`'web: ui, 1 file(s)'`, the web plan's parts `['api','rest']`) |
+| `import ts from 'typescript'` in a guard | `'typescript6'` — Rocketpod's own `platform-seam.test.ts` included |
 | `AgentRunWorkflow` + `createFakeWorkflowStep` | `runAgentRun` + `createFakeStep` (`tests/mocks/step.ts`); keep the fake's refusal of a detached `step.do` |
 | `agentRunStarter(env)` | needs `platform: resolvePlatform(env)` |
 | The `AI` binding stub | `stubs(env).ai.respond` on the fake OpenAI-compatible endpoint; `scriptPlatformChat(env, turns)` for chat |

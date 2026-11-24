@@ -6,7 +6,8 @@
  * (`DEV_UI_PORT` / `DEV_API_PORT`, `scripts/lib/dev-ports.mjs`) work with only `APP_URL`
  * following the UI port. A tunnel's origin arrives as `APP_URL`. Runs BEFORE csrf so preflights
  * are answered.
- * WebSocket upgrades (`/ws`) bypass it: CORS does not govern the handshake (the route checks
+ * `/mcp` and the OAuth endpoints bypass it too: they allow any origin WITHOUT credentials, which
+ * this handler (credentials on) must never answer for. WebSocket upgrades (`/ws`) bypass it: CORS does not govern the handshake (the route checks
  * membership), and the 101 upgrade response must leave untouched (`node/realtime.ts` owns the socket).
  */
 import { cors } from 'hono/cors'
@@ -71,31 +72,22 @@ export function isWebSocketUpgrade(c: { req: { header(name: string): string | un
 }
 
 /**
- * The remote MCP server and its metadata answer any origin WITHOUT credentials: a browser-based
- * MCP client (the MCP Inspector) calls them cross-origin with a Bearer token, and the cookie is
- * never a credential there (`routes/mcp.ts`). The client must read `WWW-Authenticate` to find the
- * authorization server, so it is exposed.
+ * `/mcp`, the token and revocation endpoints and the OAuth discovery documents answer CORS
+ * themselves — any origin, never credentials (`routes/mcp.ts`, `routes/oauth.ts`). One trailing
+ * slash is the same path, so `/oauth/token/` is never answered with credentialed CORS.
  */
-const mcpCors = cors({
-  origin: '*',
-  allowMethods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
-  allowHeaders: [
-    'Authorization',
-    'Content-Type',
-    'Accept',
-    'Mcp-Protocol-Version',
-    'Mcp-Session-Id',
-    'Mcp-Tenant',
-    'Last-Event-Id',
-  ],
-  exposeHeaders: ['WWW-Authenticate', 'Mcp-Session-Id'],
-  maxAge: 86400,
-})
+export function isMcpPath(path: string): boolean {
+  const pathname = path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path
+  return (
+    pathname === '/mcp' ||
+    pathname.startsWith('/mcp/') ||
+    pathname === '/oauth/token' ||
+    pathname === '/oauth/revoke' ||
+    pathname.startsWith('/.well-known/oauth-') ||
+    pathname === '/.well-known/openid-configuration'
+  )
+}
 
-const isMcpPath = (path: string) =>
-  path === '/mcp' || path.startsWith('/.well-known/oauth-protected-resource')
-
-export const corsMiddleware = createMiddleware<AppEnv>((c, next) => {
-  if (isWebSocketUpgrade(c)) return next()
-  return isMcpPath(c.req.path) ? mcpCors(c, next) : corsHandler(c, next)
-})
+export const corsMiddleware = createMiddleware<AppEnv>((c, next) =>
+  isWebSocketUpgrade(c) || isMcpPath(c.req.path) ? next() : corsHandler(c, next)
+)

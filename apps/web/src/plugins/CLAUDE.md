@@ -122,7 +122,8 @@ release.
 
 - **Its routes are kit routes in every respect** — `createRouter()`, `validate()` with a contract
   from its own shared entry, `ctx.guard` with its own subject, the tenant id from the context, typed
-  errors, a tenant predicate on every query. Only REGISTRATION differs: `mounts`
+  errors (`ctx.notFound()`… in a route; the same classes, `NotFoundError`, `ForbiddenError`…, from
+  `@/plugins/api` in a tool or a job), a tenant predicate on every query. Only REGISTRATION differs: `mounts`
   (`['/api/<id>', router, middleware?]`, the same tuple a kit mount is), spread LAST into the mount
   table of `api/index.ts`, so the enumerable auth surface stays one list and a plugin can never
   shadow a kit prefix. The `/api/<id>` convention is what stops two plugins claiming one path.
@@ -234,15 +235,31 @@ release.
   `../api/queues/CLAUDE.md`). A job whose payload carries a `tenantId` is acked unrun while that
   tenant is not `active` (suspended or deleted), so work that must happen on suspension belongs in
   `onTenantStatusChanged`, not in a job.
-- **`agentTools(ctx)` is bound to the run's `AgentToolContext`**, which carries the `AccessScope` —
+- **`tools(ctx)` is bound to the caller's `AgentToolContext`** (the old name `agentTools` still
+  works and draws a `plugin check` warning), which carries the `AccessScope` —
   so a plugin tool reads what its REQUESTER may read, never a bare `tenantId` it chose itself. A
   tool that writes is offered on `ToolCtx.can('manage', YOUR_SUBJECT)`, never on `scope.bypass`,
-  which is row visibility. A tool that fetches a URL reads only one in `ToolCtx.requesterUrls`
+  which is row visibility. `ToolCtx.requester` (`{ userId, role, isAdmin, groups }`, null with
+  nobody behind the run) is the caller's own role and groups, already resolved — scope by it,
+  never query for them. A tool that fetches a URL reads only one in `ToolCtx.requesterUrls`
   (what the person typed) or one its own search returned — never a URL the model, a page or a
   document supplied.
   Appended after the kit's three knowledge tools (async allowed, `[]` for a tenant that has not
   turned the tool on, a throw is logged and skipped); a test that pinned the exact tool list must
-  become a prefix assertion.
+  become a prefix assertion. Each tool says where it is offered — `surfaces: ['chat' | 'agents' |
+  'mcp']`, absent = all, filtered by `toolsFor(surface, ctx)` — and how an MCP client sees it in
+  `mcp: { title?, annotations?, outputSchema?, scope? }` (defaults from `sideEffects`: `mcp:read`
+  and read-only, or `mcp:write` and destructive). Terminal and approval-gated tools never reach
+  `mcp`. **Name it `<namespace>_<verb>`**: 1–64 of `A–Z a–z 0–9 _ -` (no `.` — the chat models
+  refuse it), never a core tool's or another plugin's name — the builder drops such a tool and
+  `plugin check` fails it. Never "Rocketpod" in its `title`/`description` (a client shows the
+  deployment's name).
+- **MCP needs nothing else**: no mount, no auth, no token check — `/mcp` resolves the person and
+  hands the tool the same `ToolCtx`. Never mount on `/mcp`, `/oauth/*` or `/.well-known/oauth-*`
+  (refused at load and by `plugin check`). **Prove it scopes over MCP** with `callMcpTool(db, tool,
+  { as, tenant })` from `@testkit/integration` as a member of a second organisation (and outside a
+  group, for group-visible rows) — `example-feature`'s "over MCP" cases are the template; the full
+  safe-tool checklist is `.claude/rules/tools.md`.
 - **`grants` are ADDITIVE and over the plugin's OWN subjects** (declared in
   `SharedPlugin.subjects`), run after the kit's matrix in `buildAbility`. CASL can take a rule back
   only with `cannot`, so a plugin that revoked a kit grant would change what every role may do

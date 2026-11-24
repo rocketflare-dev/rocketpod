@@ -40,6 +40,7 @@ import {
 } from '../helpers/auth'
 import { setupTestDatabase } from '../helpers/db'
 import { json, request } from '../helpers/request'
+import { itSweeps } from '../helpers/sweeps'
 import { TEST_SUMMARIZE } from '../helpers/test-agents-shared'
 import { createTestEnv, stubs, type TestEnv } from '../mocks/bindings'
 
@@ -51,6 +52,8 @@ vi.mock('@/plugins/server', async () =>
 )
 
 const db = setupTestDatabase()
+// The two timeout cases backdate a park and sweep: one sweep at a time across files.
+const sweepIt = (name: string, body: () => Promise<void>) => itSweeps(db, name, body)
 const originals = { ...AGENTS }
 afterEach(() => {
   Object.assign(AGENTS, originals)
@@ -241,7 +244,7 @@ async function sweepOne(env: TestEnv, tenantId: string, runId: string) {
 }
 
 describe("onTimeout: 'reject'", () => {
-  it('answers an expired ask as a rejection by nobody and wakes the run', async () => {
+  sweepIt('answers an expired ask as a rejection by nobody and wakes the run', async () => {
     withHitl(TEST_SUMMARIZE, { onTimeout: 'reject' })
     const env = createTestEnv()
     const { tenant, run, ask } = await parkedOn(
@@ -263,7 +266,7 @@ describe("onTimeout: 'reject'", () => {
     })
   })
 
-  it('without it, an expired park is cancelled as before', async () => {
+  sweepIt('without it, an expired park is cancelled as before', async () => {
     const env = createTestEnv()
     const { tenant, run } = await parkedOn(
       env,

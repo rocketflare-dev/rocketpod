@@ -16,10 +16,11 @@ host depends on it. `../CLAUDE.md` is the seam it plugs into.
 | `ServerPlugin.jobHandlers` | `jobs/ping.ts`, checked to cover exactly the variants the shared half declared |
 | `SharedPlugin.events` + `ServerPlugin.eventHandlers` | `example-feature.note.created`, emitted by `POST /notes` with the key `note:<id>`; `events/note-created.ts` audits it (idempotent on the note); listed in `plugin.json` `"events"` |
 | `ServerPlugin.agents` / `prompts` + `triggers` / `bindable` | `example-feature.note-stats` (`agents/note-stats.ts`, no model call): TRIGGERED by the event unless the title starts "draft", and BINDABLE to it for a picker |
-| `ServerPlugin.agentTools` | `list_example_notes` on an agent run's `ctx.tools` only while the run's organisation has the flag (`ToolCtx.features()`), bound to the run's `AccessScope` |
+| `ServerPlugin.tools` | `list_example_notes` on chat, every agent run's `ctx.tools` and the MCP server, only while the organisation has the flag (`ToolCtx.features()` — a dark feature costs no prompt tokens), bound to the caller's `AccessScope` |
 | `ServerPlugin.knowledgeEntityTypes` | `example-feature.note` over `example_notes` (`labelColumn: title`, facts `due_date` + `contact_name`) in `knowledge/entity-types.ts`; `tests/api/knowledge-entity-type.test.ts` pins that the kit's default resolver finds a note by title in its tenant and never another's |
 | `ServerPlugin.hooks` | `onTenantCreated` (one welcome note, only when the new organisation starts with the flag, idempotent by "only when there are none") and `seedDemo` (two notes + the flag at 50 % rollout) |
 | `UiPlugin.routes` / `nav` | `/example-feature`, `lazy()`, above the core "Organisation" group; route and nav share ONE guard |
+
 | `UiPlugin.queryKeys` | `example-feature:notes` — the same string the server's `entity.changed` nudge carries, declared once in `shared.ts` |
 | `CliPlugin.register` | `rocketpod example-feature ping` and `… notes list` |
 | `"skills"` | `example-feature` → `.claude/skills/example-feature/SKILL.md`: how to exercise this plugin (flag, notes, ping, public link). Vendored, so it lives in the host's tree at its installed path; a plugin REPOSITORY ships it at `skills/example-feature/` |

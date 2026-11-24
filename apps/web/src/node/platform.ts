@@ -3,7 +3,7 @@
  * realtime (`ws` + LISTEN/NOTIFY — `realtime.ts`), object storage (S3 —
  * `storage.ts`, null unless `STORAGE_DRIVER=s3` is fully configured), the rate limiter and
  * operation locks (Postgres — `limits.ts`), the document converter (`converter.ts`) and the Guide's
- * static content (`guide-content.ts`). A null
+ * static content (`guide-content.ts`) and the guarded egress (`egress.ts`). A null
  * member is the configuration state the app already answers for (503 `storage_not_configured`,
  * a no-op realtime nudge, a run that cannot start). Models are reached through the provider keys
  * (`ANTHROPIC_API_KEY`, `AI_*`, `EMBEDDINGS_*`), not a platform member.
@@ -16,12 +16,14 @@ import {
   type JobsQueue,
   type Locks,
   type Platform,
+  type PublicFetch,
   type RateLimiter,
   type RealtimeHub,
   type RunEngine,
   type StorageService,
 } from '../platform/types'
 import { createNodeConverter } from './converter'
+import { createPublicFetch } from './egress'
 import { createNodeGuideSource } from './guide-content'
 import { createPostgresLocks, createPostgresRateLimiter } from './limits'
 import { createS3Storage, storageConfigOf } from './storage'
@@ -40,6 +42,7 @@ export interface NodePlatformParts {
   converter?: DocumentConverter | null
   /** The Guide's pages and images (`guide-content.ts`); by default `content/guide`. */
   guide?: GuideContentSource | null
+  publicFetch?: PublicFetch | null
 }
 
 export function createNodePlatform(config: AppConfig, parts: NodePlatformParts = {}): Platform {
@@ -55,5 +58,6 @@ export function createNodePlatform(config: AppConfig, parts: NodePlatformParts =
     locks: parts.locks !== undefined ? parts.locks : createPostgresLocks(config),
     converter: parts.converter !== undefined ? parts.converter : createNodeConverter(),
     guide: parts.guide !== undefined ? parts.guide : createNodeGuideSource(),
+    publicFetch: parts.publicFetch !== undefined ? parts.publicFetch : createPublicFetch(),
   }
 }

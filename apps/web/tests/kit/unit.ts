@@ -480,7 +480,7 @@ export interface ToolCtxOptions extends BaseOptions {
 }
 
 /**
- * What `ServerPlugin.agentTools(ctx)` is handed, through the host's own `toolCtx` adapter.
+ * What `ServerPlugin.tools(ctx)` is handed, through the host's own `toolCtx` adapter.
  *
  * The tenant arrives as part of a `scope`, not as a bare id, and that is the whole safety property:
  * a tool bound to a scope answers what the person who STARTED the run may read. A `tenantId` on a

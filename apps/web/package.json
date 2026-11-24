@@ -58,7 +58,7 @@
     "@heroicons/react": "^2.2.0",
     "@hono/node-server": "^2.1.6",
     "@hono/zod-validator": "^0.9.1",
-    "@modelcontextprotocol/sdk": "^1.32.2",
+    "@modelcontextprotocol/server": "2.4.0",
     "@rocketpod/shared": "workspace:*",
     "@tanstack/react-query": "^5.107.1",
     "date-fns": "^4.4.0",
@@ -87,6 +87,7 @@
   },
   "devDependencies": {
     "@iarna/toml": "^2.2.5",
+    "@modelcontextprotocol/client": "2.4.0",
     "@tailwindcss/postcss": "^4.3.5",
     "@tailwindcss/typography": "^0.5.20",
     "@tanstack/react-query-devtools": "^5.107.1",

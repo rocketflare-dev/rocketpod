@@ -47,6 +47,7 @@ import NotFound from '@/ui/pages/NotFound'
 const MagicLinkSent = lazy(() => import('@/ui/pages/MagicLinkSent'))
 const MagicLinkConfirm = lazy(() => import('@/ui/pages/MagicLinkConfirm'))
 const CliConfirm = lazy(() => import('@/ui/pages/CliConfirm'))
+const OAuthConsent = lazy(() => import('@/ui/pages/OAuthConsent'))
 const InviteAccept = lazy(() => import('@/ui/pages/InviteAccept'))
 const SelectTenant = lazy(() => import('@/ui/pages/SelectTenant'))
 const Pending = lazy(() => import('@/ui/pages/Pending'))
@@ -370,6 +371,14 @@ function AppRoutes() {
               <CliConfirm />
             </Suspense>
           </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/consent"
+        element={
+          <NoTenantRoute>
+            <OAuthConsent />
+          </NoTenantRoute>
         }
       />
       <Route

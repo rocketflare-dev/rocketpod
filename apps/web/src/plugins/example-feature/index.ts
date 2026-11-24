@@ -97,7 +97,7 @@ export const exampleFeatureServer = {
    * boundary. The scope inside it carries the tenant AND what the run's REQUESTER may read, which
    * is why a tool never takes a tenant id of its own.
    */
-  agentTools: ctx => exampleAgentTools(toolCtx(ctx)),
+  tools: ctx => exampleAgentTools(toolCtx(ctx)),
   /**
    * **A knowledge entity type**: facts extraction reads from documents may attach to a note,
    * matched by title within the reader's tenant. Namespaced `<id>.` like everything else here.

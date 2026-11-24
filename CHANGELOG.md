@@ -6,6 +6,11 @@ copy of the kit forward without recreating anything its owner deleted.
 
 If you are running a copy: `pnpm kit:upgrade` tells you which of these you are missing.
 
+## 0.44.1 — 2026-11-24
+
+Rocketpod catches up with Rocketflare 0.44.1: an MCP server that is its own OAuth authorization server, one tool seam for chat, agents and MCP, `pnpm gate --changed`, TypeScript 7, and a `kit:upgrade` that 3-way merges.
+[Porting note](docs/upgrades/0.44.1.md).
+
 ## 0.40.0 — 2026-11-20
 
 Rocketpod catches up with Rocketflare 0.40.0: a durable agent runtime, a structured knowledge base with typed facts, two security rounds, a remote MCP server at `/mcp`, and upgrade tooling that resumes after rejects.

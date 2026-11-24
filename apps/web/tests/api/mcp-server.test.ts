@@ -20,6 +20,7 @@ import {
   sessionCookieHeader,
 } from '../helpers/auth'
 import { setupTestDatabase } from '../helpers/db'
+import { KIT_NAME } from '../helpers/kit-name'
 import { connectMcp, enableMcp, mcpClient, mcpPost, mcpTestEnv, toolJson } from '../helpers/mcp'
 import { request } from '../helpers/request'
 import { createTestEnv } from '../mocks/bindings'
@@ -448,6 +449,6 @@ describe('branding', () => {
     seen.push(JSON.stringify(await client.callTool({ name: 'list_documents', arguments: {} })))
     seen.push(JSON.stringify(client.getServerVersion()), client.getInstructions() ?? '')
     await client.close()
-    for (const text of seen) expect(text).not.toMatch(/rocketpod/i)
+    for (const text of seen) expect(text).not.toMatch(KIT_NAME)
   })
 })

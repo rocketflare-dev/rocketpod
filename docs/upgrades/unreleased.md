@@ -32,6 +32,13 @@ The MCP server is rebuilt on Rocketflare 0.41.0: the app is its own OAuth 2.1 au
 - `pnpm db:generate` (`apps/web/scripts/db-generate.ts`) applies every migration to a scratch database on the local dev Postgres when drizzle-kit wrote one, names the statement Postgres refused, and drops it; `--check` runs the check alone.
 - Tests: `source-files.ts` lists untracked sources too; `uniqueId()` is slug-safe (`[a-z0-9]+-[a-z0-9]+`); a test-database startup failure prints as itself (`tests/helpers/startup-error.ts`); `schema-invariants.test.ts` names a tenant FK's ON DELETE rule in words.
 
+- Rocketflare 0.43.0: `pnpm gate --changed[=<ref>]` runs each step over what the branch changed (lint on those files, typecheck/test/build in the packages they reach, only the web tests their imports reach; a config, lockfile, migration or harness change makes it the full gate), and writes `changed: true` in `.gate/last.json` (`full: false`).
+- `pnpm test <suite…> [file…]` (`api|ui|config|driver|kit-only`, each its shared and isolated projects; `web` = the web plan without the other packages); the `apps/web` `test:*` scripts are aliases for it. `--only` / `--shard` stay for CI.
+- Test projects: `api-fixtures` (files starting `// @vitest-fixture-agents` share a registry into which `tests/api-fixtures-setup.ts` pushes the test agents once per worker), `ui-isolated` and `config-isolated` (chosen by `uiNeedsIsolation`, no marker). The agent-runtime tests mock no barrel any more.
+- `overrideResolveChatForTests`, `overrideResolveDecisionsForTests` and `overrideKnowledgeEntityTypesForTests` replace `vi.mock` of those modules; `withServerPlugins(fixtures)` (`tests/helpers/server-plugins.ts`) splices fixture server plugins for one file. Spies and `vi.stubGlobal` need no isolate marker.
+- TypeScript 7.0.2 compiles; code that parses TypeScript (the source-scanning guards, `surface.mjs`, `plugin-api-doc.mjs`) imports `typescript6`. `paths` are `./`-relative (no `baseUrl`). Vitest 5.1, Vite 8.3.
+- The kit's tooling tests (`scripts/**`) moved to `tests/kit-only/`; `kit-makeup.test.ts` holds the kit's exact job and entity types; `build:ui` runs `scripts/check-ui-bundle.mjs`; up to 10 test workers.
+
 ## How to apply
 
 1. Run `pnpm install` (the MCP SDK package changed), then `pnpm db:migrate` to apply `0017_kit-mcp-server`.
@@ -72,6 +79,11 @@ The MCP server is rebuilt on Rocketflare 0.41.0: the app is its own OAuth 2.1 au
 29. Check that every installed plugin's `LICENSE` still names its licensor; one installed into a renamed app before this release had its licence translated, so restore it from the plugin's repository.
 30. Port the text of `SETUP.md` "Windows (WSL2)" and §2.7, `docs/CONCEPTS.md` §7, §8 and §16, and the `rp-plugin`, `rp-setup` and `rp-how-do-i` skills, keeping your own wording.
 
+31. Run `pnpm install` (TypeScript 7, `typescript6`, Vitest 5.1, Vite 8.3); remove `baseUrl` from your tsconfigs and make each `paths` entry `./`-relative; change any `import ts from 'typescript'` of yours to `'typescript6'`.
+32. Take `apps/web/vitest.config.ts`, `tests/helpers/isolation.ts`, `tests/api-fixtures-setup.ts`, `tests/api-setup.ts`, `tests/config/{setup,shared-setup}.ts`, `tests/helpers/server-plugins.ts`, `scripts/test.mjs`, `scripts/gate.mjs` and `scripts/lib/{test-plan,gate-lib,gate-changed,gate-changed-git}.mjs` with their `.d.mts`.
+33. In a test of yours that mocks `@/api/services/ai/resolve`, call `overrideResolveChatForTests` / `overrideResolveDecisionsForTests` at the top of the file instead; in one that mocks both plugin barrels for the test agents, replace the marker with `// @vitest-fixture-agents`, delete the two `vi.mock`s and restore any `AGENTS` swap in `afterEach`/`afterAll`; drop `// @vitest-isolate` from a file that only spies or stubs globals.
+34. Change `test:api`, `test:ui`, `test:config`, `test:driver` in `apps/web/package.json` to `node ../../scripts/test.mjs <suite>`.
+
 ## Conflicts to expect
 
 - `apps/web/src/api/routes/mcp.ts`, `apps/web/src/api/auth/mcp.ts`, `packages/shared/src/mcp.ts` → rewritten → take the kit's versions; an app change to the old tool list belongs in a tool now.
@@ -86,6 +98,8 @@ The MCP server is rebuilt on Rocketflare 0.41.0: the app is its own OAuth 2.1 au
 - `apps/web/src/ui/pages/Login.tsx` → `DEV_ACCOUNTS` moved out → keep your accounts in `apps/web/src/ui/lib/dev-accounts.ts`.
 - `scripts/bootstrap.sh` → the OS, root, docker, node and pnpm checks moved to `scripts/lib/prereqs.sh` → keep a check you added, take the rest.
 - `apps/web/tests/ui/contrast.test.ts` → its pairs moved into `scripts/lib/contrast.mjs` → take the kit's file, move your pairs into `contrastPairs()`.
+- `apps/web/vitest.config.ts` → three new projects and the file split → take the kit's, re-add an alias or a project of yours.
+- A test of yours moved by the release (`tests/api/*` → `tests/config/` for the database-free ones) → keep your edits in the new path.
 
 ## Verify
 
@@ -99,3 +113,4 @@ The MCP server is rebuilt on Rocketflare 0.41.0: the app is its own OAuth 2.1 au
 8. `pnpm plugin list --available` prints a `Plugins (github.com/rocketflare-dev/rocketflare-plugins at <tag>)` block, or exits 3 with one `error:` line offline.
 9. `pnpm seed` prints the `/auth/dev-login` curl for the `DEV_ACCOUNTS` owner and an `api key:` line labelled a local demo key; Settings → People shows `Owner`, not `owner`.
 10. `pnpm design:docs` exits 2 naming `/rp-design` on a tree with no `docs/design/*.md`, and `LICENSES/kit-MIT.txt` matches the kit's MIT notice.
+11. `pnpm gate --changed` ends `✔ pnpm gate --changed passed — run the full pnpm gate before you push`, and `pnpm test api apps/web/tests/api/health.test.ts` runs one file.

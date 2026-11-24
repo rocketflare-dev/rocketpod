@@ -10,6 +10,9 @@
  * the test server, writes a document and a chunk the way they were written before it, then runs the REAL folder over it
  * and reads the row back. The scratch database is dropped afterwards; the shared test database is
  * never touched.
+ *
+ * Kit-only: every copy ran this migration when it upgraded past 0.36.1, so proving the backfill is
+ * the kit's release concern, not something each copy's gate should repeat.
  */
 import fs from 'node:fs'
 import os from 'node:os'

@@ -1,6 +1,4 @@
-// @vitest-isolate
-// Swaps entries in the `AGENTS` registry (an agent with `meta.hitl`) and mocks the plugin barrels
-// to register the test agents (tests/helpers/test-agents.ts).
+// @vitest-fixture-agents
 /**
  * HITL upgrades:
  *   - `askTiming`: `meta.hitl.timeout` capped at `AGENT_INTERRUPT_TIMEOUT`; no reminder at or past
@@ -43,13 +41,6 @@ import { json, request } from '../helpers/request'
 import { itSweeps } from '../helpers/sweeps'
 import { TEST_SUMMARIZE } from '../helpers/test-agents-shared'
 import { createTestEnv, stubs, type TestEnv } from '../mocks/bindings'
-
-vi.mock('@rocketpod/shared/plugins', async importOriginal =>
-  (await import('../helpers/test-agents-shared')).withTestAgents(await importOriginal())
-)
-vi.mock('@/plugins/server', async () =>
-  (await import('../helpers/test-agents')).testAgentsServerBarrel()
-)
 
 const db = setupTestDatabase()
 // The two timeout cases backdate a park and sweep: one sweep at a time across files.

@@ -1,5 +1,5 @@
 // @vitest-isolate
-// Spies on the global fetch (Resend failure path), so this file needs its own module registry.
+// Mocks the activity-record handler, so this file needs its own module registry.
 /**
  * The jobs consumer (D7) as a plain function over a hand-built `JobBatch`: valid
  * `email.send` → email service ran (dev fallback line) + `ack()`; invalid envelope → `ack()` and no

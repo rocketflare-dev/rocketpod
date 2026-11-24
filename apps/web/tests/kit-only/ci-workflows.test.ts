@@ -2,8 +2,8 @@
  * `gatedDecision` and `successfulCiRuns` (`scripts/release-check.mjs`): the "is this commit already
  * gated?" rule a deploy workflow asks before gating again, driven with a fake API, because its
  * failure mode is the security property — any doubt must mean "gate here". `--version-only` itself
- * is `tests/config/release-version-only.test.ts`. What `ci.yml` runs is checked by running it
- * (`.claude/rules/testing.md`: no test reads workflow YAML). The `config` project: no database.
+ * is `tests/kit-only/release-version-only.test.ts`. What `ci.yml` runs is checked by running it
+ * (`.claude/rules/testing.md`: no test reads workflow YAML). Kit-only: a copy owns its workflows.
  */
 import { describe, expect, it, vi } from 'vitest'
 import { gatedDecision, successfulCiRuns } from '../../../../scripts/release-check.mjs'

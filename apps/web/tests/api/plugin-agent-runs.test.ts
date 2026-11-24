@@ -1,6 +1,4 @@
-// @vitest-isolate
-// Mocks both plugin barrels (the test-only agents) and swaps an entry of the shared `AGENTS`
-// registry, so this file needs its own module registry.
+// @vitest-fixture-agents
 /**
  * A plugin starting an agent run from a background context — `ctx.startAgentRun` on `JobCtx` and
  * `CronCtx` (and `PublicCtx`, the same methods), through the route's own `enqueueRun`:
@@ -17,7 +15,7 @@
 
 import { makeCronCtx, makeJobCtx, makeToolCtx } from '@testkit/unit'
 import { and, eq } from 'drizzle-orm'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { traceIdForRun } from '@/api/observability/trace-ids'
 import { AGENTS, type AgentContext, type AnyAgentDefinition } from '@/api/services/agents/registry'
@@ -29,13 +27,6 @@ import { createTestTenantWithUser } from '../helpers/auth'
 import { setupTestDatabase } from '../helpers/db'
 import { TEST_RESEARCH, TEST_SUMMARIZE } from '../helpers/test-agents-shared'
 import { createTestEnv, stubs, type TestEnv } from '../mocks/bindings'
-
-vi.mock('@rocketpod/shared/plugins', async importOriginal =>
-  (await import('../helpers/test-agents-shared')).withTestAgents(await importOriginal())
-)
-vi.mock('@/plugins/server', async () =>
-  (await import('../helpers/test-agents')).testAgentsServerBarrel()
-)
 
 const db = setupTestDatabase()
 

@@ -35,8 +35,9 @@ Rules:
   route. Feature code never imports an SDK, never queries those tables, never sees a key; it asks
   for a client and calls it through `agent-loop.ts` (`runStreamingChat`, `runToolLoop`,
   `callStructuredTool`). No client → `AiNotConfiguredError` (503 `ai_not_configured`) — thrown
-  before any row is written or any stream opens. Tests `vi.mock('@/api/services/ai/resolve')`
-  (`// @vitest-isolate`) and hand in `FakeChatClient`
+  before any row is written or any stream opens. Tests hand in `FakeChatClient` through
+  `overrideResolveChatForTests` / `overrideResolveDecisionsForTests` (tests only, reset by
+  `tests/api-setup.ts` after each file) — not `vi.mock`, so the file shares the `api` registry
 - **Credentials never leave the server.** Rows leave as `hasCredential`; every provider failure
   goes through `normalizeAiError` → `AiError { code }` whose message is `redactSecrets`'d; the
   user-facing sentence is `describeAiError(err)`, never the vendor body. Every `ai_configs` write

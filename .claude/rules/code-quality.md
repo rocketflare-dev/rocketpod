@@ -27,6 +27,11 @@ a failure: `docs/EVALS.md` § "The coverage contract". `pnpm test` inside it sta
 itself and runs the driver conformance suite (`tests/driver/`) under postgres.js (docs/CONCEPTS.md §4).
 `typecheck` is `tsc --noEmit` in every package; nothing is generated.
 
+While you work, `pnpm gate --changed` runs each step over what the branch changed since its merge
+base with `origin/main`: lint on those files, typecheck/test/build in the packages they reach,
+only the web tests their imports reach. A config, lockfile, migration or harness change makes it
+the full gate. Run the full `pnpm gate` before you push (docs/CONCEPTS.md §4).
+
 ## Style (Biome 2, `biome.json`)
 
 - Single quotes, `asNeeded` semicolons, 100 columns, 2-space indent, trailing commas `es5`
@@ -40,6 +45,12 @@ itself and runs the driver conformance suite (`tests/driver/`) under postgres.js
 - Strict, ES2022, bundler resolution, `noEmit` in `tsconfig.base.json`; each package extends it
   (`apps/web/tsconfig.json` covers its `src`, `tests`, `scripts`; `apps/cli`, `packages/shared` theirs).
   `pnpm typecheck` runs all three
+- `tsc` is TypeScript 7 (the native compiler): no `baseUrl` (removed in 7), so `paths` entries are
+  `./`-relative. TypeScript 7 has no stable JavaScript API, so code that PARSES TypeScript — the
+  source-scanning guards in `tests/config/` (`driver-results`, `driver-conformance`,
+  `shared-imports`, `unscoped-allowlist`), `scripts/lib/surface.mjs` and `plugin-api-doc.mjs` —
+  imports `typescript6` (`npm:typescript@6.0.3`, a dev dependency at the root and in `apps/web`)
+  instead. Never import `typescript` for its API
 - Alias `@/*` → `apps/web/src/*` (web only). Shared contracts are imported as `@rocketpod/shared/<module>`
   (workspace link, resolved to `packages/shared/src/<module>.ts` — TS source, no build). `packages/shared`
   imports nothing from `apps/web` or `apps/cli` — it must bundle for the browser; `apps/cli` never

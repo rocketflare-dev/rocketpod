@@ -71,7 +71,8 @@ here.
   Rocketpod-compatible release exists (`defaultPlugins` is empty)
 - **UI**: React 19 + Vite, DaisyUI 5 / Tailwind v4, React Router 7, TanStack Query 5; served by the Node server from `dist/ui`
 - **CLI**: commander + chalk + open; `tsx` in dev, esbuild → `dist/cli.js` (bin `rocketpod`)
-- **Tests**: vitest projects `api` · `api-isolated` · `driver` · `ui` · `config` · `kit-only` (the kit's own
+- **Tests**: vitest projects `api` · `api-isolated` · `api-fixtures` · `driver` · `ui` · `ui-isolated` ·
+  `config` · `config-isolated` · `kit-only` (the kit's own
   tests, `apps/web/tests/kit-only/`, deleted by the rename — never in a copy) (Postgres :5533, the
   S3 gateway :7433; `driver` is the seam's conformance suite); cli; the eval kit's unit tests (`apps/evals/tests`). Evals themselves are
   `pnpm eval`, outside the gate
@@ -89,7 +90,9 @@ helm upgrade --install rocketpod deploy/helm/rocketpod -f values.yaml  # Kuberne
 pnpm dev:stop · pnpm dev:status · pnpm dev:db:status  # kill this repo's dev tree / port holders / every dev database
 pnpm cli login --server http://localhost:3001  # browser → ~/.rocketpod/config.json, then whoami
 pnpm gate [step…] · pnpm gate --list [--json]  # THE gate: lint → typecheck → test → build (CI runs it in parallel parts behind one `Gate` check; Launch's ship gate)
+pnpm gate --changed[=<ref>]  # local commits: each step over what the branch changed; full gate before a push
 pnpm test  # every package; starts the test DB (:5533) + S3 gateway (:7433); the whole suite, driver conformance included
+pnpm test api|ui|config|driver [file…]  # the inner loop: one suite (shared + isolated projects), DB expected up
 TEST_DATABASE_BRANCH=gate-… pnpm test  # a sandbox gate: no Docker, the whole suite on a gate branch over TCP (CONCEPTS §4)
 pnpm eval [suite] [--model x] [--compare] · pnpm eval:baseline · pnpm eval:view  # real-model evals (D33, docs/EVALS.md)
 pnpm web agent:replay <agent> --tenant <slug> [--candidate f] [--live]  # today's agent code over past runs, read-only

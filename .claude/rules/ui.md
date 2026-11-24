@@ -191,7 +191,8 @@ Component-local UI state is `useState`; theme and density are DOM attributes.
   `SearchPage` live in that folder too and must NOT import it. The converse rule holds for
   `components/shared`, nothing under which may import a markdown renderer — which is why
   `DocumentCard` renders its excerpt as plain text (`tests/config/ui-bundle.test.ts` asserts both
-  halves). `Markdown` shows images as links (`MarkdownImageLink`, also for a plugin's own
+  halves in the source, and `scripts/check-ui-bundle.mjs` checks the built chunks after every
+  `build:ui`). `Markdown` shows images as links (`MarkdownImageLink`, also for a plugin's own
   renderer): text from a model or a document must not make the browser fetch anything by itself.
   Render model output through `Markdown` (`skipHtml`, links `noopener`), never
   `dangerouslySetInnerHTML`; user text renders verbatim (`whitespace-pre-wrap`). Vite emits one

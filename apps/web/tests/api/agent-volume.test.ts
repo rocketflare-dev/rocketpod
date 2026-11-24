@@ -1,5 +1,4 @@
-// @vitest-isolate
-// Mocks `@/api/services/ai/resolve` and both plugin barrels (the test-only agents), and swaps an entry of the shared `AGENTS` registry, so this file needs its own module registry.
+// @vitest-fixture-agents
 /**
  * Agent volume, one seam per describe:
  *   - the exclusive index reads `agent_runs.concurrency_key`: an exclusive agent dedupes, a
@@ -34,6 +33,10 @@ import { enqueueRun, getRun, listEvents, requestCancel } from '@/api/services/ag
 import { claimStep, executeRun } from '@/api/services/agents/runtime'
 import { runToolLoop, type Tool } from '@/api/services/ai/agent-loop'
 import { AiError } from '@/api/services/ai/errors'
+import {
+  overrideResolveChatForTests,
+  overrideResolveDecisionsForTests,
+} from '@/api/services/ai/resolve'
 import type { ChatClient } from '@/api/services/ai/types'
 import type { Logger } from '@/api/utils/core/logger'
 import { loadConfig } from '@/config'
@@ -46,46 +49,35 @@ import { json, request } from '../helpers/request'
 import { TEST_SUMMARIZE } from '../helpers/test-agents-shared'
 import { createTestEnv, stubs, type TestEnv } from '../mocks/bindings'
 
-vi.mock('@rocketpod/shared/plugins', async importOriginal =>
-  (await import('../helpers/test-agents-shared')).withTestAgents(await importOriginal())
-)
-vi.mock('@/plugins/server', async () =>
-  (await import('../helpers/test-agents')).testAgentsServerBarrel()
-)
-
 const state: { client: ChatClient | null; asks: number } = { client: null, asks: 0 }
 
-vi.mock('@/api/services/ai/resolve', async importOriginal => {
-  const actual = await importOriginal<typeof import('@/api/services/ai/resolve')>()
-  return {
-    ...actual,
-    resolveChat: vi.fn(async () => ({
-      client: state.client,
-      provider: 'anthropic' as const,
-      model: 'claude-sonnet-4-5',
-      source: 'tenant' as const,
-      maxOutputTokens: 2048,
-    })),
-    resolveDecisions: vi.fn(async () => ({
-      client: {
-        provider: 'typesafe' as const,
-        method: 'typesafe' as const,
-        ask: async (req: DecisionRequest) => {
-          state.asks += 1
-          return {
-            answers: noulAll(req, 0.8),
-            usage: { inputTokens: 30, outputTokens: 2 },
-            model: 'jev-1',
-          }
-        },
-      },
-      provider: 'typesafe' as const,
-      model: 'jev-latest',
-      method: 'typesafe' as const,
-      source: 'platform' as const,
-    })),
-  }
-})
+overrideResolveChatForTests(async () => ({
+  client: state.client as ChatClient,
+  provider: 'anthropic' as const,
+  model: 'claude-sonnet-4-5',
+  source: 'tenant' as const,
+  billedToPlatform: false,
+  maxOutputTokens: 2048,
+}))
+
+overrideResolveDecisionsForTests(async () => ({
+  client: {
+    provider: 'typesafe' as const,
+    method: 'typesafe' as const,
+    ask: async (req: DecisionRequest) => {
+      state.asks += 1
+      return {
+        answers: noulAll(req, 0.8),
+        usage: { inputTokens: 30, outputTokens: 2 },
+        model: 'jev-1',
+      }
+    },
+  },
+  provider: 'typesafe' as const,
+  model: 'jev-latest',
+  method: 'typesafe' as const,
+  source: 'platform' as const,
+}))
 
 const db = setupTestDatabase()
 

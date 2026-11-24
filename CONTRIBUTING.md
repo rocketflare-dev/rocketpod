@@ -127,7 +127,7 @@ Tests run under Node against the real Hono app and a **real Postgres** on port 5
 
 ```bash
 pnpm test                       # every package
-pnpm web test:api               # or test:ui, test:config
+pnpm test api [file…]            # or ui, config, driver (pnpm web test:api is an alias)
 pnpm --filter @rocketpod/cli test
 pnpm test:coverage
 ```

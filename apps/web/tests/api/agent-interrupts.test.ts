@@ -1,7 +1,4 @@
-// @vitest-isolate
-// Mocks `@/api/services/ai/resolve` and swaps an entry of the `AGENTS` registry, so this file
-// needs its own module registry.
-// Also mocks both plugin barrels to register the test-only agents (tests/helpers/test-agents.ts).
+// @vitest-fixture-agents
 /**
  * The runtime half of human-in-the-loop, against the real database: `ctx.interrupt`,
  * `executeRun`'s park and decline arms, steering delivery, artifacts, and the two lifecycle
@@ -52,6 +49,7 @@ import {
 import { executeRun, isRetryableRunError } from '@/api/services/agents/runtime'
 import { InterruptDeclinedError, InterruptRequested, type Tool } from '@/api/services/ai/agent-loop'
 import { AiError } from '@/api/services/ai/errors'
+import { overrideResolveChatForTests } from '@/api/services/ai/resolve'
 import type { ChatClient } from '@/api/services/ai/types'
 import type { Logger } from '@/api/utils/core/logger'
 import { loadConfig } from '@/config'
@@ -62,28 +60,16 @@ import { setupTestDatabase } from '../helpers/db'
 import { TEST_SUMMARIZE } from '../helpers/test-agents-shared'
 import { createTestEnv, stubs, type TestEnv } from '../mocks/bindings'
 
-vi.mock('@rocketpod/shared/plugins', async importOriginal =>
-  (await import('../helpers/test-agents-shared')).withTestAgents(await importOriginal())
-)
-vi.mock('@/plugins/server', async () =>
-  (await import('../helpers/test-agents')).testAgentsServerBarrel()
-)
-
 const state: { client: ChatClient | null } = { client: null }
 
-vi.mock('@/api/services/ai/resolve', async importOriginal => {
-  const actual = await importOriginal<typeof import('@/api/services/ai/resolve')>()
-  return {
-    ...actual,
-    resolveChat: vi.fn(async () => ({
-      client: state.client ?? new FakeChatClient([], 'anthropic_compatible'),
-      provider: 'anthropic_compatible',
-      model: 'fake-model',
-      source: 'tenant',
-      maxOutputTokens: 2048,
-    })),
-  }
-})
+overrideResolveChatForTests(async () => ({
+  client: state.client ?? new FakeChatClient([], 'anthropic_compatible'),
+  provider: 'anthropic_compatible',
+  model: 'fake-model',
+  source: 'tenant',
+  billedToPlatform: false,
+  maxOutputTokens: 2048,
+}))
 
 const db = setupTestDatabase()
 
@@ -103,7 +89,7 @@ const original = AGENTS[TEST_SUMMARIZE]
 
 /**
  * Swap `test-summarize`'s definition for the run under test — the swap is undone after every
- * test and the file is `@vitest-isolate` for it.
+ * test, so no later file in the shared registry sees it.
  */
 function installAgent(
   run: (ctx: AgentContext) => Promise<unknown>,

@@ -10,6 +10,7 @@
  */
 import type { Actions, Subjects } from '@rocketpod/shared/permissions'
 import type { ReactElement } from 'react'
+import type { AnyUiPlugin } from '@/plugins/types'
 import { uiPlugins } from '@/plugins/ui'
 import { PageHeader, type TabConfig, URLTabs } from '@/ui/components/shared'
 import { useAuth } from '@/ui/hooks/useAuth'
@@ -38,7 +39,12 @@ const CONTENT: Record<CoreSettingsTabId, () => ReactElement> = {
   mcp: () => <McpSettings />,
 }
 
-export default function SettingsLayout() {
+/** `plugins` defaults to the installed ones; a test hands in fixtures instead of mocking the barrel. */
+export default function SettingsLayout({
+  plugins = uiPlugins,
+}: {
+  plugins?: readonly AnyUiPlugin[]
+} = {}) {
   const { tenant, tenancyMode } = useAuth()
   const { can } = usePermissions()
   const single = tenancyMode === 'single'
@@ -55,7 +61,8 @@ export default function SettingsLayout() {
   // Each is handed `can` and decides for itself — a tab that would 403 on save is worse than none.
   // `can` is widened to strings on the way out, the same way a `NavGuard` pair is: a plugin's
   // subjects are not in the core union until it is installed, and the ability takes them anyway.
-  const pluginTabs: TabConfig[] = uiPlugins
+  // A tab's own `guard` (a feature, say) goes through the same `useNavGuard` as a core tab's.
+  const pluginTabs: TabConfig[] = plugins
     .flatMap(
       p =>
         p.settingsTabs?.({

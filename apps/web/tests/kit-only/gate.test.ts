@@ -14,7 +14,12 @@ import {
   parseGateArgs,
 } from '../../../../scripts/lib/gate-lib.mjs'
 import type { TestPlan } from '../../../../scripts/lib/test-plan.d.mts'
-import { parseTestArgs, planTests, resolveTarget } from '../../../../scripts/lib/test-plan.mjs'
+import {
+  parseTestArgs,
+  planSuites,
+  planTests,
+  resolveTarget,
+} from '../../../../scripts/lib/test-plan.mjs'
 
 const REPO = path.resolve(__dirname, '../../../..')
 const GATE_BRANCH = {
@@ -58,6 +63,7 @@ describe('pnpm gate', () => {
       list: false,
       json: false,
       keepGoing: false,
+      changed: null,
       steps: ['lint', 'typecheck', 'test', 'build'],
     })
     expect(parseGateArgs(['build', 'lint'])).toMatchObject({ steps: ['lint', 'build'] })
@@ -108,8 +114,12 @@ describe('pnpm test: the plan', () => {
     const p = plan({})
     expect(p.compose).toBe(true)
     expect(p.steps[0]?.command).toEqual(['pnpm', '-r', '--filter', '!./apps/web', 'test'])
-    expect(webRuns(p)).toEqual(['api @ postgres', 'api-isolated+driver+ui+config @ postgres'])
-    expect(p.steps[1]?.command).toContain('--no-isolate')
+    expect(webRuns(p)).toEqual([
+      'api @ postgres',
+      'api-isolated+api-fixtures+driver+ui+ui-isolated+config+config-isolated @ postgres',
+    ])
+    // The shared registry is the project's own setting (vitest.config.ts), not a flag.
+    expect(p.steps[1]?.command).not.toContain('--no-isolate')
     for (const step of p.steps) expect(step.env.NEON_LOCAL_PROXY).toBeUndefined()
   })
 
@@ -117,7 +127,10 @@ describe('pnpm test: the plan', () => {
     const p = plan(GATE_BRANCH)
     expect(p.compose).toBe(false)
     expect(p.banner).toMatch(/gate-ab12cd-1/)
-    expect(webRuns(p)).toEqual(['api @ postgres', 'api-isolated+driver+ui+config @ postgres'])
+    expect(webRuns(p)).toEqual([
+      'api @ postgres',
+      'api-isolated+api-fixtures+driver+ui+ui-isolated+config+config-isolated @ postgres',
+    ])
     for (const step of p.steps.filter(s => s.command.includes('vitest'))) {
       expect(step.env).toMatchObject({ TEST_DATABASE_EPHEMERAL: '1', APP_DATABASE_URL: '' })
       // The branch's own DATABASE_URL stands: the plan never sets one.
@@ -126,8 +139,17 @@ describe('pnpm test: the plan', () => {
     expect(p.notes).toEqual([])
   })
 
+  it('pnpm test web: the full web plan, without the other packages', () => {
+    const p = planTests({}, { kitOnly: false, webOnly: true })
+    if ('error' in p) throw new Error(p.error)
+    expect(p.steps.map(s => s.label)).not.toContain('the other packages')
+    expect(p.steps.map(s => s.part)).toEqual(['api', 'rest'])
+  })
+
   it('names the kit-only project only when the checkout carries it', () => {
-    expect(webRuns(plan({}, true))[1]).toBe('api-isolated+driver+ui+config+kit-only @ postgres')
+    expect(webRuns(plan({}, true))[1]).toBe(
+      'api-isolated+api-fixtures+driver+ui+ui-isolated+config+config-isolated+kit-only @ postgres'
+    )
     expect(webRuns(plan({}, false)).join('\n')).not.toMatch(/kit-only/)
     expect(existsSync(path.join(REPO, 'scripts/test.mjs'))).toBe(true)
   })
@@ -179,8 +201,8 @@ describe('pnpm test: --only and --shard (CI runs the plan in parts)', () => {
   })
 
   it('no flags is the whole plan; refuses what it cannot mean', () => {
-    expect(parseTestArgs([])).toEqual({ only: null, shard: null })
-    expect(parseTestArgs(['--only', 'rest', '--shard', '2/3'])).toEqual({
+    expect(parseTestArgs([])).toEqual({ only: null, shard: null, changed: null, positional: [] })
+    expect(parseTestArgs(['--only', 'rest', '--shard', '2/3'])).toMatchObject({
       only: 'rest',
       shard: { index: 2, count: 3 },
     })
@@ -202,7 +224,26 @@ describe('pnpm test: --only and --shard (CI runs the plan in parts)', () => {
     expect(parseTestArgs(['--only', 'api', '--shard', '1/2'])).toMatchObject({
       error: expect.stringMatching(/only to --only rest/),
     })
-    expect(parseTestArgs(['api'])).toMatchObject({ error: expect.stringMatching(/unknown/) })
+    expect(parseTestArgs(['--bogus'])).toMatchObject({ error: expect.stringMatching(/unknown/) })
+    expect(parseTestArgs(['api', '--only', 'rest'])).toMatchObject({
+      error: expect.stringMatching(/not of a suite run/),
+    })
+    expect(parseTestArgs(['--changed=main', 'api'])).toMatchObject({
+      error: expect.stringMatching(/on its own/),
+    })
+  })
+
+  it('positional words are a suite run; web alone is the web plan', () => {
+    expect(parseTestArgs(['api', 'tests/api/x.test.ts', '--sequence.shuffle.files'])).toMatchObject(
+      { positional: ['api', 'tests/api/x.test.ts', '--sequence.shuffle.files'] }
+    )
+    expect(parseTestArgs(['web', '--only', 'api'])).toMatchObject({
+      only: 'api',
+      positional: ['web'],
+    })
+    const web = planTests({}, { kitOnly: false, webOnly: true })
+    if ('error' in web) throw new Error(web.error)
+    expect(web.steps.map(s => s.part)).toEqual(['api', 'rest'])
   })
 })
 
@@ -231,5 +272,54 @@ describe('gateVerdict', () => {
   it('marks a partial gate as not full, so `pnpm gate lint` is never read as the gate', () => {
     const v = gateVerdict({ requested: ['lint'], ran: [ok('lint')], ...at })
     expect(v).toMatchObject({ passed: true, full: false })
+  })
+
+  it('marks a --changed pass as not full, and counts a step it skipped as run', () => {
+    const v = gateVerdict({
+      requested: ALL,
+      ran: [
+        ok('lint'),
+        { id: 'typecheck', seconds: 0, ok: true, skipped: true },
+        ok('test'),
+        ok('build'),
+      ],
+      changed: true,
+      ...at,
+    })
+    expect(v).toMatchObject({ passed: true, full: false, changed: true })
+  })
+})
+
+describe('pnpm test <suite…>: the inner loop', () => {
+  const suites = (input: Parameters<typeof planSuites>[1], env = {}) => {
+    const p = planSuites(env, input)
+    if ('error' in p) throw new Error(p.error)
+    return p
+  }
+  const projects = (p: TestPlan) =>
+    (p.steps[0]?.command ?? []).flatMap((a, i, all) => (all[i - 1] === '--project' ? [a] : []))
+
+  it('a suite is its shared and isolated projects together, in one run', () => {
+    const p = suites({ suites: ['api', 'ui'], files: [], kitOnly: false })
+    expect(p.steps).toHaveLength(1)
+    expect(projects(p)).toEqual(['api', 'api-isolated', 'api-fixtures', 'ui', 'ui-isolated'])
+  })
+
+  it('leaves the database alone: the inner loop expects it up, and never pulls the proxy', () => {
+    expect(suites({ suites: ['driver'], files: [], kitOnly: false }).compose).toBe(false)
+  })
+
+  it('passes files through, and with no suite named runs every web project', () => {
+    const p = suites({ suites: [], files: ['/w/tests/api/a.test.ts'], kitOnly: false })
+    expect(projects(p)).not.toContain('kit-only')
+    expect(projects(p)).toContain('config-isolated')
+    expect(p.steps[0]?.command.at(-1)).toBe('/w/tests/api/a.test.ts')
+  })
+
+  it('refuses kit-only in a copy, and a suite it does not know', () => {
+    expect(planSuites({}, { suites: ['kit-only'], files: [], kitOnly: false })).toHaveProperty(
+      'error'
+    )
+    expect(planSuites({}, { suites: ['nope'], files: [], kitOnly: true })).toHaveProperty('error')
   })
 })

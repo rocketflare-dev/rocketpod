@@ -9,13 +9,30 @@
  * file's `vi.mock` is registered, so a file mocking that barrel (the test-only agents,
  * `tests/helpers/test-agents.ts`) would be handed the real, already-cached module.
  */
-import { afterAll } from 'vitest'
+import { afterAll, vi } from 'vitest'
 import { installNetworkGuard } from './helpers/network-guard'
 
 // No api test reaches the internet: a non-local request fails at once, naming its URL.
 installNetworkGuard()
 
 afterAll(async () => {
+  // `api` shares a module registry, and Vitest undoes spies after each file but not stubs.
+  vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
+  // A file's fake chat or decisions client must not answer the next file's calls.
+  // (A file that mocks the module whole may not carry the setter.)
+  const resolve = await import('@/api/services/ai/resolve')
+  if (typeof resolve.overrideResolveChatForTests === 'function') {
+    resolve.overrideResolveChatForTests(null)
+  }
+  if (typeof resolve.overrideResolveDecisionsForTests === 'function') {
+    resolve.overrideResolveDecisionsForTests(null)
+  }
+  // Nor a file's fixture knowledge entity types be the next file's registry.
+  const registry = await import('@/api/services/knowledge/registry')
+  if (typeof registry.overrideKnowledgeEntityTypesForTests === 'function') {
+    registry.overrideKnowledgeEntityTypesForTests(null)
+  }
   const { closeAllDatabases } = await import('@/db/client')
   await closeAllDatabases()
 })

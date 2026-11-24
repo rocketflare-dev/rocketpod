@@ -1,5 +1,4 @@
-// @vitest-isolate
-// Mocks the plugin barrels to register the test agents (tests/helpers/test-agents.ts).
+// @vitest-fixture-agents
 /**
  * `sweepLostRuns` — the read path's settle for runs nobody is reading. Every case backdates the
  * row past `SWEEP_STALE_MS` and sets what the Workflow stub reports:
@@ -29,13 +28,6 @@ import { setupTestDatabase } from '../helpers/db'
 import { itSweeps } from '../helpers/sweeps'
 import { TEST_SUMMARIZE } from '../helpers/test-agents-shared'
 import { createTestEnv, stubs, type TestEnv } from '../mocks/bindings'
-
-vi.mock('@rocketpod/shared/plugins', async importOriginal =>
-  (await import('../helpers/test-agents-shared')).withTestAgents(await importOriginal())
-)
-vi.mock('@/plugins/server', async () =>
-  (await import('../helpers/test-agents')).testAgentsServerBarrel()
-)
 
 const db = setupTestDatabase()
 // Every case backdates a run past the sweep's staleness: one sweep at a time across files.

@@ -286,7 +286,8 @@ scripts, `ROCKETPOD_API_KEY` + `ROCKETPOD_URL` in the environment replace the co
 ### 1.8 Tests
 ```bash
 pnpm test             # starts Postgres on :5533 (apps/web/docker-compose.test.yml), then every package:
-                      # web api + api-isolated + driver (real DB), ui (jsdom), config (no DB); cli
+                      # web api + api-isolated + api-fixtures + driver (real DB), ui + ui-isolated
+                      # (jsdom), config + config-isolated (no DB); cli
                       # (the S3 gateway on :7433 starts beside it)
 # No Docker (a coding sandbox's gate): the same command against a throwaway hosted GATE branch over
 # TCP — DATABASE_URL + TEST_DATABASE_BRANCH=gate-<short>-<n> + TEST_DATABASE_ENDPOINT=ep-…
@@ -297,7 +298,7 @@ Verify: all projects green — including every installed plugin's own tests, whi
 projects (`src/plugins/*/tests/{api,ui,config}`). The analytics plugin's `cube-isolation.test.ts`
 is the one to watch, once installed: two tenants, every cube, disjoint rows.
 `apps/web/tests/config/platform-seam.test.ts` keeps edge-runtime imports and binding reads out of the tree.
-Single web projects: `pnpm web test:api`, `pnpm web test:ui`, `pnpm web test:config`.
+One suite (its shared and isolated projects together), optionally narrowed to files: `pnpm test api|ui|config|driver [file…]` (`pnpm web test:api` and the rest are aliases).
 
 ### 1.9 The gate
 ```bash

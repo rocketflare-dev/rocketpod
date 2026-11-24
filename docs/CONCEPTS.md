@@ -458,6 +458,16 @@ per-PR previews; no public tunnel for OAuth callbacks in dev (use your own, e.g.
   `docs/plugin-api.md` diff is the kit's own check (`kit.yml`), since a copy publishes no plugin
   API; `pnpm plugin check` runs at the end of `plugin add|upgrade --apply` (exit 8 when the written
   tree fails it) and in `plugin-ci.yml`.
+- **`pnpm gate --changed[=<ref>]`, the local inner loop** (`scripts/lib/gate-changed.mjs`, a pure
+  plan over the changed paths): everything that differs from the merge base with `origin/main`
+  (or `<ref>`), committed, staged, modified or untracked. Lint checks those files; typecheck,
+  test and build run only in the packages they reach, following workspace dependencies; the web
+  tests are vitest's own import-graph answer, plus any changed test file and every test that
+  reads the repository through `fs` or a child process (its inputs are invisible to the graph).
+  The rule is "when in doubt, run more": a change to a dependency manifest, the lockfile, a
+  compiler, lint or vitest config, a toml, a migration, the test harness or the gate itself makes
+  it the full gate. It is for local commits only: run the full `pnpm gate` before a push, and no
+  workflow passes `--changed`.
 - **Verified once (opt-in, for an app Launch ships).** After a green sandbox gate Launch's GitHub
   App posts a `launch/gate` check run keyed by the tree (`external_id: tree:<sha>`). With the
   repository variable `LAUNCH_GATE_APP_ID` set to that App's id, the first step of every `ci.yml`
@@ -474,8 +484,9 @@ per-PR previews; no public tunnel for OAuth callbacks in dev (use your own, e.g.
   then every package and the web suite. `--only packages|api|rest` runs one part of that plan (a
   packages-only run starts no database) and `--shard i/N` slices `rest` with vitest's own `--shard`
   — CI's parallel jobs; `gate.test.ts` proves the parts are the whole plan and the shards the
-  unsharded run. The narrow scripts (`pnpm web test:api|ui|config|driver`)
-  are the inner loop: no compose management. `GATE_SUITE_DRIVER` is refused (one driver).
+  unsharded run. `pnpm test <suite…> [file…]` (`api|ui|config|driver`, each its shared and
+  isolated projects together; the `pnpm web test:*` scripts are aliases for it) is the inner loop:
+  no compose management. `GATE_SUITE_DRIVER` is refused (one driver).
 - **Remote target — an ephemeral test database** (`pnpm test` with `TEST_DATABASE_BRANCH` set): the
   whole gate's tests where there is no Docker — a coding sandbox, whose orchestrator creates a
   throwaway database branch per gate attempt and passes its owner connection string, reached by
@@ -1404,7 +1415,9 @@ keep their names on purpose — they are the plugin ecosystem's fixed filenames 
 - **Kit-only files** (`kitOnly`): what is true of the kit repository and of nothing made from it.
   Its tests (`apps/web/tests/kit-only/**`, vitest project `kit-only`) — porting notes and the root
   version being the kit's, the release/rename machinery, the maintainer hook, plugin CI, the
-  manifest's kit-state claims and coverage, the example surfaces' removability — which the kit's
+  manifest's kit-state claims and coverage, the example surfaces' removability, the kit's own
+  makeup (`kit-makeup`: its exact job and entity types), and the tests of the kit's tooling
+  (`scripts/**`: a copy runs it, never writes it, and receives it already tested) — which the kit's
   gate runs (`pnpm test` names the project only while its directory exists); its workflows
   (`kit.yml`, `plugin-ci.yml`, `notify-plugins.yml`); its maintainer scripts (`release.mjs`,
   `changelog-nudge.mjs` and `lib/nudge-lib.mjs`, `default-plugins.mjs`, `install.sh`); the

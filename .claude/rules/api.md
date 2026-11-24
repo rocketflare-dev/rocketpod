@@ -22,6 +22,8 @@ worker loops. Keeping the entry out of `api/index.ts` is what lets tests drive
 - agent runs, tools, interrupts, decisions → `apps/web/src/api/services/agents/CLAUDE.md`; the
   durable run body → `apps/web/src/api/workflows/CLAUDE.md`; a job type or handler →
   `apps/web/src/api/queues/CLAUDE.md`
+- the MCP server, its OAuth endpoints, connections → `apps/web/src/api/services/mcp/CLAUDE.md`;
+  writing a tool for chat, agents or MCP → `.claude/rules/tools.md`
 - anything a plugin contributes, or the analytics plugin → `apps/web/src/plugins/CLAUDE.md`
 - the platform, the Node entry, cron, shutdown → `.claude/rules/runtime.md`
 
@@ -34,24 +36,30 @@ worker loops. Keeping the entry out of `api/index.ts` is what lets tests drive
    `c.env` for config**; then `platformMiddleware` — `c.get('platform')`
 4. `securityHeaders` — **returns a 101 untouched**; the `embeddable` opt-in is for a route that has
    PROVED the content type, never a path allowlist
-5. `apiBodyLimit` (1 MB) on `/api/*`, `jsonBodyLimit` on `/auth/*` and each plugin `apiPrefixes`
-   entry outside `/api` — beneath `UPLOAD_PATHS` / `uploadPaths` only a non-JSON body is let past
+5. `apiBodyLimit` (1 MB) on `/api/*`, `jsonBodyLimit` on `/auth/*`, `/mcp`, `/mcp/*`, `/oauth/*`
+   and each plugin `apiPrefixes` entry outside `/api` — beneath `UPLOAD_PATHS` / `uploadPaths` only a non-JSON body is let past
    1 MB, up to 10 MB + 64 KB, and each upload route caps itself tighter; a plugin public mount's
    `bodyLimitBytes` replaces it beneath its prefix
-6. `cors` (before CSRF so preflights are answered; **bypassed for `Upgrade: websocket`**) → `csrf`
-   (cookie-only, no DB)
+6. `cors` (before CSRF so preflights are answered; **bypassed for `Upgrade: websocket` and for
+   `/mcp`, `/oauth/token`, `/oauth/revoke` and the OAuth `.well-known` documents** — `isMcpPath`
+   — which answer their own: any origin, no credentials) → `csrf` (cookie-only, no DB)
 7. `databaseMiddleware` — one client per request from `openDatabase(config)` (a view of the Node
    process pool), closed via `deferOrAwait`
-8. `tracerMiddleware` on `/api/*` — the request's span recorder, flushed after the handler
+8. `tracerMiddleware` on `/api/*` and `/mcp` — the request's span recorder, flushed after the handler
 9. Mounts, in order: `/api/health|ready` → `/auth` (rate-limited login routes) → `/api/identity`
    (signed events, no session) → `/api/invite` → `/api/admin/*` behind `globalAdminMiddleware` →
-   `/ws` (no `authMiddleware`; the route resolves the cookie) → `/mcp` + its RFC 9728 metadata
-   (no `authMiddleware`; an outside OAuth server's access token, `routes/mcp.ts`) → plugin `publicMounts` under
+   `/ws` (no `authMiddleware`; the route resolves the cookie) → `/mcp` (no `authMiddleware`: an
+   OAuth access token is its only credential — the app's own, or an outside server's when
+   `MCP_AUTHORIZATION_SERVER` is set — resolved by the route, `routes/mcp.ts`) → `/oauth` and
+   `/.well-known` (the authorization server: each step resolves what it needs — the cookie at
+   authorize/consent, the form at token/revoke; `routes/oauth.ts`) → plugin `publicMounts` under
    `/api/hooks/<id>` (no auth, per-IP rate limit) → the mount table, each entry with
    `authMiddleware` → **plugin authed mounts, last** (Hono matches in registration order, so a plugin
-   can never shadow a kit prefix)
+   can never shadow a kit prefix). A plugin claiming `/mcp`, `/oauth` or `/.well-known/oauth-*`
+   stops the app at load (`assertNoReservedPluginPaths`)
 10. `app.all('*')` `ASSETS` catch-all (`src/node/assets.ts`: `dist/ui`, `index.html` for a
-    navigation), with a JSON 404 for `/api|/auth|/ws` and every `API_PREFIXES` entry (an
+    navigation), with a JSON 404 for `/api|/auth|/ws|/mcp|/oauth`, the OAuth discovery documents and every
+    `API_PREFIXES` entry (an
     unauthenticated `/cubejs-api/*` is a 401 envelope, never `index.html` —
     `tests/api/health.test.ts`)
 

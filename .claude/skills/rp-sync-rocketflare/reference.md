@@ -26,7 +26,15 @@ the same commit, so the next port starts from it.
 | `publicSites.cache`, the Images binding, the GLM parser | Not ported (no Cache API in Node, no bindings, no Workers AI) |
 | Provisioning (`provision.ts`, zone routes, Neon region, R2 retries), `wrangler types`, `global-scope.test.ts`, the offline `[ai]` switch | Not ported: Cloudflare-only tooling |
 | `rf-*` skills, `@rocketflare/*`, `ROCKETFLARE_*`, `rocketflare.dev` | `rp-*`, `@rocketpod/*`, `ROCKETPOD_*`; keep `.rocketflare.json` and `rocketflare-plugin.json`, the ecosystem's fixed filenames |
-| An MCP request's credential (0.41.0) | Upstream's own OAuth server, plus Rocketpod's outside-authorization-server token check (`MCP_AUTHORIZATION_SERVER`) as a second credential |
+| An MCP request's credential (0.41.0) | Upstream's own OAuth server, plus the outside issuer (`MCP_AUTHORIZATION_SERVER`, `api/auth/mcp.ts`): its JWT → `outsideMcpGrant` → the same `callerForGrant` as an `mcpat_` token; a change to upstream's caller lands in `callerForGrant`, never in a second pipeline |
+| The Worker's egress as the CIMD fetch's private-address guard | `Platform.publicFetch` (`src/node/egress.ts`, connect-time `lookup` guard); a new fetch to a URL somebody else chose goes through it |
+| `Cloudflare.Env` passed to a service | `Platform` (`env: c.get('platform')`) |
+| The CF type name `Fetcher` | `PublicFetch` (or a local name): `platform-seam.test.ts` bans `Fetcher` |
+| `cf-connecting-ip` in a test helper | `x-forwarded-for` (`client-ip.ts` reads its first entry for a bare `app.request`) |
+| A test overriding `kv.get` to make a limiter fail | `mcpTestEnv({ rateLimiter: { check } })` — replace the platform member |
+| A new settings tab | Add its rail `group` (`tabs.ts`) |
+| `pnpm dev:tunnel`, `cfld`, `.dev.vars`, "ChatGPT cannot reach `wrangler dev`" | Any tunnel to :3000 with `APP_URL` + `DEV_ALLOWED_HOSTS` in `apps/web/.env` (`SETUP.md` §1.10); the ChatGPT note does not apply |
+| Two migrations in one release | Generated together as one when both schema files land at once (as 0.39.0's did) |
 
 ## Test harness mappings
 

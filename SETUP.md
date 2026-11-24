@@ -213,12 +213,15 @@ http://localhost:3000 renders the shell. Sign in: enter the seeded owner email, 
 URL from the **`pnpm dev` server log** (no `RESEND_API_KEY` → links are logged, not sent), open it,
 press **Sign in** on the confirm page, land on Home. Shortcut (dev only): `http://localhost:3000/login?as=owner@example.test` signs in
 through `/auth/dev-login` on load — honoured only when the server reports `devLogin`
-(`APP_ENV=development`) and for the four seeded accounts, so an arbitrary address does nothing.
+(`APP_ENV=development`). The page's shortcut acts only for the four seeded accounts, but the
+endpoint itself has no such list: in development, `POST /auth/dev-login` signs in ANY email
+address, with no password or link, and creates the user if it does not exist. It answers 404
+everywhere `APP_ENV` is not `development`.
 
 **Analytics** is a plugin (`docs/CONCEPTS.md` §8, §16) and is not installed by default in
 Rocketpod: its published release still declares Cloudflare bindings, which `pnpm plugin add`
-refuses. Until a container-ready release exists there is no `/api/analytics`, `/cubejs-api` or
-`/mcp`, and no dashboards.
+refuses. Until a container-ready release exists there is no `/api/analytics` or `/cubejs-api`,
+no cube tools and no dashboards.
 
 > **Cookie note.** The session cookie is `__Host-session`, and the `__Host-` prefix *requires* the
 > `Secure` flag even in development. Chrome and Firefox treat `http://localhost` as a secure context so
@@ -283,6 +286,13 @@ OAuth providers and webhooks need a public HTTPS origin. Any tunnel that forward
 allow-list derive from it) and `DEV_ALLOWED_HOSTS=<tunnel host>` so Vite answers for it, then
 restart `pnpm dev`. Verify: the tunnel URL renders the login page and a magic link sent from it
 opens on the tunnel host.
+
+> **While the tunnel runs, your development instance is on the public internet, dev sign-in
+> included.** `POST /auth/dev-login` takes no password and accepts any email (§1.6), so anyone who
+> learns the tunnel's hostname can sign in as any user — the owner, a global admin — read
+> everything in the local database, mint API keys and spend whatever AI and email keys
+> `apps/web/.env` holds. Use dummy data only, keep real provider keys out of `.env` while it is
+> up, and stop the tunnel as soon as you are done.
 
 ## Part 2 — External services `[config]`
 
@@ -424,24 +434,29 @@ Absent (`OIDC_MANAGED_TENANCY` blank): plain OIDC, the claims are not read and
 `/auth/session` shows that tenant with the mapped role and `accessRequest: null`; the tenants table
 has a row with `external_org_id` = the org id.
 
-### 2.3d Remote MCP server (`MCP_AUTHORIZATION_SERVER`)
+### 2.3d MCP tokens from an outside authorization server (`MCP_AUTHORIZATION_SERVER`, optional)
 
-MCP clients (Claude Code, Claude.ai connectors, Cursor) can use the app at `{APP_URL}/mcp`, with
-the agents' tools, as the person who connected them (`docs/CONCEPTS.md` §19). The app is only the
-resource server: an OAuth authorization server you already run signs people in and issues the
-tokens.
+The MCP server (§2.10) is its own OAuth authorization server, and that is all most deployments
+need. If people already sign in to their AI clients through an OAuth server you run (Cognito,
+Entra, Okta…), `/mcp` can accept its access tokens too, beside the app's own — the same caller
+checks apply to both (`docs/CONCEPTS.md` §19).
 
-1. Register `{APP_URL}/mcp` (the origin, no trailing slash) with the authorization server as this
-   app's resource. Its access tokens for it must be JWTs (`typ: at+jwt`, ES256 or RS256) with `aud`
-   = that URL and the person's `email`; under IdP-managed tenancy (2.3c) they must also carry the
-   orgs claim, as its id_tokens do.
+1. Register `{APP_URL}/mcp` (the origin, no trailing slash) with that server as this app's
+   resource. Its access tokens must be JWTs (`typ: at+jwt`, ES256 or RS256) with `aud` = that URL
+   (it covers every `/mcp/t/<slug>`; a token bound to one exact `/mcp/t/<slug>` URL works there
+   only) and the person's `email`; under IdP-managed tenancy (2.3c) they must also carry the orgs
+   claim, as its id_tokens do. MCP scopes in `scope` (`mcp:read`, `mcp:write`) narrow the
+   connection; none named = both, and the organisation's exposure still decides what is listed.
 2. Set `MCP_AUTHORIZATION_SERVER` to the server's `issuer`, verbatim. It must publish RFC 8414
    metadata at `<issuer>/.well-known/oauth-authorization-server` with a `jwks_uri`.
+3. A person in several organisations names one: connect to `{APP_URL}/mcp/t/<slug>`, or send the
+   `mcp-tenant` header (the tenant's id, slug or the issuer's org id). Without either they get a
+   403 `mcp_tenant_required` listing their organisations.
 
-Verify: `curl {APP_URL}/.well-known/oauth-protected-resource/mcp` names the resource and the
-server; `claude mcp add --transport http myapp {APP_URL}/mcp`, then `/mcp` in Claude Code, signs you
-in at the server and lists `list_tenants`, `search_knowledge`, `get_document` and
-`list_documents`. Blank: `/mcp` answers 404.
+Verify: `curl {APP_URL}/.well-known/oauth-protected-resource/mcp` lists that server first in
+`authorization_servers`, the app's own second. Each person's first call makes a connection that
+Settings → MCP lists and can revoke; a revoked one refuses the token in hand until the server
+issues a newer one.
 
 ### 2.4 First admin
 `BOOTSTRAP_ADMIN_EMAILS=you@example.com` (comma-separated). Promoted to global admin on the first
@@ -605,7 +620,8 @@ and then deleted.
 
 ### 2.8 Feature flags `[ready]` (D30)
 
-Nothing to configure — flags work out of the box, and the kit itself ships none: the one inert demo
+Nothing to configure — flags work out of the box. The kit core ships `knowledge-facts` (§2.5) and
+`mcp` (environment-gated: it exists only where `FEATURES_ENABLED` lists it — §2.10). The inert demo
 flag (`example-feature`, a nav item, a page and a notes API) belongs to the reference PLUGIN of the
 same name (D31, `apps/web/src/plugins/example-feature/`), which is installed by default and safe to
 delete. As a global admin, open **Admin → Feature flags**: set it to On and the nav item appears; to
@@ -628,6 +644,37 @@ Verify: `pnpm cli features list --json` prints the effective flags for your tena
 ### 2.9 Rebrand checklist
 See [`docs/ADAPTING.md`](docs/ADAPTING.md) §1 — package names (`@rocketpod/*`), image and chart names,
 DB names, CLI bin / config dir / env prefix, themes, logo, `EMAIL_FROM`.
+### 2.10 MCP server — let AI clients connect `[ready]`
+
+The app is an MCP server at `<APP_URL>/mcp` (`docs/CONCEPTS.md` §19). It ships dark:
+
+1. Add `mcp` to `FEATURES_ENABLED` — in `apps/web/.env` locally; deployed, in the compose `.env`
+   or the chart's `config.FEATURES_ENABLED` (comma-separated with any other key).
+2. As an owner or admin, open **Settings → MCP**, turn it on, and choose what is exposed (all
+   read-only tools by default) and who may connect (everyone by default).
+3. Paste the server URL into the client (Claude: Settings → Connectors → Add custom connector;
+   Claude Code: `claude mcp add --transport http <name> <APP_URL>/mcp`; ChatGPT: a custom
+   connector). The client finds the app's authorization server itself, opens the app's own sign-in
+   page, and shows a consent screen where the person picks the organisation. `<APP_URL>/mcp/t/<slug>`
+   is the same server pinned to one organisation — use it to connect a second organisation from a
+   client that allows one connector per URL (claude.ai).
+4. A client must reach the app on a public https URL to sign in (`APP_URL`); locally that means a
+   tunnel (§1.10). Clients identify themselves with a metadata document (CIMD) — Claude and ChatGPT
+   do; clients that only support dynamic registration (Cursor) cannot connect.
+   **The tunnel makes the whole development instance public, its password-less dev sign-in
+   included** (§1.10): anyone with the URL can sign in as any user. Connect a client with dummy
+   data only and stop the tunnel when you are done; test with real data on staging.
+
+Optional vars, undeclared = the default: `MCP_GRANT_IDLE_DAYS` (30), `MCP_GRANT_MAX_DAYS` (90),
+`MCP_CALL_RETENTION_DAYS` (90), `MCP_CALLS_PER_GRANT_PER_MINUTE` (60),
+`MCP_CALLS_PER_USER_PER_MINUTE` (120 — one person across all their connections in an
+organisation), `MCP_CALLS_PER_TENANT_PER_MINUTE` (600). `MCP_AUTHORIZATION_SERVER` adds a second
+issuer (§2.3d).
+
+Verify: `curl -si -X POST <APP_URL>/mcp` answers 401 with a `WWW-Authenticate: Bearer
+resource_metadata="…"` header, and `curl -s <APP_URL>/.well-known/oauth-authorization-server`
+answers the metadata with `"client_id_metadata_document_supported": true` (404 for either means
+`mcp` is not in `FEATURES_ENABLED`).
 
 ---
 

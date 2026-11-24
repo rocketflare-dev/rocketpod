@@ -10,7 +10,8 @@ paths:
 React 19 + Vite, DaisyUI 5 on Tailwind v4, React Router 7, TanStack Query 5, zustand only for the
 websocket store. Served from `dist/ui` by the same Node server as the API (SPA fallback).
 Dev: Vite on :3000 proxies `/api`, `/auth`, `/ws` — plus every prefix an installed plugin declares
-(the analytics plugin's `/cubejs-api` and `/mcp`, added by hand on install) — to the Node server on
+(the analytics plugin's `/cubejs-api`, added by hand on install) — and the MCP server's `/mcp`,
+`/oauth` and OAuth `.well-known` documents — to the Node server on
 :3001. Either port moves with `DEV_UI_PORT` / `DEV_API_PORT` (`scripts/lib/dev-ports.mjs`, shell or
 `.env`); `DEV_ALLOWED_HOSTS` adds hostnames Vite answers for. Map, providers, identity flow:
 `apps/web/src/ui/CLAUDE.md`.

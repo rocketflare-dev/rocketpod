@@ -11,7 +11,7 @@ here.
 > **Setup**: asked for setup help → run `/rp-setup` (it drives `scripts/bootstrap.sh --no-dev`, then
 > starts the server): show each `✔ n/10` line, stop on failure. By hand: `SETUP.md` Part 1.
 > **Fresh copy?** `/rp-adapt <slug>`, then `docs/ADAPTING.md`. `/rp-setup`, `/rp-adapt`, `/rp-preflight`, `/rp-how-do-i`,
-> `/rp-upgrade`, `/rp-traces`, `/rp-evals`, `/rp-agent-replay`, `/rp-agent-docs`, `/rp-doc-sync` and `/rp-plugin` you may run yourself. **Deploying** (image, Compose,
+> `/rp-upgrade`, `/rp-traces`, `/rp-evals`, `/rp-agent-replay`, `/rp-agent-docs`, `/rp-doc-sync`, `/rp-mcp` and `/rp-plugin` you may run yourself. **Deploying** (image, Compose,
 > Helm — `docs/DEPLOY.md`) is `/rp-deploy`: it renders and checks locally, and asks the user before
 > it pushes an image, touches a cluster or creates anything billed.
 > **The Guide** (`docs/CONCEPTS.md` §18): in-app user docs at `/guide` + "Ask the Guide". Pages in
@@ -59,6 +59,11 @@ here.
   `apps/evals`, vitest-evals on vitest 4, `pnpm eval`, never in the gate — but the gate holds every
   prompt and agent to a suite or a stated exemption, `@rocketpod/shared/ai/eval-coverage`) + thumbs
   feedback → `rocketpod evals promote`
+- **MCP**: core server at `/mcp` and `/mcp/t/<slug>` (`services/mcp/`, `routes/mcp.ts`); OAuth only,
+  the app is its own authorization server (no API keys, no cookies), plus optionally an outside
+  one (`MCP_AUTHORIZATION_SERVER`, `auth/mcp.ts`) into the same caller; dark unless
+  `FEATURES_ENABLED` names `mcp`. A feature reaches MCP as a TOOL (`.claude/rules/tools.md`), never
+  a route (`/rp-mcp`)
 - **Analytics**: not core — the `analytics` PLUGIN (D31), not installed by default until a
   Rocketpod-compatible release exists (`defaultPlugins` is empty)
 - **UI**: React 19 + Vite, DaisyUI 5 / Tailwind v4, React Router 7, TanStack Query 5; served by the Node server from `dist/ui`
@@ -108,7 +113,7 @@ apps/web/          @rocketpod/web — .env(.example), .env.test, docker-compose.
 │  src/config.ts   loadConfig(env): zod over the env; routes read c.get('config')
 │  src/permissions/  CASL owner/admin/member/support + isGlobalAdmin   src/db/  client, tenant-scope, schema/
 │  src/api/        index.ts (Hono app, middleware order, ASSETS catch-all) · queue.ts · scheduled.ts ·
-│                  middleware/ · auth/ · routes/ (thin) · services/ (ai/, agents/, prompts.ts) ·
+│                  middleware/ · auth/ · routes/ (thin) · services/ (ai/, agents/, mcp/, prompts.ts) ·
 │                  workflows/ (agent-run-body.ts) · observability/ · utils/ · queues/
 │  content/guide/  the in-app Guide's pages (frontmatter + {{fact:…}}), screenshots.yaml, images/,
 │                  optional embeddings.jsonl.gz (CONCEPTS §18) — shipped in the image
@@ -147,6 +152,7 @@ docs/upgrades/     one porting note per kit release (+ unreleased.md, kit repo o
                    rp-agent-replay (replay an agent's past runs with today's code, no model calls; D38) ·
                    rp-deploy (Compose or Helm, the secrets checklist, never prints a secret) ·
                    rp-agent-docs (+ check.mjs — audit and fix CLAUDE.md, rules and skills) ·
+                   rp-mcp (connect an AI client, test with a real one, troubleshoot; CONCEPTS §19) ·
                    rp-sync-rocketflare (+ reference.md — kit repo only, `kitOnly`: port
                    Rocketflare releases into Rocketpod, `docs/FORK.md`) ·
                    example-feature (demo the reference plugin)
@@ -200,7 +206,7 @@ consulted only for a flag marked `environmentGated`; the rollout state itself li
 `tests/config/packaging.test.ts` holds the chart to it.
 
 Rules (auto-loaded by path): `.claude/rules/api.md` · database.md · ui.md · cli.md · testing.md ·
-code-quality.md · runtime.md. Runbooks: `docs/DEPLOY.md` · `docs/RLS.md`
+code-quality.md · runtime.md · tools.md. Runbooks: `docs/DEPLOY.md` · `docs/RLS.md`
 
 ## Non-Negotiables
 

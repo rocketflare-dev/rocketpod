@@ -187,6 +187,23 @@ on an apex domain does not pin its subdomains.
 (`publicSites.cache`); a Node process has none, so Rocketpod accepts the declaration and every page
 request reaches the plugin's router. Put a CDN in front of the site hosts for shared caching.
 
+## The MCP server
+
+`/mcp` (`docs/CONCEPTS.md` §19, `SETUP.md` §2.10) exists only where `FEATURES_ENABLED` lists `mcp`
+— the knob that keeps it dark in production while staging has it — and then per organisation at
+Settings → MCP. Three things about the deployment:
+
+- **`APP_URL` must be the public https origin** clients reach: the resource URL, the token
+  audience and the OAuth issuer all derive from it. Route `/mcp`, `/mcp/t/*`, `/oauth/*` and
+  `/.well-known/oauth-*` to `web` like the rest of the app (the chart's single Service does).
+- **`web` makes outbound https requests** to the URL a client names as its `client_id` (its
+  metadata document, Claude's and ChatGPT's included). The fetch refuses to connect to any
+  loopback, private, link-local or reserved address, judged on the resolved address
+  (`src/node/egress.ts`), so it never reaches the cluster network — but an egress policy that
+  blocks the internet blocks every client.
+- **Optional outside issuer**: `MCP_AUTHORIZATION_SERVER` (a ConfigMap value, not a secret) makes
+  `/mcp` accept that server's JWTs as well; `web` reads its JWKS over https (`SETUP.md` §2.3d).
+
 ## Secrets checklist
 
 | Key | Needed for |

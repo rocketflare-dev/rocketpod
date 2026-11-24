@@ -212,6 +212,17 @@ where the complaint is AT a place in a file, never fabricated. Per installed plu
   generated from the kit's own source. Each finding names the symbol and its replacement import;
 - for each of the five barrels, the **line and the half agree both ways** — a barrel that names a
   plugin half that is not on disk, and a half on disk that no barrel names;
+- **its tool names are ones every surface accepts and nobody else's** — 1–64 of `A–Z a–z 0–9 _ -`
+  (MCP allows `.`, the chat models refuse it), never a core tool's name (`search_knowledge`,
+  `get_document`, `list_documents`, `lookup_facts`) and never another installed plugin's. Read from
+  each `defineTool({ name })` written as a literal or a `const`; a name it cannot resolve is left
+  to the tool builder, which drops (and logs) a bad one at runtime anyway. "Rocketpod" in a tool's
+  `title` or `description` is a WARNING — an MCP client shows that text under the deployment's own
+  name;
+- **no mount on core's MCP paths** — an `apiPrefixes` entry or a `['/mcp' | '/oauth/…' |
+  '/.well-known/oauth-…', …]` mount tuple fails (the host also refuses it at load). A plugin's
+  tools reach MCP clients through `tools` alone; it proves they scope with `callMcpTool` from
+  `@testkit/integration` (`apps/web/src/plugins/CLAUDE.md`);
 - no **`*.rej`** anywhere under its directories ("an upgrade left work behind");
 - **its skills, both ways**: every declared skill has `.claude/skills/<dir>/SKILL.md` whose
   frontmatter `name:` is `<dir>` and whose `description:` is not empty (a skill without both never
@@ -235,6 +246,7 @@ where the complaint is AT a place in a file, never fabricated. Per installed plu
 - **no two installed plugins declare the same table name.** The prefix convention is what keeps
   them apart and nothing derives a table name from an id, so the collision is the checkable half —
   and nothing else in the kit sees it. TS2308 catches a duplicated EXPORT symbol, not a duplicated
+
   `pgTable('orders', …)`, and past that point drizzle-kit emits DDL for one name twice and a single
   generated `DROP TABLE` takes the other plugin's data. It fails for BOTH plugins and in both tiers
   (neither is excused, and there is no tier to be excused by), because neither plugin is
@@ -244,7 +256,11 @@ where the complaint is AT a place in a file, never fabricated. Per installed plu
 `requires.pluginApi` are gone with it, because nothing left is a rule a RELEASED plugin cannot
 retroactively satisfy: `uses` is a measurement of the plugin's own code, which anybody holding it
 can re-derive with `pnpm plugin export`. `warn:` and `note:` survive for findings that are not
-faults in a plugin at all — a plugin declaring no `minKit`, or a vendored one.
+faults in a plugin at all — a plugin declaring no `minKit`, or a vendored one — and for a
+**deprecated member the kit still reads**: `agentTools` warns with its replacement (`tools:`, same
+signature; each tool then picks `surfaces` and an optional `mcp` block — see
+`apps/web/src/plugins/CLAUDE.md`). A later kit release removes the old name with a porting-note
+step, and only then does it fail.
 
 `pnpm plugin check --json` prints the same audit as data: `{ ok, plugins, failures, warnings,
 notes }`. `failures` and `warnings` are separate lists so `ok` keeps meaning "this exits 0", and

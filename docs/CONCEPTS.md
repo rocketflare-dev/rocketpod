@@ -23,6 +23,7 @@ setup in `SETUP.md`; the runtime in `.claude/rules/runtime.md`; RLS in `docs/RLS
 | 8 | [Analytics](#8-analytics) | 16 | [Plugins](#16-plugins) |
 |  |  | 17 | [Connectors](#17-connectors) |
 |  |  | 18 | [The Guide](#18-the-guide) |
+|  |  | 19 | [MCP server](#19-mcp-server) |
 
 **Layout (D26).** A pnpm workspace: `apps/web` (the Node server — Hono API + React UI, §§1–10),
 `apps/cli` (§11), `packages/shared` (zod contracts, §12), and `apps/evals` (developer-run eval
@@ -772,8 +773,15 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   supplies only the new message, and client `tools[]` are refused.
 - **Chat**: owned by `userId`; `chat-turn.ts` is the one implementation behind `/api/chat` and
   `/api/agui`. Everything that can fail as JSON runs before the stream opens, and stream writes use
-  `streamDatabase(c)`. A cancelled run emits no terminal event. Chat can call the three knowledge
-  tools (`CHAT_KNOWLEDGE_TOOLS`), capped at 6 turns. **Long threads are compacted**: a
+  `streamDatabase(c)`. A cancelled run emits no terminal event. Chat can call the knowledge
+  tools (`CHAT_KNOWLEDGE_TOOLS`), capped at 6 turns. **One tool list, filtered per surface**:
+  `buildAgentTools(ctx)` builds every tool (the knowledge tools, then each plugin's `tools`), and
+  chat, agent runs and the MCP server each ask `toolsFor('chat' | 'agents' | 'mcp', ctx)`
+  (`services/agents/tools/surfaces.ts`). A tool names its surfaces (`Tool.surfaces`, absent =
+  all); on `mcp` a terminal tool or one with an approval gate is never offered, and
+  `mcpToolProfile(tool)` derives the scope a call needs (`mcp:read`, or `mcp:write` for
+  `sideEffects`) and the annotations (`readOnlyHint`/`destructiveHint`/`idempotentHint` from
+  `sideEffects` and `durable`, `openWorldHint` false), each overridable in `Tool.mcp`. **Long threads are compacted**: a
   character-budget window (`CHAT_HISTORY_MAX_CHARS`), with the dropped prefix folded into
   `conversations.summary` by the `chat.compact` job (compare-and-set) — its work is
   `compactConversation` (`services/ai/chat-compaction.ts`), callable on any thread. Document cards come from
@@ -1061,6 +1069,11 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   `lookup_facts` and `search_knowledge`'s `facts` block cite every side. People confirm, reject or
   prefer facts, and merge, promote or keep separate possible matches, under
   `/documents?view=review` and on the entity page (`/api/knowledge`).
+  Deleting a document (`DELETE /api/ai/documents/:id`, or a connector's `deleteExternalDocument`)
+  first runs the same repair as re-extraction, in one transaction (`deleteDocumentsWithFacts`,
+  `services/knowledge/remove.ts`), so a fact one of its facts alone superseded or conflicted with is
+  current again. A submitted value, its wording or a date longer than 2,000 characters is dropped
+  before anything parses it.
   Where comparing text would be guessing, a **decision model** is asked (`services/knowledge/judge.ts`,
   typed choices through `resolveDecisions`: TypeSafe's Jev when `TYPESAFE_API_KEY` is set, else the
   chat model on the `knowledge-decide` prompt key). A mention that links to nothing but sits near
@@ -1474,8 +1487,9 @@ The full gate stays green at every step. `SETUP.md` is the walkthrough.
   is async). Then the admin rollout: tenant override → `on`/`off` → `rollout`
   percentage → registry default.
 - **Keys are code** (`FEATURES` + metadata). No migration is needed to add one; orphaned rows are
-  inert. The kit ships **no** flag — `example-feature`'s belongs to its plugin — so
-  `featureNameSchema` is a refined string.
+  inert. Core ships two: `knowledge-facts` (§9, a rollout flag, off by default) and `mcp` (§19,
+  environment-gated, on wherever the deployment ships it); `example-feature`'s belongs to its
+  plugin.
 - **`featureBucket` is a wire format**: FNV-1a over `"<key>:<unit>"` mod 100, with golden vectors
   in `features.test.ts`. It is monotonic (the percentage is never hashed) and independent across
   flags.
@@ -1569,13 +1583,41 @@ Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
   `eval-coverage.test.ts` fails a registered plugin key with no entry and an entry for a key the
   plugin does not declare; a host that writes a suite for a plugin's prompt overrides the entry in
   the core map (§9).
-- **Agent tools**: `agentTools(ctx)` may be async and may return `[]`. That is how a tool reaches
+- **Tools**: `tools(ctx)` (renamed from `agentTools`, which is still read when `tools` is absent
+  and draws a `pnpm plugin check` warning) may be async and may return `[]`. That is how a tool reaches
   only the tenants that turned it on: the plugin reads its own settings row for `ctx.scope.tenantId`,
+  Each tool picks where it is offered with `surfaces` (`'chat' | 'agents' | 'mcp'`, absent = all)
+  and shapes how an MCP client sees it with `mcp: { title?, annotations?, outputSchema?, scope? }`
+  (§9 "Chat": the defaults come from `sideEffects`). A terminal tool or one with an approval gate is
+  never offered on `mcp`. **Names**: one list goes to chat, agents and every MCP client, so a name is
+  1–64 of `A–Z a–z 0–9 _ -` (`MCP_TOOL_NAME_PATTERN` — MCP allows `.`, the chat models do not) and
+  unique across core and every plugin. The builder (`admittedPluginTools`) leaves out, and logs, a
+  plugin tool that breaks either rule — the core name or the first plugin keeps it — and
+  `pnpm plugin check` fails the same names statically (best effort: a name it cannot resolve from a
+  literal or a `const` is left to the runtime). It also WARNS on "Rocketpod" in a tool's `title` or
+  `description`, which a client shows under the deployment's own name.
+- **MCP**: a plugin's tool reaches MCP clients through `tools` and nothing else — no mount, no auth,
+  no token check of its own. `/mcp` resolves the person, their organisation, groups and CASL from
+  the connection, lists the tool under the organisation's exposure mode (§19), and calls it with the
+  same `ToolCtx` chat would (`requesterUrls: []`). `example-feature`'s `list_example_notes` carries
+  the reference `mcp` block. **A plugin proves its tool scopes over MCP** with `callMcpTool(db, tool,
+  { as, tenant, args?, scopes?, exposure? })` from `@testkit/integration`: it turns MCP on, writes a
+  real connection, lists and calls over the real `/mcp`, and answers `{ listed, listing, isError,
+  text, json, structured }` — call it as a member of another organisation, or outside a group, and
+  assert the rows are absent (`connectMcp` / `enableMcp` / `mcpClient` for a case that breaks the
+  connection afterwards).
   or its flag through `ToolCtx.features()` (`example-feature` does, and its welcome note follows the
   same flag — a dark feature then costs no prompt tokens). A builder that throws is logged and skipped. `buildAgentTools` is therefore async.
   `ToolCtx.can(action, subject)` is the requester's CASL grant, read at build time from their
   current membership (false for a run with no requester): gate a tool that writes on your own
   subject's `manage`, not on `scope.bypass`, which is row visibility and true for `support` too.
+  `ToolCtx.requester` is who is calling — `{ userId, role, isAdmin, groups }`, the groups with
+  each one's TYPE name — or `null` for a run nobody started (or whose requester was since blocked
+  or removed). The caller already resolved it (chat and MCP from the request's auth context, an
+  agent run from its requester at execute time, with the same two reads as `can` and `scope`), so
+  it costs no query; it is for SCOPING, such as a semantic layer's security context, while a gate
+  stays on `can`. `ToolCtx.features()` answers the caller's own resolved flags when it has them
+  (chat, MCP) and reads the tenant's once otherwise.
   `ToolCtx.requesterUrls` is the frozen set of http(s) URLs the person wrote themselves
   (`services/agents/tools/requester-urls.ts`): in chat, their own turns in the conversation; in an
   agent run, the input when a person submitted it through `POST /api/agents/runs` or `/runs/batch`
@@ -1599,6 +1641,13 @@ Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
 - **Credentials**: a plugin stores a tenant's key with `sealSecret` / `openSecret` from
   `@/plugins/api`. That is the kit's AES-GCM under `OAUTH_ENCRYPTION_KEY`, with a 503 when the key
   is unset. Store the sealed value in a `*_enc` column and answer `hasCredential`.
+- **Reserved paths**: `/mcp`, `/oauth` and the OAuth `.well-known` documents belong to core's MCP
+  server (§19). A plugin claiming one as a mount, an `apiPrefixes` entry or a public mount stops
+  the app at load (`assertNoReservedPluginPaths`), naming the plugin, and `pnpm plugin check` fails
+  it first (an `apiPrefixes` entry in the manifest, a `['/mcp', …]` mount tuple in the source) — a
+  plugin's MCP tools need no route of their own, only `tools`. The opt-in analytics plugin's own
+  `/mcp` (drizzle-cube, API-key auth) is refused by this; its plugins release moves its cube tools
+  onto `tools` and drops the mount and its vite `/mcp` proxy edit.
 - **Public mounts (D34)**: `publicMounts` are routes a third party calls with no session — an
   admin-consent callback, a webhook. Only under `/api/hooks/<id>` (one enumerable prefix per
   plugin), mounted before the authed table with no `authMiddleware` and no
@@ -2063,48 +2112,158 @@ no per-tenant pages or overrides; no i18n; `screenForRoute` knows only the kit's
 Settings `?tab=`; the image `COPY` needs `content/guide/` to exist (it always holds
 `screenshots.yaml`); Ask the Guide keeps no history across tabs or reloads.
 
-## 19. The remote MCP server
+## 19. MCP server
 
-Server: `api/routes/mcp.ts`, `api/auth/mcp.ts`; CORS in `api/middleware/cors.ts`. Contract:
-`@rocketpod/shared/mcp`. Config: `MCP_AUTHORIZATION_SERVER`.
+**An AI client connects to the app at `/mcp` and acts as one person in one organisation, with that
+person's permissions and nothing more.** Clients are those that identify themselves with an OAuth
+Client ID Metadata Document — Claude (claude.ai, Desktop, Code) and ChatGPT. Plan and decisions:
+`docs/plans/mcp-server.md` (Rocketflare's repository). The `rp-mcp` skill drives turning it on, adding a
+tool and connecting a client; `.claude/rules/tools.md` is the checklist for a safe tool, and
+`apps/web/src/api/services/mcp/CLAUDE.md` maps the code and its invariants.
 
-`/mcp` lets an MCP client (Claude Code, a Claude.ai connector, Cursor, VS Code) use the app as
-the person who connected it. The kit is the OAuth **resource server** only: an outside
-authorization server signs the person in, asks their consent and issues an access token bound to
-`<APP_URL origin>/mcp` (RFC 8707). Off until `MCP_AUTHORIZATION_SERVER` names that server: `/mcp`
-and its metadata answer 404.
+- **Deployment gate**: the environment-gated `mcp` flag (§15). Without `mcp` in `FEATURES_ENABLED`,
+  `/mcp`, `/oauth/*`, the OAuth `.well-known` documents, `/api/mcp/*` and `/api/mcp-connections`
+  answer 404. Each organisation's owners and admins then
+  turn it on at Settings → MCP (`mcp_settings.enabled`, off by default).
+- **Transport** (`routes/mcp.ts`, the official SDK's `createMcpHandler`): stateless Streamable
+  HTTP, POST only (405 otherwise), both protocol eras (2026-07-28 and the 2025-11-25 `initialize`
+  path), header/body agreement (-32020) from the SDK. Mounted before the mount table, outside the
+  global CORS (its own: any origin, no credentials, `WWW-Authenticate` exposed) and outside
+  `authMiddleware`. A browser `Origin` must be ours; none is fine. `capabilities.tools.listChanged`
+  is false and a `subscriptions/listen` request is refused, so no request is held open. A JSON-RPC
+  batch is refused (400, -32600) in both eras before the SDK sees it, so every call meets the
+  limits one at a time. The global CORS skips these paths with or without one trailing slash.
+- **Credential**: an OAuth access token (`mcpat_…`, one hour, SHA-256 at rest in `mcp_tokens`) of a
+  live grant (`mcp_grants`: user, tenant, client, scopes, the exact URL it is for). Never a cookie,
+  an API key or a CLI key. `/mcp/t/<slug>` is the same server pinned to one organisation, for a
+  client that keys connectors by URL; a token is refused on any URL but its grant's.
+- **The authorization server** (`services/mcp/authorization.ts`, `routes/oauth.ts`): the app is its
+  own OAuth 2.1 server, in Postgres. Discovery: RFC 9728 protected-resource metadata for `/mcp` and
+  every `/mcp/t/<slug>`, RFC 8414 metadata (also at `openid-configuration`) — S256 only, public
+  clients only (`none`), `client_id_metadata_document_supported`, `iss` on every authorization
+  response (RFC 9207), and no `registration_endpoint`. **Clients are their metadata document**
+  (`services/mcp/cimd.ts`): `client_id` is an https URL on a public host and the default port; the
+  fetch goes through `Platform.publicFetch` (`src/node/egress.ts`: it refuses to connect to a
+  loopback, private, link-local or reserved address, judged on the RESOLVED address at connect
+  time, so a public name pointing — or rebinding — inward is refused too), refuses redirects, takes ten seconds and 5 KB at most, needs a JSON type and a document
+  naming its own URL; it is cached in `oauth_clients` for a day and a failed refetch fails. Every
+  refusal of a fetched document reads the same on the page ("could not be used"), the specific
+  cause only in the server log, so the page says nothing about what the URL reached. A document
+  is cached only once it registers the request's `redirect_uri`, and the nightly `pruneMcp` drops a
+  row unfetched for 30 days that no grant and no pending request names. A
+  document must be usable as a public client: its `token_endpoint_auth_method` absent or `none`, or
+  `none` among its `token_endpoint_auth_methods_supported` (ChatGPT prefers `private_key_jwt` and
+  lists `none`, and falls back to it because our metadata offers nothing else); its `grant_types`
+  and `response_types`, when present, must include `authorization_code` and `code`. The three v1
+  clients' real documents are test fixtures (`tests/config/mcp-cimd.test.ts`). No DCR, no static
+  clients. `GET /oauth/authorize` resolves the client and checks `redirect_uri` (exact;
+  loopback any port) BEFORE anything is redirected — until then an error is a page on our origin;
+  after it, the error goes back with `state` and `iss`. PKCE S256 is mandatory, `resource` must be
+  one of our MCP URLs (`invalid_target`, also for a slug that does not decode), and the request waits ten minutes in `oauth_requests`.
+  **Sign-in is the app's own `/login`** (a `returnUrl` to `/oauth/continue`), so every sign-in
+  method, the single-sign-on policy, `SIGNUP_MODE` and blocking apply unchanged. **Consent** is the
+  SPA page `/consent` (kit chrome, `frame-ancestors 'none'`): "<client> wants to use <APP_NAME> as
+  you", the client's name and logo as CLAIMS beside the verified host of its `client_id` and the
+  redirect host, a warning when it registers only loopback redirects, the organisations where
+  `resolveMcpMember` admits the person (an `/mcp/t/<slug>` request offers only that one), the
+  scopes and the tools. `POST /oauth/consent` (cookie + CSRF) re-checks it all, writes the grant
+  (absolute end `MCP_GRANT_MAX_DAYS`, capped by `OIDC_SESSION_MAX_AGE_DAYS` under IdP-managed
+  tenancy) and a code: SHA-256 at rest, sixty seconds, single-use — a second exchange revokes the
+  grant. A live grant for the same client, organisation and URL that covers the asked scopes is
+  remembered consent: no click. `POST /oauth/token` (form): `authorization_code` (PKCE verifier,
+  client, redirect and resource must match) and `refresh_token`, which rotates every time; a spent
+  refresh token presented again revokes the grant, **except** a retry within 30 seconds while its
+  successor is unused, which gets the same pair back — sealed (AES-GCM) under a key derived from
+  the spent token's own plaintext, so the database never holds an openable successor
+  (`services/mcp/seal.ts`). `POST /oauth/revoke` (RFC 7009): a refresh token ends the connection,
+  an access token itself; anything unknown is a silent 200. Rate limits: authorize, continue and
+  consent take `authRateLimit`; token and revoke — called from the hosted clients' shared server
+  IPs — take 600/min per IP plus 30/min per connection.
+- **Lifecycle**: removing a member (by an admin or the IdP) revokes their grants there, and blocking
+  someone (manually or by IdP deprovisioning) revokes all of theirs, in the same transaction
+  (`revokeMcpGrantsOf`). Role, group and policy changes need nothing: every call re-reads them.
+  Turning MCP off suspends connections (403) without revoking them.
+- **Connections**: `/api/mcp/connections` lists the organisation's (`manage McpSettings`) with
+  revoke and `POST /revoke-all`; `/api/mcp-connections` lists a person's own across organisations
+  with revoke — account-wide, so a session only: an API key gets 403 `insufficient_scope`. Activity: `mcp.client_connected`, `mcp.client_revoked` (who, and why).
+- **Who is calling** (`services/mcp/caller.ts`), re-read on every call, nothing cached on the grant:
+  401 `invalid_token` with the RFC 9728 challenge when the TOKEN is the problem (unknown, expired,
+  revoked, idle past `MCP_GRANT_IDLE_DAYS`, past `MCP_GRANT_MAX_DAYS`, another URL); 403 with a
+  code when the PERSON is (`blocked`, `tenant_suspended`, `mcp_disabled`, `mcp_not_allowed` — not a
+  member, a support role, outside "who can connect"). The `AuthContext` is built by the same
+  `tenantAuthContext` as an API key's, with `isGlobalAdmin` forced false: a client acts as the
+  membership, never with platform reach.
+- **Tools**: `toolsFor('mcp', ctx)` from the caller's own access scope, CASL and features
+  (`requesterUrls` empty — the client's model typed every argument), then the organisation's
+  exposure: `read_only` (default — tools with no `sideEffects` and the read scope), `all`, or
+  `selected`. A write tool is listed to a read-only token and answers 403 `insufficient_scope`
+  naming `mcp:read mcp:write` (the step-up). An unexposed tool is "not found". Every result opens
+  with a line saying it is data, not instructions, and is capped at 60 000 characters (a tool with
+  an `outputSchema` whose answer is over the cap sends no `structuredContent` — it would carry the
+  whole answer — and answers an error result with the capped text); `get_document` windows are
+  20 000.
+- **Limits and audit**: `MCP_CALLS_PER_GRANT_PER_MINUTE` (60), `MCP_CALLS_PER_USER_PER_MINUTE`
+  (120 — one person across all their connections in the organisation, so no member can spend the
+  organisation's minute alone) and `MCP_CALLS_PER_TENANT_PER_MINUTE` (600), checked in that order
+  on the platform's rate limiter (`rate_limits`), answered as tool errors (`rate_limited`), never 429. A limiter that cannot be
+  read fails the call closed, as every limiter in the app does, but as a logged tool error
+  (`tool_failed`) rather than a thrown request. Model spend is not MCP's: a tool that calls a
+  model records it in `ai_usage` under that tool's own feature, as it does from chat, with nothing
+  marking it as an MCP call, under the same tenant caps. `mcp_tool_calls`
+  records each call — who, which connection, which tool, outcome, duration — never its arguments or
+  result; kept `MCP_CALL_RETENTION_DAYS` (90) by the nightly `pruneMcp`, which also drops expired
+  tokens. Each call is a `mcp <tool>` span with an `execute_tool` child.
+- **Visibility is the HTTP routes'**: `tests/api/security/mcp-visibility.test.ts` proves a
+  group-only document, its facts and its entities do not exist for an outsider through every core
+  tool the server lists (a new core tool without a case fails it), and that each answer equals
+  chat's for the same person.
+- **Branding**: what a client sees is `APP_NAME` and the organisation's name — `serverInfo`, the
+  instructions, the notice, every error. `mcp-server.test.ts` sets `APP_NAME="Acme Tools"` and bans
+  `/rocketpod/i` from every response.
 
-- **Discovery.** `/.well-known/oauth-protected-resource` and `/.well-known/oauth-protected-resource/mcp`
-  (RFC 9728) name the resource and the authorization server. A call without a valid token is 401
-  `unauthorized`, with `WWW-Authenticate: Bearer resource_metadata="…"` (plus `error="invalid_token"`
-  for a bad one), which is how a client finds where to sign in. Both answer any origin without
-  credentials and expose `WWW-Authenticate`, so a browser-based client works; the session cookie
-  is never a credential there, and an API key is not one either.
-- **The token.** A JWT (`typ: at+jwt`, ES256 or RS256) verified against the server's JWKS, found
-  through its RFC 8414 metadata (`jwks_uri`) and re-read for an unknown `kid`, with `iss` = the
-  server, `aud` = the resource and an `email`. The server is trusted for that address as the OIDC
-  issuer is.
-- **The person** goes through the sign-in path's own rules, so `/mcp` is not a side door: the SSO
-  policy (`ssoDecisionFor(…)`, as `core`), then `admitUser` (`SIGNUP_MODE`, blocking,
-  `BOOTSTRAP_ADMIN_EMAILS`). Under `OIDC_MANAGED_TENANCY` the token's orgs claim is reconciled
-  exactly as an id_token's (`reconcileIdpClaims`, §2), once per token: a token no newer than the
-  person's newest `tenant_users.idp_synced_at` changes nothing. The authorization server must then
-  put the same claims in its access tokens as the issuer puts in id_tokens (Labs Access does).
-- **The tools are the agents' tools.** `buildAgentTools` (the knowledge tools and every installed
-  plugin's `agentTools`) built from the call's own `AuthContext` (scope, CASL grant) as chat builds
-  them, so a plugin's tool is on `/mcp` with no extra code. A tool gated on approval
-  (`requiresApproval`, `requiresApprovalWhen`) is left out, and so is one with no handler.
-  `get_document` windows are capped at `MCP_GET_DOCUMENT_MAX_CHARS` (20 000). Plus `list_tenants`.
-- **One tenant per call, never picked silently.** One membership → that tenant. Several → a call
-  names one by the `tenant` argument every tool takes (required then) or the `mcp-tenant` header,
-  by id, slug or the issuer's org id; naming none, or one that is not theirs, is a tool error
-  (`tenant_required`) listing their slugs. Listing tools with several tenants and none named shows
-  the union.
-- **Stateless.** One MCP `Server` per request over the SDK's web-standard Streamable HTTP
-  transport, JSON responses, no session id and no SSE stream: any replica answers any call. GET
-  and DELETE are 405.
+- **Settings → MCP** (`ui/pages/settings/Mcp.tsx`, the tab guarded by the `mcp` flag AND
+  `manage McpSettings`): the switch; the server URL to paste — the organisation's
+  `/mcp/t/<slug>` under multi-tenancy, `/mcp` under single — with setup snippets for Claude
+  (claude.ai/Desktop connector, `claude mcp add --transport http <name> <url>`, the name slugified
+  from `APP_NAME`) and ChatGPT; who can connect (everyone, admins, chosen groups); exposure (All
+  read-only, Enable all after a confirmation, Selected with ticks); and the tools grouped Knowledge
+  first then per plugin, each with its read-only/writes badge, annotations and 30-day call count,
+  approval-gated and terminal tools greyed with the reason. The switch and the modes save at once;
+  the group and tool ticks save as one list. Below them, **Connected clients**: every live
+  connection in the organisation — the person, the client by the name its document claims and the
+  host its `client_id` was verified on, read or read-and-write, connected, last used, 30-day calls
+  — with Revoke and Revoke all, each after a confirmation.
+- **Profile → Connected apps** (`ui/pages/Profile.tsx`, shown where the deployment ships `mcp` and
+  the reader has at least one): the reader's own connections in every organisation, with Revoke.
+  Both tables are `components/mcp/McpConnectionsTable.tsx`.
+- A consent makes the grant, but it is a **connection** only once its code is redeemed
+  (`mcp_grants.activated_at`, set by the first token exchange, which also records
+  `mcp.client_connected`): an unredeemed grant is never listed or counted, and the nightly
+  retention deletes it an hour after it was made.
 
-**Known gaps:** no MCP resources or prompts, only tools; no per-tool scopes (the token's `scope` is
-not read: a connection may do whatever its person may); no progress notifications or streaming
-results; tool results are text (the tools' JSON), never structured content; the analytics
-plugin's own `/mcp` is shadowed by this one until it contributes its cubes as `agentTools`.
+- **A second issuer (Rocketpod only)**: `MCP_AUTHORIZATION_SERVER` names an OUTSIDE OAuth server
+  (Cognito, Entra, Okta…) whose JWT access tokens `/mcp` also accepts (`api/auth/mcp.ts`). A
+  bearer without the `mcpat_` prefix is verified against that server's JWKS (RFC 8414
+  `jwks_uri`, re-read hourly and for an unknown `kid`): `typ: at+jwt`, ES256/RS256, `iss` = the
+  server, `aud` = `<APP_URL>/mcp` (covering every `/mcp/t/<slug>`) or the exact URL, a verified
+  `email`. The person then goes through the sign-in path's own rules — the SSO policy
+  (`ssoDecisionFor`, as `core`), `admitUser`, and under `OIDC_MANAGED_TENANCY` the token's orgs
+  claim reconciled like an id_token's, once per token. The organisation is the URL's, else the
+  `mcp-tenant` header (id, slug or the issuer's org id), else their only one — several and none
+  named is 403 `mcp_tenant_required`, never a silent pick. The token maps to an `mcp_grants` row
+  per (person, organisation, `<issuer>#<client_id|azp>`, URL), made activated on first use
+  (`outsideMcpGrant`), its scopes the token's `mcp:*` scopes (both when it names none); a revoked
+  or lapsed one refuses every token issued before that, and a newer token makes a new one. From
+  there it is the SAME caller (`callerForGrant` → `resolveMcpMember`): the organisation's switch,
+  connect policy, exposure, the three limits, the call log, the connections lists and revoke. The
+  protected-resource metadata lists that server first and the app's own second. Tests:
+  `tests/api/mcp-outside-issuer.test.ts`.
+
+**Known gaps:** only clients with a Client ID Metadata Document can connect (Claude, ChatGPT;
+Cursor has DCR only, VS Code is untested) — no DCR, no static clients; a call's own model spend is not attributed to it (`mcp_tool_calls.cost_microcents`
+is always null, and its `ai_usage` rows carry no MCP tag; embeddings for search are unmetered as
+everywhere else); a renamed organisation slug breaks grants
+made on its `/mcp/t/<slug>` (the client reconnects); calls the SDK refuses before the handler (bad
+arguments, an unknown tool) are not in the call log; an outside issuer's tokens (below) are not
+revoked at the issuer when a connection is revoked here — the app refuses them until the issuer
+mints a newer one; no resources, prompts, approval tools or agents.

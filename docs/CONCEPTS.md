@@ -1361,7 +1361,8 @@ keep their names on purpose — they are the plugin ecosystem's fixed filenames 
   manifest's kit-state claims and coverage, the example surfaces' removability — which the kit's
   gate runs (`pnpm test` names the project only while its directory exists); its workflows
   (`kit.yml`, `plugin-ci.yml`, `notify-plugins.yml`); its maintainer scripts (`release.mjs`,
-  `changelog-nudge.mjs` and `lib/nudge-lib.mjs`, `default-plugins.mjs`, `install.sh`); and its
+  `changelog-nudge.mjs` and `lib/nudge-lib.mjs`, `default-plugins.mjs`, `install.sh`); the
+  maintainer skill `rp-sync-rocketflare` (porting Rocketflare releases into Rocketpod); and its
   project files (`CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, the maintainers' ledger `docs/FORK.md`,
   the kit roadmap `docs/ROADMAP.md`, the pending porting notes `docs/upgrades/unreleased.md`).
   `scripts/rename.mjs` deletes them when a

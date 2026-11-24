@@ -16,6 +16,8 @@ durable agent runs, realtime, knowledge, tracing, evals, plugins and the CLI mea
 both kits. Rocketflare releases are **ported by hand**: read Rocketflare's
 `docs/upgrades/<version>.md` for each release after 0.19.0 and apply what still holds without
 Cloudflare. Record each one in the table below so the next port knows its baseline.
+`/rp-sync-rocketflare` (`.claude/skills/rp-sync-rocketflare/`, kit-only) is the procedure, and
+its `reference.md` holds the translations and test mappings every port so far has used.
 
 **Versions match Rocketflare's.** From 0.32.2 on, a Rocketpod release takes the version of the
 Rocketflare release it has caught up with, so a plugin's `minKit` names the same capabilities in

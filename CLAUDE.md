@@ -147,6 +147,8 @@ docs/upgrades/     one porting note per kit release (+ unreleased.md, kit repo o
                    rp-agent-replay (replay an agent's past runs with today's code, no model calls; D38) ·
                    rp-deploy (Compose or Helm, the secrets checklist, never prints a secret) ·
                    rp-agent-docs (+ check.mjs — audit and fix CLAUDE.md, rules and skills) ·
+                   rp-sync-rocketflare (+ reference.md — kit repo only, `kitOnly`: port
+                   Rocketflare releases into Rocketpod, `docs/FORK.md`) ·
                    example-feature (demo the reference plugin)
 ```
 

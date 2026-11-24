@@ -331,7 +331,8 @@
     "CODE_OF_CONDUCT.md",
     "docs/FORK.md",
     "docs/upgrades/unreleased.md",
-    "docs/ROADMAP.md"
+    "docs/ROADMAP.md",
+    ".claude/skills/rp-sync-rocketflare/**"
   ],
   "manual": [
     "README.md",

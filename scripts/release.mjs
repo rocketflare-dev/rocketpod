@@ -560,7 +560,8 @@ function main(argv) {
     `  node scripts/release-check.mjs --tag ${version}`,
     `  pnpm gate`,
     '',
-    `Then: git commit -am "Release ${version}" && git tag -m "Release ${version}" ${version} && git push origin main ${version}`
+    // `-a` stages tracked files only: without the `git add`, the new note was left out of the tag.
+    `Then: git add ${jobs.map(j => j.notePath).join(' ')} && git commit -am "Release ${version}" && git tag -m "Release ${version}" ${version} && git push origin main ${version}`
   )
   return 0
 }

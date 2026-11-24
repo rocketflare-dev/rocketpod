@@ -42,6 +42,10 @@ the same commit, so the next port starts from it.
 | A licence file (`LICENSE*`, `LICENCE*`, `NOTICE`, `LICENSES/**`) | Never translated (`isLicenceFile`); `LICENSES/kit-MIT.txt` is Rocketpod's own `LICENSE` |
 | A mini Hono app in a test that calls `requestCtx(c)` | Add `platformMiddleware` after `configMiddleware`: `requestCtx` reads `platform`, which upstream's chain has no middleware for |
 | The 4 GB `typecheck` heap (0.42.0) | Not needed: `tsc --noEmit` peaks at ~2 GB here — measure again before taking it |
+| The test Postgres and Neon proxy ports (`testPorts`, 0.44.0) | Postgres :5533 and the S3 gateway :7433 (`postgres-test`, `s3-test`); `.env.test`'s `DATABASE_URL` and `STORAGE_ENDPOINT` are what must agree — no proxy, no shared-server reuse |
+| `run_worker_first` upkeep (`pruneWorkerFirst`, `transformWranglerTomls`) | Nothing: the Node server receives every path |
+| A body cap justified by "the Worker holds the body in memory" | The Node process holds a buffered body, and the ingress has its own cap: name ingress-nginx's `proxy-body-size` (Helm values comment, `docs/DEPLOY.md`) |
+| `mapVirtualHost` on the test `ExecutionContext` | Not needed: no wrangler types |
 
 ## Test harness mappings
 
@@ -73,6 +77,9 @@ the same commit, so the next port starts from it.
 - `docs/plugin-api.md`: discard its rejects and regenerate (`node scripts/plugin-api-doc.mjs`).
 - `scripts/plugin.mjs` holds a literal NUL byte (`coreEditKey`): `grep -a` it, or grep sees a binary.
 - Rocketpod's `materialise(buffer, translate, rel)` takes `host.translate`, not upstream's `host.names`.
+- `patch --dry-run -p1 < <(git -C $RF diff <prev>..<tag> -- <file>)` per file tells which files apply
+  whole; a file whose only failed hunk is a renamed word (`/rf-upgrade`) is quicker to patch in a
+  scratch copy and fix by hand than to re-type.
 
 ## Rocketpod differences to keep
 

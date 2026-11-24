@@ -113,7 +113,10 @@ helm upgrade --install rocketpod deploy/helm/rocketpod -n rocketpod --create-nam
   `APP_DATABASE_URL` from `existingSecret`, or from a hook-scoped copy the chart renders.
 - **Ingress and `/ws`.** ingress-nginx proxies WebSocket upgrades as they are. Raise its timeouts so
   idle sockets survive (`nginx.ingress.kubernetes.io/proxy-read-timeout` / `proxy-send-timeout:
-  "3600"`) and allow 5 MB uploads (`nginx.ingress.kubernetes.io/proxy-body-size: "6m"`).
+  "3600"`) and allow 5 MB uploads (`nginx.ingress.kubernetes.io/proxy-body-size: "6m"`). An
+  installed plugin may take more: up to 10 MB beneath its `uploadPaths` and up to 50 MiB on an
+  exact `uploadLimits` path, so raise `proxy-body-size` to the largest cap a plugin declares, or
+  the ingress answers 413 before the app sees the request.
 - **Drain.** `web` gets a 5 s `preStop` sleep (the `sleep` lifecycle action, Kubernetes ≥ 1.30), so
   the endpoint is removed before the process stops accepting. SIGTERM then drains requests,
   deferred work and sockets (closed with 1001, so clients reconnect to another pod). `worker`

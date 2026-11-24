@@ -50,6 +50,7 @@ import {
   deprecatedServerMembers,
   describeClash,
   eventClashes,
+  findEditLine,
   hasBarrelLine,
   isolationEvidence,
   jsonKeyLine,
@@ -334,6 +335,27 @@ describe('core edits a plugin declares', () => {
     expect(warnings[0]).toMatch(/vite\.config\.ts: 1 of its 2 lines were already in the file/)
     expect(partialCoreEdits(VITE, edits)).toEqual([])
     expect(partialCoreEdits(applyCoreEdits(VITE, edits), edits)).toEqual([])
+  })
+
+  it('recognises a line the host formatter wrapped: not added twice, and reverted whole (#178)', () => {
+    // What Biome makes of the 105-column nivo alias after `plugin upgrade` formats vite.config.ts.
+    const wrapped = applyCoreEdits(VITE, edits).replace(
+      "      '@nivo/heatmap': path.resolve(__dirname, './src/plugins/analytics/ui/lib/nivo-heatmap.tsx'),",
+      [
+        "      '@nivo/heatmap': path.resolve(",
+        '        __dirname,',
+        "        './src/plugins/analytics/ui/lib/nivo-heatmap.tsx'",
+        '      ),',
+      ].join('\n')
+    )
+    expect(wrapped).toContain('        __dirname,')
+    expect(applyCoreEdits(wrapped, edits)).toBe(wrapped)
+    expect(partialCoreEdits(wrapped, edits)).toEqual([])
+    expect(revertCoreEdits(wrapped, edits)).toBe(VITE)
+    expect(findEditLine(wrapped.split('\n'), edits[1]?.lines[0] ?? '')).toMatchObject({
+      start: expect.any(Number),
+    })
+    expect(findEditLine(VITE.split('\n'), edits[1]?.lines[0] ?? '')).toBeNull()
   })
 
   it("groups a manifest's edits by the file they touch", () => {

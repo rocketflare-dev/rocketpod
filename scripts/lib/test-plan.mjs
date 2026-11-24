@@ -26,8 +26,89 @@
  * (`planSelectedTests`, over `lib/gate-changed.mjs`'s selection).
  */
 
+import { parseYaml } from './yaml-lite.mjs'
+
 export const COMPOSE_FILE = 'apps/web/docker-compose.test.yml'
 export const WEB_DIR = 'apps/web'
+
+/** The host ports the kit's `docker-compose.test.yml` publishes; a copy may move both. */
+export const DEFAULT_TEST_PORTS = Object.freeze({ postgres: 5533, s3: 7433 })
+
+/** The host port of a compose service's first `ports:` entry (`"5533:5432"` → 5533), or null. */
+function publishedPort(service) {
+  const first = Array.isArray(service?.ports) ? service.ports[0] : null
+  const m = /^(?:[\d.]+:)?(\d+):\d+(?:\/\w+)?$/.exec(String(first ?? '').trim())
+  return m ? Number(m[1]) : null
+}
+
+/**
+ * The host ports `docker-compose.test.yml` publishes for the test Postgres and the S3 gateway.
+ * Read, never assumed: a copy that moves its test servers (so they never meet another checkout's)
+ * must have the runner's messages and its `.env.test` check follow (Rocketflare #178). A file that
+ * does not say falls back to the kit's ports.
+ * @param {string} composeText
+ */
+export function testPorts(composeText) {
+  let services = {}
+  try {
+    services = parseYaml(composeText)?.services ?? {}
+  } catch {
+    services = {}
+  }
+  return {
+    postgres: publishedPort(services['postgres-test']) ?? DEFAULT_TEST_PORTS.postgres,
+    s3: publishedPort(services['s3-test']) ?? DEFAULT_TEST_PORTS.s3,
+  }
+}
+
+/** The port of a URL, its scheme's default when it names none, or null when it does not parse. */
+function urlPort(raw, fallback) {
+  if (!raw) return null
+  try {
+    const url = new URL(raw)
+    return Number(url.port || fallback)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The ports `.env.test` connects to: `DATABASE_URL`'s (5432 when it names none) and
+ * `STORAGE_ENDPOINT`'s (80/443 by scheme); null for one it does not set.
+ * @param {string} envTestText
+ */
+export function envTestPorts(envTestText) {
+  const value = key => new RegExp(`^${key}=(\\S+)`, 'm').exec(envTestText)?.[1]
+  const storage = value('STORAGE_ENDPOINT')
+  return {
+    postgres: urlPort(value('DATABASE_URL'), 5432),
+    s3: urlPort(storage, storage?.startsWith('https:') ? 443 : 80),
+  }
+}
+
+/**
+ * Where `.env.test` and the compose file disagree, as one line each — the database would come up
+ * on one port while every test waits on the other, failing as "Database not ready" with nothing
+ * naming the cause.
+ * @param {{ postgres: number, s3: number }} published
+ * @param {{ postgres: number | null, s3: number | null }} wanted
+ */
+export function testPortMismatches(published, wanted) {
+  const issues = []
+  if (wanted.postgres !== null && wanted.postgres !== published.postgres) {
+    issues.push(
+      `${WEB_DIR}/.env.test connects to Postgres on :${wanted.postgres}, but ${COMPOSE_FILE} ` +
+        `publishes it on :${published.postgres} (DATABASE_URL and APP_DATABASE_URL)`
+    )
+  }
+  if (wanted.s3 !== null && wanted.s3 !== published.s3) {
+    issues.push(
+      `${WEB_DIR}/.env.test reaches the S3 gateway on :${wanted.s3}, but ${COMPOSE_FILE} ` +
+        `publishes it on :${published.s3} (STORAGE_ENDPOINT)`
+    )
+  }
+  return issues
+}
 
 /** The hint a refusal ends with: the two ways to give `pnpm test` a database. */
 export const TARGET_HINT =

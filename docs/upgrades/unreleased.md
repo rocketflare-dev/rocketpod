@@ -38,6 +38,15 @@ The MCP server is rebuilt on Rocketflare 0.41.0: the app is its own OAuth 2.1 au
 - `overrideResolveChatForTests`, `overrideResolveDecisionsForTests` and `overrideKnowledgeEntityTypesForTests` replace `vi.mock` of those modules; `withServerPlugins(fixtures)` (`tests/helpers/server-plugins.ts`) splices fixture server plugins for one file. Spies and `vi.stubGlobal` need no isolate marker.
 - TypeScript 7.0.2 compiles; code that parses TypeScript (the source-scanning guards, `surface.mjs`, `plugin-api-doc.mjs`) imports `typescript6`. `paths` are `./`-relative (no `baseUrl`). Vitest 5.1, Vite 8.3.
 - The kit's tooling tests (`scripts/**`) moved to `tests/kit-only/`; `kit-makeup.test.ts` holds the kit's exact job and entity types; `build:ui` runs `scripts/check-ui-bundle.mjs`; up to 10 test workers.
+- Rocketflare 0.44.0: `pnpm kit:upgrade` hands the run to the TARGET release's `scripts/upgrade.mjs` (extracted with `scripts/lib/` into `.upgrade/tool/<v>/`) when it differs from the copy's, so upgrader fixes inside the range apply to the jump that crosses them.
+- A file whose patch no longer applies is merged 3-way (`git merge-file`, base = the old kit file, theirs = the new one, both translated); a clean merge is applied and staged, a conflict is a `*.rej` or, with the new `--3way`, conflict markers; `--continue` refuses while a marker remains; a `manual` file the kit changed gets the merge under `.upgrade/work/<v>/merged/`.
+- `scripts/lib/rename-lib.{mjs,d.mts}` is always ported verbatim (`ALWAYS_PORTED_TOOLING`), whatever a copy's `neverPort` says, and the kit's `neverPort` no longer lists it.
+- `pnpm test` reads the test Postgres and S3 gateway ports from `apps/web/docker-compose.test.yml` (`testPorts`) and refuses a `.env.test` whose `DATABASE_URL` or `STORAGE_ENDPOINT` connects elsewhere (`testPortMismatches`).
+- `pnpm plugin add|upgrade|remove` match a core-edit line as code (`findEditLine`), so a line Biome wrapped is not written again and is reverted whole.
+- `UiPlugin.homeCards` (`{ id, Component, guard?, order? }[]`) is Home's "what needs doing" section above the quick links, rendered by `ui/components/PluginHomeCards.tsx`; the core quick links moved to the leaf `ui/pages/home-links.ts`.
+- `RequestCtx.embeddable(contentType)` opts one plugin response into same-origin framing for an `EMBEDDABLE_MIME_TYPES` type only; `makeRequestCtx` records it on `framed`.
+- `ServerPlugin.uploadLimits` (`{ '/api/<id>/upload': bytes }`) gives an exact path a non-JSON body cap up to `MAX_PLUGIN_UPLOAD_LIMIT_BYTES` (50 MiB, clamped), checked first in `apiBodyLimit`; the Helm values comment and `docs/DEPLOY.md` say to raise ingress-nginx's `proxy-body-size` to match.
+- Rocketflare 0.44.1: `kit-manifest.test.ts` expects `kit-only` in the test plan only while `apps/web/tests/kit-only/` exists, and `scripts/release.mjs` prints `git add <note> && git commit -am …`.
 
 ## How to apply
 
@@ -84,6 +93,17 @@ The MCP server is rebuilt on Rocketflare 0.41.0: the app is its own OAuth 2.1 au
 33. In a test of yours that mocks `@/api/services/ai/resolve`, call `overrideResolveChatForTests` / `overrideResolveDecisionsForTests` at the top of the file instead; in one that mocks both plugin barrels for the test agents, replace the marker with `// @vitest-fixture-agents`, delete the two `vi.mock`s and restore any `AGENTS` swap in `afterEach`/`afterAll`; drop `// @vitest-isolate` from a file that only spies or stubs globals.
 34. Change `test:api`, `test:ui`, `test:config`, `test:driver` in `apps/web/package.json` to `node ../../scripts/test.mjs <suite>`.
 
+35. Delete `scripts/lib/rename-lib.mjs` and `scripts/lib/rename-lib.d.mts` from `neverPort` in `.rocketflare.json` if your copy lists them, then copy both files from the release: `git --git-dir .upgrade/kit.git show <version>:scripts/lib/rename-lib.mjs > scripts/lib/rename-lib.mjs` (and the same for `rename-lib.d.mts`).
+36. Take the kit's `scripts/upgrade.mjs`, `scripts/lib/upgrade-lib.{mjs,d.mts}`, `scripts/lib/plugin-lib.{mjs,d.mts}`, `scripts/lib/test-plan.{mjs,d.mts}`, `scripts/test.mjs` and `scripts/release.mjs`, resolving any reject in the kit's favour, since they are kit tooling.
+37. If your copy moved its test ports, check that `apps/web/docker-compose.test.yml`'s `ports:` and `apps/web/.env.test`'s `DATABASE_URL`, `APP_DATABASE_URL` and `STORAGE_ENDPOINT` name the same ports: `pnpm test` now refuses a mismatch.
+38. If an earlier `pnpm plugin upgrade` left a core-edit line twice (a wrapped copy beside the one-line original in `apps/web/vite.config.ts`), delete the wrapped copy by hand once.
+39. Add `apps/web/src/ui/pages/home-links.ts` with `QuickLink` and `CORE_QUICK_LINKS`, keeping your own Home links in that list, delete both from `apps/web/src/ui/pages/Home.tsx`, and point the imports in `ui/hooks/useNavigationEntries.ts`, `plugins/types.ts` and `plugins/api/ui-wiring.ts` at `ui/pages/home-links`.
+40. Add `apps/web/src/ui/components/PluginHomeCards.tsx`, `PluginHomeCard` and `UiPlugin.homeCards` in `apps/web/src/plugins/types.ts`, export `PluginHomeCard` from `plugins/api/index.ts` and `plugins/api/ui-wiring.ts`, and render `<PluginHomeCards plugins={uiPlugins} />` above the quick links in `Home.tsx`.
+41. Add `embeddable(contentType)` to `RequestCtx` and `requestCtx` in `apps/web/src/plugins/api/http.ts`, and to `makeRequestCtx` in `apps/web/tests/kit/unit.ts` with the `framed` getter.
+42. Add `MAX_PLUGIN_UPLOAD_LIMIT_BYTES`, `UploadLimit`, `pluginUploadLimits` and `apiBodyLimit`'s third parameter to `apps/web/src/api/middleware/body-limit.ts`, `ServerPlugin.uploadLimits` to `apps/web/src/plugins/types.ts`, and pass `pluginUploadLimits(serverPlugins)` as `apiBodyLimit`'s third argument in `apps/web/src/api/index.ts`.
+43. If an installed plugin declares `uploadLimits`, raise `nginx.ingress.kubernetes.io/proxy-body-size` on your ingress to its largest cap plus 64 KB.
+44. Copy `uploadLimitIssues` into `apps/web/tests/helpers/plugins.ts` and the new cases in `tests/config/{plugins,public-mounts,plugin-ui-kit-graph}.test.ts`, `tests/api/plugin-request-ctx.test.ts` and `tests/ui/plugin-home-cards.test.tsx`.
+
 ## Conflicts to expect
 
 - `apps/web/src/api/routes/mcp.ts`, `apps/web/src/api/auth/mcp.ts`, `packages/shared/src/mcp.ts` → rewritten → take the kit's versions; an app change to the old tool list belongs in a tool now.
@@ -100,6 +120,9 @@ The MCP server is rebuilt on Rocketflare 0.41.0: the app is its own OAuth 2.1 au
 - `apps/web/tests/ui/contrast.test.ts` → its pairs moved into `scripts/lib/contrast.mjs` → take the kit's file, move your pairs into `contrastPairs()`.
 - `apps/web/vitest.config.ts` → three new projects and the file split → take the kit's, re-add an alias or a project of yours.
 - A test of yours moved by the release (`tests/api/*` → `tests/config/` for the database-free ones) → keep your edits in the new path.
+- `apps/web/src/ui/pages/Home.tsx` → the quick links moved to `home-links.ts` and the cards section came in → keep your own sections, and your links in `home-links.ts`.
+- `apps/web/src/plugins/types.ts` → `uploadLimits`, `homeCards` and `PluginHomeCard` → keep both sides.
+- `scripts/lib/rename-lib.mjs` → arrives verbatim for the first time since your copy was made → take the kit's; the rename never translated it.
 
 ## Verify
 
@@ -114,3 +137,5 @@ The MCP server is rebuilt on Rocketflare 0.41.0: the app is its own OAuth 2.1 au
 9. `pnpm seed` prints the `/auth/dev-login` curl for the `DEV_ACCOUNTS` owner and an `api key:` line labelled a local demo key; Settings → People shows `Owner`, not `owner`.
 10. `pnpm design:docs` exits 2 naming `/rp-design` on a tree with no `docs/design/*.md`, and `LICENSES/kit-MIT.txt` matches the kit's MIT notice.
 11. `pnpm gate --changed` ends `✔ pnpm gate --changed passed — run the full pnpm gate before you push`, and `pnpm test api apps/web/tests/api/health.test.ts` runs one file.
+12. `pnpm test config apps/web/tests/config/plugin-ui-kit-graph.test.ts apps/web/tests/config/public-mounts.test.ts apps/web/tests/config/plugins.test.ts` passes, and `pnpm test ui apps/web/tests/ui/plugin-home-cards.test.tsx` passes.
+13. `node -e "import('./scripts/lib/rename-lib.mjs').then(m => console.log(typeof m.isLicenceFile))"` prints `function`.

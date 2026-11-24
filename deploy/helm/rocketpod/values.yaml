@@ -183,7 +183,8 @@ ingress:
   # sockets live past 60 s, e.g.:
   #   nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
   #   nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
-  # ingress-nginx caps bodies at 1 MB by default; uploads go up to 5 MB:
+  # ingress-nginx caps bodies at 1 MB by default; core uploads go up to 5 MB, a plugin's
+  # `uploadPaths` up to 10 MB and its `uploadLimits` up to 50 MiB — set it to the largest you serve:
   #   nginx.ingress.kubernetes.io/proxy-body-size: "6m"
   annotations: {}
   hosts:

@@ -311,6 +311,18 @@ release.
   boundary, so a throw renders nothing. Keep one compact at every width (an icon button below
   `sm`); a palette or drawer it opens is its own lazy chunk. Guard it with the same const as the
   route it serves.
+- **`homeCards`** (`{ id, Component: lazy(...), guard?, order? }`) are Home's "what needs doing"
+  section, above the quick links, via `PluginHomeCards` — same ordering and isolation as `header`.
+  A card with nothing to ask renders `null`. The core quick links are data in
+  `pages/home-links.ts`: the plugin UI kit must never import the Home PAGE
+  (`tests/config/plugin-ui-kit-graph.test.ts`), or `apps/evals` compiles Home's whole graph.
+- **A route serving a PDF a page frames calls `ctx.embeddable(row.contentType)`** — the type from
+  YOUR row, before any 304 early return; only an `EMBEDDABLE_MIME_TYPES` type is let through
+  (`SAMEORIGIN` + `frame-ancestors 'self'` for that response). Never a header of your own.
+- **A file above 10 MB** goes to an exact path in `uploadLimits` (`{ '/api/<id>/upload': bytes }`,
+  ≤ 50 MiB, `uploadLimitIssues`), never a wider `uploadPaths` prefix; the route still mounts its
+  own `bodyLimit` and checks each file. The ingress in front needs `proxy-body-size` raised to
+  match (`docs/DEPLOY.md`).
 - **`settingsTabs(ctx)`** append after the kit's; a tab (`PluginSettingsTab`) may carry a `guard`
   — the same `NavGuard`, checked by the host — so `{ feature: '<id>' }` hides it in an organisation
   without the feature, which `can` cannot (a plugin's grants hold in every organisation).

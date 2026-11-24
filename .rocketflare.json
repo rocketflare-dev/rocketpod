@@ -307,8 +307,6 @@
     "docs/ADAPTING.md",
     ".claude/skills/rp-adapt/**",
     "scripts/rename.mjs",
-    "scripts/lib/rename-lib.mjs",
-    "scripts/lib/rename-lib.d.mts",
     "apps/web/.env.example",
     "apps/web/.env.test",
     "apps/web/migrations/**",

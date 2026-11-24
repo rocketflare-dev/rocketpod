@@ -302,7 +302,7 @@ export function applyCoreEdits(text, edits) {
     }
     const lines = next.split('\n')
     const indent = lines[anchorIndex].match(/^\s*/)[0]
-    const missing = edit.lines.filter(l => !lines.some(existing => existing.trim() === l.trim()))
+    const missing = edit.lines.filter(l => !findEditLine(lines, l))
     if (missing.length === 0) continue
     lines.splice(anchorIndex + 1, 0, ...missing.map(l => `${indent}${l}`))
     next = lines.join('\n')
@@ -318,9 +318,9 @@ export function applyCoreEdits(text, edits) {
  * rather than guessed at, because only the person can tell which block they meant to keep.
  */
 export function partialCoreEdits(text, edits) {
-  const present = new Set(text.split('\n').map(l => l.trim()))
+  const lines = text.split('\n')
   return edits.flatMap(edit => {
-    const there = edit.lines.filter(l => present.has(l.trim())).length
+    const there = edit.lines.filter(l => findEditLine(lines, l)).length
     return there > 0 && there < edit.lines.length
       ? [
           `core edit for ${edit.file}: ${there} of its ${edit.lines.length} lines were already in ` +
@@ -336,13 +336,53 @@ export function revertCoreEdits(text, edits) {
   let next = text
   for (const edit of edits) {
     for (const line of edit.lines) {
-      next = next
-        .split('\n')
-        .filter(existing => existing.trim() !== line.trim())
-        .join('\n')
+      const lines = next.split('\n')
+      const kept = lines.filter(existing => existing.trim() !== line.trim())
+      if (kept.length !== lines.length) {
+        next = kept.join('\n')
+        continue
+      }
+      // Not there as one line: the host's formatter may have wrapped it (#178).
+      const span = findEditLine(lines, line)
+      if (span) next = [...lines.slice(0, span.start), ...lines.slice(span.end)].join('\n')
     }
   }
   return next
+}
+
+/**
+ * A core-edit line compared as code, not bytes: whitespace dropped, and the trailing comma a
+ * formatter adds when it wraps a call or a literal (`,)` / `,]` / `,}`) folded away.
+ */
+const editKey = text => text.replace(/\s+/g, '').replace(/,([)\]}])/g, '$1')
+
+/** How many lines a formatter may wrap one declared line into — a call with a few arguments. */
+const MAX_WRAPPED_LINES = 8
+
+/**
+ * Where `line` sits in `lines`: `{ start, end }` (end exclusive) for the line itself, or for the
+ * run of consecutive lines a formatter wrapped it into. `plugin upgrade` formats every core file it
+ * edited, so a declared line longer than the host's column limit (the analytics `@nivo/heatmap`
+ * alias) came back as four lines; matched line by line on `trim()`, the next upgrade wrote it
+ * again beside them — a duplicate object key — and `plugin remove` left them behind (#178).
+ */
+export function findEditLine(lines, line) {
+  const want = line.trim()
+  const exact = lines.findIndex(l => l.trim() === want)
+  if (exact !== -1) return { start: exact, end: exact + 1 }
+  const key = editKey(want)
+  if (key === '') return null
+  for (let start = 0; start < lines.length; start++) {
+    // A wrapped line starts with the declared line's own first characters.
+    if (!key.startsWith(editKey(lines[start])) || editKey(lines[start]) === '') continue
+    let joined = ''
+    for (let end = start; end < Math.min(lines.length, start + MAX_WRAPPED_LINES); end++) {
+      joined = editKey(joined + lines[end])
+      if (joined === key) return { start, end: end + 1 }
+      if (!key.startsWith(joined.replace(/,$/, ''))) break
+    }
+  }
+  return null
 }
 
 /** Every core edit a manifest declares, grouped by the file it touches. */

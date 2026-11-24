@@ -175,7 +175,8 @@ the approval. Enqueue email.send instead — the consumer retries with backoff.
 Maintainers only.
 
 1. `pnpm kit:release X.Y.Z`, then `node scripts/release-check.mjs --tag X.Y.Z` and the gate.
-2. `git commit -am "Release X.Y.Z" && git tag -m "Release X.Y.Z" X.Y.Z && git push origin main X.Y.Z`.
+2. `git add docs/upgrades/X.Y.Z.md && git commit -am "Release X.Y.Z" && git tag -m "Release X.Y.Z" X.Y.Z && git push origin main X.Y.Z`.
+   The `git add` matters: `-a` stages only tracked files, and the porting note is a new one.
    The tag has to be annotated because tags are signed. `image.yml` builds and pushes
    `ghcr.io/rocketflare-dev/rocketpod:X.Y.Z`, and `notify-plugins.yml` sends the plugin repositories a `rocketpod-released` dispatch.
 3. The CLI is meant to publish to npm as `rocketpod` / `@rocketpod/cli`; there is no publish

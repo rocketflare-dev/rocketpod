@@ -37,7 +37,7 @@ Built to `dist/ui`, served in production by the Node server (`src/node/assets.ts
 - `components/` — the shell: `Layout` (slots `headerStart` = `OrgSwitcher`, `headerCenter` =
   the `center` plugin header items, `headerEnd` = the `end` plugin header items +
   `NotificationsBell` + `UserMenu`, `sidebarFooter`; `PluginHeaderSlot` renders a placement's
-  `UiPlugin.header` items, each guarded and isolated), `SideNav` (config-driven: `CORE_NAVIGATION`
+  `UiPlugin.header` items, each guarded and isolated; `PluginHomeCards` renders `UiPlugin.homeCards` on Home the same way), `SideNav` (config-driven: `CORE_NAVIGATION`
   composed with plugin groups by `composeNav`, filtered by `filterNavConfig` on `guard` flags),
   `AuthCard` (public-page card), `PendingInvitationsBanner`, `RoleBadge`, `EnvironmentBadge`,
   `ThemeToggle`, `ErrorBoundary`. Guards: `ProtectedRoute` (session + tenant → `noTenantRoute`; a

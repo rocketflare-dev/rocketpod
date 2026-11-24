@@ -3,7 +3,7 @@
  * and the test plan runs every project — the `driver` conformance project included — on the
  * target an explicit variable picks, never the shape of a URL.
  */
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { gateListSchema } from '@rocketpod/shared/gate'
 import { describe, expect, it } from 'vitest'
@@ -15,10 +15,14 @@ import {
 } from '../../../../scripts/lib/gate-lib.mjs'
 import type { TestPlan } from '../../../../scripts/lib/test-plan.d.mts'
 import {
+  DEFAULT_TEST_PORTS,
+  envTestPorts,
   parseTestArgs,
   planSuites,
   planTests,
   resolveTarget,
+  testPortMismatches,
+  testPorts,
 } from '../../../../scripts/lib/test-plan.mjs'
 
 const REPO = path.resolve(__dirname, '../../../..')
@@ -321,5 +325,44 @@ describe('pnpm test <suite…>: the inner loop', () => {
       'error'
     )
     expect(planSuites({}, { suites: ['nope'], files: [], kitOnly: true })).toHaveProperty('error')
+  })
+})
+
+describe('the test ports are read, never assumed (Rocketflare #178)', () => {
+  it("reads the kit's own compose file and .env.test as :5533 / :7433, and they agree", () => {
+    const compose = readFileSync(path.join(REPO, 'apps/web/docker-compose.test.yml'), 'utf8')
+    const envTest = readFileSync(path.join(REPO, 'apps/web/.env.test'), 'utf8')
+    expect(testPorts(compose)).toEqual(DEFAULT_TEST_PORTS)
+    expect(envTestPorts(envTest)).toEqual(DEFAULT_TEST_PORTS)
+    expect(testPortMismatches(testPorts(compose), envTestPorts(envTest))).toEqual([])
+  })
+
+  it("a copy's moved ports win, and a .env.test left on the old ones is named", () => {
+    const compose = [
+      'services:',
+      '  postgres-test:',
+      '    ports:',
+      '      - "5633:5432"',
+      '  s3-test:',
+      '    ports:',
+      '      - "127.0.0.1:7533:7070"',
+    ].join('\n')
+    const ports = testPorts(compose)
+    expect(ports).toEqual({ postgres: 5633, s3: 7533 })
+    const stale = envTestPorts(
+      'DATABASE_URL=postgresql://t:t@localhost:5533/x_test\nSTORAGE_ENDPOINT=http://localhost:7533\n'
+    )
+    const issues = testPortMismatches(ports, stale)
+    expect(issues).toHaveLength(1)
+    expect(issues[0]).toMatch(/:5533.*:5633/)
+  })
+
+  it("falls back to the kit's ports when the file does not say, and reads a URL's default port", () => {
+    expect(testPorts('')).toEqual(DEFAULT_TEST_PORTS)
+    expect(testPorts('services: [')).toEqual(DEFAULT_TEST_PORTS)
+    expect(envTestPorts('DATABASE_URL=postgresql://t:t@localhost/x_test\n').postgres).toBe(5432)
+    expect(envTestPorts('STORAGE_ENDPOINT=https://s3.example.test\n').s3).toBe(443)
+    expect(envTestPorts('NODE_ENV=test\n')).toEqual({ postgres: null, s3: null })
+    expect(testPortMismatches(DEFAULT_TEST_PORTS, { postgres: null, s3: null })).toEqual([])
   })
 })

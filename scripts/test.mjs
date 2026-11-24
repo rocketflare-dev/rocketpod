@@ -28,6 +28,7 @@ import { planChanged, readsFiles, selectTests } from './lib/gate-changed.mjs'
 import { changedFiles, workspacePackages } from './lib/gate-changed-git.mjs'
 import {
   COMPOSE_FILE,
+  envTestPorts,
   parseTestArgs,
   planSelectedTests,
   planSuites,
@@ -35,10 +36,18 @@ import {
   SUITES,
   TARGET_HINT,
   TEST_USAGE,
+  testPortMismatches,
+  testPorts,
   WEB_DIR,
 } from './lib/test-plan.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const readIfThere = rel =>
+  existsSync(path.join(ROOT, rel)) ? readFileSync(path.join(ROOT, rel), 'utf8') : ''
+// The ports this checkout's compose file publishes: a copy may move them off the kit's :5533 /
+// :7433, and the messages and the `.env.test` check below follow (Rocketflare #178).
+const PORTS = testPorts(readIfThere(COMPOSE_FILE))
+const ENV_TEST_PORTS = envTestPorts(readIfThere(`${WEB_DIR}/.env.test`))
 
 function run(command, { cwd = ROOT, env = {}, quiet = false } = {}) {
   const [bin, ...args] = command
@@ -160,6 +169,9 @@ const target = plan.compose || plan.target === 'remote' ? plan.banner : 'test ta
 console.log(args.only ? `${target} — only ${plan.steps.map(s => s.label).join(', ')}` : plan.banner)
 
 if (plan.compose) {
+  // The suite connects where `.env.test` says; the runner starts what the compose file says.
+  const mismatches = testPortMismatches(PORTS, ENV_TEST_PORTS)
+  if (mismatches.length > 0) fail(`${mismatches.join('; ')}. Make them the same port.`)
   if (run(['docker', 'info'], { quiet: true }) !== 0) {
     fail(`Docker is not running, and a local target needs it. ${TARGET_HINT}`)
   }
@@ -171,7 +183,7 @@ if (plan.compose) {
   if (up !== 0) {
     fail(
       'the test database did not start (docker compose up failed above). Another checkout holding ' +
-        ':5533 is the usual cause: `pnpm dev:db:status` lists them.'
+        `:${PORTS.postgres} or :${PORTS.s3} is the usual cause: \`pnpm dev:db:status\` lists them.`
     )
   }
 }

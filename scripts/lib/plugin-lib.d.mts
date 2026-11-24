@@ -46,6 +46,8 @@ export interface CoreEdit {
 export function applyCoreEdits(text: string, edits: CoreEdit[]): string
 export function revertCoreEdits(text: string, edits: CoreEdit[]): string
 export function partialCoreEdits(text: string, edits: CoreEdit[]): string[]
+/** Where a declared core-edit line sits, as itself or as the lines a formatter wrapped it into. */
+export function findEditLine(lines: string[], line: string): { start: number; end: number } | null
 export function coreEditsByFile(manifest: { coreEdits?: CoreEdit[] }): Map<string, CoreEdit[]>
 
 export type FileRole = 'copy' | 'note' | 'fragment' | 'meta' | 'repo-only' | 'seed' | 'refused'

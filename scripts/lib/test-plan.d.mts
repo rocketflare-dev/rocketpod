@@ -69,3 +69,15 @@ export function planSelectedTests(
   env: Env,
   selection: { projects: Record<string, string[]>; packages: string[] }
 ): TestPlan | { error: string }
+
+/** The host ports the kit's `docker-compose.test.yml` publishes. */
+export const DEFAULT_TEST_PORTS: Readonly<{ postgres: number; s3: number }>
+/** The host ports `docker-compose.test.yml` publishes (the kit's when it does not say). */
+export function testPorts(composeText: string): { postgres: number; s3: number }
+/** The ports `.env.test`'s `DATABASE_URL` and `STORAGE_ENDPOINT` connect to, or null. */
+export function envTestPorts(envTestText: string): { postgres: number | null; s3: number | null }
+/** One line per port `.env.test` and the compose file disagree on. */
+export function testPortMismatches(
+  published: { postgres: number; s3: number },
+  wanted: { postgres: number | null; s3: number | null }
+): string[]

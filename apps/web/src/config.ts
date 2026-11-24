@@ -220,6 +220,22 @@ const coreConfigSchema = z.object({
   /** Invitation emails one tenant may queue per UTC day, whoever sends them (429 above it). */
   INVITATION_EMAILS_PER_TENANT_PER_DAY: optionalPositiveInt(1000),
   /**
+   * The MCP server (`/mcp`, when the deployment ships the `mcp` feature). A connection lapses
+   * after `MCP_GRANT_IDLE_DAYS` without a call or `MCP_GRANT_MAX_DAYS` after it was made, whichever
+   * comes first; the call log keeps `MCP_CALL_RETENTION_DAYS`. Tool calls are capped per minute
+   * per connection, per person in an organisation (across all their connections) and per
+   * organisation — over a cap the call answers a tool error the client's model can read, never a
+   * 429 that some clients treat as a dead server. The person's cap is twice one connection's, so
+   * someone running two clients at once is not slowed, and a fifth of the organisation's, so no
+   * single member can spend its whole minute.
+   */
+  MCP_GRANT_IDLE_DAYS: optionalPositiveInt(30),
+  MCP_GRANT_MAX_DAYS: optionalPositiveInt(90),
+  MCP_CALL_RETENTION_DAYS: optionalPositiveInt(90),
+  MCP_CALLS_PER_GRANT_PER_MINUTE: optionalPositiveInt(60),
+  MCP_CALLS_PER_USER_PER_MINUTE: optionalPositiveInt(120),
+  MCP_CALLS_PER_TENANT_PER_MINUTE: optionalPositiveInt(600),
+  /**
    * What one run may spend — tokens (input, output and prompt-cache reads and writes, every call
    * and decision) and USD. Unset = no cap. An agent's `meta.budget` overrides either. Checked before
    * every metered call; a run over it fails with event code `agent_budget_exceeded`, and so does a
@@ -389,10 +405,12 @@ const coreConfigSchema = z.object({
     z.coerce.number().int().positive().max(30)
   ),
   /**
-   * The remote MCP server (`api/routes/mcp.ts`, docs/CONCEPTS.md §19): the OAuth authorization
-   * server whose access tokens `/mcp` accepts, its RFC 8414 `issuer` VERBATIM. Unset → `/mcp` and
-   * its protected-resource metadata answer 404. The resource is `${APP_URL}/mcp`: register that
-   * exact URL with the authorization server, which must bind each token to it (`aud`).
+   * A second credential for the MCP server (`api/routes/mcp.ts`, docs/CONCEPTS.md §19): an OUTSIDE
+   * OAuth authorization server (Cognito, Entra, Okta…) whose JWT access tokens `/mcp` accepts
+   * beside the app's own, its RFC 8414 `issuer` VERBATIM. The token must be bound to the URL it is
+   * used on (`aud` = `${APP_URL}/mcp`, which covers `/mcp/t/<slug>` too, or that exact URL). Unset
+   * → only the app's own authorization server issues tokens. Either way `/mcp` exists only where
+   * `FEATURES_ENABLED` ships `mcp`, and each organisation turns it on at Settings → MCP.
    */
   MCP_AUTHORIZATION_SERVER: z.preprocess(
     value => (typeof value === 'string' && value.trim() === '' ? undefined : value),
@@ -548,13 +566,11 @@ export function configuredOAuthProviders(cfg: AppConfig): OAuthProviderName[] {
   return providers
 }
 
+/** `/mcp` also accepts access tokens from an outside authorization server. */
+export const hasOutsideMcpIssuer = (cfg: AppConfig): boolean =>
+  Boolean(cfg.MCP_AUTHORIZATION_SERVER)
+
 /** An OIDC issuer is configured — issuer + client id (the secret is optional: public clients). */
-/** The remote MCP server is on (`MCP_AUTHORIZATION_SERVER` set). */
-export const hasMcp = (cfg: AppConfig): boolean => Boolean(cfg.MCP_AUTHORIZATION_SERVER)
-
-/** The MCP resource this deployment serves: what every accepted token's `aud` must be. */
-export const mcpResource = (cfg: AppConfig): string => `${new URL(cfg.APP_URL).origin}/mcp`
-
 export const hasOidc = (cfg: AppConfig): boolean => Boolean(cfg.OIDC_ISSUER && cfg.OIDC_CLIENT_ID)
 
 /** IdP-managed tenancy in force (loadConfig has already refused it without an issuer). */

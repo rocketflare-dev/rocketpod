@@ -5,7 +5,7 @@
  *   node scripts/plugin.mjs add <repo|path>[@ref] [--subdir <dir>] [--apply] [--local]
  *   node scripts/plugin.mjs upgrade <id> [--to <ref>] [--from <ref>] [--apply]
  *   node scripts/plugin.mjs remove <id> [--apply] [--archive]
- *   node scripts/plugin.mjs list | check | export <id> <dir>
+ *   node scripts/plugin.mjs list [--available] [--json] | check | export <id> <dir>
  *
  * A plugin is a separate git repository COPIED into an app — never installed from npm, exactly
  * like the kit itself — so this script is the kit-upgrade machine pointed at a second kind of
@@ -66,13 +66,18 @@ import {
   barrelLines,
   buildPluginSurface,
   CLAUDE_SETTINGS_FILE,
+  catalogueEntries,
+  catalogueJson,
+  catalogueReads,
   checkRequirements,
   classifyPluginFile,
   claudeHookProblems,
   coreEditsByFile,
+  declaredTools,
   dependenciesToInstall,
   dependencyClashes,
   dependencyDelta,
+  deprecatedServerMembers,
   describeClash,
   describeClaudeHook,
   eventClashes,
@@ -83,11 +88,13 @@ import {
   isolationEvidence,
   isVendored,
   jsonKeyLine,
+  licenceTerms,
   manifestPathProblems,
   missingDependencies,
   newlyAddedDependencies,
   nextAddedDependencies,
   ownedClaudeHooks,
+  PLUGIN_CATALOGUES,
   PLUGIN_MANIFEST_FILE,
   parseClaudeHookCommand,
   parsePluginRequirement,
@@ -105,10 +112,13 @@ import {
   removeBarrelLine,
   removeSteps,
   renderAddPlan,
+  renderCatalogue,
   renderDependencyDelta,
   renderDiagnostic,
   renderList,
   renderSteps,
+  repoDisplayName,
+  reservedMountPaths,
   resolveSubdir,
   revertCoreEdits,
   SKILLS_ROOT,
@@ -116,13 +126,15 @@ import {
   skillDirProblem,
   skillFileProblems,
   skillTarget,
+  stringConstants,
   surfaceDirectories,
   tableClashes,
+  toolProblems,
   undeclaredManifestEvents,
   undeclaredSkillDirs,
   withoutDependencies,
 } from './lib/plugin-lib.mjs'
-import { deriveNames, isBinary, pluginTranslator } from './lib/rename-lib.mjs'
+import { deriveNames, isBinary, isLicenceFile, pluginTranslator } from './lib/rename-lib.mjs'
 import { containedPath, writePathProblem } from './lib/repo-paths.mjs'
 import { missingFrom, readLedger, usesOf } from './lib/surface.mjs'
 import {
@@ -161,6 +173,24 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 // repositories to read their manifests — one clone, not two that take turns being stale.
 const WORK_DIR = PLUGIN_MIRROR_ROOT
 
+/**
+ * The host's own Biome, run directly rather than through `pnpm exec`, which is a second Node start
+ * per call and fails anyway, after that start, where Biome is not installed. Null when the host
+ * has none; every caller then skips formatting with the warning a failed run gives.
+ */
+const BIOME_BIN = path.join(
+  REPO_ROOT,
+  'node_modules',
+  '.bin',
+  process.platform === 'win32' ? 'biome.cmd' : 'biome'
+)
+
+/** Biome with these arguments in the host, or a failed result when the host has none. */
+function runBiome(args, options) {
+  if (!existsSync(BIOME_BIN)) return { status: 1, error: new Error('no biome'), stdout: null }
+  return spawnSync(BIOME_BIN, args, { cwd: REPO_ROOT, ...options })
+}
+
 /** Set while a nested audit runs under `--json`, so stdout stays ONE document. */
 let muted = false
 const out = (...lines) => {
@@ -198,12 +228,16 @@ export const USAGE = `usage: node scripts/plugin.mjs <command> [options]
                           you changed or added; without it such a removal stops
 
   list                    the installed plugins, one line each
+    --available           instead, every plugin the published repositories hold at their newest
+                          tag (id, version, installed here or not, description) — read live,
+                          never cached; exit 3 when they cannot be reached. A commercial
+                          repository is listed only when your git credentials can read it
   check                   audit every installed plugin; one line per failure, exit 1 on any.
                           add --apply and upgrade --apply run it last, over the tree they wrote
 
   export <id> <dir>       copy a plugin back out into a plugin repository checkout (authoring)
 
-  --json                  on add, upgrade, remove and check: the same facts as DATA rather than prose.
+  --json                  on add, upgrade, remove, check and list --available: the same facts as DATA rather than prose.
                           Every step carries its kind — agent (a command plus the assertion that
                           proves it) or human (a decision the tooling stops for) — so a human step
                           is a field rather than a sentence somebody has to notice.
@@ -229,6 +263,7 @@ export function parseArgs(argv) {
     allowDirty: false,
     json: false,
     continue: false,
+    available: false,
   }
   const takesValue = { '--subdir': 'subdir', '--to': 'to', '--from': 'from' }
   for (let i = 0; i < argv.length; i++) {
@@ -248,6 +283,7 @@ export function parseArgs(argv) {
     else if (a === '--allow-dirty') args.allowDirty = true
     else if (a === '--continue') args.continue = true
     else if (a === '--json') args.json = true
+    else if (a === '--available') args.available = true
     else if (a.startsWith('-')) return { error: `unknown option '${a}'` }
     else if (!args.command) args.command = a
     else args.positional.push(a)
@@ -435,14 +471,9 @@ function requireClean(args) {
 function writeManifestFile(file, data, { format }) {
   writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`)
   if (!format) return
-  const r = spawnSync(
-    'pnpm',
-    ['exec', 'biome', 'format', '--write', path.relative(REPO_ROOT, file)],
-    {
-      cwd: REPO_ROOT,
-      stdio: ['ignore', 'ignore', 'pipe'],
-    }
-  )
+  const r = runBiome(['format', '--write', path.relative(REPO_ROOT, file)], {
+    stdio: ['ignore', 'ignore', 'pipe'],
+  })
   if (r.status !== 0) {
     warn(
       `note: could not run Biome on ${path.basename(file)} — run \`pnpm lint:fix\` before committing`
@@ -573,9 +604,12 @@ function openSource(spec, args) {
 /**
  * Bytes → the text that lands in the host: the plugin's ecosystem vocabulary moved into this kit's
  * names, then the app's when the host has been renamed (`pluginTranslator`; null copies verbatim).
+ * A licence file (`rel`, the path inside the plugin) is never translated: it is legal text naming
+ * its licensor, and the translation would put another name on it.
  */
-function materialise(buffer, translate) {
+function materialise(buffer, translate, rel) {
   if (isBinary(buffer)) return buffer
+  if (rel && isLicenceFile(rel)) return buffer
   const text = buffer.toString('utf8')
   return translate ? translate(text) : text
 }
@@ -844,7 +878,7 @@ function cmdAdd(args, host) {
   const targets = []
   for (const f of files) {
     if (f.role !== 'copy' && f.role !== 'note') continue
-    writeInto(f.target, materialise(source.read(f.path), host.translate))
+    writeInto(f.target, materialise(source.read(f.path), host.translate, f.path))
     targets.push(f.target)
     written += 1
   }
@@ -853,7 +887,7 @@ function cmdAdd(args, host) {
   const seededTargets = []
   for (const f of files) {
     if (f.role !== 'seed' || existsSync(abs(f.target))) continue
-    writeInto(f.target, materialise(source.read(f.path), host.translate))
+    writeInto(f.target, materialise(source.read(f.path), host.translate, f.path))
     seededTargets.push(f.target)
   }
   writeClaudeSettings(settings)
@@ -968,10 +1002,7 @@ function auditAfterApply(args) {
 function formatWritten(paths) {
   // No paths would be the whole repository — never what an install or upgrade means.
   if (paths.length === 0) return null
-  const r = spawnSync('pnpm', ['exec', 'biome', 'check', '--write', ...paths], {
-    cwd: REPO_ROOT,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  })
+  const r = runBiome(['check', '--write', ...paths], { stdio: ['ignore', 'pipe', 'pipe'] })
   if (r.error || r.status === null) {
     warn('note: biome did not run — check the formatting of the copied files with `pnpm lint`.')
     return null
@@ -1264,7 +1295,11 @@ function cmdUpgrade(args, host) {
       else {
         artifacts.write(
           path.join('added', f.target),
-          materialise(m.showRaw(to, subdir === '' ? f.path : `${subdir}/${f.path}`), host.translate)
+          materialise(
+            m.showRaw(to, subdir === '' ? f.path : `${subdir}/${f.path}`),
+            host.translate,
+            f.path
+          )
         )
         added.push(f.target)
       }
@@ -1291,7 +1326,8 @@ function cmdUpgrade(args, host) {
     if (f.change === 'added' || !local.has(f.target)) {
       const body = materialise(
         m.showRaw(to, subdir === '' ? f.path : `${subdir}/${f.path}`),
-        host.translate
+        host.translate,
+        f.path
       )
       artifacts.write(path.join('added', f.target), body)
       added.push(f.target)
@@ -1485,7 +1521,11 @@ function cmdUpgrade(args, host) {
   for (const s of args.continue ? [] : newSeeds) {
     writeInto(
       s.target,
-      materialise(m.showRaw(to, subdir === '' ? s.path : `${subdir}/${s.path}`), host.translate)
+      materialise(
+        m.showRaw(to, subdir === '' ? s.path : `${subdir}/${s.path}`),
+        host.translate,
+        s.path
+      )
     )
   }
   writeClaudeSettings(settings)
@@ -1695,8 +1735,7 @@ function filesUnder(rel) {
 
 /** What `add` would have left on disk for these bytes: it runs biome over what it copies. */
 function formattedLikeAdd(rel, bytes) {
-  const r = spawnSync('pnpm', ['exec', 'biome', 'check', '--write', `--stdin-file-path=${rel}`], {
-    cwd: REPO_ROOT,
+  const r = runBiome(['check', '--write', `--stdin-file-path=${rel}`], {
     input: bytes,
     stdio: ['pipe', 'pipe', 'ignore'],
   })
@@ -1737,7 +1776,9 @@ function changedAppOwnedFiles(manifest, surface, host, args) {
     const disk = lstatSync(abs(rel)).isSymbolicLink()
       ? Buffer.from(readlinkSync(abs(rel)))
       : readFileSync(abs(rel))
-    const pristine = Buffer.from(materialise(m.showRaw(source.commit, inRepo(rel)), host.translate))
+    const pristine = Buffer.from(
+      materialise(m.showRaw(source.commit, inRepo(rel)), host.translate, rel)
+    )
     return disk.equals(pristine) || disk.equals(Buffer.from(formattedLikeAdd(rel, pristine)))
       ? []
       : [{ path: rel, reason: 'changed' }]
@@ -1925,8 +1966,81 @@ function writeArchiveMigration(id, tables) {
 
 // ---------------------------------------------------------------- list / check
 
-function cmdList(_args, host) {
+function cmdList(args, host) {
+  if (args.available) return cmdListAvailable(args, host)
   out(...renderList(host.plugins, { sidecarIds: host.sidecarIds }))
+  return 0
+}
+
+/**
+ * The repositories to read. `PLUGIN_CATALOGUES` (a JSON array of `{ repo, commercial }`) replaces
+ * the published ones — the test seam, and a way to point at a private mirror; unset, it is the
+ * published list.
+ */
+function catalogueSources() {
+  const override = process.env.PLUGIN_CATALOGUES
+  if (!override) return PLUGIN_CATALOGUES
+  try {
+    const parsed = JSON.parse(override)
+    if (Array.isArray(parsed) && parsed.every(s => typeof s?.repo === 'string')) return parsed
+  } catch {}
+  stop(2, 'error: PLUGIN_CATALOGUES must be a JSON array of { "repo", "commercial" }')
+}
+
+/**
+ * One repository read at its newest release tag through the same mirror `add` uses, or null when
+ * it cannot be read. Always fetched (`fresh`): a cached mirror would be a stale list.
+ */
+function readCatalogue(source) {
+  let m
+  try {
+    m = ensureMirror(source.repo, pluginMirrorDir(source.repo), {
+      fresh: true,
+      quiet: true,
+      cwd: REPO_ROOT,
+    })
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) }
+  }
+  const tag = m.latestTag()
+  if (!tag) return { error: `${source.repo} has no release tag` }
+  const files = m.listFiles(tag)
+  m.prefetch(tag, catalogueReads(files))
+  const read = rel => {
+    const r = m.tryShow(tag, rel)
+    return r.ok ? r.out : null
+  }
+  return {
+    repo: source.repo,
+    tag,
+    commercial: Boolean(source.commercial),
+    licence: source.commercial ? licenceTerms(files, read, { repo: source.repo, ref: tag }) : null,
+    plugins: catalogueEntries(files, read),
+  }
+}
+
+/**
+ * `list --available`: every plugin the published repositories hold at their newest tag. The
+ * open repository failing is an error (exit 3, one line); a commercial one failing is silence —
+ * the person is simply not licensed to read it.
+ */
+function cmdListAvailable(args, host) {
+  if (!args.fetch) stop(2, 'error: list --available always reads the repositories; drop --no-fetch')
+  process.env.GIT_TERMINAL_PROMPT = '0'
+  const catalogues = []
+  for (const source of catalogueSources()) {
+    const c = readCatalogue(source)
+    if (c.error) {
+      if (source.commercial) continue
+      stop(
+        3,
+        `error: cannot read the plugin catalogue (${c.error}) — check the network and your git access to ${repoDisplayName(source.repo)}`
+      )
+    }
+    catalogues.push(c)
+  }
+  if (args.json) out(JSON.stringify(catalogueJson(catalogues, host.plugins), null, 2))
+  else out(...renderCatalogue(catalogues, host.plugins))
   return 0
 }
 
@@ -2209,6 +2323,42 @@ function cmdCheck(args, host) {
       })
     }
 
+    // A member the kit renamed still works — the host reads the old name when the new one is
+    // absent — so this is a warning, never a failure: a released plugin keeps passing until the
+    // kit release that removes the old name, whose porting note says so.
+    const serverTree = `apps/web/src/plugins/${id}`
+    if (existsSync(abs(serverTree))) {
+      const seen = new Map()
+      for (const f of walk(abs(serverTree))) {
+        if (!/\.tsx?$/.test(f) || /(^|\/)tests?\//.test(f)) continue
+        for (const m of deprecatedServerMembers(readFileSync(abs(`${serverTree}/${f}`), 'utf8')))
+          if (!seen.has(m.name)) seen.set(m.name, { ...m, file: `${serverTree}/${f}` })
+      }
+      for (const m of seen.values())
+        add('warn', `${id}:deprecated:${m.name}`, {
+          file: m.file,
+          problem: `declares \`${m.name}\`, which the kit renamed \`${m.replacement}\``,
+          fix: m.fix,
+        })
+    }
+
+    // **The MCP server's paths are core's.** The host refuses a plugin mounted there at load, but
+    // that is a crash on boot; this says the same thing before anything runs. A plugin's tools
+    // reach MCP clients through `ServerPlugin.tools` — it never needs a mount or auth of its own.
+    if (existsSync(abs(serverTree))) {
+      for (const f of walk(abs(serverTree))) {
+        if (!/\.tsx?$/.test(f) || /(^|\/)tests?\//.test(f)) continue
+        for (const path of reservedMountPaths(readFileSync(abs(`${serverTree}/${f}`), 'utf8')))
+          add('fail', `${id}:reserved-path:${path}`, {
+            file: `${serverTree}/${f}`,
+            problem: `mounts ${path}, which core reserves for the MCP server and its authorization server`,
+            fix:
+              'move the mount under /api/<plugin id>, and give an MCP client this data as a tool ' +
+              "in ServerPlugin.tools (surfaces: ['mcp', …]) — the host's /mcp lists it for you",
+          })
+      }
+    }
+
     // Two separate things a plugin with tables owes, and neither is visible from the other side.
     const tables = (anchor.schema?.tables ?? []).filter(
       t => !(anchor.schema?.rlsExcluded ?? []).includes(t)
@@ -2278,6 +2428,37 @@ function cmdCheck(args, host) {
         })
       }
     }
+  }
+  // **Tool names (MCP).** One list goes to chat, agents and every MCP client, so a name is unique
+  // across core and every plugin and is one every surface accepts. The tool builder keeps the first
+  // and drops the rest at runtime; this names them before that silently happens. Best effort: a
+  // name a static read cannot resolve is left to the runtime check.
+  const toolDeclarations = []
+  for (const { manifest } of anchors) {
+    const tree = `apps/web/src/plugins/${manifest.id}`
+    if (!existsSync(abs(tree))) continue
+    const sources = walk(abs(tree))
+      .filter(f => /\.tsx?$/.test(f) && !/(^|\/)tests?\//.test(f))
+      .map(f => ({ file: `${tree}/${f}`, text: readFileSync(abs(`${tree}/${f}`), 'utf8') }))
+    const sharedDir = `packages/shared/src/plugins/${manifest.id}`
+    const sharedText = existsSync(abs(sharedDir))
+      ? walk(abs(sharedDir))
+          .filter(f => /\.ts$/.test(f))
+          .map(f => readFileSync(abs(`${sharedDir}/${f}`), 'utf8'))
+          .join('\n')
+      : ''
+    const constants = stringConstants([sharedText, ...sources.map(x => x.text)].join('\n'))
+    for (const { file, text } of sources) {
+      const tools = declaredTools(text, constants)
+      if (tools.length > 0) toolDeclarations.push({ pluginId: manifest.id, file, tools })
+    }
+  }
+  for (const p of toolProblems(toolDeclarations)) {
+    add(p.severity, `${p.pluginId}:tool-${p.kind}:${p.tool}`, {
+      file: p.file,
+      problem: p.problem,
+      fix: p.fix,
+    })
   }
   // **Two plugins declaring one table name.** The prefix convention is what keeps them apart and
   // nothing enforces it, because nothing derives a table name from an id — so the collision is the
@@ -2421,6 +2602,10 @@ function cmdExport(args, host) {
     // plugin repository is that repository's own tooling and is never copied into a host.
     const out = d.startsWith(SKILLS_ROOT) ? `skills/${d.slice(SKILLS_ROOT.length)}` : d
     for (const rel of walk(abs(d))) {
+      // `docs/plugins/<id>/upgrades/` is the HOST's copy of the plugin's release notes, written by
+      // `add` from the plugin's own `docs/upgrades/` — exporting it would plant a stale second
+      // copy in the plugin repository. Anything else under `docs/plugins/<id>/` is the plugin's.
+      if (d === `docs/plugins/${id}` && rel.split(path.sep)[0] === 'upgrades') continue
       const file = path.join(target, out, rel)
       mkdirSync(path.dirname(file), { recursive: true })
       writeFileSync(file, readFileSync(abs(`${d}/${rel}`)))
@@ -2440,7 +2625,13 @@ function cmdExport(args, host) {
     minKit: floorOf(anchor),
     // The skill directories are the HOST's half of a declared skill, derived from "skills" at
     // every install — carrying them in "paths" would be a second statement of the same thing.
-    paths: (surface.paths ?? []).filter(p => !p.startsWith(SKILLS_ROOT)),
+    // The plugin's OWN `paths` when it declared them; the host's additions (`docs/plugins/<id>/**`
+    // for the notes it copies, each skill's host directory) are re-derived at every install.
+    paths:
+      anchor.paths ??
+      (surface.paths ?? []).filter(
+        p => !p.startsWith(SKILLS_ROOT) && p !== `docs/plugins/${id}/**`
+      ),
     registries: surface.registries,
   }
   writeFileSync(path.join(target, PLUGIN_MANIFEST_FILE), `${JSON.stringify(manifest, null, 2)}\n`)

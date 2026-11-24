@@ -1,5 +1,4 @@
-// @vitest-isolate
-// Mocks the AI resolve seam and both plugin barrels (the test-only agents), so this file needs its own module registry.
+// @vitest-fixture-agents
 /**
  * What the RUNTIME gives a `runToolLoop` agent, driven through `claimStep` → `executeRun` against
  * Postgres with the test-only `test-research` agent (`tests/helpers/test-agents.ts`) and a
@@ -20,6 +19,7 @@ import { enqueueRun, getRun, resumeRun } from '@/api/services/agents/runs'
 import { claimStep, executeRun } from '@/api/services/agents/runtime'
 import { parseToolLoopCheckpoint } from '@/api/services/ai/agent-loop'
 import { AiError } from '@/api/services/ai/errors'
+import { overrideResolveChatForTests } from '@/api/services/ai/resolve'
 import type { ChatClient } from '@/api/services/ai/types'
 import type { Logger } from '@/api/utils/core/logger'
 import { loadConfig } from '@/config'
@@ -35,29 +35,17 @@ import {
 } from '../helpers/test-agents'
 import { createTestEnv, type TestEnv } from '../mocks/bindings'
 
-vi.mock('@rocketpod/shared/plugins', async importOriginal =>
-  (await import('../helpers/test-agents-shared')).withTestAgents(await importOriginal())
-)
-vi.mock('@/plugins/server', async () =>
-  (await import('../helpers/test-agents')).testAgentsServerBarrel()
-)
-
 const state: { client: ChatClient | null } = { client: null }
 
-vi.mock('@/api/services/ai/resolve', async importOriginal => {
-  const actual = await importOriginal<typeof import('@/api/services/ai/resolve')>()
+overrideResolveChatForTests(async () => {
+  if (!state.client) throw new AiError('auth', 'anthropic_compatible', 'no client scripted')
   return {
-    ...actual,
-    resolveChat: vi.fn(async () => {
-      if (!state.client) throw new AiError('auth', 'anthropic_compatible', 'no client scripted')
-      return {
-        client: state.client,
-        provider: 'anthropic_compatible' as const,
-        model: 'fake-model',
-        source: 'tenant' as const,
-        maxOutputTokens: 2048,
-      }
-    }),
+    client: state.client,
+    provider: 'anthropic_compatible' as const,
+    model: 'fake-model',
+    source: 'tenant' as const,
+    maxOutputTokens: 2048,
+    billedToPlatform: false,
   }
 })
 

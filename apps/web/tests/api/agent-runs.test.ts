@@ -1,5 +1,4 @@
-// @vitest-isolate
-// Mocks both plugin barrels to register the test-only agents (tests/helpers/test-agents.ts).
+// @vitest-fixture-agents
 /**
  * `/api/agents`: the enqueue handoff — 202 + a `queued` row + a run instance recorded on the stub
  * run engine (id = run id, params `{ runId, tenantId }`); exclusive dedupe (same run back with
@@ -16,7 +15,7 @@ import {
   createAgentRunResponseSchema,
 } from '@rocketpod/shared/ai/agents'
 import { eq } from 'drizzle-orm'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { AGENTS } from '@/api/services/agents/registry'
 import { enqueueRun, RECONCILE_LIVENESS_MS } from '@/api/services/agents/runs'
 import { loadConfig } from '@/config'
@@ -33,13 +32,6 @@ import { setupTestDatabase } from '../helpers/db'
 import { json, request } from '../helpers/request'
 import { TEST_RESEARCH, TEST_SUMMARIZE } from '../helpers/test-agents-shared'
 import { createTestEnv, stubs, type TestEnv } from '../mocks/bindings'
-
-vi.mock('@rocketpod/shared/plugins', async importOriginal =>
-  (await import('../helpers/test-agents-shared')).withTestAgents(await importOriginal())
-)
-vi.mock('@/plugins/server', async () =>
-  (await import('../helpers/test-agents')).testAgentsServerBarrel()
-)
 
 const db = setupTestDatabase()
 

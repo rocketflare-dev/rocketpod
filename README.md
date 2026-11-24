@@ -28,6 +28,22 @@ here. Cut loose is not cut off: your copy keeps a `.rocketflare.json` saying whe
 pnpm@10` — Node 26 ships no corepack), Docker with Compose for the local Postgres and S3 gateway — or `--db-url` to use a
 Postgres you already run. Deployed, any Postgres 17 with pgvector and any S3-compatible bucket.
 
+**Starting a new app? Paste this into Claude Code** in the folder where you keep your projects:
+
+```
+I want to build an app with Rocketpod.
+Clone https://github.com/rocketflare-dev/rocketpod into a folder I name
+(default my-app), read its CLAUDE.md, then run the rp-start skill with me.
+Follow its steps in order, and don't settle anything about the app's
+design until it asks.
+```
+
+**`/rp-start`** detaches the clone, gets it running one prerequisite at a time, holds the design
+conversation with you (**`/rp-design`**: who it's for, how many organisations, roles and words, AI
+on or off, money, licence, the plugins that already do what you need, the stages, your brand), and
+renames it to your app. The design is written to `docs/design/` and opens as local pages in your
+colours.
+
 **Ask your coding agent.** Open the copy in Claude Code and type **`/rp-setup`** — it checks the
 toolchain, starts Postgres, migrates, seeds the demo workspace and leaves you signed in, showing one
 verification line per step. Then **`/rp-adapt <slug> "Your App"`** renames the kit to your app.
@@ -46,7 +62,7 @@ curl -fsSL https://raw.githubusercontent.com/rocketflare-dev/rocketpod/main/scri
 
 ```bash
 git clone https://github.com/rocketflare-dev/rocketpod.git myapp && cd myapp
-rm -rf .git && git init && git add -A && git commit -m "Start from Rocketpod"   # your history starts here
+bash scripts/detach.sh                                                            # your history starts here
 git remote add origin git@github.com:<you>/myapp.git                              # your own repo, when ready
 
 bash scripts/bootstrap.sh          # checks Node 26 / pnpm 10 / Docker, generates the local secret,
@@ -90,6 +106,7 @@ you removed. [`CHANGELOG.md`](CHANGELOG.md) is what you would be catching up on.
 | Async / realtime | pg-boss jobs and cron, OpenWorkflow durable runs, WebSockets with LISTEN/NOTIFY fan-out, S3-compatible storage |
 | AI | Anthropic / OpenAI-compatible chat streamed as AG-UI, agents on OpenWorkflow, OpenAI-compatible embeddings → pgvector, local PDF/Word conversion, OTLP tracing (Langfuse, Phoenix, any backend), evals (vitest-evals) with thumbs feedback |
 | Deploy | one `node:26-alpine` image (`web` / `worker` / `all` + a migrate one-shot), Docker Compose, a Helm chart |
+| MCP | a remote MCP server at `/mcp` (Claude, ChatGPT…): the app is its own OAuth 2.1 authorization server, each organisation chooses what it exposes; optionally an outside OAuth server's tokens too |
 | Analytics | optional plugin: drizzle-cube semantic layer, fact tables on a cron, dashboards (not installed by default yet) |
 | Quality | Biome 2, strict TypeScript, vitest against real Postgres, gitleaks, one CI gate |
 
@@ -166,7 +183,9 @@ rocketpod/          workspace root: package.json (scripts delegate via pnpm -r /
 
 Everything runs from the root: `pnpm bootstrap` (= `bash scripts/bootstrap.sh` once Node and pnpm
 exist), `pnpm preflight` (the read-only check),
-`pnpm dev`, `pnpm seed` / `pnpm seed --demo`, `pnpm test`, `pnpm cli …`, `pnpm web <script>` (any
+`pnpm dev`, `pnpm seed` / `pnpm seed --demo`, `pnpm test`, `pnpm cli …`, `pnpm design:docs`
+(`docs/design/*.md` → HTML pages in your brand at `docs/design/html/`; `--open`, `--check`,
+`--contrast` and `--apply-brand` for a palette tried in `docs/design/brand.css`), `pnpm web <script>` (any
 `apps/web` script), `pnpm db:*`, `pnpm build` then `node apps/web/dist/server.js all` (the
 production server). Root `scripts/` holds the first-run tooling: `bootstrap.sh` / `bootstrap.mjs`,
 `rename.mjs` (`docs/ADAPTING.md` §1 as one command) and their `lib/` — plus, in the kit repository
@@ -192,7 +211,7 @@ there list every known gap.
 | [`docs/EVALS.md`](docs/EVALS.md) | writing and running evals for chat and agents (`pnpm eval`) |
 | [`docs/DESIGN-SELFHOSTED.md`](docs/DESIGN-SELFHOSTED.md) | why Rocketpod runs as a Node container, and the design of its Postgres-backed adapters |
 | `.claude/rules/*.md` | layer conventions (api, database, ui, cli, testing, code-quality, runtime) — auto-loaded by path |
-| `.claude/skills/` | the slash commands a coding agent drives: `/rp-setup` (first run), `/rp-preflight` (read-only diagnosis), `/rp-adapt` (rename + checklist), `/rp-how-do-i` (coaching for a new feature — asks, plans, writes `docs/features/<slug>.md`, never the code), `/rp-upgrade` (port later kit releases into your copy), `/rp-plugin` (install, upgrade, remove or audit a plugin), `/rp-traces` (debug a run or chat turn from its span tree; pick or switch a tracing backend), `/rp-evals` (write, run and interpret evals; compare models or prompts; turn thumbs-down into cases), `/rp-agent-replay` (replay an agent's past runs with the code you just changed — recorded answers, no model calls), `/rp-agent-docs` (audit the CLAUDE.md files, rules and skills for stale paths, oversized files and contradictions, then fix them) — an agent may run those when you ask in plain words — and `/rp-deploy` (Compose or Helm), which renders and checks locally and asks you before it pushes an image, touches a cluster or creates anything billed |
+| `.claude/skills/` | the slash commands a coding agent drives: `/rp-setup` (first run), `/rp-preflight` (read-only diagnosis), `/rp-adapt` (rename + checklist), `/rp-how-do-i` (coaching for a new feature — asks, plans, writes `docs/features/<slug>.md`, never the code), `/rp-upgrade` (port later kit releases into your copy), `/rp-plugin` (install, upgrade, remove or audit a plugin), `/rp-traces` (debug a run or chat turn from its span tree; pick or switch a tracing backend), `/rp-evals` (write, run and interpret evals; compare models or prompts; turn thumbs-down into cases), `/rp-agent-replay` (replay an agent's past runs with the code you just changed — recorded answers, no model calls), `/rp-agent-docs` (audit the CLAUDE.md files, rules and skills for stale paths, oversized files and contradictions, then fix them), `/rp-mcp` (connect Claude, ChatGPT or another MCP client to the app, and troubleshoot it) — an agent may run those when you ask in plain words — and `/rp-deploy` (Compose or Helm), which renders and checks locally and asks you before it pushes an image, touches a cluster or creates anything billed |
 
 ## Provenance
 

@@ -27,21 +27,10 @@ fi
 echo "Cloning Rocketpod into $DIR …"
 git clone --depth 1 "$REPO" "$DIR"
 cd "$DIR"
-KIT_COMMIT="$(git rev-parse HEAD)"
-# Your history starts here (README / docs/ADAPTING.md §0). The kit commit is recorded twice: in the
-# first commit's message for a human, and in .rocketflare.json for `pnpm kit:upgrade`, which needs
-# it to know what to diff against. Node is not guaranteed yet, so this is sed on one known line.
-# The literal name is safe here twice over: this script runs on a FRESH clone, before any rename,
-# and `.rocketflare.json` is on the rename's `KIT.preserved` list anyway (it names the kit, not the
-# app). `install.sh` is also on `neverPort`, so a copy never receives a translated version of it.
-if [ -f .rocketflare.json ]; then
-  sed -i.bak "s|\"commit\": null|\"commit\": \"$KIT_COMMIT\"|" .rocketflare.json && rm -f .rocketflare.json.bak
-fi
-rm -rf .git && git init -q && git add -A
-git -c user.name="${GIT_AUTHOR_NAME:-$(git config user.name || echo Rocketpod)}" \
-    -c user.email="${GIT_AUTHOR_EMAIL:-$(git config user.email || echo rocketpod@localhost)}" \
-    commit -q -m "Start from Rocketpod" -m "Kit commit: $KIT_COMMIT"
-echo "✔ cloned and detached from the kit's history (kit commit ${KIT_COMMIT:0:12})"
+# Your history starts here (README / docs/ADAPTING.md §0). `scripts/detach.sh` records the kit
+# commit in `.rocketflare.json` and the first commit's message, then replaces the history with one
+# commit. It is the same script `/rp-start` and `/rp-setup` run, so every path detaches alike.
+bash scripts/detach.sh
 
 if [ -r /dev/tty ]; then
   exec bash scripts/bootstrap.sh ${1+"$@"} </dev/tty

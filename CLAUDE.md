@@ -10,8 +10,11 @@ here.
 > before assuming a capability exists; update it when you change one.**
 > **Setup**: asked for setup help → run `/rp-setup` (it drives `scripts/bootstrap.sh --no-dev`, then
 > starts the server): show each `✔ n/10` line, stop on failure. By hand: `SETUP.md` Part 1.
-> **Fresh copy?** `/rp-adapt <slug>`, then `docs/ADAPTING.md`. `/rp-setup`, `/rp-adapt`, `/rp-preflight`, `/rp-how-do-i`,
-> `/rp-upgrade`, `/rp-traces`, `/rp-evals`, `/rp-agent-replay`, `/rp-agent-docs`, `/rp-doc-sync` and `/rp-plugin` you may run yourself. **Deploying** (image, Compose,
+> **Starting a new app?** `/rp-start`: detach, setup, the design conversation (`/rp-design`, writes
+> `docs/design/`), then the rename. Settle nothing about the app's design before it asks.
+> **Fresh copy?** `/rp-adapt <slug>`, then `docs/ADAPTING.md`. `/rp-start`, `/rp-design`, `/rp-setup`,
+> `/rp-adapt`, `/rp-preflight`, `/rp-how-do-i`,
+> `/rp-upgrade`, `/rp-traces`, `/rp-evals`, `/rp-agent-replay`, `/rp-agent-docs`, `/rp-doc-sync`, `/rp-mcp` and `/rp-plugin` you may run yourself. **Deploying** (image, Compose,
 > Helm — `docs/DEPLOY.md`) is `/rp-deploy`: it renders and checks locally, and asks the user before
 > it pushes an image, touches a cluster or creates anything billed.
 > **The Guide** (`docs/CONCEPTS.md` §18): in-app user docs at `/guide` + "Ask the Guide". Pages in
@@ -20,7 +23,7 @@ here.
 > states is a `{{fact:key}}`, never typed.
 > **Plugins** (D31, `docs/CONCEPTS.md` §16): a plugin is a git repository copied in, wired through five
 > barrels — `pnpm plugin add|upgrade|remove|list|check`, driven by `/rp-plugin`, which always shows the
-> plan before `--apply`. It imports the host only through the DECLARED entries (`docs/plugin-api.md`,
+> plan before `--apply`. `pnpm plugin list --available` lists what is published: check it before building. It imports the host only through the DECLARED entries (`docs/plugin-api.md`,
 > generated and diff-checked) and receives everything else as injected context. `.rocketflare.json`'s `defaultPlugins` is what a fresh clone installs
 > (bootstrap step `6/10 plugins`).
 > **Copies of the kit upgrade.** `.rocketflare.json` records the kit version, the app's names and the
@@ -59,11 +62,17 @@ here.
   `apps/evals`, vitest-evals on vitest 4, `pnpm eval`, never in the gate — but the gate holds every
   prompt and agent to a suite or a stated exemption, `@rocketpod/shared/ai/eval-coverage`) + thumbs
   feedback → `rocketpod evals promote`
+- **MCP**: core server at `/mcp` and `/mcp/t/<slug>` (`services/mcp/`, `routes/mcp.ts`); OAuth only,
+  the app is its own authorization server (no API keys, no cookies), plus optionally an outside
+  one (`MCP_AUTHORIZATION_SERVER`, `auth/mcp.ts`) into the same caller; dark unless
+  `FEATURES_ENABLED` names `mcp`. A feature reaches MCP as a TOOL (`.claude/rules/tools.md`), never
+  a route (`/rp-mcp`)
 - **Analytics**: not core — the `analytics` PLUGIN (D31), not installed by default until a
   Rocketpod-compatible release exists (`defaultPlugins` is empty)
 - **UI**: React 19 + Vite, DaisyUI 5 / Tailwind v4, React Router 7, TanStack Query 5; served by the Node server from `dist/ui`
 - **CLI**: commander + chalk + open; `tsx` in dev, esbuild → `dist/cli.js` (bin `rocketpod`)
-- **Tests**: vitest projects `api` · `api-isolated` · `driver` · `ui` · `config` · `kit-only` (the kit's own
+- **Tests**: vitest projects `api` · `api-isolated` · `api-fixtures` · `driver` · `ui` · `ui-isolated` ·
+  `config` · `config-isolated` · `kit-only` (the kit's own
   tests, `apps/web/tests/kit-only/`, deleted by the rename — never in a copy) (Postgres :5533, the
   S3 gateway :7433; `driver` is the seam's conformance suite); cli; the eval kit's unit tests (`apps/evals/tests`). Evals themselves are
   `pnpm eval`, outside the gate
@@ -81,7 +90,9 @@ helm upgrade --install rocketpod deploy/helm/rocketpod -f values.yaml  # Kuberne
 pnpm dev:stop · pnpm dev:status · pnpm dev:db:status  # kill this repo's dev tree / port holders / every dev database
 pnpm cli login --server http://localhost:3001  # browser → ~/.rocketpod/config.json, then whoami
 pnpm gate [step…] · pnpm gate --list [--json]  # THE gate: lint → typecheck → test → build (CI runs it in parallel parts behind one `Gate` check; Launch's ship gate)
+pnpm gate --changed[=<ref>]  # local commits: each step over what the branch changed; full gate before a push
 pnpm test  # every package; starts the test DB (:5533) + S3 gateway (:7433); the whole suite, driver conformance included
+pnpm test api|ui|config|driver [file…]  # the inner loop: one suite (shared + isolated projects), DB expected up
 TEST_DATABASE_BRANCH=gate-… pnpm test  # a sandbox gate: no Docker, the whole suite on a gate branch over TCP (CONCEPTS §4)
 pnpm eval [suite] [--model x] [--compare] · pnpm eval:baseline · pnpm eval:view  # real-model evals (D33, docs/EVALS.md)
 pnpm web agent:replay <agent> --tenant <slug> [--candidate f] [--live]  # today's agent code over past runs, read-only
@@ -108,7 +119,7 @@ apps/web/          @rocketpod/web — .env(.example), .env.test, docker-compose.
 │  src/config.ts   loadConfig(env): zod over the env; routes read c.get('config')
 │  src/permissions/  CASL owner/admin/member/support + isGlobalAdmin   src/db/  client, tenant-scope, schema/
 │  src/api/        index.ts (Hono app, middleware order, ASSETS catch-all) · queue.ts · scheduled.ts ·
-│                  middleware/ · auth/ · routes/ (thin) · services/ (ai/, agents/, prompts.ts) ·
+│                  middleware/ · auth/ · routes/ (thin) · services/ (ai/, agents/, mcp/, prompts.ts) ·
 │                  workflows/ (agent-run-body.ts) · observability/ · utils/ · queues/
 │  content/guide/  the in-app Guide's pages (frontmatter + {{fact:…}}), screenshots.yaml, images/,
 │                  optional embeddings.jsonl.gz (CONCEPTS §18) — shipped in the image
@@ -124,7 +135,8 @@ apps/evals/        @rocketpod/evals — vitest-evals suites over apps/web in-pro
 packages/shared/   @rocketpod/shared — src/*.ts zod contracts, errors, pagination, permissions,
                    plugins/ (SharedPlugin + the SHARED_PLUGINS barrel + each plugin's contracts) (CLAUDE.md)
 scripts/           bootstrap.sh → bootstrap.mjs (10 steps), rename.mjs, upgrade.mjs (port a kit
-                   release into a copy), release-check.mjs,
+                   release into a copy), release-check.mjs, detach.sh (drop the kit's history, record its commit),
+                   design-docs.mjs (`pnpm design:docs`: docs/design/*.md → HTML in the app's tokens),
                    kit-update-check.mjs (SessionStart: tells a copy about a newer kit release),
                    kit-check.mjs (the Launch kit conformance check, shared with the meta-kit — this
                    kit is not conformant: launch.kit.json `$runtime`), lib/;
@@ -138,7 +150,9 @@ docker-compose.yml the self-contained stack; deploy/ holds compose.single.yml, c
 launch.kit.json    the Launch kit contract (D36), Cloudflare-shaped; kept schema-valid, its `worker` and
                    `release` blocks describe nothing here (`$runtime`)
 docs/upgrades/     one porting note per kit release (+ unreleased.md, kit repo only) — CHANGELOG.md is the index
-.claude/skills/    rp-setup · rp-preflight · rp-adapt (+ checklist.md) ·
+.claude/skills/    rp-start (detach → setup → design → rename) · rp-design (+ shape.md, brand.md —
+                   the design conversation, docs/design/) ·
+                   rp-setup · rp-preflight · rp-adapt (+ checklist.md) ·
                    rp-how-do-i (+ example-orders.md) · rp-upgrade (+ porting.md — port later kit releases) ·
                    rp-plugin (+ reference.md — install/upgrade/remove a plugin, D31) ·
                    rp-traces (debug a run from its span tree; pick a tracing backend, D32) ·
@@ -147,6 +161,9 @@ docs/upgrades/     one porting note per kit release (+ unreleased.md, kit repo o
                    rp-agent-replay (replay an agent's past runs with today's code, no model calls; D38) ·
                    rp-deploy (Compose or Helm, the secrets checklist, never prints a secret) ·
                    rp-agent-docs (+ check.mjs — audit and fix CLAUDE.md, rules and skills) ·
+                   rp-mcp (connect an AI client, test with a real one, troubleshoot; CONCEPTS §19) ·
+                   rp-sync-rocketflare (+ reference.md — kit repo only, `kitOnly`: port
+                   Rocketflare releases into Rocketpod, `docs/FORK.md`) ·
                    example-feature (demo the reference plugin)
 ```
 
@@ -198,7 +215,7 @@ consulted only for a flag marked `environmentGated`; the rollout state itself li
 `tests/config/packaging.test.ts` holds the chart to it.
 
 Rules (auto-loaded by path): `.claude/rules/api.md` · database.md · ui.md · cli.md · testing.md ·
-code-quality.md · runtime.md. Runbooks: `docs/DEPLOY.md` · `docs/RLS.md`
+code-quality.md · runtime.md · tools.md. Runbooks: `docs/DEPLOY.md` · `docs/RLS.md`
 
 ## Non-Negotiables
 

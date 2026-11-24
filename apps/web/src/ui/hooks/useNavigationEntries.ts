@@ -23,7 +23,7 @@ import {
   isNavGroup,
   type NavItem,
 } from '@/ui/components/SideNav'
-import { CORE_QUICK_LINKS } from '@/ui/pages/Home'
+import { CORE_QUICK_LINKS } from '@/ui/pages/home-links'
 import { CORE_SETTINGS_TABS, SETTINGS_PAGE_GUARD, settingsTabPath } from '@/ui/pages/settings/tabs'
 import { type NavGuard, useNavGuard } from './useNavGuard'
 import { usePermissions } from './usePermissions'
@@ -107,6 +107,7 @@ export function navigationEntries(
     }
     for (const p of plugins) {
       for (const tab of p.settingsTabs?.({ can }) ?? []) {
+        if (!canAccess(tab.guard)) continue
         add({
           id: `settings:${tab.id}`,
           label: tab.label,

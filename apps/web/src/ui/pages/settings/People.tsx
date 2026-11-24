@@ -16,7 +16,12 @@ import {
   UserGroupIcon,
   UserPlusIcon,
 } from '@heroicons/react/24/outline'
-import { type Member, type TenantRole, tenantRoleSchema } from '@rocketpod/shared/tenants'
+import {
+  type Member,
+  roleLabel,
+  type TenantRole,
+  tenantRoleSchema,
+} from '@rocketpod/shared/tenants'
 import { useState } from 'react'
 import { RoleBadge } from '@/ui/components/RoleBadge'
 import {
@@ -144,7 +149,7 @@ function MembersPanel({ onInvite }: { onInvite?: () => void }) {
                       </span>
                     ) : (
                       <select
-                        className="select select-xs capitalize"
+                        className="select select-xs"
                         aria-label={`Role for ${m.name}`}
                         value={m.role}
                         disabled={updateRole.isPending}
@@ -157,7 +162,7 @@ function MembersPanel({ onInvite }: { onInvite?: () => void }) {
                       >
                         {ASSIGNABLE_ROLES.filter(r => r !== 'owner' || canManageOwners).map(r => (
                           <option key={r} value={r}>
-                            {r}
+                            {roleLabel(r)}
                           </option>
                         ))}
                       </select>

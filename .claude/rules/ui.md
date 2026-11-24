@@ -10,7 +10,8 @@ paths:
 React 19 + Vite, DaisyUI 5 on Tailwind v4, React Router 7, TanStack Query 5, zustand only for the
 websocket store. Served from `dist/ui` by the same Node server as the API (SPA fallback).
 Dev: Vite on :3000 proxies `/api`, `/auth`, `/ws` — plus every prefix an installed plugin declares
-(the analytics plugin's `/cubejs-api` and `/mcp`, added by hand on install) — to the Node server on
+(the analytics plugin's `/cubejs-api`, added by hand on install) — and the MCP server's `/mcp`,
+`/oauth` and OAuth `.well-known` documents — to the Node server on
 :3001. Either port moves with `DEV_UI_PORT` / `DEV_API_PORT` (`scripts/lib/dev-ports.mjs`, shell or
 `.env`); `DEV_ALLOWED_HOSTS` adds hostnames Vite answers for. Map, providers, identity flow:
 `apps/web/src/ui/CLAUDE.md`.
@@ -190,7 +191,8 @@ Component-local UI state is `useState`; theme and density are DOM attributes.
   `SearchPage` live in that folder too and must NOT import it. The converse rule holds for
   `components/shared`, nothing under which may import a markdown renderer — which is why
   `DocumentCard` renders its excerpt as plain text (`tests/config/ui-bundle.test.ts` asserts both
-  halves). `Markdown` shows images as links (`MarkdownImageLink`, also for a plugin's own
+  halves in the source, and `scripts/check-ui-bundle.mjs` checks the built chunks after every
+  `build:ui`). `Markdown` shows images as links (`MarkdownImageLink`, also for a plugin's own
   renderer): text from a model or a document must not make the browser fetch anything by itself.
   Render model output through `Markdown` (`skipHtml`, links `noopener`), never
   `dangerouslySetInnerHTML`; user text renders verbatim (`whitespace-pre-wrap`). Vite emits one
@@ -258,7 +260,10 @@ from that one fact:
   `agentForms` is the plugin's half of `AGENT_FORMS`
 - A plugin's top-bar control is a `UiPlugin.header` item rendered by `PluginHeaderSlot`, never an
   edit to `Layout` or `App.tsx`: each item sits behind its own guard, `Suspense` and error boundary,
-  so a header item that throws must render nothing rather than break the shell
+  so a header item that throws must render nothing rather than break the shell. A card on Home is a
+  `UiPlugin.homeCards` entry rendered by `PluginHomeCards` the same way, never an edit to
+  `Home.tsx`; the core quick links are data in `pages/home-links.ts`, which hooks import instead
+  of the page
 - **`queryKeys` roots must start with `<id>:`** (checked by `plugins.test.ts`), so one plugin's
   invalidation can never reach another's cache. **The `entity` string of a nudge IS a query-key
   family root**, so declare it once (the plugin's `shared.ts`) — `example-feature`'s

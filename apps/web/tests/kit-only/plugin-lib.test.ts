@@ -1,0 +1,1688 @@
+/**
+ * `scripts/lib/plugin-lib.mjs` and the `scripts/plugin.mjs` round trip.
+ *
+ * Almost everything here is a rule about a plugin THIS checkout does not have installed, so almost
+ * everything is exercised against a fixture. The two that are not: the barrel writer is checked
+ * against the six real barrel files (if it does not reproduce their bytes, every install leaves a
+ * lint diff and the gate stops passing by construction), and the last block drives the script
+ * itself — `export` into a temp directory, then `add` back with a fresh id, asserting that a plan
+ * run writes NOTHING. The `config` project: no database, no network.
+ */
+import { execFileSync } from 'node:child_process'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import { EVENT_NAME_RE, eventNameProblem } from '@rocketpod/shared/plugins'
+import { describe, expect, it } from 'vitest'
+import {
+  MANIFEST_FILE,
+  pluginSurfaces,
+  readManifest,
+  SIDECAR_FILE,
+} from '../../../../scripts/lib/manifest.mjs'
+import {
+  addBarrelLine,
+  addedByPlugins,
+  addPlanJson,
+  applyCoreEdits,
+  archiveSql,
+  BARREL_KINDS,
+  BARRELS,
+  barrelExportName,
+  barrelLines,
+  buildPluginSurface,
+  camelId,
+  checkRequirements,
+  classifyPluginFile,
+  coreEditsByFile,
+  declaresProperty,
+  dependenciesToInstall,
+  dependencyClashes,
+  dependencyDelta,
+  deprecatedServerMembers,
+  describeClash,
+  eventClashes,
+  findEditLine,
+  hasBarrelLine,
+  isolationEvidence,
+  jsonKeyLine,
+  EVENT_NAME_RE as LIB_EVENT_NAME_RE,
+  eventNameProblem as libEventNameProblem,
+  missingDependencies,
+  newlyAddedDependencies,
+  nextAddedDependencies,
+  PLUGIN_MANIFEST_FILE,
+  parsePluginRequirement,
+  partialCoreEdits,
+  pinDeclaredRanges,
+  planSteps,
+  pluginIdProblem,
+  pluginManifestProblems,
+  pluginPlatformProblems,
+  publicSitesProblems,
+  rangeWithin,
+  removeBarrelLine,
+  removeSteps,
+  renderAddPlan,
+  renderDependencyDelta,
+  renderDiagnostic,
+  renderList,
+  renderSteps,
+  resolveSubdir,
+  revertCoreEdits,
+  STEP_KINDS,
+  surfaceDirectories,
+  tableClashes,
+  tupleEntries,
+  undeclaredManifestEvents,
+  unsupportedForKit,
+  withoutDependencies,
+} from '../../../../scripts/lib/plugin-lib.mjs'
+import { KIT } from '../../../../scripts/lib/rename-lib.mjs'
+import type { Surface } from '../../../../scripts/lib/upgrade-lib.d.mts'
+
+const REPO_ROOT = path.resolve(__dirname, '../../../..')
+const read = (rel: string) => readFileSync(path.join(REPO_ROOT, rel), 'utf8')
+
+/**
+ * Everything below drives the script against THIS checkout, so its subject is whatever plugin is
+ * installed here rather than the kit's reference one by name. An app is expected to delete
+ * `example-feature` — that is what it is for — and these tests travel into every app with the rest
+ * of the kit's suite, so naming it would turn "I uninstalled the example" into a red gate.
+ */
+const installedHere = pluginSurfaces(readManifest().manifest)
+const subject = installedHere[0]?.id ?? null
+
+describe('plugin ids', () => {
+  it('accepts a namespace and rejects everything that is not one', () => {
+    expect(pluginIdProblem('approvals')).toBeNull()
+    expect(pluginIdProblem('example-feature')).toBeNull()
+    expect(pluginIdProblem('Approvals')).toMatch(/must match/)
+    expect(pluginIdProblem('9lives')).toMatch(/must match/)
+    expect(pluginIdProblem('my_plugin')).toMatch(/must match/)
+    expect(pluginIdProblem('')).toMatch(/required/)
+  })
+
+  it("refuses the kit's own name, because the rename would rewrite it", () => {
+    expect(pluginIdProblem(`${KIT.slug}-extras`)).toMatch(/kit's name/)
+  })
+
+  it('refuses a barrel filename', () => {
+    for (const reserved of ['index', 'server', 'ui', 'schema', 'types']) {
+      expect(pluginIdProblem(reserved)).toMatch(/barrel filename/)
+    }
+  })
+
+  it("refuses 'api', the host's plugin API directory", () => {
+    expect(pluginIdProblem('api')).toMatch(/plugin API directory/)
+  })
+
+  it('camelises an id into the stem of every export name', () => {
+    expect(camelId('example-feature')).toBe('exampleFeature')
+    expect(camelId('a-b-c')).toBe('aBC')
+    expect(camelId('orders')).toBe('orders')
+    expect(barrelExportName('server', 'example-feature')).toBe('exampleFeatureServer')
+    expect(barrelExportName('schema', 'example-feature')).toBeNull()
+  })
+})
+
+// The shape of a real barrel, reduced to what the writer touches — a doc comment that SHOWS the
+// very line the writer matches (every real barrel does), the value imports, the type import and
+// the tuple.
+const fixtureBarrel = `/**
+ *     import { approvalsServer } from './approvals'
+ *     export const SERVER_PLUGINS = [approvalsServer] as const satisfies readonly AnyServerPlugin[]
+ */
+import type { AnyServerPlugin } from './types'
+
+export const SERVER_PLUGINS = [] as const satisfies readonly AnyServerPlugin[]
+
+export const serverPlugins: readonly AnyServerPlugin[] = SERVER_PLUGINS
+`
+
+describe('the barrel writer', () => {
+  it('reads the code and not the doc comment that shows the same line', () => {
+    // An unanchored regex finds `approvalsServer` in the header and reports a plugin nobody
+    // installed — the bug this assertion exists for.
+    expect(tupleEntries(fixtureBarrel, 'SERVER_PLUGINS')).toEqual([])
+    expect(hasBarrelLine(fixtureBarrel, 'server', 'approvals')).toBe(false)
+  })
+
+  it('writes the import above the type import and the entry into the tuple', () => {
+    const next = addBarrelLine(fixtureBarrel, 'server', 'orders')
+    expect(next).toContain(
+      "import { ordersServer } from './orders'\nimport type { AnyServerPlugin }"
+    )
+    expect(tupleEntries(next, 'SERVER_PLUGINS')).toEqual(['ordersServer'])
+    expect(hasBarrelLine(next, 'server', 'orders')).toBe(true)
+  })
+
+  it('is idempotent, and sorts both the imports and the tuple', () => {
+    const one = addBarrelLine(fixtureBarrel, 'server', 'orders')
+    expect(addBarrelLine(one, 'server', 'orders')).toBe(one)
+    const two = addBarrelLine(addBarrelLine(one, 'server', 'zebras'), 'server', 'approvals')
+    const imports = two.split('\n').filter(l => l.startsWith('import { '))
+    expect(imports).toEqual([
+      "import { approvalsServer } from './approvals'",
+      "import { ordersServer } from './orders'",
+      "import { zebrasServer } from './zebras'",
+    ])
+    expect(tupleEntries(two, 'SERVER_PLUGINS')).toEqual([
+      'approvalsServer',
+      'ordersServer',
+      'zebrasServer',
+    ])
+  })
+
+  it('sorts a plugin whose id follows `types` below the type import, as Biome does', () => {
+    const alone = addBarrelLine(fixtureBarrel, 'server', 'zebras')
+    expect(alone).toContain(
+      "import type { AnyServerPlugin } from './types'\nimport { zebrasServer }"
+    )
+    const both = addBarrelLine(alone, 'server', 'orders')
+    const imports = both.split('\n').filter(l => l.startsWith('import '))
+    expect(imports).toEqual([
+      "import { ordersServer } from './orders'",
+      "import type { AnyServerPlugin } from './types'",
+      "import { zebrasServer } from './zebras'",
+    ])
+    expect(removeBarrelLine(both, 'server', 'orders')).toBe(alone)
+  })
+
+  it.skipIf(!subject)(
+    'removes exactly what it added, for every barrel, against the REAL files',
+    () => {
+      // If a round trip is not byte-identical, `pnpm plugin add` produces a commit that fails lint.
+      // Only the barrels whose HALF the subject ships: an install writes a line per half that
+      // arrived, so a plugin with no UI has no line in the UI barrel and a plugin with no CLI
+      // command has none in the CLI one. Asserting otherwise tests the fixture, not
+      // the writer.
+      for (const kind of BARREL_KINDS) {
+        if (!existsSync(path.join(REPO_ROOT, BARRELS[kind].half(subject as string)))) continue
+        const original = read(BARRELS[kind].file)
+        expect(hasBarrelLine(original, kind, subject as string)).toBe(true)
+        const without = removeBarrelLine(original, kind, subject as string)
+        expect(hasBarrelLine(without, kind, subject as string)).toBe(false)
+        expect(addBarrelLine(without, kind, subject as string)).toBe(original)
+        expect(addBarrelLine(original, kind, subject as string)).toBe(original)
+      }
+    }
+  )
+
+  it('writes one `export *` into the schema barrel and no tuple entry', () => {
+    expect(barrelLines('schema', 'orders')).toEqual(["export * from './orders/db/schema'"])
+    expect(barrelLines('server', 'orders')).toEqual([
+      "import { ordersServer } from './orders'",
+      'SERVER_PLUGINS entry: ordersServer',
+    ])
+  })
+
+  /**
+   * A TypeScript file with no top-level import or export is a SCRIPT, not a module. The schema
+   * barrel is the one of the five that declares no const, so removing the last plugin left it as a
+   * comment and `db/schema/index.ts`'s `export * from '../plugins/schema'` became TS2306 — the
+   * whole app stopped typechecking the moment somebody uninstalled the reference plugin, which is
+   * the one thing that plugin exists for.
+   */
+  it('leaves the schema barrel a MODULE when the last plugin goes', () => {
+    const real = read(BARRELS.schema.file)
+    const bare = installedHere.reduce((text, s) => removeBarrelLine(text, 'schema', s.id), real)
+    expect(bare).not.toMatch(/^export \* from/m)
+    expect(bare).toContain('export {}')
+    // …and the marker gives way to the first plugin that arrives, byte for byte.
+    expect(addBarrelLine(bare, 'schema', 'orders')).not.toContain('export {}')
+    // Putting every installed plugin back has to reproduce the file exactly — all of them, not
+    // just the first: the moment a second plugin was installed a one-id round trip
+    // stopped being the same file, and a test that only ever saw one would not have noticed.
+    // Only the plugins that HAVE a schema half own a line in this barrel.
+    const withSchema = installedHere.filter(s => (s.registries ?? []).includes(BARRELS.schema.file))
+    const rebuilt = withSchema.reduce((text, s) => addBarrelLine(text, 'schema', s.id), bare)
+    if (withSchema.length > 0) expect(rebuilt).toBe(real)
+  })
+
+  it('points each barrel at the file whose presence means the plugin ships that half', () => {
+    expect(BARRELS.shared.half('orders')).toBe('packages/shared/src/plugins/orders/index.ts')
+    expect(BARRELS.ui.half('orders')).toBe('apps/web/src/plugins/orders/ui/index.ts')
+    // The shared entry is imported as `.../orders/index` — the package's `./*` export maps to a
+    // FILE, so dropping the `/index` does not resolve.
+    expect(BARRELS.shared.specifier('orders')).toBe('./orders/index')
+  })
+})
+
+/**
+ * Why `scripts/plugin.mjs` runs biome over the files it just wrote.
+ *
+ * A plugin is authored in the KIT's vocabulary and translated on the way in, and translation moves
+ * a package scope in the alphabet: `@heroicons/react` sorts AFTER `@acme/shared` and BEFORE
+ * `@rocketpod/shared`. So a file that is correctly sorted in the kit arrives unsorted in an app
+ * whose scope sorts the other way, and `pnpm lint` — the first line of the gate the install plan
+ * tells you to run next — fails on a file the tool wrote. `rename.mjs` has the same problem and
+ * solves it the same way.
+ */
+describe('core edits a plugin declares', () => {
+  const VITE = `export default defineConfig({
+  server: {
+    proxy: {
+      '/api': proxyTo(),
+      '/ws': proxyTo('ws://localhost:3001', { ws: true }),
+    },
+  },
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+    },
+    dedupe: ['react', 'react-dom'],
+  },
+})
+`
+  const edits = [
+    {
+      file: 'apps/web/vite.config.ts',
+      after: "'/ws': proxyTo(",
+      lines: ["'/cubejs-api': proxyTo(),", "'/mcp': proxyTo(),"],
+    },
+    {
+      file: 'apps/web/vite.config.ts',
+      after: "'@': path.resolve(",
+      lines: [
+        "'@nivo/heatmap': path.resolve(__dirname, './src/plugins/analytics/ui/lib/nivo-heatmap.tsx'),",
+      ],
+    },
+  ]
+
+  it('inserts each line after its anchor, at the anchor indentation', () => {
+    const out = applyCoreEdits(VITE, edits)
+    expect(out).toContain("      '/cubejs-api': proxyTo(),")
+    expect(out).toContain("      '/mcp': proxyTo(),")
+    expect(out).toContain("      '@nivo/heatmap': path.resolve(")
+    // the anchor line itself is untouched and still precedes what was inserted
+    expect(out.indexOf("'/ws': proxyTo(")).toBeLessThan(out.indexOf("'/cubejs-api'"))
+  })
+
+  it('is idempotent — applying twice changes nothing', () => {
+    const once = applyCoreEdits(VITE, edits)
+    expect(applyCoreEdits(once, edits)).toBe(once)
+  })
+
+  it('reverts to the original bytes — add then remove is a round trip', () => {
+    expect(revertCoreEdits(applyCoreEdits(VITE, edits), edits)).toBe(VITE)
+  })
+
+  it('throws, naming the file and the anchor, when the anchor has moved', () => {
+    // Silently skipping a missing anchor is the whole failure this replaces: the build breaks
+    // somewhere else entirely, with nothing pointing back at the plugin.
+    expect(() =>
+      applyCoreEdits(VITE, [
+        { file: 'apps/web/vite.config.ts', after: 'noSuchAnchor', lines: ['x'] },
+      ])
+    ).toThrow(/apps\/web\/vite\.config\.ts.*noSuchAnchor/s)
+  })
+
+  it('says when an edit is partly there already, and is silent when it is all or nothing', () => {
+    // The shape that bit a copy: an earlier hand-written block shared the comment lines, so only
+    // the new entry went in and the file ended with two blocks and no word about it.
+    const partly = applyCoreEdits(VITE, [{ ...edits[0], lines: ["'/mcp': proxyTo(),"] }] as never)
+    const warnings = partialCoreEdits(partly, [edits[0]])
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toMatch(/vite\.config\.ts: 1 of its 2 lines were already in the file/)
+    expect(partialCoreEdits(VITE, edits)).toEqual([])
+    expect(partialCoreEdits(applyCoreEdits(VITE, edits), edits)).toEqual([])
+  })
+
+  it('recognises a line the host formatter wrapped: not added twice, and reverted whole (#178)', () => {
+    // What Biome makes of the 105-column nivo alias after `plugin upgrade` formats vite.config.ts.
+    const wrapped = applyCoreEdits(VITE, edits).replace(
+      "      '@nivo/heatmap': path.resolve(__dirname, './src/plugins/analytics/ui/lib/nivo-heatmap.tsx'),",
+      [
+        "      '@nivo/heatmap': path.resolve(",
+        '        __dirname,',
+        "        './src/plugins/analytics/ui/lib/nivo-heatmap.tsx'",
+        '      ),',
+      ].join('\n')
+    )
+    expect(wrapped).toContain('        __dirname,')
+    expect(applyCoreEdits(wrapped, edits)).toBe(wrapped)
+    expect(partialCoreEdits(wrapped, edits)).toEqual([])
+    expect(revertCoreEdits(wrapped, edits)).toBe(VITE)
+    expect(findEditLine(wrapped.split('\n'), edits[1]?.lines[0] ?? '')).toMatchObject({
+      start: expect.any(Number),
+    })
+    expect(findEditLine(VITE.split('\n'), edits[1]?.lines[0] ?? '')).toBeNull()
+  })
+
+  it("groups a manifest's edits by the file they touch", () => {
+    const byFile = coreEditsByFile({ coreEdits: edits })
+    expect([...byFile.keys()]).toEqual(['apps/web/vite.config.ts'])
+    expect(byFile.get('apps/web/vite.config.ts')).toHaveLength(2)
+  })
+
+  it('is empty for a manifest that declares none', () => {
+    expect(coreEditsByFile({}).size).toBe(0)
+    expect(applyCoreEdits(VITE, [])).toBe(VITE)
+  })
+})
+
+describe('what a plugin may bring', () => {
+  const roles = (p: string) => classifyPluginFile(p, 'orders').role
+
+  it('copies the three trees and its docs at the identical path', () => {
+    expect(classifyPluginFile('apps/web/src/plugins/orders/index.ts', 'orders')).toMatchObject({
+      role: 'copy',
+      target: 'apps/web/src/plugins/orders/index.ts',
+    })
+    expect(roles('packages/shared/src/plugins/orders/index.ts')).toBe('copy')
+    expect(roles('apps/cli/src/plugins/orders/index.ts')).toBe('copy')
+    expect(roles('docs/plugins/orders/README.md')).toBe('copy')
+  })
+
+  it("files its notes under the host's own corner for that plugin", () => {
+    expect(classifyPluginFile('docs/upgrades/1.2.0.md', 'orders')).toMatchObject({
+      role: 'note',
+      target: 'docs/plugins/orders/upgrades/1.2.0.md',
+    })
+  })
+
+  it('never copies a migration', () => {
+    expect(roles('migrations/install/0001_backfill.sql')).toBe('fragment')
+  })
+
+  it("leaves the plugin repository's own tooling behind", () => {
+    for (const p of [
+      '.github/workflows/ci.yml',
+      'package.json',
+      '.gitignore',
+      'pnpm-lock.yaml',
+      // A plugin repo carries the kit's release script and the libs it imports — there is no
+      // `pnpm plugin:release`, so cutting a release means having them. They belong to that
+      // repository and never to a host, where `scripts/` is the kit's own.
+      'scripts/release.mjs',
+      'scripts/lib/upgrade-lib.mjs',
+    ]) {
+      expect(roles(p)).toBe('repo-only')
+    }
+    expect(roles(PLUGIN_MANIFEST_FILE)).toBe('meta')
+    expect(roles('README.md')).toBe('meta')
+  })
+
+  it('REFUSES anything that would write outside the plugin roots', () => {
+    for (const p of [
+      'apps/web/src/api/index.ts',
+      'apps/web/vite.config.ts',
+      'apps/web/src/plugins/other/index.ts',
+      'packages/shared/src/jobs.ts',
+      'apps/web/migrations/0001_x.sql',
+    ]) {
+      expect(roles(p)).toBe('refused')
+    }
+  })
+})
+
+/**
+ * A ledger-shaped object, so a fixture can drive the observed half without a temp repository.
+ * `missingFrom` reads `members.values()` and `has(entry, name)` and nothing else.
+ */
+const fakeLedger = (rows: Array<[string, string]>) => {
+  const members = new Map(
+    rows.map(([entry, name]) => [
+      `${entry} :: ${name}`,
+      { entry, kind: 'function', name, signature: name },
+    ])
+  )
+  return {
+    members,
+    size: members.size,
+    has: (entry: string, name: string) => members.has(`${entry} :: ${name}`),
+    get: (entry: string, name: string) => members.get(`${entry} :: ${name}`),
+  }
+}
+
+describe('requirements', () => {
+  const base = { kitVersion: '0.5.0', presentSurfaces: ['feature-agents'], installedPlugins: [] }
+
+  it('passes when everything asked for is there', () => {
+    expect(
+      checkRequirements({
+        ...base,
+        minKit: '0.5.0',
+        requires: { surfaces: ['feature-agents'], plugins: [] },
+      })
+    ).toEqual([])
+  })
+
+  it('reports EVERY unmet requirement, not the first', () => {
+    const problems = checkRequirements({
+      ...base,
+      minKit: '0.6.0',
+      requires: { surfaces: ['feature-analytics'], plugins: ['approvals'] },
+    })
+    expect(problems).toHaveLength(3)
+    expect(problems[0]).toMatch(/kit 0\.5\.0 is older than this plugin's minKit 0\.6\.0/)
+    expect(problems[1]).toMatch(/surface 'feature-analytics'/)
+    expect(problems[2]).toMatch(/plugin 'approvals' is required and not installed/)
+  })
+
+  /**
+   * A FLOOR, and the comparison is three integers. There is no range language left to be malformed,
+   * which is the whole reason this replaced a matcher that threw out of the caller.
+   */
+  it('reads minKit as a floor with no ceiling', () => {
+    expect(checkRequirements({ ...base, kitVersion: '9.9.9', minKit: '0.5.0' })).toEqual([])
+    expect(checkRequirements({ ...base, kitVersion: '0.5.0', minKit: '0.5.0' })).toEqual([])
+    expect(checkRequirements({ ...base, kitVersion: '0.4.9', minKit: '0.5.0' })[0]).toMatch(
+      /older than this plugin's minKit/
+    )
+    // A range where a floor belongs is named as such rather than approximated.
+    expect(checkRequirements({ ...base, minKit: '>=0.5.0' })[0]).toMatch(
+      /is not a bare X\.Y\.Z version — minKit is a floor, not a range/
+    )
+  })
+
+  it('checks a required plugin VERSION as a floor, not just its presence', () => {
+    const installedPlugins = [{ id: 'approvals', version: '1.2.0' }]
+    expect(
+      checkRequirements({
+        ...base,
+        installedPlugins,
+        requires: { plugins: [{ id: 'approvals', minVersion: '1.0.0' }] },
+      })
+    ).toEqual([])
+    expect(
+      checkRequirements({
+        ...base,
+        installedPlugins,
+        requires: { plugins: [{ id: 'approvals', minVersion: '2.0.0' }] },
+      })
+    ).toEqual(["plugin 'approvals' is 1.2.0, older than the minVersion 2.0.0 this plugin needs"])
+    // A bare id asks only for presence.
+    expect(
+      checkRequirements({ ...base, installedPlugins, requires: { plugins: ['approvals'] } })
+    ).toEqual([])
+  })
+
+  /**
+   * **The observed half.** Compatibility is `uses \ ledger` — a set difference over strings that
+   * cannot throw — and every finding names the symbol and, where it merely moved entry, the exact
+   * replacement import.
+   */
+  it('reports every symbol the kit no longer provides, with its replacement', () => {
+    const ledger = fakeLedger([
+      ['@/plugins/api', 'requestCtx'],
+      ['@/plugins/api/ui', 'api'],
+    ])
+    expect(
+      checkRequirements({ ...base, uses: { '@/plugins/api': ['requestCtx'] }, ledger })
+    ).toEqual([])
+    // Gone entirely: named, with no replacement invented for it.
+    expect(
+      checkRequirements({ ...base, uses: { '@/plugins/api': ['withAuthAndDb'] }, ledger })[0]
+    ).toBe(
+      "@/plugins/api :: withAuthAndDb is not in this kit's surface — no replacement: it is gone (see docs/plugin-api.md)"
+    )
+    // Moved entry: the replacement is a FACT the ledger already carries.
+    expect(checkRequirements({ ...base, uses: { '@/plugins/api': ['api'] }, ledger })[0]).toBe(
+      "@/plugins/api :: api is not in this kit's surface — import { api } from '@/plugins/api/ui'"
+    )
+    // No ledger handed in, nothing about the surface is checked — the CALLER owns that.
+    expect(checkRequirements({ ...base, uses: { '@/plugins/api': ['gone'] } })).toEqual([])
+  })
+
+  /**
+   * `plugin check` and `kit:upgrade` have to answer this identically, and once did not: check
+   * printed "vendored — the floor is not checked" and exited 0 while `kit:upgrade`, in the same
+   * checkout and over the same plugin, refused with exit 6. Every copy of the kit would have been
+   * stopped from upgrading by the plugin the kit itself ships.
+   */
+  it('exempts a vendored plugin from the kit range for `kit:upgrade` too', () => {
+    const kitRepo = 'https://github.com/rocketflare-dev/rocketflare.git'
+    const vendored = { id: 'example', source: { repo: kitRepo, subdir: '' }, minKit: '9.0.0' }
+    const third = {
+      id: 'orders',
+      source: { repo: 'https://github.com/acme/p.git' },
+      minKit: '9.0.0',
+    }
+    expect(
+      unsupportedForKit([vendored, third], { kitRepo, version: '0.4.0' }).map(p => p.id)
+    ).toEqual(['orders'])
+    // In range, nobody is unsupported; with no target version there is nothing to judge against.
+    expect(unsupportedForKit([third], { kitRepo, version: '9.1.0' })).toEqual([])
+    expect(unsupportedForKit([third], { kitRepo, version: null })).toEqual([])
+  })
+
+  it('splits a requirement into an id and a floor', () => {
+    expect(parsePluginRequirement('approvals')).toEqual({ id: 'approvals', minVersion: null })
+    expect(parsePluginRequirement({ id: 'approvals', minVersion: '1.0.0' })).toEqual({
+      id: 'approvals',
+      minVersion: '1.0.0',
+    })
+  })
+
+  it('does not hold a VENDORED plugin to a kit floor', () => {
+    // It ships inside the kit, so the same release cut both: the floor describes the kit it came
+    // with, and checking it makes the kit fail against itself for the whole of the release that
+    // raises it.
+    expect(checkRequirements({ ...base, kitVersion: '0.4.0', minKit: '0.5.0' })).toHaveLength(1)
+    expect(
+      checkRequirements({ ...base, kitVersion: '0.4.0', minKit: '0.5.0', vendored: true })
+    ).toEqual([])
+  })
+})
+
+const fixtureManifest = {
+  id: 'orders',
+  label: 'Orders',
+  version: '1.1.0',
+  repo: 'https://github.com/acme/rocketpod-plugin-orders.git',
+  subdir: '',
+  minKit: '0.5.0',
+  uses: { '@/plugins/api': ['requestCtx'] },
+  requires: { surfaces: [], plugins: [] },
+  dependencies: { 'apps/web': { 'date-fns': '^3.0.0' } },
+  crons: ['0 3 * * *'],
+  apiPrefixes: ['/orders-webhook'],
+  vars: [
+    { key: 'ORDERS_MODE', example: '50' },
+    { key: 'ORDERS_TOKEN', secret: true },
+  ],
+  schema: { tables: ['orders_orders', 'orders_lines'], rlsExcluded: [] },
+}
+
+describe('publicSites in a manifest', () => {
+  const vars = [{ key: 'SITES_HOSTS' }]
+
+  it('names a declared, non-secret var', () => {
+    expect(publicSitesProblems({})).toEqual([])
+    expect(publicSitesProblems({ publicSites: { hostsVar: 'SITES_HOSTS' }, vars })).toEqual([])
+  })
+
+  it('refuses a malformed, undeclared or secret hosts var', () => {
+    expect(publicSitesProblems({ publicSites: { hostsVar: 'sites' }, vars })[0]).toMatch(/A_B_C/)
+    expect(publicSitesProblems({ publicSites: {}, vars })[0]).toMatch(/must name a var/)
+    expect(publicSitesProblems({ publicSites: { hostsVar: 'SITES_HOSTS' } })[0]).toMatch(
+      /not declared in vars/
+    )
+    expect(
+      publicSitesProblems({
+        publicSites: { hostsVar: 'SITES_HOSTS' },
+        vars: [{ key: 'SITES_HOSTS', secret: true }],
+      })[0]
+    ).toMatch(/marked secret/)
+  })
+
+  it('reaches pluginManifestProblems, with appOwned, as their own fields', () => {
+    const fields = pluginManifestProblems({
+      id: 'orders',
+      version: '1.0.0',
+      minKit: '0.1.0',
+      uses: {},
+      publicSites: { hostsVar: 'NOPE' },
+      appOwned: ['../escape'],
+    }).map(p => p.field)
+    expect(fields).toContain('publicSites')
+    expect(fields).toContain('appOwned')
+  })
+})
+
+describe('platform declarations', () => {
+  /**
+   * This codebase has no Cloudflare runtime: a plugin reaches jobs, storage, realtime and runs
+   * through its context. A Rocketflare plugin that declares a binding or a Worker class would
+   * install cleanly and 503 on its first request, so the refusal is at INSTALL time.
+   */
+  it('accepts a plugin with no Cloudflare declarations', () => {
+    expect(pluginPlatformProblems(fixtureManifest)).toEqual([])
+    expect(pluginPlatformProblems({ ...fixtureManifest, bindings: [], workerExports: [] })).toEqual(
+      []
+    )
+  })
+
+  it('refuses any binding and any Worker class, naming each', () => {
+    const problems = pluginPlatformProblems({
+      ...fixtureManifest,
+      bindings: [
+        { type: 'kv', binding: 'A', name: 'a' },
+        { type: 'durable_object', binding: 'B' },
+      ],
+      workerExports: ['OrdersWorkflow'],
+    })
+    expect(problems).toHaveLength(2)
+    expect(problems[0]).toMatch(/declares Cloudflare bindings \(kv A, durable_object B\)/)
+    expect(problems[0]).toMatch(/ctx\.platform/)
+    expect(problems[1]).toMatch(/declares workerExports \(OrdersWorkflow\)/)
+  })
+})
+
+describe('the surface an install records', () => {
+  it('is built from the plugin manifest plus the three facts only the host knows', () => {
+    const surface = buildPluginSurface(fixtureManifest, {
+      repo: fixtureManifest.repo,
+      subdir: '',
+      commit: 'abc123',
+      at: '2026-09-17',
+    })
+    expect(surface).toMatchObject({
+      id: 'orders',
+      kind: 'plugin',
+      label: 'Orders',
+      anchor: 'apps/web/src/plugins/orders/plugin.json',
+      source: { repo: fixtureManifest.repo, subdir: '', version: '1.1.0', commit: 'abc123' },
+      installedAt: '2026-09-17',
+      history: [],
+    })
+    expect(surface.paths).toContain('apps/web/src/plugins/orders/**')
+    // Always, whether the plugin declared it or not: `add` copies the plugin's release notes to
+    // `docs/plugins/<id>/upgrades/`, so a surface that did not name them would leave the host with
+    // files no surface classifies (`kit-manifest.test.ts`) and a `remove` that leaves them behind.
+    expect(surface.paths).toContain('docs/plugins/orders/**')
+    expect(surface.registries).toContain('apps/web/src/plugins/server.ts')
+    expect(surface.minKit).toBe('0.5.0')
+    // No record unless the install says what it brought in.
+    expect(surface).not.toHaveProperty('addedDependencies')
+    const recorded = buildPluginSurface(fixtureManifest, {
+      repo: fixtureManifest.repo,
+      at: '2026-09-17',
+      addedDependencies: { 'apps/web': ['zod'] },
+    })
+    expect(recorded.addedDependencies).toEqual({ 'apps/web': ['zod'] })
+  })
+
+  it('records an UNDECLARED floor as null, never as a wildcard', () => {
+    // A wildcard reads as "checked, and anything is allowed", and it put such a plugin beyond every
+    // gate there is: `checkRequirements`, `unsupportedForKit` and `kit:upgrade` all skip a falsy
+    // floor, so a plugin that declared nothing was carried across a major kit version without a
+    // word. Null is the same silence — but `plugin check` and the install plan both say it aloud.
+    const silent = { id: 'orders', label: 'Orders', version: '1.1.0', repo: 'https://x.test/o.git' }
+    const surface = buildPluginSurface(silent, { repo: silent.repo, at: '2026-09-17' })
+    expect(surface.minKit).toBeNull()
+    expect(surface.requires?.surfaces).toEqual([])
+    expect(surface.requires?.plugins).toEqual([])
+  })
+
+  it('turns the path globs back into the directories a remove deletes', () => {
+    const surface = {
+      paths: ['apps/web/src/plugins/orders/**', 'docs/plugins/orders/**'],
+    } as Surface
+    expect(surfaceDirectories(surface)).toEqual([
+      'apps/web/src/plugins/orders',
+      'docs/plugins/orders',
+    ])
+  })
+
+  it('archives into another SCHEMA so the next db:generate sees nothing it knows', () => {
+    const sql = archiveSql('orders', ['orders_orders'])
+    expect(sql).toContain('CREATE SCHEMA IF NOT EXISTS archive;')
+    expect(sql).toContain(
+      'CREATE TABLE IF NOT EXISTS archive."orders_orders" AS TABLE public."orders_orders";'
+    )
+    // `rls-coverage.test.ts` scopes every catalog query to `public`, so the copies are invisible
+    // to it — which is the whole reason for a second schema rather than a rename in place.
+    expect(read('apps/web/tests/api/rls-coverage.test.ts')).toContain("table_schema = 'public'")
+  })
+
+  it('lists installed plugins, marking the ones that live in the sidecar', () => {
+    const surface = buildPluginSurface(fixtureManifest, {
+      repo: fixtureManifest.repo,
+      commit: 'abc123',
+      at: '2026-09-17',
+    })
+    expect(renderList([surface], { sidecarIds: ['orders'] })[0]).toMatch(
+      /orders.*1\.1\.0.*\(local\)/
+    )
+    expect(renderList([])).toEqual(['No plugins installed.'])
+  })
+})
+
+describe('the install plan', () => {
+  const plan = {
+    manifest: fixtureManifest,
+    source: { repo: fixtureManifest.repo, subdir: '', ref: '1.1.0', commit: 'abc123def4567' },
+    host: {
+      label: 'Acme Logistics (acme)',
+      kitVersion: '0.5.0',
+      recordsIn: MANIFEST_FILE,
+      translated: true,
+    },
+    vendored: false,
+    problems: [] as string[],
+    files: [
+      {
+        path: 'apps/web/src/plugins/orders/index.ts',
+        role: 'copy' as const,
+        root: 'apps/web/src/plugins/orders/',
+      },
+      { path: 'docs/upgrades/1.1.0.md', role: 'note' as const },
+      { path: 'migrations/install/0001_seed.sql', role: 'fragment' as const },
+    ],
+    byRoot: { 'apps/web/src/plugins/orders/': 1 },
+    barrels: ['shared', 'server', 'ui', 'schema', 'cli'] as const,
+    verify: 'The Orders page lists one order.',
+  }
+
+  it('names every thing the script will NOT do for you', () => {
+    const text = renderAddPlan({ ...plan, barrels: [...plan.barrels] }).join('\n')
+    // The schema migration is the host's, always.
+    expect(text).toContain('pnpm db:generate --name plugin-orders-1.1.0')
+    expect(text).toContain('CREATE TABLE orders_orders, orders_lines')
+    // Crons and route prefixes are declarative (the registry is the schedule) — no step at all.
+    expect(text).not.toContain('provision')
+    expect(text).not.toContain('toml')
+    // Every var is an environment variable: its KEY goes in the template…
+    expect(text).toContain('add `ORDERS_MODE=` to apps/web/.env.example')
+    expect(text).toContain('add `ORDERS_TOKEN=` to apps/web/.env.example')
+    // …and a secret is a second, human step, because the value is a credential.
+    expect(text).toContain('Set a value for ORDERS_TOKEN')
+    expect(text).not.toContain('Set a value for ORDERS_MODE')
+    expect(text).toContain('paste migrations/install/0001_seed.sql')
+    expect(text).toContain('pnpm gate')
+    // "by hand" is retired: every step says which KIND it is, and carries its own assertion.
+    expect(text).not.toContain('by hand')
+    expect(text).toContain('Human steps')
+    expect(text).toContain('Agent steps')
+    expect(text).toContain('assert')
+  })
+
+  it('shows where it came from, where it is recorded, and whether it was translated', () => {
+    const text = renderAddPlan({ ...plan, barrels: [...plan.barrels] }).join('\n')
+    expect(text).toContain('orders@1.1.0 — Orders')
+    expect(text).toContain('@ 1.1.0 (abc123def456)')
+    expect(text).toContain(`records into ${MANIFEST_FILE}`)
+    expect(text).toContain(
+      "translated from the ecosystem's vocabulary into Acme Logistics (acme)'s on the way in"
+    )
+    const inKit = renderAddPlan({
+      ...plan,
+      barrels: [...plan.barrels],
+      host: { ...plan.host, label: 'the kit itself' },
+    }).join('\n')
+    expect(inKit).toContain(
+      "translated from the ecosystem's vocabulary into the kit's on the way in"
+    )
+    expect(text).toContain("Verify (from the plugin's own note)")
+    expect(text).toContain('The Orders page lists one order.')
+    for (const kind of BARREL_KINDS) expect(text).toContain(BARRELS[kind].file)
+  })
+
+  it('shows an unmet requirement as a ✖ beside the others', () => {
+    const text = renderAddPlan({
+      ...plan,
+      barrels: [...plan.barrels],
+      problems: ["kit 0.4.0 is older than this plugin's minKit 0.5.0"],
+    }).join('\n')
+    expect(text).toContain('✖ kit 0.4.0 is older than')
+    expect(text).not.toContain('✔ kit')
+  })
+
+  it('says a vendored plugin is not held to the floor', () => {
+    const text = renderAddPlan({ ...plan, barrels: [...plan.barrels], vendored: true }).join('\n')
+    expect(text).toContain('vendored — shipped with the kit')
+  })
+
+  it('WARNS rather than ticking when the plugin declares no floor', () => {
+    // The plan is what a person reads before saying yes, and "no version will ever be checked
+    // against this" is not the same sentence as a tick.
+    const silent = { id: 'orders', label: 'Orders', version: '1.1.0', repo: 'https://x.test/o.git' }
+    const text = renderAddPlan({
+      ...plan,
+      manifest: silent,
+      barrels: [...plan.barrels],
+    }).join('\n')
+    expect(text).toContain('declares no minKit')
+    expect(text).not.toContain('✔ kit')
+  })
+})
+
+// ---------------------------------------------------------------- the script itself
+
+const plugin = (args: string[], cwd = REPO_ROOT) => {
+  try {
+    return {
+      status: 0,
+      out: execFileSync('node', [path.join(REPO_ROOT, 'scripts/plugin.mjs'), ...args], {
+        cwd,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }),
+    }
+  } catch (err) {
+    const e = err as { status: number; stdout?: string; stderr?: string }
+    return { status: e.status, out: `${e.stdout ?? ''}${e.stderr ?? ''}` }
+  }
+}
+
+describe('scripts/plugin.mjs, end to end', () => {
+  it.skipIf(!subject)(
+    'exports a plugin, adds it back under a fresh id, and writes nothing without --apply',
+    () => {
+      const dir = mkdtempSync(path.join(tmpdir(), 'rp-plugin-'))
+      try {
+        expect(plugin(['export', subject as string, dir]).status).toBe(0)
+        expect(existsSync(path.join(dir, PLUGIN_MANIFEST_FILE))).toBe(true)
+        expect(existsSync(path.join(dir, `apps/web/src/plugins/${subject}/plugin.json`))).toBe(true)
+
+        // Re-badge the export as a plugin this checkout does not have: same tree, a new id, its own
+        // repository (so it is not vendored) and a floor this kit is at or above. Without that it
+        // is simply the installed plugin, and `add` correctly refuses with exit 7.
+        for (const base of [
+          'apps/web/src/plugins',
+          'packages/shared/src/plugins',
+          'apps/cli/src/plugins',
+          'skills',
+        ]) {
+          const from = path.join(dir, base, subject as string)
+          if (existsSync(from)) {
+            mkdirSync(path.dirname(path.join(dir, base, 'smoke-plugin')), { recursive: true })
+            renameSync(from, path.join(dir, base, 'smoke-plugin'))
+          }
+        }
+        // A skill's frontmatter names its directory, so a rebadge renames it too.
+        const skillFile = path.join(dir, 'skills/smoke-plugin/SKILL.md')
+        if (existsSync(skillFile)) {
+          writeFileSync(
+            skillFile,
+            readFileSync(skillFile, 'utf8').replace(/^name: .*$/m, 'name: smoke-plugin')
+          )
+        }
+        const manifestFile = path.join(dir, PLUGIN_MANIFEST_FILE)
+        const rebadged = JSON.parse(
+          readFileSync(manifestFile, 'utf8').replaceAll(subject as string, 'smoke-plugin')
+        )
+        rebadged.repo = 'https://github.com/acme/rocketpod-plugin-smoke.git'
+        rebadged.minKit = '0.1.0'
+        writeFileSync(manifestFile, `${JSON.stringify(rebadged, null, 2)}\n`)
+
+        const before = BARREL_KINDS.map(k => read(BARRELS[k].file))
+        const sidecarBefore = existsSync(path.join(REPO_ROOT, SIDECAR_FILE))
+
+        const plan = plugin(['add', dir, '--local'])
+        expect(plan.status).toBe(0)
+        expect(plan.out).toContain('Plugin      smoke-plugin@')
+        expect(plan.out).toContain('Barrel lines')
+        expect(plan.out).toContain('Nothing written.')
+
+        // Nothing written means nothing written.
+        expect(BARREL_KINDS.map(k => read(BARRELS[k].file))).toEqual(before)
+        expect(existsSync(path.join(REPO_ROOT, SIDECAR_FILE))).toBe(sidecarBefore)
+        expect(existsSync(path.join(REPO_ROOT, 'apps/web/src/plugins/smoke-plugin'))).toBe(false)
+      } finally {
+        rmSync(dir, { recursive: true, force: true })
+      }
+    }
+  )
+
+  it.skipIf(!subject)('refuses to add a plugin that is already installed, by id', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'rp-plugin-'))
+    try {
+      expect(plugin(['export', subject as string, dir]).status).toBe(0)
+      const again = plugin(['add', dir, '--local'])
+      expect(again.status).toBe(7)
+      expect(again.out).toMatch(/already installed/)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses a source with no plugin manifest', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'rp-plugin-'))
+    try {
+      const r = plugin(['add', dir])
+      expect(r.status).toBe(5)
+      expect(r.out).toContain(PLUGIN_MANIFEST_FILE)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('exits 2 on usage and 1 on an unknown plugin', () => {
+    expect(plugin([]).status).toBe(2)
+    expect(plugin(['add']).status).toBe(2)
+    expect(plugin(['remove', 'nope']).status).toBe(1)
+  })
+})
+
+/**
+ * The step taxonomy. "By hand" is retired as a phrase because it answers neither question
+ * that matters to whatever performs the step — and installs are performed by AGENTS as often as by
+ * people, for whom prose is not a control.
+ *
+ * The two assertions that carry weight here are what is ABSENT and what is HUMAN. Absent, because a
+ * step becomes declarative by being MECHANISED (Parts 1 and 2) rather than by being reworded; and
+ * human, because that list must only ever hold things that are not automatable in principle.
+ */
+describe('the step taxonomy', () => {
+  const classy = fixtureManifest
+
+  it('has exactly three kinds, and only two of them ever reach a plan', () => {
+    expect([...STEP_KINDS]).toEqual(['declarative', 'agent', 'human'])
+    const kinds = new Set(planSteps(classy).map(s => s.kind))
+    expect(kinds.has('declarative')).toBe(false)
+  })
+
+  it('drops every step Parts 1 and 2 mechanised', () => {
+    const steps = planSteps(classy)
+    const text = JSON.stringify(steps)
+    // The barrel lines: `plugin add` writes them.
+    expect(text).not.toContain('barrel')
+    // The cron and the prefixes: the registry is the schedule, the prefixes are read at runtime.
+    expect(text).not.toContain('0 3 * * *')
+    expect(text).not.toContain('/orders-webhook')
+    expect(steps.some(s => s.id === 'provision')).toBe(false)
+  })
+
+  it('gives every step a command, an observable result and the assertion that proves it', () => {
+    const every = [
+      ...planSteps(classy, { fragments: ['migrations/0001.sql'] }),
+      ...removeSteps(classy),
+    ]
+    for (const s of every) {
+      expect(s.kind, s.id).toMatch(/^(agent|human)$/)
+      for (const field of ['id', 'title', 'command', 'expect', 'assert'] as const)
+        expect(String(s[field]).length, `${s.id}.${field}`).toBeGreaterThan(0)
+    }
+  })
+
+  it('splits a secret into an agent step (the key) and a human step (the value)', () => {
+    const steps = planSteps(fixtureManifest)
+    const key = steps.find(s => s.id === 'env-key:ORDERS_TOKEN')
+    const value = steps.find(s => s.id === 'secret-value:ORDERS_TOKEN')
+    expect(key?.kind).toBe('agent')
+    expect(key?.assert).toContain('grep')
+    // A credential is the one thing nothing can derive, which is the whole test for `human`.
+    expect(value?.kind).toBe('human')
+  })
+
+  it('makes every destructive part of a REMOVE human, and nothing else', () => {
+    const steps = removeSteps(classy, { archive: true })
+    const human = steps.filter(s => s.kind === 'human').map(s => s.id)
+    // A `DROP TABLE`, and the archive copy taken or knowingly skipped.
+    expect(human).toEqual(['archive', 'drop-migration'])
+    expect(steps.filter(s => s.kind === 'agent').map(s => s.id)).toEqual([
+      'dependencies:apps/web',
+      'gate',
+    ])
+  })
+
+  it('renders human steps FIRST and under their own heading', () => {
+    // A human step printed among the commands reads as one more command. The grouping is the
+    // difference between a plan somebody acts on and a plan somebody skims.
+    const text = renderSteps(planSteps(fixtureManifest)).join('\n')
+    expect(text.indexOf('Human steps')).toBeLessThan(text.indexOf('Agent steps'))
+    expect(text).toContain('       assert  ')
+  })
+})
+
+describe('the plan as JSON', () => {
+  it('carries every step with its kind, so a human step is a field and not a paragraph', () => {
+    const json = addPlanJson({
+      manifest: fixtureManifest,
+      source: { repo: fixtureManifest.repo, subdir: '', ref: '1.1.0', commit: 'abc123' },
+      host: { label: 'Acme', kitVersion: '0.6.1', recordsIn: MANIFEST_FILE, translated: true },
+      vendored: false,
+      problems: [],
+      files: [
+        { path: 'apps/web/src/plugins/orders/index.ts', role: 'copy' },
+        { path: 'migrations/0001_seed.sql', role: 'fragment' },
+      ],
+      byRoot: { 'apps/web/src/plugins/orders/': 1 },
+      barrels: ['server', 'schema'],
+      verify: null,
+    }) as Record<string, any>
+
+    expect(json.plugin).toEqual({ id: 'orders', version: '1.1.0', label: 'Orders' })
+    expect(json.installable).toBe(true)
+    expect(json.files.fragments).toEqual(['migrations/0001_seed.sql'])
+    expect(json.barrels).toContainEqual({
+      kind: 'schema',
+      file: 'apps/web/src/plugins/schema.ts',
+      lines: ["export * from './orders/db/schema'"],
+    })
+    for (const step of json.steps) expect(['agent', 'human']).toContain(step.kind)
+    expect(json.steps.some((s: { kind: string }) => s.kind === 'human')).toBe(true)
+    // The fragment reached the steps, which is what makes `files` and `steps` one answer rather
+    // than two that can disagree.
+    expect(json.steps.some((s: { id: string }) => s.id === 'data-fragment')).toBe(true)
+  })
+})
+
+/**
+ * `pnpm plugin check` as the AGENT's oracle.
+ *
+ * It was a six-point check that said what was wrong and not how to fix it — right for a person
+ * with `reference.md` open, useless to an agent, who has only the line. The two properties under
+ * test are that it is EXHAUSTIVE (it verifies rules that existed only as prose) and that every
+ * finding carries the edit.
+ */
+describe('the audit', () => {
+  it('renders a finding as file, place, problem and the exact edit', () => {
+    expect(
+      renderDiagnostic({
+        file: 'a/b.json',
+        line: 7,
+        problem: 'declares no version',
+        fix: 'add "version": "0.1.0"',
+      })
+    ).toBe('a/b.json:7 declares no version — add "version": "0.1.0"')
+    // No line rather than a fabricated one: the complaint is that the file is not there at all,
+    // and a number that sends a reader somewhere real and wrong is worse than none.
+    expect(renderDiagnostic({ file: 'a/b.ts', problem: 'is missing', fix: 'create it' })).toBe(
+      'a/b.ts is missing — create it'
+    )
+  })
+
+  it('finds a nested JSON key by walking the path FORWARDS', () => {
+    const nested = ['{', '  "tables": "decoy",', '  "schema": {', '    "tables": []', '  }', '}']
+    // The decoy is what a naive search for `"tables"` would answer, and it is the wrong line.
+    expect(jsonKeyLine(nested.join('\n'), 'schema.tables')).toBe(4)
+  })
+
+  it('names the FIELD and its legal values, never "invalid manifest"', () => {
+    const problems = pluginManifestProblems({
+      id: 'Orders',
+      version: 'one',
+      repo: 42,
+      minKit: '>=0.6.0',
+      uses: 'everything',
+      requires: { kit: '>=0.6.0', surfaces: 'feature-agents', plugins: [{}], pluginApi: 3 },
+      dependencies: { 'apps/web': { 'date-fns': 3 } },
+      bindings: [{ type: 'd1', binding: 'B', name: 'b' }],
+      crons: ['* * *'],
+      apiPrefixes: '/orders',
+      vars: [{ key: 'ORDERS_TOKEN', secret: 'yes' }],
+      schema: { tables: 'orders_orders' },
+      coreEdits: [{ file: 'apps/web/vite.config.ts' }],
+    })
+    expect(problems.map(p => p.field)).toEqual(
+      expect.arrayContaining([
+        'id',
+        'version',
+        'repo',
+        'apiPrefixes',
+        'minKit',
+        'uses',
+        // Both replaced fields are refused BY NAME rather than ignored: a manifest still carrying
+        // one was written against a contract this kit no longer honours, and silence would install
+        // it and let the staleness surface later as something else entirely.
+        'requires.kit',
+        'requires.surfaces',
+        'requires.plugins',
+        'requires.pluginApi',
+        'dependencies',
+        'bindings',
+        'crons',
+        'vars',
+        'schema.tables',
+        'coreEdits',
+      ])
+    )
+    // The whole point: a problem with no fix is the thing being replaced.
+    for (const p of problems) expect(p.fix.length, p.field).toBeGreaterThan(0)
+  })
+
+  it('reads a manifest that is not an object at all', () => {
+    expect(pluginManifestProblems(null)[0].problem).toMatch(/not a JSON object/)
+    expect(pluginManifestProblems('{}')[0].problem).toMatch(/not a JSON object/)
+  })
+
+  /**
+   * The same failure mode as `declaresProperty`, in the check that matters most: a file whose
+   * HEADER talks about tenant isolation, or whose two tenant creations are commented out, is talk
+   * about the test rather than the test. Every source-scanning check strips comments first.
+   */
+  it('does not accept a commented-out isolation test', () => {
+    const talk = [
+      '/** Covers tenant isolation: createTestTenant twice, as a second organisation. */',
+      '// createTestTenant(db)',
+      '// createTestTenant(db)',
+      "describe('notes', () => {})",
+    ].join('\n')
+    expect(isolationEvidence(talk).ok).toBe(false)
+    expect(isolationEvidence(talk).tenantsCreated).toBe(0)
+  })
+
+  /**
+   * **A check a COMMENT can talk its way past is worse than no check**, because it reports success.
+   *
+   * The fixture written to prove the `onTenantDeleted` rule works carried the sentence "declares no
+   * `hooks.onTenantDeleted`" in its own doc comment, and the substring search this replaces was
+   * satisfied by it — the rule passed on a plugin that plainly broke it.
+   */
+  it('tells a declaration from a mention of one', () => {
+    expect(declaresProperty('hooks: { onTenantDeleted: async () => {} }', 'onTenantDeleted')).toBe(
+      true
+    )
+    expect(declaresProperty('async onTenantDeleted(db) {}', 'onTenantDeleted')).toBe(true)
+    expect(declaresProperty('// declares no onTenantDeleted', 'onTenantDeleted')).toBe(false)
+    expect(declaresProperty('/** no onTenantDeleted here */', 'onTenantDeleted')).toBe(false)
+    // A bare mention in code is not a declaration either.
+    expect(declaresProperty('const x = onTenantDeleted', 'onTenantDeleted')).toBe(false)
+    // A URL is not a line comment, so code after one is still read.
+    expect(
+      declaresProperty("const u = 'https://x.test'\nonTenantDeleted: 1", 'onTenantDeleted')
+    ).toBe(true)
+  })
+
+  it('names a deprecated ServerPlugin member a plugin declares, with its replacement', () => {
+    const names = (src: string) => deprecatedServerMembers(src).map(m => m.replacement)
+    expect(names('export const server = { agentTools: ctx => [] }')).toEqual(['tools'])
+    expect(names('const p = { agentTools(ctx) { return [] } }')).toEqual(['tools'])
+    // The new name, a comment, and a CALL through the old name are none of them declarations.
+    expect(names('export const server = { tools: ctx => [] }')).toEqual([])
+    expect(names('// agentTools: was the old name')).toEqual([])
+    expect(names('await plugin.agentTools(ctx)')).toEqual([])
+  })
+
+  /**
+   * The `??` bug, which was hit for real installing from a monorepo.
+   *
+   * Nullish-coalescing falls through only on `null`/`undefined`, so a manifest shipping
+   * `"subdir": ""` — which every root-level plugin does — BEAT an explicit `--subdir`. Nothing
+   * fails at install: it fails at the next `pnpm plugin upgrade`, which diffs and applies against
+   * the recorded path and finds the plugin nowhere.
+   */
+  it('lets an explicit --subdir beat a manifest that ships an empty one', () => {
+    expect(resolveSubdir({ flag: 'plugins/orders', manifest: '', source: 'plugins/orders' })).toBe(
+      'plugins/orders'
+    )
+    // …and the manifest still wins when no flag was typed.
+    expect(resolveSubdir({ flag: null, manifest: 'plugins/orders' })).toBe('plugins/orders')
+    expect(resolveSubdir({ flag: '', manifest: '', source: 'plugins/orders' })).toBe(
+      'plugins/orders'
+    )
+    expect(resolveSubdir({ flag: '/plugins/orders/', manifest: null })).toBe('plugins/orders')
+    expect(resolveSubdir({})).toBe('')
+  })
+
+  /**
+   * **Nothing checked that a declared dependency was ever installed.** `plugin add --apply` really
+   * runs `pnpm --dir <pkg> add <name>@<range>`, and nothing looked again — so an install whose
+   * `pnpm add` failed part-way, or a `remove` whose PRINTED `pnpm remove` somebody ran, left a
+   * plugin whose imports cannot resolve while every other check read as clean.
+   */
+  it('catches a declared dependency the host package does not have', () => {
+    const manifest = { id: 'orders', dependencies: { 'apps/web': { 'date-fns': '^3.0.0' } } }
+    expect(missingDependencies(manifest, { 'apps/web': { dependencies: {} } })).toEqual([
+      { pkg: 'apps/web', name: 'date-fns', range: '^3.0.0', have: null },
+    ])
+    // A different range is reported separately rather than as the same fault: `package.json` is
+    // `manual` in `.rocketflare.json`, so an operator is entitled to have pinned it themselves.
+    expect(
+      missingDependencies(manifest, { 'apps/web': { dependencies: { 'date-fns': '^4.0.0' } } })
+    ).toEqual([{ pkg: 'apps/web', name: 'date-fns', range: '^3.0.0', have: '^4.0.0' }])
+    // A devDependency counts: what matters is whether the import resolves.
+    expect(
+      missingDependencies(manifest, { 'apps/web': { devDependencies: { 'date-fns': '^3.0.0' } } })
+    ).toEqual([])
+  })
+
+  /**
+   * **Kit CI went red the minute react-grid-layout 2.3.0 was published (2026-10-05).** The analytics
+   * plugin declares `^2.2.4`; `pnpm add react-grid-layout@^2.2.4` saved `^2.3.0` (the resolved
+   * version behind the save-prefix), and the audit then demanded string equality. A host range
+   * INSIDE the declared one is what "the plugin can live with it" means; wider or disjoint is not.
+   */
+  it('accepts a host range inside the declared one — the ^<resolved> pnpm add leaves behind', () => {
+    const manifest = {
+      id: 'analytics',
+      dependencies: { 'apps/web': { 'react-grid-layout': '^2.2.4', 'drizzle-cube': '0.8.3' } },
+    }
+    const host = (rgl: string, cube = '0.8.3') => ({
+      'apps/web': { dependencies: { 'react-grid-layout': rgl, 'drizzle-cube': cube } },
+    })
+    // The drifted tree every install produced (and every copy already holds): passes.
+    expect(missingDependencies(manifest, host('^2.3.0'))).toEqual([])
+    expect(dependencyClashes(manifest, { packageJsons: host('^2.3.0') })).toEqual([])
+    // An operator's narrower pin passes too.
+    expect(missingDependencies(manifest, host('2.2.5'))).toEqual([])
+    expect(missingDependencies(manifest, host('~2.2.4'))).toEqual([])
+    // Wider, disjoint or older does not.
+    for (const bad of ['^2.0.0', '^3.0.0', '>=2.2.4', '*', '^2.2.3', '1.5.4']) {
+      expect(missingDependencies(manifest, host(bad))).toEqual([
+        { pkg: 'apps/web', name: 'react-grid-layout', range: '^2.2.4', have: bad },
+      ])
+    }
+    // An exact declared version admits nothing but itself.
+    expect(missingDependencies(manifest, host('^2.2.4', '^0.8.3'))).toHaveLength(1)
+  })
+
+  it('models npm ranges conservatively for the subset test', () => {
+    const yes: Array<[string, string]> = [
+      ['^2.3.0', '^2.2.4'],
+      ['2.2.4', '^2.2.4'],
+      ['~2.5.1', '^2.2.4'],
+      ['>=2.3.0 <2.4.0', '^2.2.4'],
+      ['^0.2.5', '^0.2.3'],
+      ['0.0.3', '^0.0.3'],
+      ['2.x', '^2.0.0'],
+      ['^1.2.0 || ^2.1.0', '^1.0.0 || ^2.0.0'],
+      ['1.2.3', '1.2.3'],
+      ['^7.9.0', '>=7'],
+      ['workspace:*', 'workspace:*'],
+    ]
+    const no: Array<[string, string]> = [
+      ['^0.3.0', '^0.2.3'],
+      ['^0.0.4', '^0.0.3'],
+      ['^2.0.0', '~2.2.0'],
+      ['>=2.2.4', '^2.2.4'],
+      ['^1.0.0 || ^3.0.0', '^1.0.0 || ^2.0.0'],
+      ['^2.3.0-beta.1', '^2.2.4'],
+      ['latest', '^2.2.4'],
+      ['2.2.4 - 2.3.0', '^2.2.4'],
+      ['npm:other@^2.3.0', '^2.2.4'],
+    ]
+    for (const [have, range] of yes)
+      expect(rangeWithin(have, range), `${have} in ${range}`).toBe(true)
+    for (const [have, range] of no)
+      expect(rangeWithin(have, range), `${have} in ${range}`).toBe(false)
+  })
+
+  /**
+   * The install half: it writes the DECLARED range, not what the registry resolved that minute, and
+   * it leaves a dependency the host already holds inside the declared range alone.
+   */
+  it("installs only what is unsatisfied, and pins the declared range back over pnpm's ^<resolved>", () => {
+    const manifest = {
+      id: 'analytics',
+      dependencies: {
+        'apps/web': { 'react-grid-layout': '^2.2.4', d3: '^7.9.0', recharts: '^3.10.1' },
+        'apps/cli': {},
+      },
+    }
+    expect(
+      dependenciesToInstall(manifest, {
+        'apps/web': { dependencies: { d3: '^7.9.0', recharts: '^3.11.0' } },
+      })
+    ).toEqual({ 'apps/web': { 'react-grid-layout': '^2.2.4' } })
+    // A disjoint pin is reinstalled (and surfaced as a clash); nothing to do is an empty plan.
+    expect(
+      dependenciesToInstall(manifest, {
+        'apps/web': {
+          dependencies: { 'react-grid-layout': '^1.4.0', d3: '^7.9.0', recharts: '^3.10.1' },
+        },
+      })
+    ).toEqual({ 'apps/web': { 'react-grid-layout': '^2.2.4' } })
+    expect(
+      dependenciesToInstall(manifest, {
+        'apps/web': {
+          dependencies: { 'react-grid-layout': '^2.3.0', d3: '^7.9.0', recharts: '^3.10.1' },
+        },
+      })
+    ).toEqual({})
+
+    // What `pnpm add react-grid-layout@^2.2.4` writes once 2.3.0 is out — a fake resolved-newer
+    // version — and the declared range written back, sections and formatting kept.
+    const afterPnpmAdd = `${JSON.stringify(
+      {
+        name: '@x/web',
+        dependencies: { d3: '^7.9.0', 'react-grid-layout': '^2.3.0' },
+        devDependencies: { recharts: '^3.11.0' },
+      },
+      null,
+      2
+    )}\n`
+    const pinned = pinDeclaredRanges(afterPnpmAdd, manifest.dependencies['apps/web'])
+    expect(JSON.parse(pinned)).toEqual({
+      name: '@x/web',
+      dependencies: { d3: '^7.9.0', 'react-grid-layout': '^2.2.4' },
+      devDependencies: { recharts: '^3.10.1' },
+    })
+    expect(pinned.endsWith('}\n')).toBe(true)
+    expect(pinned).toContain('\n  "dependencies": {\n    "d3"')
+    // Already declared → the very same text (no write, no `pnpm install`), and an absent name is
+    // not invented.
+    expect(pinDeclaredRanges(pinned, manifest.dependencies['apps/web'])).toBe(pinned)
+    expect(JSON.parse(pinDeclaredRanges(pinned, { 'left-pad': '^1.0.0' }))).not.toHaveProperty(
+      'dependencies.left-pad'
+    )
+  })
+
+  /**
+   * **`pnpm add` silently overwrites the range in the host's `package.json`**, so two plugins
+   * wanting different majors of one package was last-install-wins with nothing said — at the exact
+   * moment somebody is approving an install that carries full server and database access.
+   */
+  it('detects a version clash with the host and with a peer plugin, before anything is written', () => {
+    const manifest = { id: 'orders', dependencies: { 'apps/web': { recharts: '^2.12.0' } } }
+    const withHost = dependencyClashes(manifest, {
+      packageJsons: { 'apps/web': { dependencies: { recharts: '^3.0.0' } } },
+    })
+    expect(withHost).toHaveLength(1)
+    expect(describeClash(withHost[0])).toContain('this plugin wants ^2.12.0')
+    expect(describeClash(withHost[0])).toContain('^3.0.0')
+
+    const withPeer = dependencyClashes(manifest, {
+      installed: [{ id: 'analytics', dependencies: { 'apps/web': { recharts: '^3.0.0' } } }],
+    })
+    expect(withPeer).toHaveLength(1)
+    expect(withPeer[0].holder).toContain('analytics')
+
+    // Agreement is not a clash, and a plugin never clashes with itself on a re-read.
+    expect(
+      dependencyClashes(manifest, {
+        packageJsons: { 'apps/web': { dependencies: { recharts: '^2.12.0' } } },
+        installed: [{ id: 'orders', dependencies: { 'apps/web': { recharts: '^9.0.0' } } }],
+      })
+    ).toEqual([])
+  })
+
+  /**
+   * `plugin upgrade` and dependencies: what changed between the installed release's declarations
+   * and the new one's, and what the host does about each. A dependency is only removed when it
+   * was demonstrably the plugin's — a plugin's `addedDependencies` record says a plugin brought it
+   * in, nobody else declares it, and the host holds exactly the range this plugin declared.
+   */
+  describe('the dependency delta an upgrade applies', () => {
+    const v1 = {
+      id: 'orders',
+      dependencies: {
+        'apps/web': {
+          'left-pad': '^1.0.0',
+          'is-odd': '^2.0.0',
+          shared: '^1.0.0',
+          pinned: '^1.0.0',
+        },
+        'apps/cli': {},
+      },
+    }
+    const host = (deps: Record<string, string>) => ({ 'apps/web': { dependencies: deps } })
+    const installedHost = host({
+      'left-pad': '^1.0.0',
+      'is-odd': '^2.0.0',
+      shared: '^1.0.0',
+      pinned: '1.0.5',
+    })
+
+    it('installs an added dependency and re-ranges a raised one', () => {
+      const v2 = {
+        id: 'orders',
+        dependencies: {
+          'apps/web': { ...v1.dependencies['apps/web'], 'left-pad': '^2.0.0', zod: '^3.0.0' },
+        },
+      }
+      const delta = dependencyDelta(v1, v2, { packageJsons: installedHost })
+      expect(delta.install).toEqual({ 'apps/web': { 'left-pad': '^2.0.0', zod: '^3.0.0' } })
+      expect(delta.remove).toEqual({})
+      expect(delta.clashes).toEqual([])
+      expect(delta.changes.map(c => [c.name, c.change, c.action])).toEqual([
+        ['left-pad', 'changed', 'install'],
+        ['zod', 'added', 'install'],
+      ])
+    })
+
+    it('leaves alone what the host already holds inside the new range', () => {
+      const v2 = {
+        id: 'orders',
+        dependencies: { 'apps/web': { ...v1.dependencies['apps/web'], 'left-pad': '^1.2.0' } },
+      }
+      const delta = dependencyDelta(v1, v2, { packageJsons: host({ 'left-pad': '^1.3.0' }) })
+      expect(delta.install).toEqual({})
+      expect(delta.changes).toEqual([
+        expect.objectContaining({ name: 'left-pad', change: 'changed', action: 'none' }),
+      ])
+    })
+
+    // Every package v1 could drop was brought in by a plugin.
+    const addedAll = { 'apps/web': ['is-odd', 'pinned', 'shared'] }
+
+    it('removes a dependency only when it was the plugin’s, and says why it keeps the rest', () => {
+      const v2 = { id: 'orders', dependencies: { 'apps/web': { 'left-pad': '^1.0.0' } } }
+      const delta = dependencyDelta(v1, v2, {
+        packageJsons: installedHost,
+        installed: [
+          { id: 'orders', dependencies: v1.dependencies },
+          { id: 'billing', dependencies: { 'apps/web': { shared: '^1.0.0' } } },
+        ],
+        addedByPlugins: addedAll,
+      })
+      // Owned: nobody else declares it and the host holds exactly what v1 declared.
+      expect(delta.remove).toEqual({ 'apps/web': ['is-odd'] })
+      const byName = Object.fromEntries(delta.changes.map(c => [c.name, c]))
+      expect(byName['is-odd'].action).toBe('remove')
+      // Shared with another installed plugin.
+      expect(byName.shared.action).toBe('keep')
+      expect(byName.shared.reason).toContain("the 'billing' plugin")
+      // The operator narrowed it (or the kit holds it): not the plugin's to take away.
+      expect(byName.pinned.action).toBe('keep')
+      expect(byName.pinned.reason).toContain('1.0.5')
+      // Already gone from the host: nothing to do.
+      expect(
+        dependencyDelta(v1, v2, { packageJsons: host({}), addedByPlugins: addedAll }).remove
+      ).toEqual({})
+      // A plugin is never its own peer.
+      expect(
+        dependencyDelta(v1, v2, {
+          packageJsons: installedHost,
+          installed: [{ id: 'orders', dependencies: v1.dependencies }],
+          addedByPlugins: addedAll,
+        }).remove
+      ).toEqual({ 'apps/web': ['is-odd', 'shared'] })
+    })
+
+    it('never removes a package the host declared first, even at exactly the plugin’s old range', () => {
+      // The kit itself declares is-odd@^2.0.0; the plugin declared the same range and then dropped
+      // it. Equal strings say nothing about who put it there — only the record does.
+      const v2 = { id: 'orders', dependencies: { 'apps/web': { 'left-pad': '^1.0.0' } } }
+      const delta = dependencyDelta(v1, v2, {
+        packageJsons: installedHost,
+        installed: [{ id: 'orders', dependencies: v1.dependencies }],
+        addedByPlugins: { 'apps/web': ['shared'] },
+      })
+      expect(delta.remove).toEqual({ 'apps/web': ['shared'] })
+      const isOdd = delta.changes.find(c => c.name === 'is-odd')
+      expect(isOdd?.action).toBe('keep')
+      expect(isOdd?.reason).toContain('declared it before a plugin did')
+      // No record at all (a plugin installed before records were kept): nothing is removed.
+      const legacy = dependencyDelta(v1, v2, { packageJsons: installedHost })
+      expect(legacy.remove).toEqual({})
+      expect(legacy.changes.find(c => c.name === 'is-odd')?.reason).toContain('no record')
+    })
+
+    it('keeps the record: installs into a host that lacked the package join, removals leave', () => {
+      expect(
+        newlyAddedDependencies(
+          { 'apps/web': { zod: '^3.0.0', 'left-pad': '^2.0.0' } },
+          installedHost
+        )
+      ).toEqual({ 'apps/web': ['zod'] })
+      const v2 = {
+        id: 'orders',
+        dependencies: { 'apps/web': { 'left-pad': '^2.0.0', zod: '^3.0.0', shared: '^1.0.0' } },
+      }
+      const delta = dependencyDelta(v1, v2, {
+        packageJsons: installedHost,
+        installed: [{ id: 'orders', dependencies: v1.dependencies }],
+        addedByPlugins: { 'apps/web': ['is-odd', 'pinned'] },
+      })
+      // zod is new to the host (recorded); left-pad was already there (re-ranged, not recorded);
+      // is-odd was removed (dropped); pinned was kept (stays recorded for whoever drops it last).
+      expect(nextAddedDependencies({ 'apps/web': ['is-odd', 'pinned'] }, delta)).toEqual({
+        'apps/web': ['pinned', 'zod'],
+      })
+      expect(nextAddedDependencies(undefined, { changes: [] })).toEqual({})
+    })
+
+    it('reads who added what from every plugin surface, or nothing when this one has no record', () => {
+      const surfaces: { id: string; addedDependencies?: Record<string, string[]> }[] = [
+        { id: 'orders', addedDependencies: { 'apps/web': ['is-odd'] } },
+        { id: 'billing', addedDependencies: { 'apps/web': ['shared'], 'apps/cli': ['chalk'] } },
+        { id: 'legacy' },
+      ]
+      expect(addedByPlugins(surfaces, 'orders')).toEqual({
+        'apps/web': ['is-odd', 'shared'],
+        'apps/cli': ['chalk'],
+      })
+      expect(addedByPlugins(surfaces, 'legacy')).toBeNull()
+      expect(addedByPlugins(surfaces, 'missing')).toBeNull()
+    })
+
+    it('flags a new range another installed plugin cannot live with, in add’s words', () => {
+      const v2 = {
+        id: 'orders',
+        dependencies: { 'apps/web': { ...v1.dependencies['apps/web'], shared: '^2.0.0' } },
+      }
+      const billing = { id: 'billing', dependencies: { 'apps/web': { shared: '^1.0.0' } } }
+      const delta = dependencyDelta(v1, v2, { packageJsons: installedHost, installed: [billing] })
+      expect(delta.clashes).toEqual([
+        {
+          pkg: 'apps/web',
+          name: 'shared',
+          range: '^2.0.0',
+          holder: "the 'billing' plugin",
+          theirs: '^1.0.0',
+        },
+      ])
+      expect(describeClash(delta.clashes[0])).toBe(
+        "apps/web: shared — this plugin wants ^2.0.0, the 'billing' plugin has ^1.0.0"
+      )
+      // A range INSIDE the peer's is no clash: the peer's `plugin check` still passes.
+      const narrower = {
+        id: 'orders',
+        dependencies: { 'apps/web': { ...v1.dependencies['apps/web'], shared: '^1.4.0' } },
+      }
+      expect(
+        dependencyDelta(v1, narrower, { packageJsons: installedHost, installed: [billing] }).clashes
+      ).toEqual([])
+    })
+
+    it('is empty when nothing changed, and renders as the plan’s Dependencies block', () => {
+      expect(dependencyDelta(v1, v1, { packageJsons: installedHost })).toEqual({
+        changes: [],
+        install: {},
+        remove: {},
+        clashes: [],
+      })
+      expect(renderDependencyDelta(dependencyDelta(v1, v1))).toEqual(['Dependencies  unchanged'])
+      const v2 = {
+        id: 'orders',
+        dependencies: {
+          'apps/web': {
+            'left-pad': '^2.0.0',
+            'is-odd': '^2.0.0',
+            shared: '^1.0.0',
+            pinned: '^1.0.0',
+          },
+        },
+      }
+      expect(
+        renderDependencyDelta(dependencyDelta(v1, v2, { packageJsons: installedHost }))
+      ).toEqual([
+        'Dependencies',
+        '  ~ apps/web  left-pad ^1.0.0 → ^2.0.0  — install (replaces the ^1.0.0 in apps/web/package.json)',
+      ])
+    })
+
+    it('drops a dependency from either section, keeping the formatting, and is a no-op when absent', () => {
+      const source = `${JSON.stringify({ dependencies: { a: '1', b: '2' }, devDependencies: { c: '3' } }, null, 2)}\n`
+      expect(JSON.parse(withoutDependencies(source, ['b', 'c']))).toEqual({
+        dependencies: { a: '1' },
+        devDependencies: {},
+      })
+      expect(withoutDependencies(source, ['b']).endsWith('}\n')).toBe(true)
+      expect(withoutDependencies(source, ['zzz'])).toBe(source)
+    })
+  })
+
+  it('makes a clash a HUMAN step rather than refusing the install', () => {
+    // Refusing would make an ordinary dependency upgrade impossible without editing somebody
+    // else's manifest — a clash is very often the intended change. What it must not be is quiet,
+    // so it lands where the taxonomy already makes a decision structurally unmissable.
+    const clashes = dependencyClashes(
+      { id: 'orders', dependencies: { 'apps/web': { recharts: '^2.12.0' } } },
+      { packageJsons: { 'apps/web': { dependencies: { recharts: '^3.0.0' } } } }
+    )
+    const step = planSteps({ id: 'orders' }, { clashes }).find(s => s.id === 'dependency-clash')
+    expect(step?.kind).toBe('human')
+    expect(step?.command).toContain('recharts')
+  })
+
+  /**
+   * **The one part of the table-naming rule that is mechanical.** The prefix itself is a convention
+   * a human picks — nothing derives a table name from an id, so there is nothing to check a shape
+   * against — and the collision is what actually breaks a host. Nothing else sees it: TS2308
+   * catches a duplicated EXPORT name, and two plugins spelling `pgTable('orders')` under different
+   * symbols compile cleanly, after which one `DROP TABLE` takes the other plugin's data.
+   */
+  it('catches two plugins claiming one table name, and files it against both', () => {
+    const orders = { id: 'orders', schema: { tables: ['orders_items', 'orders_lines'] } }
+    const billing = { id: 'billing', schema: { tables: ['billing_items', 'orders_items'] } }
+    expect(tableClashes([orders, billing])).toEqual([
+      { table: 'orders_items', id: 'billing', others: ['orders'] },
+      { table: 'orders_items', id: 'orders', others: ['billing'] },
+    ])
+    // A plugin never clashes with itself on a re-read, and a manifest with no tables — or no
+    // manifest at all, which is what an unreadable anchor leaves behind — contributes nothing.
+    expect(tableClashes([orders, orders])).toEqual([])
+    expect(tableClashes([{ id: 'orders' }, null, undefined])).toEqual([])
+    // The installed set is clean, which is the assertion that would fail the day somebody adds a
+    // plugin whose tables collide with one already here.
+    const installedManifests = installedHere.map(s => {
+      const anchor = path.join(REPO_ROOT, s.anchor)
+      return existsSync(anchor) ? JSON.parse(read(s.anchor)) : { id: s.id }
+    })
+    expect(tableClashes(installedManifests)).toEqual([])
+  })
+
+  /**
+   * What `check` can say about events from manifests alone — the name rule, a name two
+   * plugins declare, and a listed name the shared entry never declares.
+   */
+  it('refuses a mis-prefixed, kit. or doubled event, a clash, and one the source never declares', () => {
+    expect(LIB_EVENT_NAME_RE.source).toBe(EVENT_NAME_RE.source)
+    for (const name of ['sites.form.submitted', 'kit.x', 'crm.form', 'sites.Form', 'sites']) {
+      expect(libEventNameProblem('sites', name) === null, name).toBe(
+        eventNameProblem('sites', name) === null
+      )
+    }
+    const problems = pluginManifestProblems({
+      version: '1.0.0',
+      minKit: '0.1.0',
+      uses: {},
+      id: 'sites',
+      events: ['sites.form.submitted', 'kit.agent.started', 'crm.lead', 'sites.form.submitted'],
+    })
+      .filter(p => p.field === 'events')
+      .map(p => p.problem)
+    expect(problems).toEqual([
+      "declares 'kit.agent.started', which is in the core kit. namespace",
+      "declares 'crm.lead', which does not start with 'sites.'",
+      "declares event 'sites.form.submitted' twice",
+    ])
+    expect(
+      eventClashes([
+        { id: 'sites', events: ['sites.form.submitted'] },
+        { id: 'crm', events: ['sites.form.submitted', 'crm.lead.created'] },
+      ])
+    ).toEqual([
+      { event: 'sites.form.submitted', id: 'crm', others: ['sites'] },
+      { event: 'sites.form.submitted', id: 'sites', others: ['crm'] },
+    ])
+    expect(
+      undeclaredManifestEvents(
+        ['sites.form.submitted', 'sites.page.published'],
+        "// 'sites.page.published' is only a comment\nevents: { 'sites.form.submitted': schema }"
+      )
+    ).toEqual(['sites.page.published'])
+  })
+
+  it('reports the audit as DATA, with warnings kept out of the exit code', () => {
+    const r = plugin(['check', '--json'])
+    const json = JSON.parse(r.out) as {
+      ok: boolean
+      failures: unknown[]
+      warnings: unknown[]
+      plugins: { id: string; minKit: string | null }[]
+    }
+    expect(r.status).toBe(0)
+    expect(json.ok).toBe(true)
+    expect(json.failures).toEqual([])
+    // `warnings` is a second list rather than a flag on the first, because `ok` has to keep
+    // meaning "this exits 0".
+    expect(Array.isArray(json.warnings)).toBe(true)
+    if (subject) expect(json.plugins.map(p => p.id)).toContain(subject)
+  })
+})

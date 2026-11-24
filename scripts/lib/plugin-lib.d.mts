@@ -1,6 +1,6 @@
 /**
  * Hand-written types for `plugin-lib.mjs` (the workspace has no `allowJs`). Keep in step with the
- * exports there; `apps/web/tests/config/plugin-lib.test.ts` is what typechecks against this.
+ * exports there; `apps/web/tests/kit-only/plugin-lib.test.ts` is what typechecks against this.
  */
 import type { Ledger, PluginUses } from './surface.d.mts'
 import type { Surface } from './upgrade-lib.d.mts'
@@ -46,6 +46,8 @@ export interface CoreEdit {
 export function applyCoreEdits(text: string, edits: CoreEdit[]): string
 export function revertCoreEdits(text: string, edits: CoreEdit[]): string
 export function partialCoreEdits(text: string, edits: CoreEdit[]): string[]
+/** Where a declared core-edit line sits, as itself or as the lines a formatter wrapped it into. */
+export function findEditLine(lines: string[], line: string): { start: number; end: number } | null
 export function coreEditsByFile(manifest: { coreEdits?: CoreEdit[] }): Map<string, CoreEdit[]>
 
 export type FileRole = 'copy' | 'note' | 'fragment' | 'meta' | 'repo-only' | 'seed' | 'refused'
@@ -307,6 +309,51 @@ export function renderList(
   options?: { sidecarIds?: readonly string[] }
 ): string[]
 
+// ---------------------------------------------------------------- the catalogue
+
+/** The repositories `plugin list --available` reads, at their newest tag. */
+export const PLUGIN_CATALOGUES: readonly { repo: string; commercial: boolean }[]
+export const PLUGIN_CATALOGUE_URL: string
+export function repoDisplayName(repo: string): string
+export function readmeLede(text: string | null | undefined): string | null
+export interface CatalogueEntry {
+  id: string
+  label: string
+  version: string | null
+  subdir: string
+  description: string
+}
+export function catalogueEntries(
+  files: readonly string[],
+  read: (rel: string) => string | null
+): CatalogueEntry[]
+/** The files the catalogue reads, so a mirror can fetch them in one round trip. */
+export function catalogueReads(files: readonly string[]): string[]
+export interface LicenceTerms {
+  file: string
+  url: string | null
+}
+export function licenceTerms(
+  files: readonly string[],
+  read: (rel: string) => string | null,
+  where: { repo: string; ref: string }
+): LicenceTerms | null
+export interface Catalogue {
+  repo: string
+  tag: string
+  commercial: boolean
+  licence?: LicenceTerms | null
+  plugins: CatalogueEntry[]
+}
+export function renderCatalogue(
+  catalogues: readonly Catalogue[],
+  installed?: readonly Surface[]
+): string[]
+export function catalogueJson(
+  catalogues: readonly Catalogue[],
+  installed?: readonly Surface[]
+): Record<string, unknown>
+
 // ---------------------------------------------------------------- the audit
 
 /** One finding, in the shape an agent can act on: file, where in it, what, and the exact edit. */
@@ -349,6 +396,37 @@ export function isolationEvidence(source: string): IsolationEvidence
  * stripped first — a doc comment saying a hook is absent otherwise satisfies a substring search.
  */
 export function declaresProperty(source: string, name: string): boolean
+export interface DeprecatedServerMember {
+  name: string
+  replacement: string
+  fix: string
+}
+export const DEPRECATED_SERVER_MEMBERS: readonly DeprecatedServerMember[]
+export function deprecatedServerMembers(source: string): DeprecatedServerMember[]
+
+export const TOOL_NAME_RE: RegExp
+export const CORE_TOOL_NAMES: readonly string[]
+export function isReservedPluginPath(path: string): boolean
+export function reservedMountPaths(source: string): string[]
+export function stringConstants(source: string): Map<string, string>
+export interface DeclaredTool {
+  name: string | null
+  title: string | null
+  description: string | null
+}
+export function declaredTools(source: string, constants?: Map<string, string>): DeclaredTool[]
+export interface ToolProblem {
+  severity: 'fail' | 'warn'
+  pluginId: string
+  file: string
+  tool: string
+  kind: string
+  problem: string
+  fix: string
+}
+export function toolProblems(
+  declarations: readonly { pluginId: string; file: string; tools: readonly DeclaredTool[] }[]
+): ToolProblem[]
 
 export function resolveSubdir(input: {
   flag?: string | null

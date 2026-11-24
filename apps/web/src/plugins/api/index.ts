@@ -8,7 +8,8 @@
  * *a plugin imports only from declared entries, and receives everything else as injected context.*
  *
  * The exports below are grouped by the file they come from and sorted by the formatter, so read
- * them there: `./http` is a request, `./jobs` is background work, `./ai` is agents and tools,
+ * them there: `./http` is a request, `./errors` is the HTTP error classes for code outside a
+ * route (a tool, a job), `./jobs` is background work, `./ai` is agents and tools,
  * `./chat` is a streamed chat turn a plugin route answers with,
  * `./access` is row visibility, `./events` is nudges and notifications, `./emit` is declared plugin
  * events, `./secrets` is a tenant's
@@ -45,11 +46,13 @@ export type {
   AnyUiPlugin,
   PluginHeaderItem,
   PluginHeaderPlacement,
+  PluginHomeCard,
   PluginNavGroup,
   PluginRequires,
   PluginRoute,
   PluginRouteTier,
   PluginSeedContext,
+  PluginSettingsTab,
   ServerPlugin,
   UiPlugin,
 } from '../types'
@@ -69,6 +72,8 @@ export type {
   AgentSummary,
   Decision,
   FusedItem,
+  McpToolAnnotations,
+  McpToolScope,
   PickOptions,
   PickResult,
   PluginAgent,
@@ -81,6 +86,9 @@ export type {
   ToolCtx,
   ToolLoopCheckpoint,
   ToolLoopResult,
+  ToolMcpOptions,
+  ToolRequester,
+  ToolSurface,
 } from './ai'
 export {
   AiNotConfiguredError,
@@ -128,6 +136,17 @@ export type {
   TenantEmitInput,
 } from './emit'
 export { eventCtx } from './emit'
+export {
+  ApiError,
+  BadRequestError,
+  ConflictError,
+  ForbiddenError,
+  isApiError,
+  NotFoundError,
+  RateLimitedError,
+  ServiceUnavailableError,
+  UnauthorizedError,
+} from './errors'
 export type { ActivityInput, NotifyInput, Realtime } from './events'
 export {
   notify,

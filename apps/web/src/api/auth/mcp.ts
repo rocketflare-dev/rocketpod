@@ -1,43 +1,48 @@
 /**
- * The remote MCP server's credential (docs/CONCEPTS.md §19): an OAuth access token from
- * `MCP_AUTHORIZATION_SERVER`, resolved to the SAME `AuthContext` a browser session of that person
- * would have. The kit is only the resource server: the authorization server signs the person in,
- * asks their consent and binds the token to this deployment's resource (`mcpResource(cfg)`, RFC
- * 8707); this checks it.
+ * The MCP server's SECOND credential (docs/CONCEPTS.md §19, Rocketpod only): a JWT access token
+ * from an outside OAuth authorization server, `MCP_AUTHORIZATION_SERVER` (Cognito, Entra, Okta…).
+ * The app's own authorization server (`services/mcp/authorization.ts`) is the first; both end in
+ * the SAME caller (`services/mcp/caller.ts` `callerForGrant`), so membership, the block, the
+ * tenant's status, the organisation's switch and connect policy, exposure, the three call limits
+ * and the call log mean exactly the same thing whichever server signed the person in.
  *
- * - **The token.** A JWT (`typ: at+jwt`, ES256 or RS256) signed by a key in the server's JWKS
- *   (`jwks_uri` from its RFC 8414 metadata, cached; `jose` re-reads it for a `kid` it hasn't
- *   seen), with `iss` = the server, `aud` = the resource and a verified `email`. Anything else is
- *   `null`, which the route answers 401 with the `WWW-Authenticate` that leads a client to sign in.
- * - **The person** is admitted exactly as the OIDC callback admits them (`admitUser`), so
- *   `SIGNUP_MODE`, blocking and `BOOTSTRAP_ADMIN_EMAILS` mean the same thing here. Under
- *   `OIDC_MANAGED_TENANCY` the token's orgs claim is reconciled like an id_token's
- *   (`reconcileIdpClaims`) — once per token, not per call: a token no newer than the person's last
- *   reconcile changes nothing.
- * - **The tenant.** One membership → that one. Several → the call must name one (`tenant` argument
- *   or `mcp-tenant` header, by id, slug or the issuer's org id); naming none leaves `tenantId`
- *   null, and every tool but `list_tenants` refuses. Never picked silently.
+ * What is particular to the outside server, and lives here:
+ *
+ * - **The token.** A JWT (ES256 or RS256) signed by a key in the server's JWKS
+ *   (`jwks_uri` from its RFC 8414 metadata, cached; `jose` re-reads it for a `kid` it hasn't seen),
+ *   with `iss` = the server, `aud` = `<APP_URL>/mcp` (which covers every `/mcp/t/<slug>`) or the
+ *   exact URL it is used on, and a verified `email`. Its `typ` header may be RFC 9068's `at+jwt`
+ *   or the plain `JWT` (or none) that Cognito and Entra access tokens carry (`ACCESS_TOKEN_TYPS`);
+ *   the audience check is what keeps an ID token out (its `aud` is the client, never `/mcp`),
+ *   and a `token_use` other than `access` (Cognito's ID tokens) is refused outright. Anything
+ *   else is `null` → the 401 challenge.
+ * - **The person** is admitted exactly as an OIDC sign-in admits them (`admitUser`), so
+ *   `SIGNUP_MODE`, blocking and `BOOTSTRAP_ADMIN_EMAILS` hold here too, and under
+ *   `OIDC_MANAGED_TENANCY` the token's orgs claim is reconciled like an id_token's — once per
+ *   token, not per call. The SSO policy is checked by the route (`routes/mcp.ts`).
+ * - **The organisation** is the URL's (`/mcp/t/<slug>`), else the `mcp-tenant` header (id, slug or
+ *   the issuer's org id), else the person's only one. Several and none named is a 403
+ *   `mcp_tenant_required` — never picked silently.
+ * - **The connection** is an `mcp_grants` row per (person, organisation, issuer client, URL),
+ *   made on first use (`outsideMcpGrant` in `services/mcp/tokens.ts`), so it is listed, counted,
+ *   limited and revocable like any other.
  */
-import type { McpTenant } from '@rocketpod/shared/mcp'
-import type { MembershipRole } from '@rocketpod/shared/tenants'
+import { MCP_SCOPES, type McpScope } from '@rocketpod/shared/mcp'
 import { and, eq, isNotNull, max } from 'drizzle-orm'
 import { createRemoteJWKSet, customFetch, type JWTPayload, jwtVerify } from 'jose'
-import { type AppConfig, isIdpManaged, mcpResource } from '../../config'
+import { type AppConfig, isIdpManaged } from '../../config'
 import type { Database } from '../../db/client'
 import { tenants, tenantUsers, type User } from '../../db/schema'
-import { buildAbility, resolveFeatures } from '../../permissions'
 import { admitUser } from '../services/auth'
-import { listFeatureFlagRows, platformFeatures } from '../services/features'
-import { listUserGroups } from '../services/groups'
+import { platformFeatures } from '../services/features'
 import {
   type IdpLogger,
   idpClaimsAdmit,
   readIdpClaims,
   reconcileIdpClaims,
 } from '../services/idp-tenancy'
+import { mcpResourceUrl } from '../services/mcp/tokens'
 import type { Realtime } from '../services/realtime'
-import type { AuthContext } from '../types'
-import { ForbiddenError } from '../utils/core/errors'
 import type { Logger } from '../utils/core/logger'
 
 const METADATA_TTL_MS = 60 * 60 * 1000
@@ -73,62 +78,112 @@ export function resetMcpKeys(): void {
   jwksByIssuer.clear()
 }
 
-export interface McpTokenClaims extends JWTPayload {
+export interface OutsideMcpToken extends JWTPayload {
   email: string
+  /** When the server issued it — a grant revoked after this refuses it. */
+  issuedAt: Date
+  /** `<issuer>#<the token's client>` — the grant's `clientId`. */
+  clientId: string
+  /** The MCP scopes it carries; both when it names none (exposure still decides). */
+  scopes: McpScope[]
 }
 
-/** The token's claims when it is a valid token for this resource from the server, else null. */
-export async function verifyMcpToken(
+/** The scopes a token's `scope` claim grants: the MCP ones it names, else both. */
+export function outsideTokenScopes(scope: unknown): McpScope[] {
+  const named =
+    typeof scope === 'string'
+      ? scope
+          .split(/\s+/)
+          .filter((s): s is McpScope => (MCP_SCOPES as readonly string[]).includes(s))
+      : []
+  return named.length > 0 ? [...new Set(named)] : [...MCP_SCOPES]
+}
+
+/**
+ * The `typ` headers an outside access token may carry: RFC 9068's `at+jwt` (either spelling), or
+ * the plain `JWT` — or no header at all — that Cognito and Entra access tokens are issued with.
+ * Any other declared type (an ID token's, a logout token's) is refused.
+ */
+const ACCESS_TOKEN_TYPS = new Set(['at+jwt', 'application/at+jwt', 'jwt'])
+
+function isAccessTokenTyp(typ: string | undefined): boolean {
+  return typ === undefined || ACCESS_TOKEN_TYPS.has(typ.toLowerCase())
+}
+
+/**
+ * The token's claims when it is a valid token from the outside server for `resource` (the URL
+ * the request arrived on), else null.
+ */
+export async function verifyOutsideMcpToken(
   cfg: AppConfig,
   token: string,
+  resource: string,
   logger: Pick<Logger, 'warn'>,
   doFetch: typeof fetch = fetch
-): Promise<McpTokenClaims | null> {
+): Promise<OutsideMcpToken | null> {
   const issuer = cfg.MCP_AUTHORIZATION_SERVER
   if (!issuer) return null
   let jwks: Jwks
   try {
     jwks = await jwksFor(issuer, doFetch)
   } catch (err) {
-    logger.warn({ err, issuer }, 'MCP: could not read the authorization server keys')
+    logger.warn({ err, issuer }, 'MCP: could not read the outside authorization server keys')
     return null
   }
   try {
-    const { payload } = await jwtVerify(token, jwks, {
+    const { payload, protectedHeader } = await jwtVerify(token, jwks, {
       algorithms: ['ES256', 'RS256'],
-      typ: 'at+jwt',
       issuer,
-      audience: mcpResource(cfg),
+      audience: [...new Set([mcpResourceUrl(cfg), resource])],
     })
+    if (!isAccessTokenTyp(protectedHeader.typ)) return null
+    if (payload.token_use !== undefined && payload.token_use !== 'access') return null
     const email = payload.email
     if (typeof email !== 'string' || !email.includes('@')) return null
     // An issuer that says outright the address is unverified is not trusted for it.
     if (payload.email_verified === false) return null
-    return { ...payload, email: email.toLowerCase() }
+    const client =
+      typeof payload.client_id === 'string'
+        ? payload.client_id
+        : typeof payload.azp === 'string'
+          ? payload.azp
+          : 'token'
+    return {
+      ...payload,
+      email: email.toLowerCase(),
+      issuedAt: new Date((payload.iat ?? Math.floor(Date.now() / 1000)) * 1000),
+      clientId: `${issuer}#${client}`,
+      scopes: outsideTokenScopes(payload.scope),
+    }
   } catch {
     return null
   }
 }
 
-/** The person's tenants, by name. */
+/** The person's organisations, as the tenant choice needs them. */
 export async function mcpTenantsOf(
   db: Database,
   userId: string
-): Promise<Array<McpTenant & { externalOrgId: string | null; status: string }>> {
-  const rows = await db
-    .select({
-      id: tenants.id,
-      slug: tenants.slug,
-      name: tenants.name,
-      role: tenantUsers.role,
-      externalOrgId: tenants.externalOrgId,
-      status: tenants.status,
-    })
+): Promise<Array<{ id: string; slug: string; externalOrgId: string | null }>> {
+  return db
+    .select({ id: tenants.id, slug: tenants.slug, externalOrgId: tenants.externalOrgId })
     .from(tenantUsers)
     .innerJoin(tenants, eq(tenants.id, tenantUsers.tenantId))
     .where(eq(tenantUsers.userId, userId))
-    .orderBy(tenants.name)
-  return rows.map(r => ({ ...r, role: String(r.role) }))
+    .orderBy(tenants.slug)
+}
+
+/** The organisation a request names (id, slug or the issuer's org id), among the person's own. */
+export function pickTenant<T extends { id: string; slug: string; externalOrgId: string | null }>(
+  mine: readonly T[],
+  named: string | undefined
+): { tenant: T | null; ambiguous: boolean; unknown: boolean } {
+  if (named) {
+    const tenant = mine.find(t => t.id === named || t.slug === named || t.externalOrgId === named)
+    return { tenant: tenant ?? null, ambiguous: false, unknown: !tenant }
+  }
+  if (mine.length === 1) return { tenant: mine[0] ?? null, ambiguous: false, unknown: false }
+  return { tenant: null, ambiguous: mine.length > 1, unknown: false }
 }
 
 /** The newest `idp_synced_at` on the person's issuer-managed memberships. */
@@ -140,16 +195,16 @@ async function lastReconciledAt(db: Database, userId: string): Promise<Date | nu
   return row?.at ?? null
 }
 
-export type McpPerson = { ok: true; user: User } | { ok: false; reason: string }
+export type OutsideMcpPerson = { ok: true; user: User } | { ok: false; reason: string }
 
 /** Admit the token's person (and reconcile their tenancy), as an OIDC sign-in would. */
-export async function admitMcpPerson(
+export async function admitOutsideMcpPerson(
   db: Database,
   cfg: AppConfig,
-  claims: McpTokenClaims,
+  claims: OutsideMcpToken,
   logger: Parameters<typeof admitUser>[3] & IdpLogger,
   ctx: { jobs: Parameters<typeof admitUser>[4]; realtime?: Realtime }
-): Promise<McpPerson> {
+): Promise<OutsideMcpPerson> {
   const idp = isIdpManaged(cfg) ? readIdpClaims(cfg, claims, logger) : null
   const admitted = await admitUser(
     db,
@@ -181,57 +236,4 @@ export async function admitMcpPerson(
     }
   }
   return { ok: true, user }
-}
-
-/** The tenant a call names (id, slug or the issuer's org id), among the person's own. */
-export function pickTenant<T extends { id: string; slug: string; externalOrgId: string | null }>(
-  mine: readonly T[],
-  named: string | undefined
-): { tenant: T | null; ambiguous: boolean; unknown: boolean } {
-  if (named) {
-    const tenant = mine.find(t => t.id === named || t.slug === named || t.externalOrgId === named)
-    return { tenant: tenant ?? null, ambiguous: false, unknown: !tenant }
-  }
-  if (mine.length === 1) return { tenant: mine[0] ?? null, ambiguous: false, unknown: false }
-  return { tenant: null, ambiguous: mine.length > 1, unknown: false }
-}
-
-/**
- * The `AuthContext` of the person in one tenant (or none), built the way the Bearer path builds a
- * key's: memberships, groups and feature flags re-read on every call.
- */
-export async function mcpAuthContext(
-  db: Database,
-  cfg: AppConfig,
-  user: User,
-  tenant: { id: string; name: string; slug: string; role: string; status: string } | null,
-  sessionId: string
-): Promise<AuthContext> {
-  if (user.blockedAt) throw new ForbiddenError('Account is blocked', 'blocked')
-  if (tenant?.status === 'suspended') {
-    throw new ForbiddenError('Organisation is suspended', 'tenant_suspended')
-  }
-  const [groups, flagRows] = tenant
-    ? await Promise.all([
-        listUserGroups(db, tenant.id, user.id),
-        listFeatureFlagRows(db, tenant.id),
-      ])
-    : [[], []]
-  const features = await resolveFeatures(cfg, flagRows, {
-    tenantId: tenant?.id ?? null,
-    userId: user.id,
-  })
-  const role = (tenant?.role ?? null) as MembershipRole | null
-  return {
-    user,
-    tenantId: tenant?.id ?? null,
-    tenantUser: role ? { role } : null,
-    tenant: tenant ? { id: tenant.id, name: tenant.name, slug: tenant.slug } : null,
-    session: { id: sessionId },
-    ability: buildAbility({ role, isGlobalAdmin: user.isGlobalAdmin, features }),
-    isGlobalAdmin: user.isGlobalAdmin,
-    features,
-    groups,
-    accessRequestStatus: null,
-  }
 }

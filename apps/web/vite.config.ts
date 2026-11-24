@@ -78,6 +78,12 @@ export default defineConfig({
       '/api': proxyTo(),
       '/auth': proxyTo(),
       '/ws': proxyTo(`ws://localhost:${ports.api}`, { ws: true }),
+      // The MCP server, its authorization server and the OAuth discovery documents — so a client
+      // pointed at the UI's port (a tunnel to it, say) reaches them. The consent PAGE is `/consent`,
+      // a client route Vite serves itself.
+      '/mcp': proxyTo(),
+      '/oauth': proxyTo(),
+      '^/\\.well-known/(oauth-|openid-configuration)': proxyTo(),
     },
   },
   resolve: {

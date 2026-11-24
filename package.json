@@ -17,6 +17,7 @@
     "dev:db:down": "pnpm --filter @rocketpod/web dev:db:down",
     "dev:db:status": "pnpm --filter @rocketpod/web dev:db:status",
     "bootstrap": "node scripts/bootstrap.mjs",
+    "design:docs": "node scripts/design-docs.mjs",
     "kit:upgrade": "node scripts/upgrade.mjs",
     "kit:release": "node scripts/release.mjs",
     "plugin": "node scripts/plugin.mjs",
@@ -48,6 +49,7 @@
   "devDependencies": {
     "@biomejs/biome": "^2.6.6",
     "tsx": "^4.23.15",
-    "typescript": "^5.9.3"
+    "typescript": "^7.0.2",
+    "typescript6": "npm:typescript@6.0.3"
   }
 }

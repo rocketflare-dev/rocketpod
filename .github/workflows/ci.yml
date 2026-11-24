@@ -9,7 +9,7 @@ name: CI
 #
 #   static          gitleaks, then `pnpm gate lint typecheck build`
 #   test (packages) `pnpm test --only packages` — no database
-#   test (api)      `pnpm test --only api` — the --no-isolate web run
+#   test (api)      `pnpm test --only api` — the shared-registry `api` project
 #   test (rest i/4) `pnpm test --only rest --shard i/4` — the other web projects (api-isolated,
 #                   driver, ui, config, and kit-only in the kit), split by vitest's own --shard
 #   Gate            needs every job above; fails unless all of them succeeded

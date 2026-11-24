@@ -5,6 +5,7 @@ reasons are `docs/CONCEPTS.md` §16; the seam is `apps/web/src/plugins/CLAUDE.md
 looking things up mid-run.
 
 **Contents:** [Exit codes](#exit-codes-pnpm-plugin---help-is-authoritative) ·
+[The catalogue](#the-catalogue--plugin-list---available) ·
 [The manifest](#the-manifest--rocketflare-pluginjson-in-the-repo-pluginjson-in-the-host) ·
 [How `add` classifies each file](#how-add-classifies-each-file-of-the-source-repo) ·
 [What `check` verifies](#what-check-verifies) ·
@@ -22,11 +23,32 @@ looking things up mid-run.
 | 0 | ok | a plan printed, or an apply that landed |
 | 1 | error | anything the script names and stops on |
 | 2 | usage | a missing or unknown argument |
-| 3 | unreachable with no cached mirror | a bad repo URL, or offline with nothing under `.upgrade/plugins/` — `--no-fetch` reuses the cache |
+| 3 | unreachable with no cached mirror | a bad repo URL, or offline with nothing under `.upgrade/plugins/` — `--no-fetch` reuses the cache. For `list --available`, unreachable at all: it never answers from the cache |
 | 4 | applied with rejects (`upgrade`) | work remains; the version stamp is deliberately withheld until the `*.rej` files are gone |
 | 5 | no `rocketflare-plugin.json` at the SOURCE | the path or repo is not a plugin. That is the filename at a plugin REPOSITORY's root; the copy inside a host is `plugin.json` |
 | 6 | a requirement is unmet | the `minKit` floor, `requires.surfaces`, `requires.plugins`, or a symbol its `uses` names that this kit's ledger does not carry. **Nothing is written** |
 | 7 | the target path exists | most often "plugin '<id>' is already installed — `pnpm plugin upgrade <id>` moves it forward" |
+
+## The catalogue — `plugin list --available`
+
+What can be installed, read live: `pnpm plugin list --available [--json]` mirrors each published
+repository (`PLUGIN_CATALOGUES` in `scripts/lib/plugin-lib.mjs` — the first-party
+`rocketflare-dev/rocketflare-plugins`, then `rocketflare-dev/rocketflare-commercial-plugins`)
+through the same `.upgrade/plugins/` mirror `add` uses, ALWAYS fetching, and reads it at its newest
+`X.Y.Z` tag. Every `rocketflare-plugin.json` up to three directories deep is one plugin (never one
+inside another). Its line is id, version, `installed` (or `installed <older version>`) and a
+description: the manifest's own `"description"` when it has one, else the opening `>` blockquote of
+the `README.md` beside it (else that README's first sentence), else its `label`. The kit holds no
+copy of any of it, so the list cannot go stale.
+
+- **The first-party repository unreachable** — offline, no git access to github.com — is one
+  `error:` line and exit 3. A cached mirror is never read instead.
+- **The commercial repository** appears only when the person's git credentials can read it (git
+  runs with `GIT_TERMINAL_PROMPT=0`, so it never prompts), under its own `Commercial plugins`
+  heading with a `licence:` line — the repository's LICENSE, else a Licence section of its README,
+  else "ask the maintainers". Unreadable, it prints nothing at all.
+- `PLUGIN_CATALOGUES` in the environment (a JSON array of `{ "repo", "commercial" }`) replaces the
+  list — the test seam, and a way to point at a private mirror.
 
 ## The manifest — `rocketflare-plugin.json` in the repo, `plugin.json` in the host
 
@@ -212,6 +234,17 @@ where the complaint is AT a place in a file, never fabricated. Per installed plu
   generated from the kit's own source. Each finding names the symbol and its replacement import;
 - for each of the five barrels, the **line and the half agree both ways** — a barrel that names a
   plugin half that is not on disk, and a half on disk that no barrel names;
+- **its tool names are ones every surface accepts and nobody else's** — 1–64 of `A–Z a–z 0–9 _ -`
+  (MCP allows `.`, the chat models refuse it), never a core tool's name (`search_knowledge`,
+  `get_document`, `list_documents`, `lookup_facts`) and never another installed plugin's. Read from
+  each `defineTool({ name })` written as a literal or a `const`; a name it cannot resolve is left
+  to the tool builder, which drops (and logs) a bad one at runtime anyway. "Rocketpod" in a tool's
+  `title` or `description` is a WARNING — an MCP client shows that text under the deployment's own
+  name;
+- **no mount on core's MCP paths** — an `apiPrefixes` entry or a `['/mcp' | '/oauth/…' |
+  '/.well-known/oauth-…', …]` mount tuple fails (the host also refuses it at load). A plugin's
+  tools reach MCP clients through `tools` alone; it proves they scope with `callMcpTool` from
+  `@testkit/integration` (`apps/web/src/plugins/CLAUDE.md`);
 - no **`*.rej`** anywhere under its directories ("an upgrade left work behind");
 - **its skills, both ways**: every declared skill has `.claude/skills/<dir>/SKILL.md` whose
   frontmatter `name:` is `<dir>` and whose `description:` is not empty (a skill without both never
@@ -235,6 +268,7 @@ where the complaint is AT a place in a file, never fabricated. Per installed plu
 - **no two installed plugins declare the same table name.** The prefix convention is what keeps
   them apart and nothing derives a table name from an id, so the collision is the checkable half —
   and nothing else in the kit sees it. TS2308 catches a duplicated EXPORT symbol, not a duplicated
+
   `pgTable('orders', …)`, and past that point drizzle-kit emits DDL for one name twice and a single
   generated `DROP TABLE` takes the other plugin's data. It fails for BOTH plugins and in both tiers
   (neither is excused, and there is no tier to be excused by), because neither plugin is
@@ -244,7 +278,11 @@ where the complaint is AT a place in a file, never fabricated. Per installed plu
 `requires.pluginApi` are gone with it, because nothing left is a rule a RELEASED plugin cannot
 retroactively satisfy: `uses` is a measurement of the plugin's own code, which anybody holding it
 can re-derive with `pnpm plugin export`. `warn:` and `note:` survive for findings that are not
-faults in a plugin at all — a plugin declaring no `minKit`, or a vendored one.
+faults in a plugin at all — a plugin declaring no `minKit`, or a vendored one — and for a
+**deprecated member the kit still reads**: `agentTools` warns with its replacement (`tools:`, same
+signature; each tool then picks `surfaces` and an optional `mcp` block — see
+`apps/web/src/plugins/CLAUDE.md`). A later kit release removes the old name with a porting-note
+step, and only then does it fail.
 
 `pnpm plugin check --json` prints the same audit as data: `{ ok, plugins, failures, warnings,
 notes }`. `failures` and `warnings` are separate lists so `ok` keeps meaning "this exits 0", and

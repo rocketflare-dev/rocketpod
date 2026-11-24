@@ -1,5 +1,4 @@
-// @vitest-isolate
-// Mocks the plugin barrels to register the test agents (tests/helpers/test-agents.ts).
+// @vitest-fixture-agents
 /**
  * `GET /api/agents/stats`: one row per registered agent, scoped like the runs list (a member's own
  * runs, an admin's every run), windowed by `?days=`, with tokens and cost from the runs' own
@@ -7,7 +6,7 @@
  */
 import { agentStatsResponseSchema } from '@rocketpod/shared/ai/agents'
 import { MICROCENTS_PER_USD } from '@rocketpod/shared/ai/pricing'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { agentRuns, aiUsage } from '@/db/schema'
 import {
   createTestSession,
@@ -20,13 +19,6 @@ import { setupTestDatabase } from '../helpers/db'
 import { json, request } from '../helpers/request'
 import { TEST_RESEARCH, TEST_SUMMARIZE } from '../helpers/test-agents-shared'
 import { createTestEnv } from '../mocks/bindings'
-
-vi.mock('@rocketpod/shared/plugins', async importOriginal =>
-  (await import('../helpers/test-agents-shared')).withTestAgents(await importOriginal())
-)
-vi.mock('@/plugins/server', async () =>
-  (await import('../helpers/test-agents')).testAgentsServerBarrel()
-)
 
 const db = setupTestDatabase()
 const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000)

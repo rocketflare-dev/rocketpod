@@ -51,6 +51,9 @@ deleting them. Nothing else in the host ever names a plugin, which is what makes
   the replacement import. **Annotate the context explicitly** — `ctx.notFound()` returns `never`,
   and TypeScript narrows on that only when the call target is explicitly typed, so `const ctx =
   requestCtx(c)` throws at runtime while the compiler still believes the row may be undefined.
+  `ctx.apiKeyId` names the API key a Bearer request came in on (`null` for a browser session;
+  never the secret) — key a per-client limit or audit line on it, because `ctx.userId` is the
+  key's CREATOR and every key one person made shares it.
 - **Two things cannot be injected and are entries instead**: `@/db/schema/kit` for a table file (a
   `pgTable(...)` runs at module scope and drizzle-kit reads it statically — imported by RELATIVE
   path, since drizzle-kit bundles that file and resolves no tsconfig alias) and the split UI kit.
@@ -122,7 +125,8 @@ release.
 
 - **Its routes are kit routes in every respect** — `createRouter()`, `validate()` with a contract
   from its own shared entry, `ctx.guard` with its own subject, the tenant id from the context, typed
-  errors, a tenant predicate on every query. Only REGISTRATION differs: `mounts`
+  errors (`ctx.notFound()`… in a route; the same classes, `NotFoundError`, `ForbiddenError`…, from
+  `@/plugins/api` in a tool or a job), a tenant predicate on every query. Only REGISTRATION differs: `mounts`
   (`['/api/<id>', router, middleware?]`, the same tuple a kit mount is), spread LAST into the mount
   table of `api/index.ts`, so the enumerable auth surface stays one list and a plugin can never
   shadow a kit prefix. The `/api/<id>` convention is what stops two plugins claiming one path.
@@ -234,24 +238,43 @@ release.
   `../api/queues/CLAUDE.md`). A job whose payload carries a `tenantId` is acked unrun while that
   tenant is not `active` (suspended or deleted), so work that must happen on suspension belongs in
   `onTenantStatusChanged`, not in a job.
-- **`agentTools(ctx)` is bound to the run's `AgentToolContext`**, which carries the `AccessScope` —
+- **`tools(ctx)` is bound to the caller's `AgentToolContext`** (the old name `agentTools` still
+  works and draws a `plugin check` warning), which carries the `AccessScope` —
   so a plugin tool reads what its REQUESTER may read, never a bare `tenantId` it chose itself. A
   tool that writes is offered on `ToolCtx.can('manage', YOUR_SUBJECT)`, never on `scope.bypass`,
-  which is row visibility. A tool that fetches a URL reads only one in `ToolCtx.requesterUrls`
+  which is row visibility. `ToolCtx.requester` (`{ userId, role, isAdmin, groups }`, null with
+  nobody behind the run) is the caller's own role and groups, already resolved — scope by it,
+  never query for them. A tool that fetches a URL reads only one in `ToolCtx.requesterUrls`
   (what the person typed) or one its own search returned — never a URL the model, a page or a
   document supplied.
   Appended after the kit's three knowledge tools (async allowed, `[]` for a tenant that has not
   turned the tool on, a throw is logged and skipped); a test that pinned the exact tool list must
-  become a prefix assertion.
+  become a prefix assertion. Each tool says where it is offered — `surfaces: ['chat' | 'agents' |
+  'mcp']`, absent = all, filtered by `toolsFor(surface, ctx)` — and how an MCP client sees it in
+  `mcp: { title?, annotations?, outputSchema?, scope? }` (defaults from `sideEffects`: `mcp:read`
+  and read-only, or `mcp:write` and destructive). Terminal and approval-gated tools never reach
+  `mcp`. **Name it `<namespace>_<verb>`**: 1–64 of `A–Z a–z 0–9 _ -` (no `.` — the chat models
+  refuse it), never a core tool's or another plugin's name — the builder drops such a tool and
+  `plugin check` fails it. Never "Rocketpod" in its `title`/`description` (a client shows the
+  deployment's name).
+- **MCP needs nothing else**: no mount, no auth, no token check — `/mcp` resolves the person and
+  hands the tool the same `ToolCtx`. Never mount on `/mcp`, `/oauth/*` or `/.well-known/oauth-*`
+  (refused at load and by `plugin check`). **Prove it scopes over MCP** with `callMcpTool(db, tool,
+  { as, tenant })` from `@testkit/integration` as a member of a second organisation (and outside a
+  group, for group-visible rows) — `example-feature`'s "over MCP" cases are the template; the full
+  safe-tool checklist is `.claude/rules/tools.md`.
 - **`grants` are ADDITIVE and over the plugin's OWN subjects** (declared in
   `SharedPlugin.subjects`), run after the kit's matrix in `buildAbility`. CASL can take a rule back
   only with `cannot`, so a plugin that revoked a kit grant would change what every role may do
   merely by being installed.
-- **`hooks.onTenantCreated`, `hooks.onTenantDeleted`, `hooks.onTenantStatusChanged` and
-  `hooks.seedDemo` are post-commit, idempotent and best-effort**, each try/caught by the host after the kit's own — a plugin hook that throws must
+- **`hooks.onTenantCreated`, `hooks.onTenantDeleted`, `hooks.onTenantStatusChanged`, `hooks.seed`
+  and `hooks.seedDemo` are post-commit, idempotent and best-effort**, each try/caught by the host after the kit's own — a plugin hook that throws must
   never break sign-up or invite accept, so nothing a tenant NEEDS may arrive only that way.
-  `onTenantCreated` is handed `features` (a hook that CREATES rows gates on them itself). `seedDemo`
-  gets a `demoId` already namespaced with the plugin's id; fixed ids + `onConflictDoNothing`.
+  `onTenantCreated` is handed `features` (a hook that CREATES rows gates on them itself). `seed`
+  runs on every `pnpm seed` (reference data the plugin needs), `seedDemo` only with `--demo`; both
+  get a `demoId` already namespaced with the plugin's id (fixed ids + `onConflictDoNothing`) and
+  `setFeature(key, enabled?, tenantId?)` — the per-organisation override that shows a plugin behind
+  its own flag after a plain seed.
 - **`onTenantStatusChanged(db, tenantId, status, env)`** runs after a suspend / reactivate
   (`setTenantSuspended`), each failure logged and swallowed — invalidate anything the plugin
   serves or caches for the tenant outside the auth middleware (public pages, a CDN in front).
@@ -288,6 +311,21 @@ release.
   boundary, so a throw renders nothing. Keep one compact at every width (an icon button below
   `sm`); a palette or drawer it opens is its own lazy chunk. Guard it with the same const as the
   route it serves.
+- **`homeCards`** (`{ id, Component: lazy(...), guard?, order? }`) are Home's "what needs doing"
+  section, above the quick links, via `PluginHomeCards` — same ordering and isolation as `header`.
+  A card with nothing to ask renders `null`. The core quick links are data in
+  `pages/home-links.ts`: the plugin UI kit must never import the Home PAGE
+  (`tests/config/plugin-ui-kit-graph.test.ts`), or `apps/evals` compiles Home's whole graph.
+- **A route serving a PDF a page frames calls `ctx.embeddable(row.contentType)`** — the type from
+  YOUR row, before any 304 early return; only an `EMBEDDABLE_MIME_TYPES` type is let through
+  (`SAMEORIGIN` + `frame-ancestors 'self'` for that response). Never a header of your own.
+- **A file above 10 MB** goes to an exact path in `uploadLimits` (`{ '/api/<id>/upload': bytes }`,
+  ≤ 50 MiB, `uploadLimitIssues`), never a wider `uploadPaths` prefix; the route still mounts its
+  own `bodyLimit` and checks each file. The ingress in front needs `proxy-body-size` raised to
+  match (`docs/DEPLOY.md`).
+- **`settingsTabs(ctx)`** append after the kit's; a tab (`PluginSettingsTab`) may carry a `guard`
+  — the same `NavGuard`, checked by the host — so `{ feature: '<id>' }` hides it in an organisation
+  without the feature, which `can` cannot (a plugin's grants hold in every organisation).
 - **`useNavigationEntries()`** (`@/plugins/api/ui`, so from a lazy page or palette) lists every
   destination the reader may open: composed nav, settings tabs (`pages/settings/tabs.ts` + plugins'
   `settingsTabs`) and Home links, each through `useNavGuard`, first entry per path wins.

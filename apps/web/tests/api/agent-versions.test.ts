@@ -1,6 +1,4 @@
-// @vitest-isolate
-// Swaps an entry of the shared `AGENTS` registry and mocks the plugin barrels to register the
-// test agents (tests/helpers/test-agents.ts), so this file needs its own module registry.
+// @vitest-fixture-agents
 /**
  * Version pinning through the real runtime and database:
  *   - a run records its agent's `meta.version` at enqueue and the Worker deployment it ran on;
@@ -19,6 +17,7 @@ import { AGENTS, type AgentContext, type AnyAgentDefinition } from '@/api/servic
 import { enqueueRun, getRun, idempotentRunId, listEvents } from '@/api/services/agents/runs'
 import { claimStep, executeRun } from '@/api/services/agents/runtime'
 import { assertVersionMeta } from '@/api/services/agents/versions'
+import { overrideResolveChatForTests } from '@/api/services/ai/resolve'
 import type { ChatClient } from '@/api/services/ai/types'
 import type { Logger } from '@/api/utils/core/logger'
 import { loadConfig } from '@/config'
@@ -29,27 +28,15 @@ import { setupTestDatabase } from '../helpers/db'
 import { TEST_SUMMARIZE } from '../helpers/test-agents-shared'
 import { createTestEnv, type TestEnv } from '../mocks/bindings'
 
-vi.mock('@rocketpod/shared/plugins', async importOriginal =>
-  (await import('../helpers/test-agents-shared')).withTestAgents(await importOriginal())
-)
-vi.mock('@/plugins/server', async () =>
-  (await import('../helpers/test-agents')).testAgentsServerBarrel()
-)
-
 const state: { client: ChatClient } = { client: new FakeChatClient([], 'anthropic') }
-vi.mock('@/api/services/ai/resolve', async importOriginal => {
-  const actual = await importOriginal<typeof import('@/api/services/ai/resolve')>()
-  return {
-    ...actual,
-    resolveChat: vi.fn(async () => ({
-      client: state.client,
-      provider: 'anthropic' as const,
-      model: 'claude-sonnet-4-5',
-      source: 'tenant' as const,
-      maxOutputTokens: 2048,
-    })),
-  }
-})
+overrideResolveChatForTests(async () => ({
+  client: state.client,
+  provider: 'anthropic' as const,
+  model: 'claude-sonnet-4-5',
+  source: 'tenant' as const,
+  billedToPlatform: false,
+  maxOutputTokens: 2048,
+}))
 
 const db = setupTestDatabase()
 const original = AGENTS[TEST_SUMMARIZE]

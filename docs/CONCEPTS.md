@@ -23,6 +23,7 @@ setup in `SETUP.md`; the runtime in `.claude/rules/runtime.md`; RLS in `docs/RLS
 | 8 | [Analytics](#8-analytics) | 16 | [Plugins](#16-plugins) |
 |  |  | 17 | [Connectors](#17-connectors) |
 |  |  | 18 | [The Guide](#18-the-guide) |
+|  |  | 19 | [MCP server](#19-mcp-server) |
 
 **Layout (D26).** A pnpm workspace: `apps/web` (the Node server — Hono API + React UI, §§1–10),
 `apps/cli` (§11), `packages/shared` (zod contracts, §12), and `apps/evals` (developer-run eval
@@ -160,7 +161,10 @@ suites on vitest 4, §9 — never part of the gate).
 
 **Known gaps:** no IdP group sync (SCIM/SAML claims); no group hierarchy or per-group roles;
 conversations, runs, prompts and non-Knowledge files have no visibility; agent-written documents
-are always `tenant`; no audit log beyond `activity_events`; no personal API keys (tenant keys only).
+are always `tenant`; no audit log beyond `activity_events`; no personal API keys (tenant keys only);
+no supported pattern for organisations that must share some facts (partners, franchises, shared
+venues), so an app builds its own copy-and-consent exchange; no identity for people outside every
+organisation (guests, customers of a member business) other than a link or a tenant API key.
 `AGENT_TENANT_DAILY_COST_USD` is per organisation, not per person — the creation limit above is
 what bounds one account. A deleted organisation's `ai_usage` rows go with it (the FK cascade), so
 the operator's record of what it spent is lost with the organisation.
@@ -174,7 +178,8 @@ the operator's record of what it spent is lost with the organisation.
   membership → groups → features in one query. The second strategy is a Bearer tenant API key
   (hashed, expiry, soft revoke), with scopes `authMiddleware` enforces on every request: `read`
   allows GET/HEAD/OPTIONS, `write` or `*` allows everything; anything else is 403
-  `insufficient_scope`. The CASL check on the creator's role still applies on top. A key acts only
+  `insufficient_scope`. The CASL check on the creator's role still applies on top. A plugin reads
+  which key it was as `RequestCtx.apiKeyId` (the id, never the secret; `null` for a cookie). A key acts only
   within its organisation, plus its creator's own profile (`GET`/`PATCH /api/me`): `GET
   /api/tenants` lists that one organisation, and the routes about the person's whole account —
   `POST /api/tenants`, `GET /api/invitations/pending`, `POST /api/access-requests` — answer 403
@@ -395,7 +400,11 @@ signed-in account is not checked, and the host trusts the plugin's word that it 
   `/api/ai/documents/upload`, a plugin's `uploadPaths`) a JSON body keeps the 1 MB cap, and any
   other body is capped at `MAX_UPLOAD_PATH_BODY_BYTES` (10 MB + 64 KB multipart overhead, the
   largest file an upload route may take); each upload route mounts its own tighter cap and checks
-  the exact per-file size itself. A public mount's `bodyLimitBytes` replaces the cap (§16).
+  the exact per-file size itself. A public mount's `bodyLimitBytes` replaces the cap (§16). A
+  plugin's `uploadLimits` names EXACT paths whose non-JSON body may go higher, up to
+  `MAX_PLUGIN_UPLOAD_LIMIT_BYTES` (50 MiB, clamped; `uploadLimitIssues` in `plugins.test.ts`
+  refuses more) plus multipart overhead — checked first, for that path alone (§16). The ingress in
+  front has its own cap (`proxy-body-size`, `docs/DEPLOY.md`).
 - **Contracts (D13)**: zod schemas from `@rocketpod/shared` are used by the server, UI and CLI.
   There is no `hono/client` RPC. Errors are `{ error, statusCode, code?, details? }` everywhere,
   and success bodies are bare.
@@ -453,6 +462,16 @@ per-PR previews; no public tunnel for OAuth callbacks in dev (use your own, e.g.
   `docs/plugin-api.md` diff is the kit's own check (`kit.yml`), since a copy publishes no plugin
   API; `pnpm plugin check` runs at the end of `plugin add|upgrade --apply` (exit 8 when the written
   tree fails it) and in `plugin-ci.yml`.
+- **`pnpm gate --changed[=<ref>]`, the local inner loop** (`scripts/lib/gate-changed.mjs`, a pure
+  plan over the changed paths): everything that differs from the merge base with `origin/main`
+  (or `<ref>`), committed, staged, modified or untracked. Lint checks those files; typecheck,
+  test and build run only in the packages they reach, following workspace dependencies; the web
+  tests are vitest's own import-graph answer, plus any changed test file and every test that
+  reads the repository through `fs` or a child process (its inputs are invisible to the graph).
+  The rule is "when in doubt, run more": a change to a dependency manifest, the lockfile, a
+  compiler, lint or vitest config, a toml, a migration, the test harness or the gate itself makes
+  it the full gate. It is for local commits only: run the full `pnpm gate` before a push, and no
+  workflow passes `--changed`.
 - **Verified once (opt-in, for an app Launch ships).** After a green sandbox gate Launch's GitHub
   App posts a `launch/gate` check run keyed by the tree (`external_id: tree:<sha>`). With the
   repository variable `LAUNCH_GATE_APP_ID` set to that App's id, the first step of every `ci.yml`
@@ -469,8 +488,9 @@ per-PR previews; no public tunnel for OAuth callbacks in dev (use your own, e.g.
   then every package and the web suite. `--only packages|api|rest` runs one part of that plan (a
   packages-only run starts no database) and `--shard i/N` slices `rest` with vitest's own `--shard`
   — CI's parallel jobs; `gate.test.ts` proves the parts are the whole plan and the shards the
-  unsharded run. The narrow scripts (`pnpm web test:api|ui|config|driver`)
-  are the inner loop: no compose management. `GATE_SUITE_DRIVER` is refused (one driver).
+  unsharded run. `pnpm test <suite…> [file…]` (`api|ui|config|driver`, each its shared and
+  isolated projects together; the `pnpm web test:*` scripts are aliases for it) is the inner loop:
+  no compose management. `GATE_SUITE_DRIVER` is refused (one driver).
 - **Remote target — an ephemeral test database** (`pnpm test` with `TEST_DATABASE_BRANCH` set): the
   whole gate's tests where there is no Docker — a coding sandbox, whose orchestrator creates a
   throwaway database branch per gate attempt and passes its owner connection string, reached by
@@ -502,7 +522,9 @@ per-PR previews; no public tunnel for OAuth callbacks in dev (use your own, e.g.
   `ROCKETPOD_ALLOW_ROOT=1` (its commands run as root; the container is the boundary) — `SETUP.md`
   Part 1.
 - **Migrations**: `db:generate` → read the SQL → `db:migrate` (role → migrations → grants).
-  Migrations are forward-only.
+  Migrations are forward-only. `db:generate` applies every migration to a scratch database on the
+  local dev Postgres whenever it writes one, and names the statement Postgres refused (drizzle-kit
+  can order a composite FK before the UNIQUE it needs); outside the gate, skipped for a non-local URL.
 - **Cross-tenant allow-list**: `tests/config/unscoped-allowlist.test.ts` fails a function that
   queries a `tenant_id` table without naming a tenant. Each exception carries a reason. It does
   not prove `admin.ts` is the only cross-tenant surface.
@@ -512,7 +534,9 @@ per-PR previews; no public tunnel for OAuth callbacks in dev (use your own, e.g.
 **Known gaps:** the RLS spike has not been run; no read replicas; three pools per process (above); the process pool turns named
 prepared statements on, so a PgBouncer in TRANSACTION mode in front of the Node server needs
 1.21+ (`max_prepared_statements`) — there is no switch to turn them off yet; the TEST database's port
-is fixed per app, not per checkout: the kit's is 5533 (Rocketflare's 5433), and the rename gives
+is fixed per app, not per checkout: the kit's is 5533 (Rocketflare's 5433; `pnpm test` reads the
+Postgres and S3 ports `apps/web/docker-compose.test.yml` publishes and refuses a `.env.test` that
+connects elsewhere), and the rename gives
 every copy its own port block (`choosePortBlock`, rename row (g)), so the kits and any number of
 apps run `pnpm test` side by side — but two clones of the SAME app still share one test port. `--db-url` with a loopback URL (a native Postgres) still looks like this
 checkout's Docker database to preflight and `dev:db:*`, and a re-run of the bootstrap without the
@@ -645,7 +669,8 @@ downtime is pg-boss's default, untested.
   `owned_by_document`.
 - **Framing is opt-in per response**: only a route that proved the type (`isEmbeddableMimeType`, PDF)
   sets `embeddable`, which relaxes `DENY` to `SAMEORIGIN` for that one response. It is set before
-  the 304 early return. Never use a path allowlist for this.
+  the 304 early return. Never use a path allowlist for this. A plugin route reaches the same flag
+  through `ctx.embeddable(contentType)` (§16), which applies the same `isEmbeddableMimeType` test.
 - No storage (`STORAGE_*` not fully configured, so `platform.storage` is null) is 503
   `storage_not_configured`. `tenant.purge` pages through the
   tenant prefix and is idempotent.
@@ -678,23 +703,50 @@ calls `putStream` yet (uploads are multipart forms under `MAX_UPLOAD_BYTES`).
   and by public-site stylesheets), where the brand hexes are the only
   hex values; `contrast.test.ts` gates them. Tailwind scanning is `source(none)` + explicit
   `@source` lines. A plugin's pages get the `../plugins/**/ui/**` line, and precompiled dependency
-  CSS gets none.
+  CSS gets none. The floors and pairs live in `scripts/lib/contrast.mjs`, which the test and the
+  design pages share.
+- **Design pages** (`pnpm design:docs`, `scripts/design-docs.mjs`): renders `docs/design/*.md` (a
+  numeric prefix orders them; the first is `index.html`) and inlines `docs/design/diagrams/*.svg`
+  into `docs/design/html/`: static HTML pages in the app's own tokens, light and dark, committed
+  with the design. `/rp-design` writes the markdown and runs it. The markdown is untrusted: the
+  renderer (`scripts/lib/markdown-lite.mjs`) knows a fixed subset and escapes everything else, and an
+  SVG is re-serialised through an allowlist (`scripts/lib/svg-sanitize.mjs`). A brand being tried
+  goes in `docs/design/brand.css`, written in the token files' own block shapes (`@theme`,
+  `@plugin "daisyui/theme"`, `[data-theme]`, matched by the `-light`/`-dark` suffix) and holding
+  only what it changes. `scripts/lib/brand.mjs` layers it per property over `theme-tokens.css`
+  and `index.css`: the pages' stylesheet, `--contrast` (the gate's floors, failing pairs printed per
+  theme) and `--apply-brand` (writes each property into whichever file defines it, plus
+  `<meta name="theme-color">`) all read that one result, and each warns about a derived tone
+  (`--focus-ring`, `--surface-active`, `--tone-*`) that a changed colour left at the kit's value.
+  `--check` exits 1 when the pages are stale. The output is deterministic, and a rebuild deletes only
+  pages carrying the generator's meta tag. The script is not kit-only, so it ships in every copy.
 - **Providers**: ErrorBoundary → QueryClient → Auth → Ability → WebSocket → Router. A global 401
   clears the cache and redirects to `/login?returnUrl=`.
 - **Guards**: one `RequireGuard` primitive; nav items use the same guard as their page.
   `/login?as=` dev sign-in only works when the server reports `devLogin` and the email is a seeded
-  account.
+  account — one of `DEV_ACCOUNTS` (`ui/lib/dev-accounts.ts`), the list `pnpm seed` creates and the
+  quick-login buttons show, so the two cannot drift.
+- **Role labels**: a role reaches the screen only through `roleLabel(role)` / `ROLE_LABELS`
+  (`@rocketpod/shared/tenants`) — badges, pickers, menus and the quick-login buttons. The stored
+  values (`owner`/`admin`/`member`/`support`) never change; an app whose people say "Manager"
+  edits the labels there.
 - **Data**: `api-client.ts` parses with shared schemas, there is one hook file per resource, and
   keys come from `queryKeys`. zustand holds only websocket state. Detail: `.claude/rules/ui.md`,
   `apps/web/src/ui/CLAUDE.md`.
 
-**Known gaps:** no route preloading; no "system" theme or cross-tab sync; the dev quick-login list
-is hard-coded.
+**Known gaps:** no route preloading; no "system" theme or cross-tab sync; every dev account is
+seeded into the one main tenant (an app wanting a second tenant's owner seeds that tenant itself);
+the CLI prints raw role values, not `ROLE_LABELS`. The rendered design's markdown has no raw HTML,
+footnotes, task lists or reference-style links. It inlines only SVGs under `docs/design/diagrams/`,
+and a brand font is linked from Google Fonts whenever it is not a known system font, without
+checking that Google serves it.
 
 ## 8. Analytics
 
 **The `analytics` PLUGIN (D31) — opt-in, and not installable yet (see gaps).** `plugins/analytics`
-in `rocketflare-dev/rocketflare-plugins`. Once installed, its docs are its own `CLAUDE.md`
+in `rocketflare-dev/rocketflare-plugins`, one of the ecosystem's published plugins that
+`pnpm plugin list --available` lists live (§16; https://rocketflare.dev/plugins to browse). Once
+installed, its docs are its own `CLAUDE.md`
 files. drizzle-cube cubes scope every `sql()` by tenant, dashboards are jsonb `DashboardConfig`s
 restrictable to groups, fact tables rebuild on the `:15` cron, and its cube-isolation test is
 mandatory. The kit core knows nothing about drizzle-cube, and other plugins extend it through
@@ -772,8 +824,15 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   supplies only the new message, and client `tools[]` are refused.
 - **Chat**: owned by `userId`; `chat-turn.ts` is the one implementation behind `/api/chat` and
   `/api/agui`. Everything that can fail as JSON runs before the stream opens, and stream writes use
-  `streamDatabase(c)`. A cancelled run emits no terminal event. Chat can call the three knowledge
-  tools (`CHAT_KNOWLEDGE_TOOLS`), capped at 6 turns. **Long threads are compacted**: a
+  `streamDatabase(c)`. A cancelled run emits no terminal event. Chat can call the knowledge
+  tools (`CHAT_KNOWLEDGE_TOOLS`), capped at 6 turns. **One tool list, filtered per surface**:
+  `buildAgentTools(ctx)` builds every tool (the knowledge tools, then each plugin's `tools`), and
+  chat, agent runs and the MCP server each ask `toolsFor('chat' | 'agents' | 'mcp', ctx)`
+  (`services/agents/tools/surfaces.ts`). A tool names its surfaces (`Tool.surfaces`, absent =
+  all); on `mcp` a terminal tool or one with an approval gate is never offered, and
+  `mcpToolProfile(tool)` derives the scope a call needs (`mcp:read`, or `mcp:write` for
+  `sideEffects`) and the annotations (`readOnlyHint`/`destructiveHint`/`idempotentHint` from
+  `sideEffects` and `durable`, `openWorldHint` false), each overridable in `Tool.mcp`. **Long threads are compacted**: a
   character-budget window (`CHAT_HISTORY_MAX_CHARS`), with the dropped prefix folded into
   `conversations.summary` by the `chat.compact` job (compare-and-set) — its work is
   `compactConversation` (`services/ai/chat-compaction.ts`), callable on any thread. Document cards come from
@@ -1061,6 +1120,11 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   `lookup_facts` and `search_knowledge`'s `facts` block cite every side. People confirm, reject or
   prefer facts, and merge, promote or keep separate possible matches, under
   `/documents?view=review` and on the entity page (`/api/knowledge`).
+  Deleting a document (`DELETE /api/ai/documents/:id`, or a connector's `deleteExternalDocument`)
+  first runs the same repair as re-extraction, in one transaction (`deleteDocumentsWithFacts`,
+  `services/knowledge/remove.ts`), so a fact one of its facts alone superseded or conflicted with is
+  current again. A submitted value, its wording or a date longer than 2,000 characters is dropped
+  before anything parses it.
   Where comparing text would be guessing, a **decision model** is asked (`services/knowledge/judge.ts`,
   typed choices through `resolveDecisions`: TypeSafe's Jev when `TYPESAFE_API_KEY` is set, else the
   chat model on the `knowledge-decide` prompt key). A mention that links to nothing but sits near
@@ -1358,16 +1422,21 @@ keep their names on purpose — they are the plugin ecosystem's fixed filenames 
 - **Kit-only files** (`kitOnly`): what is true of the kit repository and of nothing made from it.
   Its tests (`apps/web/tests/kit-only/**`, vitest project `kit-only`) — porting notes and the root
   version being the kit's, the release/rename machinery, the maintainer hook, plugin CI, the
-  manifest's kit-state claims and coverage, the example surfaces' removability — which the kit's
+  manifest's kit-state claims and coverage, the example surfaces' removability, the kit's own
+  makeup (`kit-makeup`: its exact job and entity types), and the tests of the kit's tooling
+  (`scripts/**`: a copy runs it, never writes it, and receives it already tested) — which the kit's
   gate runs (`pnpm test` names the project only while its directory exists); its workflows
   (`kit.yml`, `plugin-ci.yml`, `notify-plugins.yml`); its maintainer scripts (`release.mjs`,
-  `changelog-nudge.mjs` and `lib/nudge-lib.mjs`, `default-plugins.mjs`, `install.sh`); and its
+  `changelog-nudge.mjs` and `lib/nudge-lib.mjs`, `default-plugins.mjs`, `install.sh`); the
+  maintainer skill `rp-sync-rocketflare` (porting Rocketflare releases into Rocketpod); and its
   project files (`CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, the maintainers' ledger `docs/FORK.md`,
   the kit roadmap `docs/ROADMAP.md`, the pending porting notes `docs/upgrades/unreleased.md`).
   `scripts/rename.mjs` deletes them when a
   copy is born, and with them every package.json script (`kit:release`) and `.claude/settings.json`
   hook that names one (`stripKitOnlyWiring`, `stripKitOnlyHooks`); it also writes the app its own
-  `SECURITY.md` and drops `retiredSurfaces`. `classifyPath` never ports one (the TARGET kit's list
+  `SECURITY.md`, drops `retiredSurfaces` and records the scripts it removed as `kitOnlyScripts`,
+  which `/rp-agent-docs`'s check reads so kit text naming them ("in the kit repository only") is
+  not a failure in a copy. `classifyPath` never ports one (the TARGET kit's list
   too, and `KIT_ONLY_PATHS` is the floor for a pre-0.15.8 manifest); `tests/config/kit-manifest.test.ts`
   fails a copy that carries one or a script or hook that calls one, and `kit.yml`'s renamed-copy
   gate asserts none survive and passes at an app version (`1.2.3`).
@@ -1401,13 +1470,45 @@ keep their names on purpose — they are the plugin ecosystem's fixed filenames 
   and the copy releases by bumping its root version, tagging, and adding its own `CHANGELOG.md`
   section.
 - **`scripts/upgrade.mjs`**: a blobless mirror in `.upgrade/`. It classifies paths, drops absent
-  surfaces and plugin-owned files, translates through the same `applyReplacements()` as the rename,
-  then patches with `--reject` as a fallback. It **never** applies kit migrations (snapshots are
+  surfaces and plugin-owned files (a vendored plugin's are ported as core — it has no release chain
+  of its own), translates through the same `applyReplacements()` as the rename,
+  then patches. A file whose patch no longer applies (usually hunk context the copy's own formatter
+  moved — import order) is merged 3-way with `git merge-file` (base = the old kit file, theirs =
+  the new one, both translated); a clean merge is taken and staged, a conflicting one becomes a
+  `*.rej`, or conflict markers in place under `--3way`. A `manual` file the kit changed gets the
+  same merge as a starting point under `.upgrade/work/<v>/merged/`, never written into the tree.
+  **The target release's upgrader plans the jump**: when its `scripts/upgrade.mjs` differs from
+  the copy's, the copy's extracts it and `scripts/lib/` from the mirror into `.upgrade/tool/<v>/`
+  (translated as the rename translated the copy's) and runs that, pointed back at the checkout by
+  `KIT_UPGRADE_ROOT`, so an upgrader fix released inside the range applies to the jump that crosses
+  it. `scripts/lib/rename-lib.{mjs,d.mts}` is always ported verbatim (`ALWAYS_PORTED_TOOLING`),
+  whatever a copy's `neverPort` says: the ported tools import it. A plan run works on a dirty
+  tree; `--apply` needs a clean one, `git rm`s the kit's deletions only with `--apply-deletes`,
+  and `git add`s exactly what it wrote (rejected and conflicted files stay unstaged), so the
+  gate's `git ls-files` scanners see the new files. It **never** applies kit migrations (snapshots are
   cumulative), applies deletions unasked, or ports the root
-  version. The version stamp is written last, only on a clean apply. Every release path is checked
+  version. The version stamp is written last, only on a clean apply; `--continue` writes it once
+  every `*.rej` is resolved and deleted and no conflict marker remains. Every release path is checked
   before anything is written, a plan run included: one that is not a plain path inside the
   repository (`scripts/lib/repo-paths.mjs`), is under `.git/`, or reaches an added file through a
   symlink stops the run.
+- **A copy starts with a design**:
+  - `/rp-start` is the one entry point the website's prompt names. It runs, in order:
+    1. `scripts/detach.sh`, which records the kit commit in `.rocketflare.json` and replaces the
+       history. `install.sh` and `/rp-setup` §0 run the same script. It refuses a copy that is already detached, so it and `/rp-start` stay in copies harmlessly, as `/rp-adapt` does.
+    2. setup (`/rp-setup`);
+    3. `/rp-design`;
+    4. `/rp-adapt`.
+  - `/rp-design` asks the shape questions the kit makes expensive later: organisations, roles and
+    words, AI, money, non-functional needs, hosting, licence, and integrations, matched against
+    `pnpm plugin list --available`. Each decision records the options weighed. It writes
+    `docs/design/*.md` and `docs/design/design.json`, runs an independent reviewer, and renders it
+    as local pages in the app's brand (`pnpm design:docs`, into `docs/design/html/`).
+  - `/rp-adapt` then reads the names, `docs/design/brand.css` and the licence answer from the
+    design. The app's `LICENSE` becomes its owner's, and the kit's MIT notice stays in
+    `LICENSES/kit-MIT.txt`. Both paths are `neverPort`.
+  - Known gaps: the shape questions are a conversation, so nothing checks that a later stage
+    stayed inside the design. That is the end-of-stage review's job, which doesn't exist yet.
 - **A copy hears about releases on its own**: a Claude Code `SessionStart` hook
   (`scripts/kit-update-check.mjs`, in `.claude/settings.json`) compares `kit.version` with the
   newest tag at `kit.repo` (`git ls-remote`, cached a day in the git-ignored
@@ -1473,8 +1574,9 @@ The full gate stays green at every step. `SETUP.md` is the walkthrough.
   is async). Then the admin rollout: tenant override → `on`/`off` → `rollout`
   percentage → registry default.
 - **Keys are code** (`FEATURES` + metadata). No migration is needed to add one; orphaned rows are
-  inert. The kit ships **no** flag — `example-feature`'s belongs to its plugin — so
-  `featureNameSchema` is a refined string.
+  inert. Core ships two: `knowledge-facts` (§9, a rollout flag, off by default) and `mcp` (§19,
+  environment-gated, on wherever the deployment ships it); `example-feature`'s belongs to its
+  plugin.
 - **`featureBucket` is a wire format**: FNV-1a over `"<key>:<unit>"` mod 100, with golden vectors
   in `features.test.ts`. It is monotonic (the percentage is never hashed) and independent across
   flags.
@@ -1525,7 +1627,9 @@ Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
   prefix, a resolve alias) is a `coreEdits` entry in its manifest (`{ file, after, lines[] }`) —
   a plain path inside the repository. `add` inserts it after the anchor, `remove` reverts it byte
   for byte, `upgrade` applies the new
-  release's list. Never a hand edit. A cron needs no edit at all: pg-boss schedules every
+  release's list. A declared line is matched as code (`findEditLine`): one the host's formatter
+  wrapped onto several lines still counts as present and is reverted whole, so an upgrade never
+  writes it twice. Never a hand edit. A cron needs no edit at all: pg-boss schedules every
   expression `scheduledTasks` names.
 - **Namespacing**: the id is `^[a-z][a-z0-9-]*$` (never a reserved barrel or host directory name —
   `api` included) and namespaces jobs (`<id>.x`), query keys
@@ -1533,7 +1637,8 @@ Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
   convention; **two plugins declaring the same table is a `plugin check` failure**.
 - **Record**: a `kind: 'plugin'` surface (`source: {repo, subdir, version, commit}`). In the kit or
   with `--local` it goes in the git-ignored `.rocketflare.local.json`. A kit diff never touches
-  plugin-owned files. A vendored plugin (`example-feature`) upgrades with the kit.
+  plugin-owned files. A vendored plugin (`example-feature`) upgrades with the kit: `kit:upgrade`
+  ports its files as core, and `plugin upgrade` refuses it and points there.
 - **Compatibility is OBSERVED (decision 5c)**: the kit emits a `## Surface ledger` in
   `docs/plugin-api.md` (generated, diff-checked). A plugin's `uses` is **derived** from its imports
   by `pnpm plugin export`, and compatibility is the set difference `uses \ ledger`, checked before
@@ -1545,8 +1650,19 @@ Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
   `defaultPlugins` installed (in the kit's own repository only), and plugin repos call
   `plugin-ci.yml` (floor + newest kit), which installs a plugin's `requires.plugins` from the
   same checkout first and takes the highest `minKit` across the set as the floor.
+- **Discovery**: `pnpm plugin list --available [--json]` is the catalogue — every
+  `rocketflare-plugin.json` in `rocketflare-dev/rocketflare-plugins` at its newest release tag, one
+  line each (id, version, installed here or not, description: the manifest's `description`, else
+  its README's lede, else its `label`), read through the same mirror `add` uses with the fetch made
+  mandatory. Nothing is copied into the kit, so it cannot go stale; unreachable is one line and
+  exit 3, never a cached list. `rocketflare-dev/rocketflare-commercial-plugins` follows under its own
+  `Commercial plugins` heading with a `licence:` pointer, only when the person's git credentials can
+  read it, and is otherwise not mentioned. `/rp-plugin add` with no id shows it, and
+  `/rp-how-do-i` asks "does a plugin already do this?" first: the order is an existing plugin, else
+  the app itself, and a plugin only for what another app will install too.
+  https://rocketflare.dev/plugins is the browsing page.
 - **Lifecycle** (`scripts/plugin.mjs`): `add` (plan, then `--apply`), `upgrade`, `remove`
-  (`--archive`), `list`, `check`, `export`. Every plan step is **declarative, agent (with its
+  (`--archive`), `list` (`--available`), `check`, `export`. Every plan step is **declarative, agent (with its
   assertion) or human** — a printed instruction is not a mechanism. The host generates the
   migration (`db:generate --name plugin-<id>-<version>`). A plugin's crons join the scheduled
   registry (pg-boss schedules, §5); its `vars` are environment keys, added to `.env.example` and
@@ -1568,13 +1684,41 @@ Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
   `eval-coverage.test.ts` fails a registered plugin key with no entry and an entry for a key the
   plugin does not declare; a host that writes a suite for a plugin's prompt overrides the entry in
   the core map (§9).
-- **Agent tools**: `agentTools(ctx)` may be async and may return `[]`. That is how a tool reaches
+- **Tools**: `tools(ctx)` (renamed from `agentTools`, which is still read when `tools` is absent
+  and draws a `pnpm plugin check` warning) may be async and may return `[]`. That is how a tool reaches
   only the tenants that turned it on: the plugin reads its own settings row for `ctx.scope.tenantId`,
+  Each tool picks where it is offered with `surfaces` (`'chat' | 'agents' | 'mcp'`, absent = all)
+  and shapes how an MCP client sees it with `mcp: { title?, annotations?, outputSchema?, scope? }`
+  (§9 "Chat": the defaults come from `sideEffects`). A terminal tool or one with an approval gate is
+  never offered on `mcp`. **Names**: one list goes to chat, agents and every MCP client, so a name is
+  1–64 of `A–Z a–z 0–9 _ -` (`MCP_TOOL_NAME_PATTERN` — MCP allows `.`, the chat models do not) and
+  unique across core and every plugin. The builder (`admittedPluginTools`) leaves out, and logs, a
+  plugin tool that breaks either rule — the core name or the first plugin keeps it — and
+  `pnpm plugin check` fails the same names statically (best effort: a name it cannot resolve from a
+  literal or a `const` is left to the runtime). It also WARNS on "Rocketpod" in a tool's `title` or
+  `description`, which a client shows under the deployment's own name.
+- **MCP**: a plugin's tool reaches MCP clients through `tools` and nothing else — no mount, no auth,
+  no token check of its own. `/mcp` resolves the person, their organisation, groups and CASL from
+  the connection, lists the tool under the organisation's exposure mode (§19), and calls it with the
+  same `ToolCtx` chat would (`requesterUrls: []`). `example-feature`'s `list_example_notes` carries
+  the reference `mcp` block. **A plugin proves its tool scopes over MCP** with `callMcpTool(db, tool,
+  { as, tenant, args?, scopes?, exposure? })` from `@testkit/integration`: it turns MCP on, writes a
+  real connection, lists and calls over the real `/mcp`, and answers `{ listed, listing, isError,
+  text, json, structured }` — call it as a member of another organisation, or outside a group, and
+  assert the rows are absent (`connectMcp` / `enableMcp` / `mcpClient` for a case that breaks the
+  connection afterwards).
   or its flag through `ToolCtx.features()` (`example-feature` does, and its welcome note follows the
   same flag — a dark feature then costs no prompt tokens). A builder that throws is logged and skipped. `buildAgentTools` is therefore async.
   `ToolCtx.can(action, subject)` is the requester's CASL grant, read at build time from their
   current membership (false for a run with no requester): gate a tool that writes on your own
   subject's `manage`, not on `scope.bypass`, which is row visibility and true for `support` too.
+  `ToolCtx.requester` is who is calling — `{ userId, role, isAdmin, groups }`, the groups with
+  each one's TYPE name — or `null` for a run nobody started (or whose requester was since blocked
+  or removed). The caller already resolved it (chat and MCP from the request's auth context, an
+  agent run from its requester at execute time, with the same two reads as `can` and `scope`), so
+  it costs no query; it is for SCOPING, such as a semantic layer's security context, while a gate
+  stays on `can`. `ToolCtx.features()` answers the caller's own resolved flags when it has them
+  (chat, MCP) and reads the tenant's once otherwise.
   `ToolCtx.requesterUrls` is the frozen set of http(s) URLs the person wrote themselves
   (`services/agents/tools/requester-urls.ts`): in chat, their own turns in the conversation; in an
   agent run, the input when a person submitted it through `POST /api/agents/runs` or `/runs/batch`
@@ -1598,6 +1742,13 @@ Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
 - **Credentials**: a plugin stores a tenant's key with `sealSecret` / `openSecret` from
   `@/plugins/api`. That is the kit's AES-GCM under `OAUTH_ENCRYPTION_KEY`, with a 503 when the key
   is unset. Store the sealed value in a `*_enc` column and answer `hasCredential`.
+- **Reserved paths**: `/mcp`, `/oauth` and the OAuth `.well-known` documents belong to core's MCP
+  server (§19). A plugin claiming one as a mount, an `apiPrefixes` entry or a public mount stops
+  the app at load (`assertNoReservedPluginPaths`), naming the plugin, and `pnpm plugin check` fails
+  it first (an `apiPrefixes` entry in the manifest, a `['/mcp', …]` mount tuple in the source) — a
+  plugin's MCP tools need no route of their own, only `tools`. The opt-in analytics plugin's own
+  `/mcp` (drizzle-cube, API-key auth) is refused by this; its plugins release moves its cube tools
+  onto `tools` and drops the mount and its vite `/mcp` proxy edit.
 - **Public mounts (D34)**: `publicMounts` are routes a third party calls with no session — an
   admin-consent callback, a webhook. Only under `/api/hooks/<id>` (one enumerable prefix per
   plugin), mounted before the authed table with no `authMiddleware` and no
@@ -1669,6 +1820,21 @@ Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
   the 56 px header (`h-full` in a plugin page), scrolling only its own panes. The other tiers are
   `shell` (the default), `noTenant` and `public`. `Breadcrumbs` (from `@/plugins/api/ui`) is the
   trail on its own, for a surface with no page title.
+- **Home cards (`UiPlugin.homeCards`)**: `{ id, Component, guard?, order? }[]` — Home's "what needs
+  doing" section, above the quick links (approvals waiting, an inbox to triage). `PluginHomeCards`
+  merges them across plugins, orders by `order`, then plugin id, then card id, and puts each behind
+  its guard, its own `Suspense` and its own error boundary, like a header item. A card with nothing
+  to ask renders `null`; the section brings no chrome, and with no card passing its guard it is
+  absent. `Component` is `lazy(() => import(...))`. The core quick links are data in
+  `pages/home-links.ts`, so the plugin UI kit never imports the Home page (`plugin-ui-kit-graph.test.ts`).
+- **Framing a response (`ctx.embeddable(contentType)`)**: a plugin route that has proved its body
+  is an `EMBEDDABLE_MIME_TYPES` type (today PDF) — from its own row, never the request — lets a
+  same-origin page frame that one response, the opt-in `/api/files/:id` uses (§6). Any other type
+  is refused (`false`) and `DENY` stands. Call it before any 304 early return.
+- **Large uploads (`ServerPlugin.uploadLimits`)**: `{ '/api/<id>/upload': bytes }` — an exact path
+  whose non-JSON body may exceed `uploadPaths`' 10 MB, up to 50 MiB (§3, body limits). The route
+  still mounts its own `bodyLimit` and checks each file; a buffered body sits in the Node process's
+  memory, and the ingress's `proxy-body-size` must allow it (`docs/DEPLOY.md`).
 - **Header items (`UiPlugin.header`)**: `{ id, Component, guard?, order?, placement? }[]` adds
   controls to the top bar — `placement: 'center'` (a search box, in `Layout`'s `headerCenter`) or
   `'end'` (the default, ahead of the kit's status, Guide help, bell and user menu). `App.tsx`
@@ -1683,7 +1849,9 @@ Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
   open as one flat list of `{ id, label, to, group, icon?, keywords?, source }` — the side nav as
   `SideNav` composes it (`composeNav` over `CORE_NAVIGATION` and every plugin's `nav`), the
   `/settings?tab=` tabs (the core list in `pages/settings/tabs.ts`, which `SettingsLayout` renders,
-  plus every plugin's `settingsTabs({ can })`, all behind the page's `admin`), and the Home quick
+  plus every plugin's `settingsTabs({ can })` — each tab may carry a `guard` (`PluginSettingsTab`,
+  the same `NavGuard` as a nav item, so `{ feature }` hides it where the organisation lacks the
+  flag), all behind the page's `admin`), and the Home quick
   links (plugins' `homeLinks`, then the core ones). Each is filtered by `useNavGuard`, the first
   entry for a path wins, and `source` is `kit` or the contributing plugin's id. It is what a
   command palette searches; `navigationEntries(plugins, checks)` is the pure half.
@@ -1858,8 +2026,12 @@ Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
   imports its own `apps/web/src/host/<id>/` as `@/host/<id>/…` (the existing `@/*` alias), and only
   its own id's (`tests/helpers/plugins.ts`). **Known gap:** `plugin export` does not write host
   files back to `from` — they are the app's content, not the plugin's.
-- **Hooks** (`onTenantCreated`, `onTenantDeleted`, `onTenantStatusChanged`, `seedDemo`) run post-commit, are idempotent,
-  and are try/caught. State a plugin keeps outside Postgres (its own storage prefix, an external
+- **Hooks** (`onTenantCreated`, `onTenantDeleted`, `onTenantStatusChanged`, `seed`, `seedDemo`) run
+  post-commit, are idempotent, and are try/caught. `seed` runs on EVERY `pnpm seed` (demo or not)
+  for reference data a plugin needs to be usable, `seedDemo` only with `--demo`; both get
+  `ctx.setFeature(key, enabled?, tenantId?)`, a per-organisation override (unknown key throws), and
+  `pnpm seed --feature <key>[=on|off][@<slug>]` writes the same row afterwards
+  (`apps/web/scripts/lib/seed-features.ts`). State a plugin keeps outside Postgres (its own storage prefix, an external
   system) is purged in `onTenantDeleted`, addressed by names **derived** from the tenant id.
   `onTenantStatusChanged(db, tenantId, status, env)` runs after a global admin suspends
   (`'suspended'`) or reactivates (`'active'`) a tenant, from `setTenantSuspended`
@@ -1953,6 +2125,12 @@ upsert reads the previous row before writing, so two racing re-ingests of a FILE
 replaced original behind in storage; a plugin skill edited in place is overwritten by the next
 `plugin upgrade` (copy it to a skill of your own first), and `check` validates a skill's name and
 description, not what it says — a stale command in a SKILL.md is caught only by reading it.
+The catalogue reads only the two published repositories (a third-party plugin is installed by URL
+and listed nowhere; `PLUGIN_CATALOGUES` replaces the list but does not extend it), describes a
+plugin from its README until manifests carry a `description`, lists only each repository's newest
+tag (not what a given `minKit` can install, so a Rocketflare plugin listed may still be refused
+here), and judges commercial access by whether git can read the repository, not by any licence
+record.
 
 ---
 
@@ -2062,48 +2240,160 @@ no per-tenant pages or overrides; no i18n; `screenForRoute` knows only the kit's
 Settings `?tab=`; the image `COPY` needs `content/guide/` to exist (it always holds
 `screenshots.yaml`); Ask the Guide keeps no history across tabs or reloads.
 
-## 19. The remote MCP server
+## 19. MCP server
 
-Server: `api/routes/mcp.ts`, `api/auth/mcp.ts`; CORS in `api/middleware/cors.ts`. Contract:
-`@rocketpod/shared/mcp`. Config: `MCP_AUTHORIZATION_SERVER`.
+**An AI client connects to the app at `/mcp` and acts as one person in one organisation, with that
+person's permissions and nothing more.** Clients are those that identify themselves with an OAuth
+Client ID Metadata Document — Claude (claude.ai, Desktop, Code) and ChatGPT. Plan and decisions:
+`docs/plans/mcp-server.md` (Rocketflare's repository). The `rp-mcp` skill drives turning it on, adding a
+tool and connecting a client; `.claude/rules/tools.md` is the checklist for a safe tool, and
+`apps/web/src/api/services/mcp/CLAUDE.md` maps the code and its invariants.
 
-`/mcp` lets an MCP client (Claude Code, a Claude.ai connector, Cursor, VS Code) use the app as
-the person who connected it. The kit is the OAuth **resource server** only: an outside
-authorization server signs the person in, asks their consent and issues an access token bound to
-`<APP_URL origin>/mcp` (RFC 8707). Off until `MCP_AUTHORIZATION_SERVER` names that server: `/mcp`
-and its metadata answer 404.
+- **Deployment gate**: the environment-gated `mcp` flag (§15). Without `mcp` in `FEATURES_ENABLED`,
+  `/mcp`, `/oauth/*`, the OAuth `.well-known` documents, `/api/mcp/*` and `/api/mcp-connections`
+  answer 404. Each organisation's owners and admins then
+  turn it on at Settings → MCP (`mcp_settings.enabled`, off by default).
+- **Transport** (`routes/mcp.ts`, the official SDK's `createMcpHandler`): stateless Streamable
+  HTTP, POST only (405 otherwise), both protocol eras (2026-07-28 and the 2025-11-25 `initialize`
+  path), header/body agreement (-32020) from the SDK. Mounted before the mount table, outside the
+  global CORS (its own: any origin, no credentials, `WWW-Authenticate` exposed) and outside
+  `authMiddleware`. A browser `Origin` must be ours; none is fine. `capabilities.tools.listChanged`
+  is false and a `subscriptions/listen` request is refused, so no request is held open. A JSON-RPC
+  batch is refused (400, -32600) in both eras before the SDK sees it, so every call meets the
+  limits one at a time. The global CORS skips these paths with or without one trailing slash.
+- **Credential**: an OAuth access token (`mcpat_…`, one hour, SHA-256 at rest in `mcp_tokens`) of a
+  live grant (`mcp_grants`: user, tenant, client, scopes, the exact URL it is for). Never a cookie,
+  an API key or a CLI key. `/mcp/t/<slug>` is the same server pinned to one organisation, for a
+  client that keys connectors by URL; a token is refused on any URL but its grant's.
+- **The authorization server** (`services/mcp/authorization.ts`, `routes/oauth.ts`): the app is its
+  own OAuth 2.1 server, in Postgres. Discovery: RFC 9728 protected-resource metadata for `/mcp` and
+  every `/mcp/t/<slug>`, RFC 8414 metadata (also at `openid-configuration`) — S256 only, public
+  clients only (`none`), `client_id_metadata_document_supported`, `iss` on every authorization
+  response (RFC 9207), and no `registration_endpoint`. **Clients are their metadata document**
+  (`services/mcp/cimd.ts`): `client_id` is an https URL on a public host and the default port; the
+  fetch goes through `Platform.publicFetch` (`src/node/egress.ts`: it refuses to connect to a
+  loopback, private, link-local or reserved address, judged on the RESOLVED address at connect
+  time, so a public name pointing — or rebinding — inward is refused too), refuses redirects, takes ten seconds and 5 KB at most, needs a JSON type and a document
+  naming its own URL; it is cached in `oauth_clients` for a day and a failed refetch fails. Every
+  refusal of a fetched document reads the same on the page ("could not be used"), the specific
+  cause only in the server log, so the page says nothing about what the URL reached. A document
+  is cached only once it registers the request's `redirect_uri`, and the nightly `pruneMcp` drops a
+  row unfetched for 30 days that no grant and no pending request names. A
+  document must be usable as a public client: its `token_endpoint_auth_method` absent or `none`, or
+  `none` among its `token_endpoint_auth_methods_supported` (ChatGPT prefers `private_key_jwt` and
+  lists `none`, and falls back to it because our metadata offers nothing else); its `grant_types`
+  and `response_types`, when present, must include `authorization_code` and `code`. The three v1
+  clients' real documents are test fixtures (`tests/config/mcp-cimd.test.ts`). No DCR, no static
+  clients. `GET /oauth/authorize` resolves the client and checks `redirect_uri` (exact;
+  loopback any port) BEFORE anything is redirected — until then an error is a page on our origin;
+  after it, the error goes back with `state` and `iss`. PKCE S256 is mandatory, `resource` must be
+  one of our MCP URLs (`invalid_target`, also for a slug that does not decode), and the request waits ten minutes in `oauth_requests`.
+  **Sign-in is the app's own `/login`** (a `returnUrl` to `/oauth/continue`), so every sign-in
+  method, the single-sign-on policy, `SIGNUP_MODE` and blocking apply unchanged. **Consent** is the
+  SPA page `/consent` (kit chrome, `frame-ancestors 'none'`): "<client> wants to use <APP_NAME> as
+  you", the client's name and logo as CLAIMS beside the verified host of its `client_id` and the
+  redirect host, a warning when it registers only loopback redirects, the organisations where
+  `resolveMcpMember` admits the person (an `/mcp/t/<slug>` request offers only that one), the
+  scopes and the tools. `POST /oauth/consent` (cookie + CSRF) re-checks it all, writes the grant
+  (absolute end `MCP_GRANT_MAX_DAYS`, capped by `OIDC_SESSION_MAX_AGE_DAYS` under IdP-managed
+  tenancy) and a code: SHA-256 at rest, sixty seconds, single-use — a second exchange revokes the
+  grant. A live grant for the same client, organisation and URL that covers the asked scopes is
+  remembered consent: no click. `POST /oauth/token` (form): `authorization_code` (PKCE verifier,
+  client, redirect and resource must match) and `refresh_token`, which rotates every time; a spent
+  refresh token presented again revokes the grant, **except** a retry within 30 seconds while its
+  successor is unused, which gets the same pair back — sealed (AES-GCM) under a key derived from
+  the spent token's own plaintext, so the database never holds an openable successor
+  (`services/mcp/seal.ts`). `POST /oauth/revoke` (RFC 7009): a refresh token ends the connection,
+  an access token itself; anything unknown is a silent 200. Rate limits: authorize, continue and
+  consent take `authRateLimit`; token and revoke — called from the hosted clients' shared server
+  IPs — take 600/min per IP plus 30/min per connection.
+- **Lifecycle**: removing a member (by an admin or the IdP) revokes their grants there, and blocking
+  someone (manually or by IdP deprovisioning) revokes all of theirs, in the same transaction
+  (`revokeMcpGrantsOf`). Role, group and policy changes need nothing: every call re-reads them.
+  Turning MCP off suspends connections (403) without revoking them.
+- **Connections**: `/api/mcp/connections` lists the organisation's (`manage McpSettings`) with
+  revoke and `POST /revoke-all`; `/api/mcp-connections` lists a person's own across organisations
+  with revoke — account-wide, so a session only: an API key gets 403 `insufficient_scope`. Activity: `mcp.client_connected`, `mcp.client_revoked` (who, and why).
+- **Who is calling** (`services/mcp/caller.ts`), re-read on every call, nothing cached on the grant:
+  401 `invalid_token` with the RFC 9728 challenge when the TOKEN is the problem (unknown, expired,
+  revoked, idle past `MCP_GRANT_IDLE_DAYS`, past `MCP_GRANT_MAX_DAYS`, another URL); 403 with a
+  code when the PERSON is (`blocked`, `tenant_suspended`, `mcp_disabled`, `mcp_not_allowed` — not a
+  member, a support role, outside "who can connect"). The `AuthContext` is built by the same
+  `tenantAuthContext` as an API key's, with `isGlobalAdmin` forced false: a client acts as the
+  membership, never with platform reach.
+- **Tools**: `toolsFor('mcp', ctx)` from the caller's own access scope, CASL and features
+  (`requesterUrls` empty — the client's model typed every argument), then the organisation's
+  exposure: `read_only` (default — tools with no `sideEffects` and the read scope), `all`, or
+  `selected`. A write tool is listed to a read-only token and answers 403 `insufficient_scope`
+  naming `mcp:read mcp:write` (the step-up). An unexposed tool is "not found". Every result opens
+  with a line saying it is data, not instructions, and is capped at 60 000 characters (a tool with
+  an `outputSchema` whose answer is over the cap sends no `structuredContent` — it would carry the
+  whole answer — and answers an error result with the capped text); `get_document` windows are
+  20 000.
+- **Limits and audit**: `MCP_CALLS_PER_GRANT_PER_MINUTE` (60), `MCP_CALLS_PER_USER_PER_MINUTE`
+  (120 — one person across all their connections in the organisation, so no member can spend the
+  organisation's minute alone) and `MCP_CALLS_PER_TENANT_PER_MINUTE` (600), checked in that order
+  on the platform's rate limiter (`rate_limits`), answered as tool errors (`rate_limited`), never 429. A limiter that cannot be
+  read fails the call closed, as every limiter in the app does, but as a logged tool error
+  (`tool_failed`) rather than a thrown request. Model spend is not MCP's: a tool that calls a
+  model records it in `ai_usage` under that tool's own feature, as it does from chat, with nothing
+  marking it as an MCP call, under the same tenant caps. `mcp_tool_calls`
+  records each call — who, which connection, which tool, outcome, duration — never its arguments or
+  result; kept `MCP_CALL_RETENTION_DAYS` (90) by the nightly `pruneMcp`, which also drops expired
+  tokens. Each call is a `mcp <tool>` span with an `execute_tool` child.
+- **Visibility is the HTTP routes'**: `tests/api/security/mcp-visibility.test.ts` proves a
+  group-only document, its facts and its entities do not exist for an outsider through every core
+  tool the server lists (a new core tool without a case fails it), and that each answer equals
+  chat's for the same person.
+- **Branding**: what a client sees is `APP_NAME` and the organisation's name — `serverInfo`, the
+  instructions, the notice, every error. `mcp-server.test.ts` sets `APP_NAME="Acme Tools"` and bans
+  `/rocketpod/i` from every response.
 
-- **Discovery.** `/.well-known/oauth-protected-resource` and `/.well-known/oauth-protected-resource/mcp`
-  (RFC 9728) name the resource and the authorization server. A call without a valid token is 401
-  `unauthorized`, with `WWW-Authenticate: Bearer resource_metadata="…"` (plus `error="invalid_token"`
-  for a bad one), which is how a client finds where to sign in. Both answer any origin without
-  credentials and expose `WWW-Authenticate`, so a browser-based client works; the session cookie
-  is never a credential there, and an API key is not one either.
-- **The token.** A JWT (`typ: at+jwt`, ES256 or RS256) verified against the server's JWKS, found
-  through its RFC 8414 metadata (`jwks_uri`) and re-read for an unknown `kid`, with `iss` = the
-  server, `aud` = the resource and an `email`. The server is trusted for that address as the OIDC
-  issuer is.
-- **The person** goes through the sign-in path's own rules, so `/mcp` is not a side door: the SSO
-  policy (`ssoDecisionFor(…)`, as `core`), then `admitUser` (`SIGNUP_MODE`, blocking,
-  `BOOTSTRAP_ADMIN_EMAILS`). Under `OIDC_MANAGED_TENANCY` the token's orgs claim is reconciled
-  exactly as an id_token's (`reconcileIdpClaims`, §2), once per token: a token no newer than the
-  person's newest `tenant_users.idp_synced_at` changes nothing. The authorization server must then
-  put the same claims in its access tokens as the issuer puts in id_tokens (Labs Access does).
-- **The tools are the agents' tools.** `buildAgentTools` (the knowledge tools and every installed
-  plugin's `agentTools`) built from the call's own `AuthContext` (scope, CASL grant) as chat builds
-  them, so a plugin's tool is on `/mcp` with no extra code. A tool gated on approval
-  (`requiresApproval`, `requiresApprovalWhen`) is left out, and so is one with no handler.
-  `get_document` windows are capped at `MCP_GET_DOCUMENT_MAX_CHARS` (20 000). Plus `list_tenants`.
-- **One tenant per call, never picked silently.** One membership → that tenant. Several → a call
-  names one by the `tenant` argument every tool takes (required then) or the `mcp-tenant` header,
-  by id, slug or the issuer's org id; naming none, or one that is not theirs, is a tool error
-  (`tenant_required`) listing their slugs. Listing tools with several tenants and none named shows
-  the union.
-- **Stateless.** One MCP `Server` per request over the SDK's web-standard Streamable HTTP
-  transport, JSON responses, no session id and no SSE stream: any replica answers any call. GET
-  and DELETE are 405.
+- **Settings → MCP** (`ui/pages/settings/Mcp.tsx`, the tab guarded by the `mcp` flag AND
+  `manage McpSettings`): the switch; the server URL to paste — the organisation's
+  `/mcp/t/<slug>` under multi-tenancy, `/mcp` under single — with setup snippets for Claude
+  (claude.ai/Desktop connector, `claude mcp add --transport http <name> <url>`, the name slugified
+  from `APP_NAME`) and ChatGPT; who can connect (everyone, admins, chosen groups); exposure (All
+  read-only, Enable all after a confirmation, Selected with ticks); and the tools grouped Knowledge
+  first then per plugin, each with its read-only/writes badge, annotations and 30-day call count,
+  approval-gated and terminal tools greyed with the reason. The switch and the modes save at once;
+  the group and tool ticks save as one list. Below them, **Connected clients**: every live
+  connection in the organisation — the person, the client by the name its document claims and the
+  host its `client_id` was verified on, read or read-and-write, connected, last used, 30-day calls
+  — with Revoke and Revoke all, each after a confirmation.
+- **Profile → Connected apps** (`ui/pages/Profile.tsx`, shown where the deployment ships `mcp` and
+  the reader has at least one): the reader's own connections in every organisation, with Revoke.
+  Both tables are `components/mcp/McpConnectionsTable.tsx`.
+- A consent makes the grant, but it is a **connection** only once its code is redeemed
+  (`mcp_grants.activated_at`, set by the first token exchange, which also records
+  `mcp.client_connected`): an unredeemed grant is never listed or counted, and the nightly
+  retention deletes it an hour after it was made.
 
-**Known gaps:** no MCP resources or prompts, only tools; no per-tool scopes (the token's `scope` is
-not read: a connection may do whatever its person may); no progress notifications or streaming
-results; tool results are text (the tools' JSON), never structured content; the analytics
-plugin's own `/mcp` is shadowed by this one until it contributes its cubes as `agentTools`.
+- **A second issuer (Rocketpod only)**: `MCP_AUTHORIZATION_SERVER` names an OUTSIDE OAuth server
+  (Cognito, Entra, Okta…) whose JWT access tokens `/mcp` also accepts (`api/auth/mcp.ts`). A
+  bearer without the `mcpat_` prefix is verified against that server's JWKS (RFC 8414
+  `jwks_uri`, re-read hourly and for an unknown `kid`): ES256/RS256, `typ` `at+jwt`, `JWT` or
+  none (Cognito and Entra issue plain `JWT`; the audience keeps an ID token out, and a
+  `token_use` other than `access` is refused), `iss` = the
+  server, `aud` = `<APP_URL>/mcp` (covering every `/mcp/t/<slug>`) or the exact URL, a verified
+  `email`. The person then goes through the sign-in path's own rules — the SSO policy
+  (`ssoDecisionFor`, as `core`), `admitUser`, and under `OIDC_MANAGED_TENANCY` the token's orgs
+  claim reconciled like an id_token's, once per token. The organisation is the URL's, else the
+  `mcp-tenant` header (id, slug or the issuer's org id), else their only one — several and none
+  named is 403 `mcp_tenant_required`, never a silent pick. The token maps to an `mcp_grants` row
+  per (person, organisation, `<issuer>#<client_id|azp>`, URL), made activated on first use
+  (`outsideMcpGrant`), its scopes the token's `mcp:*` scopes (both when it names none); a revoked
+  or lapsed one refuses every token issued before that, and a newer token makes a new one. From
+  there it is the SAME caller (`callerForGrant` → `resolveMcpMember`): the organisation's switch,
+  connect policy, exposure, the three limits, the call log, the connections lists and revoke. The
+  protected-resource metadata lists that server first and the app's own second. Tests:
+  `tests/api/mcp-outside-issuer.test.ts`.
+
+**Known gaps:** only clients with a Client ID Metadata Document can connect (Claude, ChatGPT;
+Cursor has DCR only, VS Code is untested) — no DCR, no static clients; a call's own model spend is not attributed to it (`mcp_tool_calls.cost_microcents`
+is always null, and its `ai_usage` rows carry no MCP tag; embeddings for search are unmetered as
+everywhere else); a renamed organisation slug breaks grants
+made on its `/mcp/t/<slug>` (the client reconnects); calls the SDK refuses before the handler (bad
+arguments, an unknown tool) are not in the call log; an outside issuer's tokens (below) are not
+revoked at the issuer when a connection is revoked here — the app refuses them until the issuer
+mints a newer one; no resources, prompts, approval tools or agents.

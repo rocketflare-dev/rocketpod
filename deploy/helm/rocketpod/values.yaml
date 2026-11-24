@@ -85,6 +85,12 @@ config:
   OIDC_ADMIT_CLAIM: ""
   OIDC_GLOBAL_ADMIN_CLAIM: ""
   OIDC_SESSION_MAX_AGE_DAYS: ""
+  MCP_GRANT_IDLE_DAYS: ""
+  MCP_GRANT_MAX_DAYS: ""
+  MCP_CALL_RETENTION_DAYS: ""
+  MCP_CALLS_PER_GRANT_PER_MINUTE: ""
+  MCP_CALLS_PER_USER_PER_MINUTE: ""
+  MCP_CALLS_PER_TENANT_PER_MINUTE: ""
   MCP_AUTHORIZATION_SERVER: ""
 
 # Secrets → a Secret, unless `existingSecret` names one you manage (External Secrets, Sealed
@@ -177,7 +183,8 @@ ingress:
   # sockets live past 60 s, e.g.:
   #   nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
   #   nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
-  # ingress-nginx caps bodies at 1 MB by default; uploads go up to 5 MB:
+  # ingress-nginx caps bodies at 1 MB by default; core uploads go up to 5 MB, a plugin's
+  # `uploadPaths` up to 10 MB and its `uploadLimits` up to 50 MiB — set it to the largest you serve:
   #   nginx.ingress.kubernetes.io/proxy-body-size: "6m"
   annotations: {}
   hosts:

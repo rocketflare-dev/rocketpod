@@ -5,7 +5,7 @@ and why: `docs/CONCEPTS.md` §9 "Knowledge facts".
 
 | File | What |
 |---|---|
-| `types.ts` · `registry.ts` · `entity-types.ts` · `resolve.ts` | `EntityTypeRegistration`, `knowledgeEntityTypes()` (app + plugin types, validated), `APP_ENTITY_TYPES` (empty in the kit), `resolverFor` / `defaultEntityResolver` |
+| `types.ts` · `registry.ts` · `entity-types.ts` · `resolve.ts` | `EntityTypeRegistration`, `knowledgeEntityTypes()` (app + plugin types, validated; a test registers fixture types with `overrideKnowledgeEntityTypesForTests`, never `vi.mock`), `APP_ENTITY_TYPES` (empty in the kit), `resolverFor` / `defaultEntityResolver` |
 | `enqueue.ts` | `enqueueKnowledgeExtraction` — flag + registered types, never throws (reached lazily from `ai/ingest.ts`) |
 | `extract.ts` | `extractDocumentFacts(db, cfg, env, input, deps)` — the `knowledge.extract` job body; `deps.types` overrides the registry (the eval) |
 | `entities.ts` | `resolveMention` — domain resolver → staging trigram → staging embedding → new staging entity; `chooseCandidate` and the thresholds; `findEntitiesByName` / `entitiesMentionedIn` for the readers (through the reader's scope) |
@@ -39,7 +39,9 @@ and why: `docs/CONCEPTS.md` §9 "Knowledge facts".
 - **Nothing writes a domain column.** A fact about a domain row is a `knowledge_facts` row pointing
   at it (`entity_kind: 'domain'`); acting on it is a person's job
 - **Re-extraction replaces** a document's facts first (`removeDocumentFacts`, which also unlinks
-  them from the conflicts they caused) — so a redelivery or a re-index is idempotent
+  them from the conflicts they caused) — so a redelivery or a re-index is idempotent. Deleting a
+  document runs the same repair before the row goes (`deleteDocumentsWithFacts`) — never delete a
+  `documents` row and leave its facts to the FK cascade
 - **…except a person's decisions.** `removeDocumentFacts(…, { keepDecided: true })` keeps every
   fact with `confirmed_at` set or state `rejected`; a new reading with the same entity, key and
   value — or one stored as judged `same` (`matchDecided`, same validity preferred) — REUSES that row (`keepDecidedFact`: new citation,

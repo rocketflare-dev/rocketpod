@@ -89,6 +89,28 @@ describe('navigationEntries', () => {
     expect(member.some(e => e.group === 'Settings')).toBe(false)
   })
 
+  it("lists a plugin tab only when the tab's own guard passes", () => {
+    const gated = {
+      ...labUi,
+      settingsTabs: () => [
+        { id: 'lab-taxes', label: 'Taxes', content: null, guard: { feature: 'lab' } },
+      ],
+    } as unknown as AnyUiPlugin
+    const off = checks('owner')
+    expect(byId(navigationEntries([gated], off)).has('settings:lab-taxes')).toBe(false)
+    const on = {
+      ...off,
+      canAccess: (guard: NavGuard | undefined) =>
+        typeof guard === 'object' && guard !== null && 'feature' in guard
+          ? guard.feature === 'lab'
+          : off.canAccess(guard),
+    }
+    expect(byId(navigationEntries([gated], on)).get('settings:lab-taxes')).toMatchObject({
+      to: '/settings?tab=lab-taxes',
+      source: 'lab',
+    })
+  })
+
   it('lists a path once, the first source winning', () => {
     const entries = navigationEntries([labUi], checks('owner'))
     expect(entries.filter(e => e.to === '/settings')).toHaveLength(1)
@@ -121,7 +143,8 @@ describe('useNavigationEntries', () => {
       session: makeSession({ tenant: makeTenant({ role: 'member' }) }),
     })
     const ids = ((await screen.findByTestId('entries')).textContent ?? '').split(' ')
-    expect(ids).toEqual(expect.arrayContaining(['nav:/chat', 'nav:/documents', 'link:/profile']))
+    // Pages every app keeps: chat and documents are removable surfaces (.rocketflare.json).
+    expect(ids).toEqual(expect.arrayContaining(['nav:/', 'link:/profile']))
     expect(ids.some(id => id.startsWith('settings:'))).toBe(false)
     expect(ids).not.toContain('nav:/settings')
     expect(ids).not.toContain('nav:/admin')

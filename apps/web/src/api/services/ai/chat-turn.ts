@@ -52,9 +52,10 @@ import type { AppContext } from '../../types'
 import { ConflictError, isUniqueViolation } from '../../utils/core/errors'
 import { streamDatabase, withAuthAndDb } from '../../utils/routes/route-helpers'
 import { accessScopeOf } from '../access'
-import { buildAgentTools, CHAT_GET_DOCUMENT_MAX_CHARS } from '../agents/tools'
+import { CHAT_GET_DOCUMENT_MAX_CHARS, toolsFor } from '../agents/tools'
 import { requesterUrlsFromTexts } from '../agents/tools/requester-urls'
 import { enqueueJob } from '../jobs'
+import { authRequester } from '../member-ability'
 import { resolvePrompt } from '../prompts'
 import { runStreamingChat, type Tool } from './agent-loop'
 import { aguiTextSegmenter, aguiToolEvents, createAguiEncoder, kitCustom } from './agui'
@@ -387,7 +388,7 @@ export async function prepareChatTurn(
     // interactive reply holds an open request on a web replica, so it gets the lower cap.
     buildTools: cfg.CHAT_KNOWLEDGE_TOOLS
       ? sdb =>
-          buildAgentTools({
+          toolsFor('chat', {
             db: sdb,
             cfg,
             env: c.get('platform'),
@@ -397,6 +398,7 @@ export async function prepareChatTurn(
             can: (action, subject) => auth.ability.can(action, subject),
             // The request's own flags — `lookup_facts` rides on `knowledge-facts`.
             features: auth.features,
+            requester: authRequester(auth),
             // An agent run may read 50 000 characters of a document because that is the job; a chat
             // turn may not, because the result sits in the same window as the history and every
             // turn after it. The prompt already discourages it — this is the limit.

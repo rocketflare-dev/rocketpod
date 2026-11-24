@@ -11,7 +11,7 @@ Built to `dist/ui`, served in production by the Node server (`src/node/assets.ts
 - Knowledge list, document viewer, search, `DocumentCard` / `DocumentLink`, `useDocuments` →
   `pages/documents/CLAUDE.md`
 - The chat page or `useChat` / `useSendMessage` → `pages/chat/CLAUDE.md`
-- A Settings tab (AI providers, prompts, agent models, usage, groups, people) →
+- A Settings tab (AI providers, prompts, agent models, usage, MCP, groups, people) →
   `pages/settings/CLAUDE.md`
 - The Guide reader, `components/guide/`, `GuideLink`, `lib/guide*.ts` → `pages/guide/CLAUDE.md`
 - `lib/` transports (api-client, websocket client, SSE, AG-UI streams) → `lib/CLAUDE.md`
@@ -25,7 +25,7 @@ Built to `dist/ui`, served in production by the Node server (`src/node/assets.ts
   `ReactQueryDevtools` in a `Suspense`. The header `<WebSocketStatus />` dot and
   `<ConnectionBanner />` above the routed page. Route table in three tiers: public (`/login`,
   `/magic-link/sent`, `/magic-link/confirm`, `/invite/:token`), signed-in (`/cli/confirm`), signed-in-without-tenant
-  (`/select-tenant`, `/pending`, `/no-access` — `ProtectedRoute requireTenant={false}`), and the
+  (`/consent` — an AI client's OAuth consent, `/select-tenant`, `/pending`, `/no-access` — `ProtectedRoute requireTenant={false}`), and the
   shell (`/*` — `ProtectedRoute`, `Layout` mounted ONCE, nested `<Routes>` beneath it; a second
   `ErrorBoundary` wraps each `<main>`). Installed plugins' routes are mapped per tier inside the
   same `Suspense`; a `workspace`-tier route lives in the shell, and `Layout`'s `workspace` prop
@@ -37,7 +37,7 @@ Built to `dist/ui`, served in production by the Node server (`src/node/assets.ts
 - `components/` — the shell: `Layout` (slots `headerStart` = `OrgSwitcher`, `headerCenter` =
   the `center` plugin header items, `headerEnd` = the `end` plugin header items +
   `NotificationsBell` + `UserMenu`, `sidebarFooter`; `PluginHeaderSlot` renders a placement's
-  `UiPlugin.header` items, each guarded and isolated), `SideNav` (config-driven: `CORE_NAVIGATION`
+  `UiPlugin.header` items, each guarded and isolated; `PluginHomeCards` renders `UiPlugin.homeCards` on Home the same way), `SideNav` (config-driven: `CORE_NAVIGATION`
   composed with plugin groups by `composeNav`, filtered by `filterNavConfig` on `guard` flags),
   `AuthCard` (public-page card), `PendingInvitationsBanner`, `RoleBadge`, `EnvironmentBadge`,
   `ThemeToggle`, `ErrorBoundary`. Guards: `ProtectedRoute` (session + tenant → `noTenantRoute`; a
@@ -101,8 +101,11 @@ The AI pages read the contracts in
   Magic link is `POST /auth/magic-link/request`. With `methods.oidcOnly` it shows the one SSO
   button and never redirects to `/auth/oidc` on its own — signing in is always a click.
   `?as=<email>` (what `pnpm bootstrap` opens) calls `POST /auth/dev-login` once on mount, ONLY when
-  `methods.devLogin` is true AND the email is in `DEV_ACCOUNTS` (the allow-list; an arbitrary
-  address does nothing); never widen the allow-list.
+  `methods.devLogin` is true AND the email is in `DEV_ACCOUNTS` (`lib/dev-accounts.ts` — also what
+  `scripts/seed.ts` creates and the quick-login buttons show; an arbitrary address does nothing);
+  never widen the allow-list beyond the seeded accounts.
+- Roles render through `roleLabel(role)` (`@rocketpod/shared/tenants` `ROLE_LABELS`), never the
+  raw value with `capitalize`: an app relabels them in one place.
 - No active tenant → `noTenantRoute(session)`: access request → `/pending`; memberships →
   `/select-tenant`; `signupMode === 'approval'` → `/pending`; else `/no-access`. Exception: a
   global admin opens `/admin/*` with no membership (the bootstrap admin must be able to approve the

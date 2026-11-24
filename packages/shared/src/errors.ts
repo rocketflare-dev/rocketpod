@@ -122,6 +122,24 @@ export const ERROR_CODES = {
   entityTargetNotFound: 'entity_target_not_found',
   /** 400: promote on an entity type with no domain table or resolver — there is no row to promote to. */
   entityTypeNotPromotable: 'entity_type_not_promotable',
+  /**
+   * 401 on `/mcp`: no access token, or one that is unknown, expired, revoked, issued for another
+   * URL, or whose connection has lapsed. The `WWW-Authenticate` challenge says where to sign in.
+   */
+  invalidToken: 'invalid_token',
+  /** 403 on `/mcp`: the organisation has MCP turned off (its connections are suspended, not revoked). */
+  mcpDisabled: 'mcp_disabled',
+  /**
+   * 403 on `/mcp`: the person may not use a client here — no longer a member, a support role, or
+   * outside the organisation's "who can connect" policy. Never 401: signing in again changes nothing.
+   */
+  mcpNotAllowed: 'mcp_not_allowed',
+  /**
+   * 403 on `/mcp`, a token from the outside authorization server (`MCP_AUTHORIZATION_SERVER`) only:
+   * the person belongs to several organisations and the request named none (`mcp-tenant` header,
+   * or the `/mcp/t/<slug>` URL).
+   */
+  mcpTenantRequired: 'mcp_tenant_required',
   /** 416: the `Range` asked for starts past the end of the object (`Content-Range: bytes *\/n`). */
   rangeNotSatisfiable: 'range_not_satisfiable',
 } as const

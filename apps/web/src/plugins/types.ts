@@ -43,7 +43,7 @@ import type { NavItem } from '../ui/components/SideNav'
 import type { TabConfig } from '../ui/components/shared'
 import type { NavGuard } from '../ui/hooks/useNavGuard'
 import type { AgentForm } from '../ui/pages/agents/forms'
-import type { QuickLink } from '../ui/pages/Home'
+import type { QuickLink } from '../ui/pages/home-links'
 
 /** One entry of the mount table in `api/index.ts`: prefix, router, optional gate. */
 export type PluginMount = readonly [string, Hono<AppEnv>, MiddlewareHandler?]
@@ -149,8 +149,9 @@ export interface PluginRequires {
   plugins?: readonly string[]
 }
 
-/** Everything a plugin's `seedDemo` hook is given (`pnpm seed --demo`). */
+/** Everything a plugin's `seed` (`pnpm seed`) and `seedDemo` (`pnpm seed --demo`) hooks are given. */
 export interface PluginSeedContext {
+  /** The seeded tenant (`acme`, or the single tenant). */
   tenantId: string
   ownerId: string
   /**
@@ -159,6 +160,12 @@ export interface PluginSeedContext {
    */
   demoId: (key: string) => string
   log: (line: string) => void
+  /**
+   * Turn a registered feature flag on (default) or off for one organisation — `tenantId`, or the
+   * seeded tenant — as a per-tenant override, the same row `/admin/feature-flags` writes. An
+   * unknown key throws. How a plugin behind its own flag shows up after plain `pnpm seed`.
+   */
+  setFeature: (key: string, enabled?: boolean, tenantId?: string) => Promise<void>
 }
 
 export interface ServerPlugin<S extends SharedPlugin = SharedPlugin> {
@@ -227,11 +234,19 @@ export interface ServerPlugin<S extends SharedPlugin = SharedPlugin> {
   /** Prompt registry entries, one per key in `shared.promptKeys`. */
   prompts?: { [K in PromptKeyOf<S> & string]: PromptDefinition }
   /**
-   * Tools added to every agent run, beside the three built-in knowledge tools. Bound to the run's
-   * access scope, so a plugin tool reads what its REQUESTER may read and nothing more. May be
-   * async, and may return `[]` — that is how a tool is offered only to the tenants that turned it
-   * on (read the plugin's own settings row for `ctx.scope.tenantId`). A builder that throws is
-   * logged and skipped, never fatal to the run.
+   * Tools added beside the built-in knowledge tools, on every surface each tool names
+   * (`surfaces`: chat, agents, the MCP server; absent = all — `defineTool` in `@/plugins/api`).
+   * Bound to the caller's access scope, so a plugin tool reads what its REQUESTER may read and
+   * nothing more. May be async, and may return `[]` — that is how a tool is offered only to the
+   * tenants that turned it on (read the plugin's own settings row for `ctx.scope.tenantId`). A
+   * builder that throws is logged and skipped, never fatal to the run.
+   */
+  tools?: (ctx: AgentToolContext) => Tool[] | Promise<Tool[]>
+  /**
+   * DEPRECATED — renamed {@link ServerPlugin.tools}, same signature. Read only when `tools` is
+   * absent, and `pnpm plugin check` warns on it. A later kit release removes it.
+   *
+   * @deprecated Use `tools`.
    */
   agentTools?: (ctx: AgentToolContext) => Tool[] | Promise<Tool[]>
   /**
@@ -287,6 +302,17 @@ export interface ServerPlugin<S extends SharedPlugin = SharedPlugin> {
    * mounts its own `bodyLimit` at the file size it takes (at most 10 MB plus multipart overhead).
    */
   uploadPaths?: readonly string[]
+  /**
+   * EXACT paths whose non-JSON body may exceed the upload-path cap: `{ '/api/<id>/upload': bytes }`,
+   * each at most `MAX_PLUGIN_UPLOAD_LIMIT_BYTES` (50 MiB; the host clamps and
+   * `tests/config/plugins.test.ts` refuses more), under `/api/<id>/`. Checked before `uploadPaths`
+   * and the 1 MB cap, for that path alone — a sibling path is untouched; a JSON body there keeps
+   * 1 MB. The cap is the transport's (plus 64 KB multipart overhead): the route still mounts its
+   * own `bodyLimit` and checks each file. A buffered body is held in the Node process's memory, and
+   * an ingress in front has its own cap (`docs/DEPLOY.md`), so ask for what the largest real file
+   * needs, not a round number.
+   */
+  uploadLimits?: Readonly<Record<string, number>>
   /** Plugin tables with no `tenant_id`, unioned into `RLS_EXCLUDED_TABLES` with a reason each. */
   rlsExcludedTables?: readonly string[]
   /**
@@ -345,6 +371,13 @@ export interface ServerPlugin<S extends SharedPlugin = SharedPlugin> {
       status: 'active' | 'suspended',
       env: AppBindings
     ) => Promise<void>
+    /**
+     * Every `pnpm seed` (with or without `--demo`), after the core accounts and before any demo
+     * data: reference data the plugin needs to be usable at all (rooms, rates, a default
+     * catalogue) and the per-organisation flag that shows it (`ctx.setFeature`). Idempotent —
+     * fixed ids (`ctx.demoId`) + `onConflictDoNothing` — because the seed is re-run freely.
+     */
+    seed?: (db: Database, ctx: PluginSeedContext) => Promise<void>
     /** `pnpm seed --demo`, after the core block. Fixed ids + `onConflictDoNothing`. */
     seedDemo?: (db: Database, ctx: PluginSeedContext) => Promise<void>
   }
@@ -406,6 +439,29 @@ export interface PluginHeaderItem {
   placement?: PluginHeaderPlacement
 }
 
+/**
+ * One card in Home's "what needs doing" section (`UiPlugin.homeCards`): something the reader is
+ * asked to act on — approvals waiting, an inbox to triage. The host sorts, guards and isolates
+ * each card (`PluginHomeCards`: its own `Suspense` and error boundary); a card with nothing to ask
+ * renders `null`. Lazy, like a header item, so Home's eager chunk carries none of its code.
+ */
+export interface PluginHomeCard {
+  /** Unique within the plugin; the React key is `<plugin id>:<id>`. */
+  id: string
+  /** `lazy(() => import('./ui/home/X'))` and nothing else, exactly like a route's `Component`. */
+  Component: LazyExoticComponent<ComponentType>
+  /** The same guard semantics as a nav item or route (`useNavGuard`); hidden when it fails. */
+  guard?: NavGuard
+  /** Ascending, default 0; ties break on plugin id, then card id — never on install order. */
+  order?: number
+}
+
+/** One plugin settings tab: a `TabConfig`, plus the guard the host checks before showing it. */
+export interface PluginSettingsTab extends TabConfig {
+  /** The same guard semantics as a nav item or route (`useNavGuard`); hidden when it fails. */
+  guard?: NavGuard
+}
+
 /** A nav group, placed relative to a named core group ("Organisation" by default). */
 export interface PluginNavGroup {
   label?: string
@@ -418,8 +474,13 @@ export interface UiPlugin<S extends SharedPlugin = SharedPlugin> {
   shared: S
   routes: readonly PluginRoute[]
   nav?: readonly PluginNavGroup[]
-  /** Extra `/settings?tab=` tabs, appended after the core ones. `can` is the caller's ability. */
-  settingsTabs?: (ctx: { can: (action: string, subject: string) => boolean }) => TabConfig[]
+  /**
+   * Extra `/settings?tab=` tabs, appended after the core ones. `can` is the caller's ability. A
+   * tab's `guard` is the same `NavGuard` a nav item or route takes, checked by the host with
+   * `useNavGuard` — `{ feature: 'x' }` hides the tab in an organisation without the feature, which
+   * `can` alone cannot do (a plugin's grants hold in every organisation).
+   */
+  settingsTabs?: (ctx: { can: (action: string, subject: string) => boolean }) => PluginSettingsTab[]
   /**
    * Quick links for the Home page, merged AHEAD of the core ones. A feature somebody reaches
    * from Home is one they were told about; a plugin that only adds a nav item is one they have to
@@ -429,6 +490,12 @@ export interface UiPlugin<S extends SharedPlugin = SharedPlugin> {
    * The host does NOT de-duplicate or re-order: two plugins offering the same `to` show twice.
    */
   homeLinks?: readonly QuickLink[]
+  /**
+   * Cards for Home's "what needs doing" section, above the quick links (`PluginHomeCard`): merged
+   * across plugins, ordered by `order` then plugin id, each behind its guard, `Suspense` and error
+   * boundary (`PluginHomeCards`).
+   */
+  homeCards?: readonly PluginHomeCard[]
   /**
    * Top-bar items (`PluginHeaderItem`): merged across plugins, ordered by `order` then plugin id,
    * rendered by `PluginHeaderSlot` in `Layout`'s `headerCenter` / `headerEnd`.

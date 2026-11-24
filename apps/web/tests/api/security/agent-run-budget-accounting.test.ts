@@ -1,5 +1,4 @@
-// @vitest-isolate
-// Mocks the plugin barrels to register the test agents (tests/helpers/test-agents.ts).
+// @vitest-fixture-agents
 /**
  * What a run's budget measures. The token budget counts every token the provider processed,
  * prompt-cache reads and writes included. A cost cap can only hold a model it can price, so an
@@ -36,13 +35,6 @@ import { setupTestDatabase } from '../../helpers/db'
 import { request } from '../../helpers/request'
 import { TEST_SUMMARIZE as FIXTURE_AGENT } from '../../helpers/test-agents-shared'
 import { createTestEnv, type TestEnv } from '../../mocks/bindings'
-
-vi.mock('@rocketpod/shared/plugins', async importOriginal =>
-  (await import('../../helpers/test-agents-shared')).withTestAgents(await importOriginal())
-)
-vi.mock('@/plugins/server', async () =>
-  (await import('../../helpers/test-agents')).testAgentsServerBarrel()
-)
 
 const db = setupTestDatabase()
 function fakeLogger() {

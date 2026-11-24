@@ -1,7 +1,7 @@
 /**
  * The pure half of `scripts/upgrade.mjs`: path classification against `.rocketflare.json`, the
  * diff translator, and the release-note parser. No I/O and nothing runs at import time, so
- * `apps/web/tests/config/upgrade-lib.test.ts` can drive it under vitest; `upgrade-lib.d.mts`
+ * `apps/web/tests/kit-only/upgrade-lib.test.ts` can drive it under vitest; `upgrade-lib.d.mts`
  * beside this file is the hand-written type surface (no `allowJs`).
  *
  * The problem this solves: an adopted copy of the kit has been renamed (`scripts/rename.mjs`
@@ -74,6 +74,48 @@ export function isKitManifest(manifest) {
  * predates the key — `.rocketflare.json` is never ported, so an older copy's file never gains it.
  */
 export const KIT_ONLY_PATHS = Object.freeze(['apps/web/tests/kit-only/**'])
+
+/**
+ * Kit tooling that a PORTED script imports, so it is ported too — verbatim, since the rename never
+ * translates it — whatever the copy's own `neverPort` says. `rename-lib.mjs` is the token map the
+ * rename runs once, but `upgrade.mjs`, `plugin.mjs` and `manifest.mjs` import it every day: kept on
+ * a copy's `neverPort` (where every copy made before 0.44.0 has it, because `.rocketflare.json` is
+ * never ported), a release whose `plugin.mjs` imported a new export from it crashed the first
+ * `pnpm plugin upgrade` after the kit upgrade (#178). This list is that floor; the kit's own
+ * manifest no longer names them.
+ */
+export const ALWAYS_PORTED_TOOLING = Object.freeze([
+  'scripts/lib/rename-lib.mjs',
+  'scripts/lib/rename-lib.d.mts',
+])
+
+/**
+ * The variables `kit:upgrade` hands its run over with (#178). `pnpm kit:upgrade` runs the COPY's
+ * `upgrade.mjs`, so a fix to the upgrader released inside the range it crosses never applied to
+ * that crossing. Since 0.44.0 the copy's script extracts the TARGET release's `upgrade.mjs` and
+ * `lib/` from the mirror and runs that instead, pointed back at this checkout by
+ * `UPGRADE_ROOT_ENV`; `UPGRADE_DELEGATED_ENV` stops the handed-over run handing over again.
+ * Token-free names, so no rename ever rewrites them.
+ */
+export const UPGRADE_ROOT_ENV = 'KIT_UPGRADE_ROOT'
+export const UPGRADE_DELEGATED_ENV = 'KIT_UPGRADE_DELEGATED'
+
+/** The tooling a hand-over extracts from the target release: the script and everything it imports. */
+export const UPGRADER_FILES = Object.freeze({ script: 'scripts/upgrade.mjs', lib: 'scripts/lib' })
+
+/**
+ * Whether to run the target release's upgrader in place of this one: `same` (the bytes match, so
+ * nothing to gain), `delegate` (it differs and reads `UPGRADE_ROOT_ENV`), or `too-old` (it
+ * differs but predates the hand-over, so it would act on its own directory — run this one, and
+ * say that fixes in between do not apply). `null` target text = not readable = `same`.
+ * @param {{ local: string, target: string | null }} scripts
+ */
+export function upgraderHandoff({ local, target }) {
+  if (target === null || target === local) return 'same'
+  // The script names the constant, never its value: that identifier is what marks one that
+  // reads the hand-over.
+  return /\bUPGRADE_ROOT_ENV\b/.test(target) ? 'delegate' : 'too-old'
+}
 
 /** The vitest project (`apps/web/vitest.config.ts`) that runs them — kit only, like its files. */
 export const KIT_ONLY_PROJECT = 'kit-only'
@@ -252,7 +294,13 @@ export function classifyPath(relPath, ctx) {
   // know what version of the plugin is installed, and the two histories would fight. This sits
   // second, right after "the adopter deleted it", because both are about not writing where the kit
   // has no say.
-  if (surface && surface.kind === 'plugin') {
+  //
+  // A VENDORED plugin is the exception (`isVendored`: the kit's own repository, no subdirectory —
+  // `example-feature`): it has no release chain of its own, so `pnpm plugin upgrade` refuses it and
+  // points here. Skipping it here too left it stranded on the version the copy was made from, the
+  // reference plugin teaching an API the kit had since replaced. Its files are the kit's, so they
+  // fall through and are classified, translated and applied exactly like core.
+  if (surface && surface.kind === 'plugin' && !isVendored(surface.source, manifest.kit?.repo)) {
     return {
       class: 'skipped-plugin-owned',
       translate: false,
@@ -270,7 +318,7 @@ export function classifyPath(relPath, ctx) {
   if (ENV_PATHS.includes(relPath)) {
     return { class: 'manual-env', translate: false, reason: 'carries your local database naming' }
   }
-  if (matchesAny(relPath, manifest.neverPort)) {
+  if (matchesAny(relPath, manifest.neverPort) && !ALWAYS_PORTED_TOOLING.includes(relPath)) {
     if (includeKitTooling && isExcluded(relPath)) {
       return {
         class: 'verbatim',

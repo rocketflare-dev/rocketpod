@@ -10,6 +10,7 @@ import {
   RUN_STREAM_HEARTBEAT_MS,
   RUN_STREAM_IDLE_CAP_MS,
   RUN_STREAM_IDLE_MS,
+  RUN_STREAM_MAX_MS,
   RUN_STREAM_POLL_MS,
   RUN_STREAM_SLOW_MS,
 } from '@rocketpod/shared/ai/agents'
@@ -495,5 +496,9 @@ describe('the tail query and the cadence', () => {
     expect(runStreamTickMs(29)).toBe(RUN_STREAM_SLOW_MS)
     expect(runStreamTickMs(30)).toBe(RUN_STREAM_IDLE_MS)
     expect(runStreamTickMs(10_000)).toBeLessThan(3000)
+  })
+
+  it('keeps the idle cap reachable', () => {
+    expect(RUN_STREAM_IDLE_CAP_MS).toBeLessThan(RUN_STREAM_MAX_MS)
   })
 })

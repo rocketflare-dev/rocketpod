@@ -4,9 +4,9 @@
  * `@ag-ui/proto` are `apps/web` server dependencies; only `@ag-ui/core`'s zod schemas ship, and
  * only in the lazy chat chunk.
  *
- * It reads the built output, so it is skipped when there is none (CI builds after it runs; a local
- * `pnpm web build:ui` makes it assert). The import-graph rule itself is not enforceable from a
- * bundle — this catches the consequence, which is the thing that actually costs users bytes.
+ * The bundle half reads the built output, so it runs after the build instead:
+ * `scripts/check-ui-bundle.mjs`, which `build:ui` calls straight after `vite build`. This file keeps
+ * the source-level half, which needs no build.
  */
 import { readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'

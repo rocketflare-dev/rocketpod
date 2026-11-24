@@ -1,6 +1,4 @@
-// @vitest-isolate
-// Mocks `@/api/services/ai/resolve` (the chat and decisions seams), so this file needs its own module registry.
-// Also mocks both plugin barrels to register the test-only agents (tests/helpers/test-agents.ts).
+// @vitest-fixture-agents
 /**
  * `ctx.decide` through the real runtime against Postgres, with a scripted decisions engine:
  * a decision is recorded ONCE per `(run, key)` and a re-entered `run()` replays it without asking
@@ -20,6 +18,10 @@ import { AGENTS, type AgentContext, type AnyAgentDefinition } from '@/api/servic
 import { enqueueRun, getRun, listEvents } from '@/api/services/agents/runs'
 import { claimStep, executeRun } from '@/api/services/agents/runtime'
 import { AiError } from '@/api/services/ai/errors'
+import {
+  overrideResolveChatForTests,
+  overrideResolveDecisionsForTests,
+} from '@/api/services/ai/resolve'
 import type { ChatClient } from '@/api/services/ai/types'
 import type { Logger } from '@/api/utils/core/logger'
 import { loadConfig } from '@/config'
@@ -31,13 +33,6 @@ import { json, request } from '../helpers/request'
 import { TEST_SUMMARIZE } from '../helpers/test-agents-shared'
 import { createTestEnv, type TestEnv } from '../mocks/bindings'
 
-vi.mock('@rocketpod/shared/plugins', async importOriginal =>
-  (await import('../helpers/test-agents-shared')).withTestAgents(await importOriginal())
-)
-vi.mock('@/plugins/server', async () =>
-  (await import('../helpers/test-agents')).testAgentsServerBarrel()
-)
-
 type Decider = (request: DecisionRequest) => DecisionAnswers
 
 const state: { client: ChatClient | null; decide: Decider | null; asks: number } = {
@@ -46,41 +41,37 @@ const state: { client: ChatClient | null; decide: Decider | null; asks: number }
   asks: 0,
 }
 
-vi.mock('@/api/services/ai/resolve', async importOriginal => {
-  const actual = await importOriginal<typeof import('@/api/services/ai/resolve')>()
+overrideResolveChatForTests(async () => {
+  if (!state.client) throw new AiError('auth', 'anthropic_compatible', 'no client scripted')
   return {
-    ...actual,
-    resolveChat: vi.fn(async () => {
-      if (!state.client) throw new AiError('auth', 'anthropic_compatible', 'no client scripted')
-      return {
-        client: state.client,
-        provider: 'anthropic_compatible' as const,
-        model: 'fake-model',
-        source: 'tenant' as const,
-        maxOutputTokens: 2048,
-      }
-    }),
-    resolveDecisions: vi.fn(async () => ({
-      client: {
-        provider: 'typesafe' as const,
-        method: 'typesafe' as const,
-        ask: async (req: DecisionRequest) => {
-          state.asks += 1
-          if (!state.decide) throw new AiError('auth', 'typesafe', 'no decider scripted')
-          return {
-            answers: state.decide(req),
-            usage: { inputTokens: 40, outputTokens: 4 },
-            model: 'jev-1.13.0',
-          }
-        },
-      },
-      provider: 'typesafe' as const,
-      model: 'jev-latest',
-      method: 'typesafe' as const,
-      source: 'platform' as const,
-    })),
+    client: state.client,
+    provider: 'anthropic_compatible' as const,
+    model: 'fake-model',
+    source: 'tenant' as const,
+    billedToPlatform: false,
+    maxOutputTokens: 2048,
   }
 })
+
+overrideResolveDecisionsForTests(async () => ({
+  client: {
+    provider: 'typesafe' as const,
+    method: 'typesafe' as const,
+    ask: async (req: DecisionRequest) => {
+      state.asks += 1
+      if (!state.decide) throw new AiError('auth', 'typesafe', 'no decider scripted')
+      return {
+        answers: state.decide(req),
+        usage: { inputTokens: 40, outputTokens: 4 },
+        model: 'jev-1.13.0',
+      }
+    },
+  },
+  provider: 'typesafe' as const,
+  model: 'jev-latest',
+  method: 'typesafe' as const,
+  source: 'platform' as const,
+}))
 
 const db = setupTestDatabase()
 

@@ -1,6 +1,6 @@
 /**
  * Hand-written types for `upgrade-lib.mjs` (the workspace has no `allowJs`). Keep in step with
- * the exports there; `apps/web/tests/config/upgrade-lib.test.ts` is what typechecks against this.
+ * the exports there; `apps/web/tests/kit-only/upgrade-lib.test.ts` is what typechecks against this.
  */
 import type { Names } from './rename-lib.d.mts'
 
@@ -98,7 +98,16 @@ export interface Manifest {
 
 export function isKitManifest(manifest: Manifest | null): boolean
 export const KIT_ONLY_PATHS: readonly string[]
+/** Tooling a ported script imports: ported verbatim whatever a copy's `neverPort` says. */
+export const ALWAYS_PORTED_TOOLING: readonly string[]
 export const KIT_ONLY_PROJECT: string
+export const UPGRADE_ROOT_ENV: string
+export const UPGRADE_DELEGATED_ENV: string
+export const UPGRADER_FILES: Readonly<{ script: string; lib: string }>
+export function upgraderHandoff(scripts: {
+  local: string
+  target: string | null
+}): 'same' | 'delegate' | 'too-old'
 export function kitOnlyGlobs(
   manifest: Pick<Manifest, 'kitOnly'> | null | undefined,
   extra?: readonly string[] | null

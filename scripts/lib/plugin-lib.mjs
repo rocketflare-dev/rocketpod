@@ -1,7 +1,7 @@
 /**
  * The pure half of `scripts/plugin.mjs` (D31, Phase B): the plugin id rules, the six barrel
  * lines, the file-root classification, the requirement check, the surface builder and the plan
- * text. No I/O and nothing runs at import time, so `apps/web/tests/config/plugin-lib.test.ts` can
+ * text. No I/O and nothing runs at import time, so `apps/web/tests/kit-only/plugin-lib.test.ts` can
  * drive every rule against a FIXTURE — which matters because most of them are rules about a plugin
  * this checkout does not have installed.
  *
@@ -302,7 +302,7 @@ export function applyCoreEdits(text, edits) {
     }
     const lines = next.split('\n')
     const indent = lines[anchorIndex].match(/^\s*/)[0]
-    const missing = edit.lines.filter(l => !lines.some(existing => existing.trim() === l.trim()))
+    const missing = edit.lines.filter(l => !findEditLine(lines, l))
     if (missing.length === 0) continue
     lines.splice(anchorIndex + 1, 0, ...missing.map(l => `${indent}${l}`))
     next = lines.join('\n')
@@ -318,9 +318,9 @@ export function applyCoreEdits(text, edits) {
  * rather than guessed at, because only the person can tell which block they meant to keep.
  */
 export function partialCoreEdits(text, edits) {
-  const present = new Set(text.split('\n').map(l => l.trim()))
+  const lines = text.split('\n')
   return edits.flatMap(edit => {
-    const there = edit.lines.filter(l => present.has(l.trim())).length
+    const there = edit.lines.filter(l => findEditLine(lines, l)).length
     return there > 0 && there < edit.lines.length
       ? [
           `core edit for ${edit.file}: ${there} of its ${edit.lines.length} lines were already in ` +
@@ -336,13 +336,53 @@ export function revertCoreEdits(text, edits) {
   let next = text
   for (const edit of edits) {
     for (const line of edit.lines) {
-      next = next
-        .split('\n')
-        .filter(existing => existing.trim() !== line.trim())
-        .join('\n')
+      const lines = next.split('\n')
+      const kept = lines.filter(existing => existing.trim() !== line.trim())
+      if (kept.length !== lines.length) {
+        next = kept.join('\n')
+        continue
+      }
+      // Not there as one line: the host's formatter may have wrapped it (#178).
+      const span = findEditLine(lines, line)
+      if (span) next = [...lines.slice(0, span.start), ...lines.slice(span.end)].join('\n')
     }
   }
   return next
+}
+
+/**
+ * A core-edit line compared as code, not bytes: whitespace dropped, and the trailing comma a
+ * formatter adds when it wraps a call or a literal (`,)` / `,]` / `,}`) folded away.
+ */
+const editKey = text => text.replace(/\s+/g, '').replace(/,([)\]}])/g, '$1')
+
+/** How many lines a formatter may wrap one declared line into — a call with a few arguments. */
+const MAX_WRAPPED_LINES = 8
+
+/**
+ * Where `line` sits in `lines`: `{ start, end }` (end exclusive) for the line itself, or for the
+ * run of consecutive lines a formatter wrapped it into. `plugin upgrade` formats every core file it
+ * edited, so a declared line longer than the host's column limit (the analytics `@nivo/heatmap`
+ * alias) came back as four lines; matched line by line on `trim()`, the next upgrade wrote it
+ * again beside them — a duplicate object key — and `plugin remove` left them behind (#178).
+ */
+export function findEditLine(lines, line) {
+  const want = line.trim()
+  const exact = lines.findIndex(l => l.trim() === want)
+  if (exact !== -1) return { start: exact, end: exact + 1 }
+  const key = editKey(want)
+  if (key === '') return null
+  for (let start = 0; start < lines.length; start++) {
+    // A wrapped line starts with the declared line's own first characters.
+    if (!key.startsWith(editKey(lines[start])) || editKey(lines[start]) === '') continue
+    let joined = ''
+    for (let end = start; end < Math.min(lines.length, start + MAX_WRAPPED_LINES); end++) {
+      joined = editKey(joined + lines[end])
+      if (joined === key) return { start, end: end + 1 }
+      if (!key.startsWith(joined.replace(/,$/, ''))) break
+    }
+  }
+  return null
 }
 
 /** Every core edit a manifest declares, grouped by the file it touches. */
@@ -1692,6 +1732,203 @@ export function renderList(surfaces, { sidecarIds = [] } = {}) {
   })
 }
 
+// ---------------------------------------------------------------- the catalogue
+
+/**
+ * Where `pnpm plugin list --available` looks: the published plugin repositories, read at their
+ * newest release tag every time. Nothing about their contents is copied into the kit, so the list
+ * cannot go stale; a repository the person's git credentials cannot read is left out without a
+ * word, which is how the commercial one appears only to the people licensed to see it.
+ *
+ * The `rocketflare-dev` org is upstream and survives the rename (`KIT.preservedPattern`).
+ */
+export const PLUGIN_CATALOGUES = [
+  { repo: 'https://github.com/rocketflare-dev/rocketflare-plugins.git', commercial: false },
+  {
+    repo: 'https://github.com/rocketflare-dev/rocketflare-commercial-plugins.git',
+    commercial: true,
+  },
+]
+
+/** Where a person browsing, rather than installing, should look. */
+export const PLUGIN_CATALOGUE_URL = 'https://rocketflare.dev/plugins'
+
+/** `https://github.com/org/repo.git` → `github.com/org/repo`; anything else as it is. */
+export function repoDisplayName(repo) {
+  return String(repo)
+    .replace(/^https?:\/\//, '')
+    .replace(/^git@([^:]+):/, '$1/')
+    .replace(/\.git$/, '')
+}
+
+/** `https://github.com/org/repo/blob/<ref>/<file>` for a GitHub repository, otherwise null. */
+function blobUrl(repo, ref, file) {
+  const name = repoDisplayName(repo)
+  return name.startsWith('github.com/') ? `https://${name}/blob/${ref}/${file}` : null
+}
+
+/**
+ * The lede of a plugin README, on one line with link targets and code ticks dropped: its first
+ * paragraph after the title — whole when it is a `>` blockquote (every first-party README opens
+ * `# <id>` then that one sentence), else only its first sentence.
+ */
+export function readmeLede(text) {
+  if (typeof text !== 'string') return null
+  const lines = text.split('\n')
+  const start = lines.findIndex(l => l.trim() !== '' && !/^\s*(#|!\[|\[!\[|<)/.test(l))
+  if (start === -1) return null
+  const quote = lines[start].startsWith('>')
+  const para = []
+  for (const l of lines.slice(start)) {
+    if (l.trim() === '' || (quote && !l.startsWith('>'))) break
+    para.push(quote ? l.replace(/^>\s?/, '') : l)
+  }
+  const flat = para
+    .join(' ')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/[`*]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  const lede = quote ? flat : flat.split(/(?<=[.!?])\s+(?=[A-Z])/)[0]
+  return lede === '' ? null : lede
+}
+
+/**
+ * Every plugin in one repository tree: each `<dir>/rocketflare-plugin.json` (or one at the root),
+ * at most three directories deep and never inside another plugin, as
+ * `{ id, label, version, subdir, description }` sorted by id.
+ *
+ * The description is the manifest's own `description` when it carries one, else the lede of the
+ * README beside it, else its `label` — never text the kit holds. `read(rel)` answers the file's
+ * text or null; a manifest that does not parse, or names no valid id, is left out.
+ */
+export function catalogueEntries(files, read) {
+  const dirs = files
+    .filter(f => f === PLUGIN_MANIFEST_FILE || f.endsWith(`/${PLUGIN_MANIFEST_FILE}`))
+    .map(f => (f === PLUGIN_MANIFEST_FILE ? '' : f.slice(0, -PLUGIN_MANIFEST_FILE.length - 1)))
+    .filter(d => d === '' || d.split('/').length <= 3)
+    .sort((a, b) => a.length - b.length)
+  const kept = []
+  for (const d of dirs) {
+    if (kept.some(k => k === '' || d.startsWith(`${k}/`))) continue
+    kept.push(d)
+  }
+  const entries = []
+  for (const subdir of kept) {
+    const at = rel => (subdir === '' ? rel : `${subdir}/${rel}`)
+    let m
+    try {
+      m = JSON.parse(read(at(PLUGIN_MANIFEST_FILE)) ?? '')
+    } catch {
+      continue
+    }
+    if (!m || pluginIdProblem(m.id)) continue
+    const own = typeof m.description === 'string' && m.description.trim() !== ''
+    entries.push({
+      id: m.id,
+      label: typeof m.label === 'string' ? m.label : m.id,
+      version: typeof m.version === 'string' ? m.version : null,
+      subdir,
+      description: own
+        ? m.description.trim()
+        : (readmeLede(read(at('README.md'))) ?? (typeof m.label === 'string' ? m.label : '')),
+    })
+  }
+  return entries.sort((a, b) => a.id.localeCompare(b.id))
+}
+
+/** The files `catalogueEntries` and `licenceTerms` may read, so a mirror can fetch them at once. */
+export function catalogueReads(files) {
+  const plugins = files
+    .filter(f => f === PLUGIN_MANIFEST_FILE || f.endsWith(`/${PLUGIN_MANIFEST_FILE}`))
+    .map(f => f.slice(0, -PLUGIN_MANIFEST_FILE.length))
+  const wanted = new Set([
+    ...LICENCE_FILES,
+    'README.md',
+    ...plugins.flatMap(dir => [`${dir}${PLUGIN_MANIFEST_FILE}`, `${dir}README.md`]),
+  ])
+  return files.filter(f => wanted.has(f))
+}
+
+const LICENCE_FILES = ['LICENSE', 'LICENSE.md', 'LICENCE', 'LICENCE.md']
+
+/**
+ * Where a commercial repository states its terms: its LICENSE file, else a "Licence"/"License"
+ * section of its README, else nothing (and the heading says to ask the maintainers).
+ */
+export function licenceTerms(files, read, { repo, ref }) {
+  const licence = LICENCE_FILES.find(f => files.includes(f) && (read(f) ?? '').trim() !== '')
+  if (licence) return { file: licence, url: blobUrl(repo, ref, licence) }
+  if (files.includes('README.md') && /^#+\s+Licen[cs]e\b/im.test(read('README.md') ?? '')) {
+    return { file: 'README.md', url: blobUrl(repo, ref, 'README.md') }
+  }
+  return null
+}
+
+/**
+ * `pnpm plugin list --available`: one block per readable repository, one line per plugin — id,
+ * version, whether it is installed here, and its description. `catalogues` is
+ * `[{ repo, tag, commercial, licence, plugins }]`; `installed` is the host's surfaces.
+ */
+export function renderCatalogue(catalogues, installed = []) {
+  const lines = []
+  for (const c of catalogues) {
+    if (lines.length > 0) lines.push('')
+    const where = `${repoDisplayName(c.repo)} at ${c.tag}`
+    if (c.commercial) {
+      lines.push(
+        `Commercial plugins (${where}) — licensed separately, not under the kit's licence.`
+      )
+      lines.push(
+        c.licence
+          ? `  licence: ${c.licence.url ?? `${c.licence.file} in ${repoDisplayName(c.repo)}`}`
+          : '  licence: ask the maintainers'
+      )
+    } else {
+      lines.push(`Plugins (${where})`)
+    }
+    if (c.plugins.length === 0) lines.push('  (none at this tag)')
+    for (const p of c.plugins) {
+      const surface = installed.find(s => s.id === p.id)
+      const have = surface?.source?.version
+      const mark = surface ? (have && have !== p.version ? `installed ${have}` : 'installed') : ''
+      lines.push(
+        `  ${pad(p.id, 16)}${pad(p.version ?? '?', 10)}${pad(mark, 18)}${p.description}`.trimEnd()
+      )
+    }
+  }
+  lines.push(
+    '',
+    'Install one with `/rp-plugin add <id>` (or `pnpm plugin add <repo> --subdir <dir>`, which',
+    `prints the plan; --apply installs). Browse them at ${PLUGIN_CATALOGUE_URL}.`,
+    // Rocketpod has no catalogue of its own: these are the ecosystem's (Rocketflare's) plugins.
+    'They are written for Rocketflare; `pnpm plugin add` translates their names on the way in,',
+    'and refuses one whose minKit is above this kit or that declares Cloudflare bindings.'
+  )
+  return lines
+}
+
+/** The same facts as `renderCatalogue`, as one JSON document. */
+export function catalogueJson(catalogues, installed = []) {
+  return {
+    catalogues: catalogues.map(c => ({
+      repo: c.repo,
+      tag: c.tag,
+      commercial: c.commercial,
+      licence: c.commercial ? (c.licence ?? null) : undefined,
+      plugins: c.plugins.map(p => {
+        const surface = installed.find(s => s.id === p.id)
+        return {
+          ...p,
+          repo: c.repo,
+          installed: Boolean(surface),
+          installedVersion: surface?.source?.version ?? null,
+        }
+      }),
+    })),
+  }
+}
+
 // ---------------------------------------------------------------- the audit
 
 /**
@@ -1803,6 +2040,15 @@ export function pluginManifestProblems(manifest) {
   for (const field of ['paths', 'registries', 'apiPrefixes', 'workerExports', 'migrations']) {
     if (m[field] !== undefined && !isStrArray(m[field])) {
       bad(field, `declares ${field} as other than an array of strings`, `set "${field}" to []`)
+    }
+  }
+  if (isStrArray(m.apiPrefixes)) {
+    for (const prefix of m.apiPrefixes.filter(isReservedPluginPath)) {
+      bad(
+        'apiPrefixes',
+        `declares the prefix ${prefix}, which core reserves for the MCP server and its authorization server`,
+        'move it under /api/<plugin id> — a plugin tool reaches MCP clients through ServerPlugin.tools, with no mount of its own'
+      )
     }
   }
 
@@ -2171,6 +2417,212 @@ export function isolationEvidence(source) {
  */
 export function declaresProperty(source, name) {
   return new RegExp(`\\b${escapeRe(name)}\\s*[:(]`).test(stripComments(source))
+}
+
+/**
+ * `ServerPlugin` members a plugin should stop declaring, each with the member that replaced it.
+ * The kit still reads every one of them, so `pnpm plugin check` WARNS rather than fails; a later
+ * kit release removes the old name with a porting-note step.
+ */
+export const DEPRECATED_SERVER_MEMBERS = [
+  {
+    name: 'agentTools',
+    replacement: 'tools',
+    fix:
+      'rename `agentTools:` to `tools:` in the ServerPlugin — same signature; a tool picks its ' +
+      "surfaces with `surfaces: ['chat' | 'agents' | 'mcp']` (absent = all)",
+  },
+]
+
+/**
+ * The deprecated members a source declares as a property or method (`agentTools: …`,
+ * `agentTools(ctx) {…}`) — never a mention in a comment, and never a property ACCESS
+ * (`plugin.agentTools(ctx)`), which is a caller rather than a declaration.
+ */
+export function deprecatedServerMembers(source) {
+  const text = stripComments(source)
+  return DEPRECATED_SERVER_MEMBERS.filter(m =>
+    new RegExp(`(?<![.\\w$])${escapeRe(m.name)}\\s*[:(]`).test(text)
+  )
+}
+
+/**
+ * The tool-name rule every surface accepts — a copy of `MCP_TOOL_NAME_PATTERN` in
+ * `packages/shared/src/mcp.ts` (this script cannot import TypeScript), pinned equal by
+ * `tests/kit-only/plugin-lib.test.ts`. MCP allows `.` and 128 characters; the chat models' APIs do
+ * not, and one tool goes to both.
+ */
+export const TOOL_NAME_RE = /^[A-Za-z0-9_-]{1,64}$/
+
+/** The names core's own tools answer to (`KNOWLEDGE_TOOLS`), pinned equal by the same test. */
+export const CORE_TOOL_NAMES = [
+  'search_knowledge',
+  'get_document',
+  'list_documents',
+  'lookup_facts',
+]
+
+/**
+ * The paths core reserves for the MCP server, its authorization server and the OAuth discovery
+ * documents — `isReservedPath` in `apps/web/src/api/utils/routes/api-prefixes.ts`, which refuses
+ * them at load; this is the static half `pnpm plugin check` reports before anything boots.
+ */
+export function isReservedPluginPath(path) {
+  const p = String(path).toLowerCase()
+  return (
+    p === '/mcp' ||
+    p.startsWith('/mcp/') ||
+    p === '/oauth' ||
+    p.startsWith('/oauth/') ||
+    p.startsWith('/.well-known/oauth-') ||
+    p === '/.well-known/openid-configuration'
+  )
+}
+
+/**
+ * Mount paths a plugin source claims on a reserved path: the first element of a `[path, …]` tuple
+ * (`mounts`, `publicMounts`) that is a string literal on one of them. Comments are stripped first.
+ */
+export function reservedMountPaths(source) {
+  const text = stripComments(source)
+  const out = new Set()
+  for (const m of text.matchAll(/\[\s*(['"`])(\/[^'"`\s]*)\1\s*,/g)) {
+    if (isReservedPluginPath(m[2])) out.add(m[2])
+  }
+  return [...out]
+}
+
+/** Every `const NAME = 'literal'` in a source — how a tool's `name: SOME_CONST` is resolved. */
+export function stringConstants(source) {
+  const out = new Map()
+  for (const m of stripComments(source).matchAll(
+    /\bconst\s+([A-Za-z_$][\w$]*)\s*=\s*(['"`])([^'"`\n]*)\2/g
+  )) {
+    // `const X = \`a${b}\`` is not a constant this read can know.
+    if (m[2] === '`' && m[3].includes('${')) continue
+    out.set(m[1], m[3])
+  }
+  return out
+}
+
+/** The text between `open` and its matching `)`, skipping strings — or null when unbalanced. */
+function callBody(text, open) {
+  let depth = 0
+  let quote = null
+  for (let i = open; i < text.length; i++) {
+    const c = text[i]
+    if (quote) {
+      if (c === '\\') i++
+      else if (c === quote) quote = null
+      continue
+    }
+    if (c === "'" || c === '"' || c === '`') quote = c
+    else if (c === '(') depth++
+    else if (c === ')' && --depth === 0) return text.slice(open + 1, i)
+  }
+  return null
+}
+
+/** A run of `'a' + "b" + `c`` literals as one string (no `${}` evaluation), or null. */
+function concatenatedLiterals(text) {
+  const run = /^\s*((?:(['"`])(?:\\.|(?!\2)[^\\])*\2\s*\+?\s*)+)/.exec(text)
+  if (!run) return null
+  return [...run[1].matchAll(/(['"`])((?:\\.|(?!\1)[^\\])*)\1/g)].map(m => m[2]).join('')
+}
+
+/**
+ * The tools a plugin source declares through `defineTool({ … })`: each one's `name` (a literal,
+ * or an identifier found in `constants`; `null` when neither — the runtime check still sees it),
+ * and its `title` / `description` text when written as literals. Best effort by design: a static
+ * read cannot evaluate a builder, so this catches the declarations that are written plainly —
+ * which is every one the kit's reference plugin and its docs show — and the tool builder refuses
+ * the rest at runtime.
+ */
+export function declaredTools(source, constants = new Map()) {
+  const text = stripComments(source)
+  const out = []
+  for (const m of text.matchAll(/\bdefineTool\s*(?:<[^>]*>)?\s*\(/g)) {
+    const body = callBody(text, m.index + m[0].length - 1)
+    if (body === null) continue
+    const nameMatch = /(?:^|[,{\s])name\s*:\s*(?:(['"`])([^'"`]*)\1|([A-Za-z_$][\w$]*))/.exec(body)
+    // A template literal with a `${}` cannot be read statically: left to the runtime check.
+    const literal = nameMatch?.[2]
+    const interpolated = nameMatch?.[1] === '`' && literal?.includes('${')
+    const name = nameMatch
+      ? interpolated
+        ? null
+        : (literal ?? constants.get(nameMatch[3]) ?? null)
+      : null
+    const text_ = key => {
+      const k = new RegExp(`(?:^|[,{\\s])${key}\\s*:`).exec(body)
+      return k ? concatenatedLiterals(body.slice(k.index + k[0].length)) : null
+    }
+    out.push({ name, title: text_('title'), description: text_('description') })
+  }
+  return out
+}
+
+/**
+ * The kit's own name in a plugin tool's title or description. Built from parts so the rename
+ * leaves it alone: in a copy too, a plugin's tool text must not carry the kit's name (a client
+ * shows it under the deployment's own name).
+ */
+const KIT_NAME_IN_TEXT = new RegExp(['rocket', 'flare'].join(''), 'i')
+
+/**
+ * What is wrong with the tools every installed plugin declares, across all of them at once:
+ * a name outside {@link TOOL_NAME_RE} or one of {@link CORE_TOOL_NAMES} or another plugin's
+ * (`fail`), and the product's own name in a title or description (`warn` — a client shows that
+ * text under the DEPLOYMENT's name, never the kit's).
+ */
+export function toolProblems(declarations) {
+  const out = []
+  const owners = new Map(CORE_TOOL_NAMES.map(n => [n, 'core']))
+  for (const { pluginId, file, tools } of declarations) {
+    for (const t of tools) {
+      if (t.name !== null && !TOOL_NAME_RE.test(t.name)) {
+        out.push({
+          severity: 'fail',
+          pluginId,
+          file,
+          tool: t.name,
+          kind: 'name',
+          problem: `declares the tool "${t.name}", whose name is not 1–64 of A–Z a–z 0–9 _ -`,
+          fix: `rename it snake_case, prefixed with the plugin's namespace (e.g. "${pluginId.split('-')[0]}_${t.name.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 40)}") — chat models and MCP clients both refuse other names`,
+        })
+      } else if (t.name !== null && owners.has(t.name) && owners.get(t.name) !== pluginId) {
+        const owner = owners.get(t.name)
+        out.push({
+          severity: 'fail',
+          pluginId,
+          file,
+          tool: t.name,
+          kind: 'clash',
+          problem: `declares the tool "${t.name}", which ${owner === 'core' ? 'is a core tool' : `'${owner}' also declares`}`,
+          fix: `rename it with the plugin's namespace ("${pluginId.split('-')[0]}_…") — the tool builder keeps the first and leaves this one out`,
+        })
+      } else if (t.name !== null && !owners.has(t.name)) {
+        owners.set(t.name, pluginId)
+      }
+      for (const [field, value] of [
+        ['title', t.title],
+        ['description', t.description],
+      ]) {
+        if (value && KIT_NAME_IN_TEXT.test(value)) {
+          out.push({
+            severity: 'warn',
+            pluginId,
+            file,
+            tool: t.name ?? '?',
+            kind: `brand-${field}`,
+            problem: `names the kit in the ${field} of the tool "${t.name ?? '?'}"`,
+            fix: 'a client shows tool text under the deployment\'s own name — say "this workspace" or "the organisation" instead',
+          })
+        }
+      }
+    }
+  }
+  return out
 }
 
 /**

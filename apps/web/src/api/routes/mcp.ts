@@ -1,252 +1,291 @@
 /**
- * The remote MCP server (docs/CONCEPTS.md §19): `POST /mcp`, Streamable HTTP, STATELESS — one
- * `Server` per request, JSON responses, no sessions or SSE stream, so any replica answers any call.
- * And its RFC 9728 protected-resource metadata, which is how an MCP client finds the
- * authorization server. All of it answers 404 until `MCP_AUTHORIZATION_SERVER` is set.
+ * `/mcp` and `/mcp/t/<slug>`: the app's MCP server — stateless Streamable HTTP, POST only, JSON
+ * answers. `/mcp` serves whichever organisation the connection was made for; `/mcp/t/<slug>` is
+ * the same server pinned to one organisation, for a client that keys connectors by URL and so
+ * cannot hold two connections to `/mcp`. A grant is bound to the exact URL it was made on, so a
+ * token never crosses from one to the other.
  *
- * Credential: `Authorization: Bearer <access token>` from that server (`auth/mcp.ts`), never the
- * session cookie or an API key. A request without a valid one is a 401 whose `WWW-Authenticate`
- * names the metadata. The person is resolved to the same `AuthContext` a browser session would
- * give them, then:
+ * Mounted in `api/index.ts` BEFORE the mount table, outside the global CORS (which allows
+ * credentials) and outside `authMiddleware` (which takes cookies and API keys — neither is a
+ * credential here: only an OAuth access token is). In order, per request:
  *
- * - **The tools are the agents' tools.** `buildAgentTools` — the knowledge tools and every installed
- *   plugin's `agentTools` — built from this call's own access scope and CASL grant, exactly as chat
- *   builds them, so an MCP client reads what its person may read and nothing more. A tool gated on
- *   approval (`requiresApproval`, `requiresApprovalWhen`) is left out: here there is no run to
- *   pause and nobody to ask. Plus `list_tenants`, which needs no tenant.
- * - **One tenant per call.** Every tool takes an optional `tenant` (required when the person has
- *   several); the `mcp-tenant` header is the same thing for a whole connection. Listing with
- *   several tenants and none named shows the union of their tools.
+ * 1. the deployment gate — 404 unless the deployment ships the `mcp` feature;
+ * 2. the Origin rule — absent is fine (every non-browser client), present must be ours;
+ * 3. POST only — 405 for GET and DELETE (no SSE stream, no session to end);
+ * 4. the caller (`services/mcp/caller.ts`) — 401 with the challenge, or 403 with the reason;
+ * 5. one message per request — a JSON-RPC batch is refused (-32600) in every protocol era, so
+ *    every call passes the call limits one at a time;
+ * 6. the caller's tools: `toolsFor('mcp')` built from THEIR access scope and CASL grant, then
+ *    the organisation's exposure — once, outside the SDK's server factory;
+ * 7. the SDK's handler, inside the tenant scope, with the response buffered so no tool runs
+ *    after the scope's transaction has closed.
  */
-
-import { Server } from '@modelcontextprotocol/sdk/server/index.js'
-import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
-import {
-  CallToolRequestSchema,
-  type CallToolResult,
-  ListToolsRequestSchema,
-} from '@modelcontextprotocol/sdk/types.js'
+import { createMcpHandler } from '@modelcontextprotocol/server'
 import { ERROR_CODES } from '@rocketpod/shared/errors'
-import {
-  MCP_TENANT_ARGUMENT,
-  MCP_TENANT_HEADER,
-  PROTECTED_RESOURCE_PATHS,
-  type ProtectedResourceMetadata,
-} from '@rocketpod/shared/mcp'
-import { type AppConfig, hasMcp, mcpResource } from '../../config'
-import type { Database } from '../../db/client'
-import type { User } from '../../db/schema'
-import {
-  admitMcpPerson,
-  mcpAuthContext,
-  mcpTenantsOf,
-  pickTenant,
-  verifyMcpToken,
-} from '../auth/mcp'
+import { MCP_TENANT_HEADER } from '@rocketpod/shared/mcp'
+import { cors } from 'hono/cors'
+import { createMiddleware } from 'hono/factory'
+import { hasOutsideMcpIssuer } from '../../config'
+import { withTenantScope } from '../../db/tenant-scope'
+import { deploymentFeatures } from '../../permissions/features'
+import { admitOutsideMcpPerson, mcpTenantsOf, pickTenant, verifyOutsideMcpToken } from '../auth/mcp'
 import { ssoAllows } from '../auth/sso-policy'
-import { accessScopeOf } from '../services/access'
-import { buildAgentTools } from '../services/agents/tools'
-import { type Tool, toolInputSchema } from '../services/ai/agent-loop'
-import type { AppContext } from '../types'
-import { NotFoundError, UnauthorizedError } from '../utils/core/errors'
+import { allowedOrigins } from '../middleware/cors'
+import { isAllowedOrigin } from '../middleware/csrf'
+import { noopTracer } from '../observability/tracer'
+import {
+  bearerOf,
+  callerForGrant,
+  type McpCaller,
+  McpChallengeError,
+  resolveMcpCaller,
+} from '../services/mcp/caller'
+import { buildMcpServer } from '../services/mcp/server'
+import {
+  MCP_ACCESS_TOKEN_PREFIX,
+  mcpResourceMetadataUrl,
+  mcpResourceUrl,
+  outsideMcpGrant,
+  touchMcpGrant,
+} from '../services/mcp/tokens'
+import { mcpToolsFor } from '../services/mcp/tools'
+import type { AppContext, AppEnv } from '../types'
+import { ForbiddenError, NotFoundError } from '../utils/core/errors'
 import { makeDefer } from '../utils/routes/route-helpers'
 import { createRouter } from '../utils/routes/router'
 import { ssoDecisionFor } from './auth/sso'
 
-/** One `get_document` window over MCP: more than chat's, since a client pages it itself. */
-export const MCP_GET_DOCUMENT_MAX_CHARS = 20_000
-
 export const mcpRouter = createRouter()
 
-const metadataUrl = (cfg: AppConfig) =>
-  `${new URL(cfg.APP_URL).origin}${PROTECTED_RESOURCE_PATHS[1]}`
+/**
+ * Any origin may call it (a client in a browser tab is a client), with NO credentials — a cookie
+ * is never a credential here — and the challenge header readable, because that is how a browser
+ * client finds the authorization server.
+ */
+const mcpCors = cors({
+  origin: '*',
+  credentials: false,
+  allowMethods: ['POST', 'OPTIONS'],
+  allowHeaders: [
+    'Authorization',
+    'Content-Type',
+    'Accept',
+    'Mcp-Protocol-Version',
+    'Mcp-Method',
+    'Mcp-Name',
+    'Mcp-Session-Id',
+    'Mcp-Tenant',
+    'Last-Event-ID',
+  ],
+  exposeHeaders: ['WWW-Authenticate', 'Mcp-Protocol-Version'],
+  maxAge: 600,
+})
 
-function requireMcp(c: AppContext): AppConfig {
+/**
+ * The kit's error envelope for what is refused before the protocol starts (no such route, a
+ * foreign Origin, the wrong method) — the same shape as every other route; JSON-RPC errors are the
+ * SDK's, for what it refuses inside the protocol.
+ */
+function refuse(c: AppContext, status: 403 | 405, code: string, error: string) {
+  return c.json({ error, statusCode: status, code }, status)
+}
+
+/**
+ * 404 on a deployment that does not ship the server — the surface does not exist there. The
+ * authorization server's routes and documents sit behind the same gate.
+ */
+export const mcpDeploymentGate = createMiddleware<AppEnv>(async (c, next) => {
+  const deployed = await deploymentFeatures(c.get('config'))
+  if (!deployed.includes('mcp')) {
+    throw new NotFoundError(`Not found: ${c.req.path}`, ERROR_CODES.featureDisabled)
+  }
+  await next()
+})
+
+/**
+ * A browser that sends an Origin must be on our own — the DNS-rebinding and drive-by defence the
+ * transport spec asks for. No Origin is every desktop, CLI and hosted client, and is allowed.
+ */
+const originRule = createMiddleware<AppEnv>(async (c, next) => {
+  const origin = c.req.header('Origin')
+  if (origin && !isAllowedOrigin(origin, allowedOrigins(c.get('config'), c.req.url))) {
+    return refuse(c, 403, ERROR_CODES.forbidden, 'Origin not allowed')
+  }
+  await next()
+})
+
+mcpRouter.use('*', mcpCors, mcpDeploymentGate, originRule)
+
+/**
+ * A JSON-RPC batch (an array body) — refused in every protocol era. The 2026 era's SDK already
+ * refuses one; the 2025 era would dispatch its calls concurrently, and the call limits count one
+ * call at a time. The body is bounded by `jsonBodyLimit`; anything that does not parse is left to
+ * the SDK, which answers it with its own parse error.
+ */
+async function isBatch(req: Request): Promise<boolean> {
+  try {
+    return Array.isArray(JSON.parse(await req.clone().text()))
+  } catch {
+    return false
+  }
+}
+
+function batchRefused(): Response {
+  return Response.json(
+    {
+      jsonrpc: '2.0',
+      id: null,
+      error: { code: -32600, message: 'Bad Request: JSON-RPC batches are not supported' },
+    },
+    { status: 400 }
+  )
+}
+
+/**
+ * The caller behind a token from the OUTSIDE authorization server (`MCP_AUTHORIZATION_SERVER`,
+ * Rocketpod only; `auth/mcp.ts`): the token → the person, through the SSO policy and `admitUser`
+ * like any sign-in → the organisation the URL or `mcp-tenant` names (or their only one) → a grant
+ * of its own, and from there the SAME caller as the app's own tokens (`callerForGrant`).
+ */
+async function outsideCaller(
+  c: AppContext,
+  token: string,
+  resource: string,
+  slug: string | undefined
+): Promise<McpCaller> {
   const cfg = c.get('config')
-  if (!hasMcp(cfg)) throw new NotFoundError('Not found')
-  return cfg
-}
-
-/** 401 that tells an MCP client where to sign in (RFC 6750 §3, RFC 9728 §5.1). */
-function challenge(c: AppContext, cfg: AppConfig, error?: string): never {
-  const parts = [`resource_metadata="${metadataUrl(cfg)}"`]
-  if (error) parts.push(`error="invalid_token"`, `error_description="${error}"`)
-  c.header('WWW-Authenticate', `Bearer ${parts.join(', ')}`)
-  throw new UnauthorizedError(error ?? 'An access token is required', ERROR_CODES.unauthorized)
-}
-
-for (const path of PROTECTED_RESOURCE_PATHS) {
-  mcpRouter.get(path, c => {
-    const cfg = requireMcp(c)
-    c.header('Cache-Control', 'public, max-age=300')
-    const body: ProtectedResourceMetadata = {
-      resource: mcpResource(cfg),
-      // biome-ignore lint/style/noNonNullAssertion: requireMcp proved it is set
-      authorization_servers: [cfg.MCP_AUTHORIZATION_SERVER!],
-      bearer_methods_supported: ['header'],
-      resource_name: cfg.APP_NAME,
-    }
-    return c.json(body)
-  })
-}
-
-const tenantProperty = (required: boolean) => ({
-  type: 'string',
-  description: required
-    ? 'Which of your tenants to act in: its id or slug (list_tenants lists them). Required: you belong to several.'
-    : 'Which of your tenants to act in: its id or slug (list_tenants lists them).',
-})
-
-/** A tool's JSON Schema with the `tenant` argument added. */
-function withTenant(tool: Tool, required: boolean) {
-  const schema = toolInputSchema(tool.schema) as {
-    properties?: Record<string, unknown>
-    required?: string[]
-  }
-  return {
-    ...schema,
-    type: 'object' as const,
-    properties: { ...schema.properties, [MCP_TENANT_ARGUMENT]: tenantProperty(required) },
-    ...(required || schema.required
-      ? { required: [...(schema.required ?? []), ...(required ? [MCP_TENANT_ARGUMENT] : [])] }
-      : {}),
-  }
-}
-
-const offered = (tools: Tool[]) =>
-  tools.filter(t => t.handler && !t.requiresApproval && !t.requiresApprovalWhen)
-
-const text = (value: unknown, isError = false): CallToolResult => ({
-  content: [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value) }],
-  ...(isError ? { isError: true } : {}),
-})
-
-mcpRouter.all('/mcp', async c => {
-  const cfg = requireMcp(c)
-  const db = c.get('db') as Database
+  const db = c.get('db')
   const logger = c.get('logger')
   const platform = c.get('platform')
-
-  const header = c.req.header('authorization')
-  const token = header ? /^Bearer\s+(\S+)$/i.exec(header)?.[1] : undefined
-  if (!token) challenge(c, cfg)
-  const claims = await verifyMcpToken(cfg, token, logger)
-  if (!claims) challenge(c, cfg, 'The access token is invalid or expired')
+  const claims = await verifyOutsideMcpToken(cfg, token, resource, logger)
+  if (!claims) throw new McpChallengeError(resource, 'The access token is invalid or expired')
   // A sign-in path like any other: an organisation that requires its own single sign-on for this
-  // address is not bypassed by the authorization server's word.
+  // address is not bypassed by the outside server's word.
   const sso = await ssoDecisionFor(db, cfg, [claims.email], logger)
-  if (!ssoAllows(sso, 'core')) challenge(c, cfg, 'This account must sign in with single sign-on')
-  const person = await admitMcpPerson(db, cfg, claims, logger, {
+  if (!ssoAllows(sso, 'core')) {
+    throw new McpChallengeError(resource, 'This account must sign in with single sign-on')
+  }
+  const person = await admitOutsideMcpPerson(db, cfg, claims, logger, {
     jobs: platform.jobs,
     realtime: { defer: makeDefer(c), hub: platform.realtime },
   })
-  if (!person.ok) challenge(c, cfg, `This account may not use the app (${person.reason})`)
-  const user: User = person.user
-  const mine = await mcpTenantsOf(db, user.id)
-  const sessionId = `mcp:${String(claims.connection_id ?? claims.jti ?? 'token')}`
+  if (!person.ok) {
+    throw new McpChallengeError(resource, `This account may not use the app (${person.reason})`)
+  }
+  if (person.user.blockedAt) throw new ForbiddenError('Account is blocked', ERROR_CODES.blocked)
+  const mine = await mcpTenantsOf(db, person.user.id)
+  const named = slug ?? (c.req.header(MCP_TENANT_HEADER)?.trim() || undefined)
+  const pick = pickTenant(mine, named)
+  if (!pick.tenant) {
+    throw pick.ambiguous
+      ? new ForbiddenError(
+          `You belong to several organisations: name one with the ${MCP_TENANT_HEADER} header, or connect to /mcp/t/<slug>`,
+          ERROR_CODES.mcpTenantRequired,
+          { tenants: mine.map(t => t.slug) }
+        )
+      : new ForbiddenError('You are not a member of this organisation', ERROR_CODES.mcpNotAllowed)
+  }
+  const grant = await outsideMcpGrant(db, cfg, {
+    tenantId: pick.tenant.id,
+    userId: person.user.id,
+    clientId: claims.clientId,
+    resource,
+    scopes: claims.scopes,
+    issuedAt: claims.issuedAt,
+  })
+  if (!grant) {
+    throw new McpChallengeError(resource, 'This connection was revoked; sign in again')
+  }
+  return callerForGrant(db, cfg, grant, resource)
+}
 
+async function serve(c: AppContext, slug: string | undefined): Promise<Response> {
   if (c.req.method !== 'POST') {
-    // Stateless: no standalone SSE stream (GET) and no session to end (DELETE).
     c.header('Allow', 'POST')
-    return c.json(
-      { jsonrpc: '2.0', error: { code: -32000, message: 'Method not allowed' }, id: null },
-      405
-    )
+    return refuse(c, 405, 'method_not_allowed', 'Method not allowed')
   }
-
-  /** The tools as this person sees them in one tenant. */
-  const toolsIn = async (tenant: (typeof mine)[number]) => {
-    const auth = await mcpAuthContext(db, cfg, user, tenant, sessionId)
-    return offered(
-      await buildAgentTools({
-        db,
-        cfg,
-        env: platform,
-        scope: accessScopeOf(auth),
-        can: (action, subject) => auth.ability.can(action, subject),
-        maxDocumentChars: MCP_GET_DOCUMENT_MAX_CHARS,
-      })
-    )
+  // A listen stream never ends, and the tool list is never pushed (`listChanged: false`). The
+  // header must agree with the body — the SDK refuses a mismatch with -32020 — so it is enough.
+  if (c.req.header('Mcp-Method')?.trim() === 'subscriptions/listen') {
+    return refuse(c, 405, 'method_not_allowed', 'This server does not push list changes')
   }
-  const headerTenant = c.req.header(MCP_TENANT_HEADER)?.trim() || undefined
-  const several = mine.length > 1
-
-  const listTenants = {
-    name: 'list_tenants',
-    description:
-      'The tenants (organisations) you belong to in this app, with your role in each. Pass one as `tenant` to the other tools.',
-    inputSchema: { type: 'object' as const, properties: {} },
-    annotations: { readOnlyHint: true },
-  }
-
-  const server = new Server(
-    { name: cfg.APP_NAME, version: cfg.RELEASE_VERSION },
-    { capabilities: { tools: {} } }
-  )
-
-  server.setRequestHandler(ListToolsRequestSchema, async () => {
-    const { tenant } = pickTenant(mine, headerTenant)
-    const sources = tenant ? [tenant] : mine
-    const byName = new Map<string, Tool>()
-    for (const t of sources) for (const tool of await toolsIn(t)) byName.set(tool.name, tool)
-    const required = !tenant && several
-    return {
-      tools: [
-        listTenants,
-        ...[...byName.values()].map(tool => ({
-          name: tool.name,
-          description: tool.description,
-          inputSchema: withTenant(tool, required),
-        })),
-      ],
-    }
-  })
-
-  server.setRequestHandler(CallToolRequestSchema, async req => {
-    const { name } = req.params
-    const { [MCP_TENANT_ARGUMENT]: named, ...args } = (req.params.arguments ?? {}) as Record<
-      string,
-      unknown
-    >
-    if (name === listTenants.name) {
-      return text(
-        mine.map(({ id, slug, name: tenantName, role }) => ({ id, slug, name: tenantName, role }))
-      )
-    }
-    const pick = pickTenant(mine, typeof named === 'string' && named ? named : headerTenant)
-    if (!pick.tenant) {
-      const hint = pick.unknown
-        ? 'That is not one of your tenants.'
-        : pick.ambiguous
-          ? `You belong to several tenants: pass \`${MCP_TENANT_ARGUMENT}\`.`
-          : 'You belong to no tenant in this app yet.'
-      return text({ error: 'tenant_required', hint, tenants: mine.map(t => t.slug) }, true)
-    }
-    const tool = (await toolsIn(pick.tenant)).find(t => t.name === name)
-    if (!tool?.handler) return text({ error: 'unknown_tool', hint: 'Call tools/list.' }, true)
-    const input = tool.schema.safeParse(args)
-    if (!input.success) {
-      return text(
-        { error: 'invalid_arguments', issues: input.error.issues.map(i => i.message) },
-        true
-      )
-    }
-    try {
-      return text(await tool.handler(input.data))
-    } catch (err) {
-      logger.warn({ err, tool: name }, 'MCP tool failed')
-      return text({ error: 'tool_failed', hint: 'The tool failed; try again later.' }, true)
-    }
-  })
-
-  const transport = new WebStandardStreamableHTTPServerTransport({
-    sessionIdGenerator: undefined,
-    enableJsonResponse: true,
-  })
-  await server.connect(transport)
+  const cfg = c.get('config')
+  const db = c.get('db')
+  const resource = mcpResourceUrl(cfg, slug)
+  let caller: McpCaller
   try {
-    return await transport.handleRequest(c.req.raw)
-  } finally {
-    await server.close()
+    const bearer = bearerOf(c.req.header('Authorization'))
+    caller =
+      bearer && hasOutsideMcpIssuer(cfg) && !bearer.startsWith(MCP_ACCESS_TOKEN_PREFIX)
+        ? await outsideCaller(c, bearer, resource, slug)
+        : await resolveMcpCaller({
+            db,
+            cfg,
+            authorization: c.req.header('Authorization'),
+            resource,
+          })
+  } catch (err) {
+    if (err instanceof McpChallengeError) c.header('WWW-Authenticate', err.challenge)
+    throw err
   }
-})
+
+  if (await isBatch(c.req.raw)) return batchRefused()
+
+  const defer = makeDefer(c)
+  defer(() => touchMcpGrant(db, caller.grant))
+  const { auth } = caller
+  const tracer = (() => {
+    try {
+      return c.get('tracer') ?? noopTracer
+    } catch {
+      return noopTracer
+    }
+  })()
+
+  return withTenantScope(db, auth.tenantId, cfg.TENANT_SCOPE_MODE, async sdb => {
+    const tools = await mcpToolsFor({
+      db: sdb,
+      cfg,
+      env: c.get('platform'),
+      auth,
+      settings: caller.settings,
+    })
+
+    const handler = createMcpHandler(
+      () =>
+        buildMcpServer(
+          {
+            caller,
+            cfg,
+            db,
+            limiter: c.get('platform').rateLimiter,
+            logger: c.get('logger'),
+            tracer,
+            defer,
+          },
+          tools
+        ),
+      {
+        // `auto` answers one JSON body unless a handler emits a message before its result, which
+        // none here does; `json` would say the same and log a warning on every request.
+        responseMode: 'auto',
+        onerror: err => c.get('logger').debug({ err }, 'mcp: request rejected'),
+      }
+    )
+    const res = await handler.fetch(c.req.raw, {
+      authInfo: {
+        token: '',
+        clientId: caller.grant.clientId,
+        scopes: caller.scopes,
+        resourceMetadataUrl: mcpResourceMetadataUrl(resource),
+      },
+    })
+    // Buffered inside the scope: the 2025-era leg answers as an SSE stream whose body is written
+    // as the handler runs, and a tool must never run after the scoped transaction has ended.
+    const body = await res.arrayBuffer()
+    return new Response(body, { status: res.status, headers: res.headers })
+  })
+}
+
+mcpRouter.all('/', c => serve(c, undefined))
+mcpRouter.all('/t/:slug', c => serve(c, c.req.param('slug')))

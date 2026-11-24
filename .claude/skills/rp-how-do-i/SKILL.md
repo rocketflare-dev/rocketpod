@@ -24,9 +24,25 @@ harness (D33). Hand over to the `rp-evals` skill rather than planning a slice. A
 you're planning adds an AI surface (a new agent, a new prompt), put "a suite in `apps/evals`" in the
 plan's test section so its quality is measured from day one.
 
-## 0. First question: app, or plugin?
+## 0. First question: does a plugin already do this?
 
-Ask it before the interview, because it changes where every file lands (D31, `docs/CONCEPTS.md`
+Before planning anything, check whether it already exists. Run
+
+```
+pnpm plugin list --available
+```
+
+and read the descriptions against what they asked for: one line per published plugin (id, version,
+whether it is installed, what it does), read live from the plugin repositories at their newest
+release, plus a separately licensed `Commercial plugins` block when their credentials can read it.
+Exit 3 means the repositories could not be reached: say so, and do not guess from memory. If one
+fits — or fits with a small addition in the app — say which, and hand over to `/rp-plugin add <id>`
+instead of planning a slice. Builders who skip this step build what already exists.
+
+**Done when** they have agreed that no published plugin does the job (or have installed the one
+that does).
+
+**Then: app, or plugin?** Ask it before the interview, because it changes where every file lands (D31, `docs/CONCEPTS.md`
 §16). A **plugin** is a separate git repository copied into this app — never npm — that contributes
 contracts, schema, routes, jobs, agents, UI and CLI commands through five barrels it is the only
 thing allowed to write a line into — importing the kit only through the declared entries
@@ -81,7 +97,7 @@ than restating it here, so there is one source of truth. **Its table has two col
 and "The plugin slot", one row per layer — read the row for the answer from step 0 and quote that
 column.** The slots, in the table's own words, are `SharedPlugin.jobs` / `subjects` / `features` /
 `config` / `realtimeRoots` / `agentKeys`, `ServerPlugin.mounts` / `jobHandlers` / `agents` /
-`agentTools` / `scheduledTasks` / `grants` / `rlsExcludedTables` / `unscopedAllowlist` /
+`tools` / `scheduledTasks` / `grants` / `rlsExcludedTables` / `unscopedAllowlist` /
 `visibilityResources` / `hooks`, `UiPlugin.routes` / `nav` / `settingsTabs` / `queryKeys` /
 `agentForms`, and `CliPlugin.register` — each reached through one of the four published entry files
 (`apps/web/src/plugins/<id>/index.ts`, `.../ui/index.ts`,
@@ -177,6 +193,13 @@ ones their slice touches, and say what enforces each, so the rule is a test and 
   - The app's own code subscribes in `apps/web/src/api/services/events/app-handlers.ts`. Worked
     example: `example-feature` (`POST /notes` emits, `events/note-created.ts` handles,
     `agents/note-stats.ts` is triggered). `docs/CONCEPTS.md` §16 "Plugin events".
+- **"Let Claude / ChatGPT use our app" / "expose this to MCP"** — do not coach a new route, an API
+  key for the client, or a tool that takes a `tenantId`. The kit's MCP server (`docs/CONCEPTS.md`
+  §19) already signs the person in with the app's own login and acts as them in one organisation.
+  Connecting a client is configuration (`mcp` in `FEATURES_ENABLED`, then Settings → MCP);
+  exposing their own data is a TOOL, declared once for chat, agents and MCP, under
+  `.claude/rules/tools.md`, with `callMcpTool` tests. Run `/rp-mcp` for the steps, testing with a
+  real client and troubleshooting.
 
 Four more when the answer to step 0 was "plugin", and every one of them is a test rather than
 advice:

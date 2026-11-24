@@ -1,6 +1,4 @@
-// @vitest-isolate
-// Mocks `@/api/services/ai/resolve` (the chat provider seam) and the plugin barrels (the test
-// agents), so this file needs its own module registry.
+// @vitest-fixture-agents
 /**
  * A suspended organisation runs no agents: a run cannot be started for it by a route, a plugin or
  * a batch (403 `tenant_suspended`); a run queued before the suspension settles `cancelled` when
@@ -11,6 +9,7 @@ import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AGENTS } from '@/api/services/agents/registry'
 import { enqueueRun, enqueueRunBatch, getRun, listEvents } from '@/api/services/agents/runs'
+import { overrideResolveChatForTests } from '@/api/services/ai/resolve'
 import { runAgentRun } from '@/api/workflows/agent-run-body'
 import { loadConfig } from '@/config'
 import { agentRuns, tenants } from '@/db/schema'
@@ -31,21 +30,9 @@ import { createFakeStep } from '../../mocks/step'
 
 const resolved = vi.hoisted(() => ({ calls: 0 }))
 
-vi.mock('@rocketpod/shared/plugins', async importOriginal =>
-  (await import('../../helpers/test-agents-shared')).withTestAgents(await importOriginal())
-)
-vi.mock('@/plugins/server', async () =>
-  (await import('../../helpers/test-agents')).testAgentsServerBarrel()
-)
-vi.mock('@/api/services/ai/resolve', async importOriginal => {
-  const actual = await importOriginal<typeof import('@/api/services/ai/resolve')>()
-  return {
-    ...actual,
-    resolveChat: vi.fn(async () => {
-      resolved.calls += 1
-      throw new Error('a suspended organisation reached the chat provider')
-    }),
-  }
+overrideResolveChatForTests(async () => {
+  resolved.calls += 1
+  throw new Error('a suspended organisation reached the chat provider')
 })
 
 const db = setupTestDatabase()

@@ -6,26 +6,48 @@
  * that fails.
  *
  * `--only packages|api|rest [--shard i/N]` runs one part of the same plan (CI's parallel jobs);
- * no flags is the whole run.
+ * no flags is the whole run, and `pnpm test web` the whole web plan without the other packages.
  *
- * The inner loop is the narrow scripts (`pnpm web test:api`, `test:ui`, `test:config`,
- * `test:driver`, or a vitest file path): postgres, no compose management.
+ * `pnpm test <suite…> [file…]` is the inner loop: `api`, `ui`, `config`, `driver` (and `kit-only`
+ * in the kit), each its shared and isolated vitest projects together, narrowed to any file paths,
+ * filters or vitest flags given. A path alone runs it in whichever project holds it. The
+ * `apps/web` `test:*` scripts are one-line aliases for these, so no `package.json` names a vitest
+ * project. The database is expected up (`pnpm test:db:up`, or any earlier `pnpm test`).
+ *
+ * `--changed=<base>` (what `pnpm gate --changed` runs) narrows the run to the tests the change
+ * reaches: vitest's import graph, plus every test that reads the repository through the
+ * filesystem (`lib/gate-changed.mjs`).
  */
-import { spawnSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { spawn, spawnSync } from 'node:child_process'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { readEvalWarnings, renderEvalWarnings } from './lib/eval-warnings.mjs'
+import { planChanged, readsFiles, selectTests } from './lib/gate-changed.mjs'
+import { changedFiles, workspacePackages } from './lib/gate-changed-git.mjs'
 import {
   COMPOSE_FILE,
+  envTestPorts,
   parseTestArgs,
+  planSelectedTests,
+  planSuites,
   planTests,
+  SUITES,
   TARGET_HINT,
   TEST_USAGE,
+  testPortMismatches,
+  testPorts,
   WEB_DIR,
 } from './lib/test-plan.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const readIfThere = rel =>
+  existsSync(path.join(ROOT, rel)) ? readFileSync(path.join(ROOT, rel), 'utf8') : ''
+// The ports this checkout's compose file publishes: a copy may move them off the kit's :5533 /
+// :7433, and the messages and the `.env.test` check below follow (Rocketflare #178).
+const PORTS = testPorts(readIfThere(COMPOSE_FILE))
+const ENV_TEST_PORTS = envTestPorts(readIfThere(`${WEB_DIR}/.env.test`))
 
 function run(command, { cwd = ROOT, env = {}, quiet = false } = {}) {
   const [bin, ...args] = command
@@ -51,6 +73,69 @@ if (nodeMajor < 26) {
   )
 }
 
+/** `vitest list --filesOnly --json` in apps/web, as repo-relative `{ file, project }`. */
+function vitestList(extra) {
+  const dir = mkdtempSync(path.join(tmpdir(), 'rp-gate-list-'))
+  const out = path.join(dir, 'list.json')
+  const args = ['exec', 'dotenv', '-e', '.env.test', '--', 'vitest', 'list', '--filesOnly']
+  return new Promise(resolve => {
+    const child = spawn('pnpm', [...args, `--json=${out}`, ...extra], {
+      cwd: path.join(ROOT, WEB_DIR),
+      env: { ...process.env, NODE_ENV: 'test' },
+      stdio: ['ignore', 'ignore', 'pipe'],
+    })
+    let stderr = ''
+    child.stderr.on('data', d => {
+      stderr += d
+    })
+    child.on('close', code => {
+      const list = existsSync(out) ? JSON.parse(readFileSync(out, 'utf8')) : null
+      rmSync(dir, { recursive: true, force: true })
+      if (code !== 0 || !list) fail(`vitest list failed:\n${stderr.slice(-2000)}`)
+      resolve(list.map(t => ({ file: path.relative(ROOT, t.file), project: t.projectName })))
+    })
+  })
+}
+
+/** Test helpers that read the filesystem: a test importing one reads the repository too. */
+function fsHelpers() {
+  const out = []
+  for (const sub of ['tests/helpers', 'tests/kit']) {
+    const dir = path.join(ROOT, WEB_DIR, sub)
+    if (!existsSync(dir)) continue
+    for (const f of readdirSync(dir)) {
+      if (!/\.tsx?$/.test(f)) continue
+      if (readsFiles(readFileSync(path.join(dir, f), 'utf8'))) {
+        out.push(`${sub.split('/')[1]}/${f.replace(/\.tsx?$/, '')}`)
+      }
+    }
+  }
+  return out
+}
+
+/** The plan for `--changed=<base>`, or null when the change makes it the full run. */
+async function changedPlan(base) {
+  const { changed, existing } = changedFiles(ROOT, base)
+  const decided = planChanged({ changed, existing, packages: workspacePackages(ROOT) })
+  if ('full' in decided) {
+    console.log(`· ${decided.full} — running every test`)
+    return null
+  }
+  let projects = {}
+  if (decided.test.web) {
+    const [all, related] = await Promise.all([vitestList([]), vitestList([`--changed=${base}`])])
+    const sources = Object.fromEntries(
+      [...new Set(all.map(t => t.file))].map(f => [f, readFileSync(path.join(ROOT, f), 'utf8')])
+    )
+    const chosen = selectTests({ all, related, sources, changed, fsHelpers: fsHelpers() })
+    // vitest runs in apps/web: hand it absolute paths, which match exactly one file each.
+    projects = Object.fromEntries(
+      Object.entries(chosen).map(([p, files]) => [p, files.map(f => path.join(ROOT, f))])
+    )
+  }
+  return planSelectedTests(process.env, { projects, packages: decided.test.packages })
+}
+
 const args = parseTestArgs(process.argv.slice(2))
 if ('help' in args) {
   console.log(TEST_USAGE)
@@ -61,11 +146,22 @@ if ('error' in args) {
   process.exit(2)
 }
 
-const plan = planTests(
-  process.env,
-  { kitOnly: existsSync(path.join(ROOT, WEB_DIR, 'tests/kit-only')) },
-  args
-)
+const kitOnly = existsSync(path.join(ROOT, WEB_DIR, 'tests/kit-only'))
+// Paths arrive relative to the caller (`pnpm web test:api tests/api/x.test.ts` runs in apps/web,
+// `pnpm test api apps/web/tests/api/x.test.ts` at the root); vitest runs in apps/web, so an
+// existing path is handed over absolute. Anything else is a name filter or a vitest flag, passed
+// as given.
+const callerDir = process.env.INIT_CWD ?? process.cwd()
+const webOnly = args.positional.length === 1 && args.positional[0] === 'web'
+const suites = args.positional.filter(a => a in SUITES)
+const files = args.positional
+  .filter(a => !(a in SUITES) && a !== 'web')
+  .map(a => (existsSync(path.resolve(callerDir, a)) ? path.resolve(callerDir, a) : a))
+const plan =
+  (args.changed && (await changedPlan(args.changed))) ||
+  (args.positional.length && !webOnly
+    ? planSuites(process.env, { suites, files, kitOnly })
+    : planTests(process.env, { kitOnly, webOnly }, args))
 if ('error' in plan) fail(plan.error)
 
 // A part's banner names what it runs; a packages-only run touches no database.
@@ -73,6 +169,9 @@ const target = plan.compose || plan.target === 'remote' ? plan.banner : 'test ta
 console.log(args.only ? `${target} — only ${plan.steps.map(s => s.label).join(', ')}` : plan.banner)
 
 if (plan.compose) {
+  // The suite connects where `.env.test` says; the runner starts what the compose file says.
+  const mismatches = testPortMismatches(PORTS, ENV_TEST_PORTS)
+  if (mismatches.length > 0) fail(`${mismatches.join('; ')}. Make them the same port.`)
   if (run(['docker', 'info'], { quiet: true }) !== 0) {
     fail(`Docker is not running, and a local target needs it. ${TARGET_HINT}`)
   }
@@ -84,7 +183,7 @@ if (plan.compose) {
   if (up !== 0) {
     fail(
       'the test database did not start (docker compose up failed above). Another checkout holding ' +
-        ':5533 is the usual cause: `pnpm dev:db:status` lists them.'
+        `:${PORTS.postgres} or :${PORTS.s3} is the usual cause: \`pnpm dev:db:status\` lists them.`
     )
   }
 }

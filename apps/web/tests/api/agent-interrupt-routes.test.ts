@@ -1,7 +1,4 @@
-// @vitest-isolate
-// Swaps entries in the `AGENTS` module singleton (to get an `approvers: 'admin'` agent and one that
-// interrupts) and mocks `@/api/services/ai/resolve`, so this file needs its own module registry.
-// Also mocks both plugin barrels to register the test-only agents (tests/helpers/test-agents.ts).
+// @vitest-fixture-agents
 /**
  * The human-in-the-loop routes:
  *
@@ -27,13 +24,14 @@ import type { AgentInterruptSpec } from '@rocketpod/shared/ai/interrupts'
 import { interruptInboxItemSchema } from '@rocketpod/shared/ai/interrupts'
 import { paginatedResponse } from '@rocketpod/shared/pagination'
 import { eq } from 'drizzle-orm'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { upsertArtifact } from '@/api/services/agents/artifacts'
 import { listInterrupts, requestInterrupt } from '@/api/services/agents/interrupts'
 import { AGENTS, type AgentContext, type AnyAgentDefinition } from '@/api/services/agents/registry'
 import { enqueueRun, getRun, listEvents, parkRun } from '@/api/services/agents/runs'
 import { AiError } from '@/api/services/ai/errors'
+import { overrideResolveChatForTests } from '@/api/services/ai/resolve'
 import type { ChatClient } from '@/api/services/ai/types'
 import { runAgentRun } from '@/api/workflows/agent-run-body'
 import { loadConfig } from '@/config'
@@ -52,29 +50,17 @@ import { TEST_RESEARCH, TEST_SUMMARIZE } from '../helpers/test-agents-shared'
 import { createTestEnv, stubs, type TestEnv } from '../mocks/bindings'
 import { createFakeStep } from '../mocks/step'
 
-vi.mock('@rocketpod/shared/plugins', async importOriginal =>
-  (await import('../helpers/test-agents-shared')).withTestAgents(await importOriginal())
-)
-vi.mock('@/plugins/server', async () =>
-  (await import('../helpers/test-agents')).testAgentsServerBarrel()
-)
-
 const state: { client: ChatClient | null } = { client: null }
 
-vi.mock('@/api/services/ai/resolve', async importOriginal => {
-  const actual = await importOriginal<typeof import('@/api/services/ai/resolve')>()
+overrideResolveChatForTests(async () => {
+  if (!state.client) throw new AiError('auth', 'anthropic_compatible', 'no client scripted')
   return {
-    ...actual,
-    resolveChat: vi.fn(async () => {
-      if (!state.client) throw new AiError('auth', 'anthropic_compatible', 'no client scripted')
-      return {
-        client: state.client,
-        provider: 'anthropic_compatible',
-        model: 'fake-model',
-        source: 'tenant',
-        maxOutputTokens: 2048,
-      }
-    }),
+    client: state.client,
+    provider: 'anthropic_compatible',
+    model: 'fake-model',
+    source: 'tenant',
+    billedToPlatform: false,
+    maxOutputTokens: 2048,
   }
 })
 

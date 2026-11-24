@@ -120,6 +120,13 @@
       "when": 1795158872387,
       "tag": "0016_kit-agent-durable-runtime",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1795499172481,
+      "tag": "0017_kit-mcp-server",
+      "breakpoints": true
     }
   ]
 }

@@ -1,5 +1,4 @@
-// @vitest-isolate
-// Mocks the agent registry and both plugin barrels (the test-only agents), so this file needs its own module registry.
+// @vitest-fixture-agents
 /**
  * The exclusive SLOT a run holds (D7) — `agent_runs.concurrency_key`, which the partial unique
  * index reads:
@@ -10,13 +9,14 @@
  * - a caller's `enqueueRun({ concurrencyKey })` narrows the slot to one active run per key, for
  *   either kind of agent.
  *
- * Driven through the test-only agents (`tests/helpers/test-agents.ts`): `test-summarize` is made
- * non-exclusive here by mocking the registry's `getAgent` — the only place `enqueueRun` reads the
- * definition from.
+ * Driven through the test-only agents (`tests/helpers/test-agents.ts`, installed in the plugin
+ * barrels by the `api-fixtures` project): `test-summarize` is made non-exclusive here by swapping
+ * its `AGENTS` entry for the file, and putting it back after.
  */
 import { createAgentRunResponseSchema } from '@rocketpod/shared/ai/agents'
 import { and, eq } from 'drizzle-orm'
-import { describe, expect, it, vi } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { AGENTS } from '@/api/services/agents/registry'
 import { enqueueRun } from '@/api/services/agents/runs'
 import { loadConfig } from '@/config'
 import { agentRuns } from '@/db/schema'
@@ -26,24 +26,13 @@ import { json, request } from '../helpers/request'
 import { TEST_RESEARCH, TEST_SUMMARIZE } from '../helpers/test-agents-shared'
 import { createTestEnv, stubs } from '../mocks/bindings'
 
-vi.mock('@rocketpod/shared/plugins', async importOriginal =>
-  (await import('../helpers/test-agents-shared')).withTestAgents(await importOriginal())
-)
-vi.mock('@/plugins/server', async () =>
-  (await import('../helpers/test-agents')).testAgentsServerBarrel()
-)
-
-vi.mock('@/api/services/agents/registry', async importOriginal => {
-  const actual = await importOriginal<typeof import('@/api/services/agents/registry')>()
-  return {
-    ...actual,
-    getAgent: (key: Parameters<typeof actual.getAgent>[0]) => {
-      const agent = actual.getAgent(key)
-      return (key as string) === 'test-summarize'
-        ? { ...agent, meta: { ...agent.meta, exclusive: false } }
-        : agent
-    },
-  }
+// `test-summarize`, non-exclusive for this file only: the registry is shared with later files.
+const original = AGENTS[TEST_SUMMARIZE]
+beforeAll(() => {
+  AGENTS[TEST_SUMMARIZE] = { ...original, meta: { ...original.meta, exclusive: false } }
+})
+afterAll(() => {
+  AGENTS[TEST_SUMMARIZE] = original
 })
 
 const db = setupTestDatabase()

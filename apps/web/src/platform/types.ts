@@ -377,6 +377,17 @@ export interface GuideContentSource {
   image(file: string): Promise<{ bytes: Uint8Array; contentType: string } | null>
 }
 
+// ---- Egress to a URL somebody else chose ----------------------------------------------------
+
+/**
+ * A GET to a URL an anonymous party chose (an OAuth client's metadata document, CONCEPTS §19).
+ * https only, no redirects followed, and the runtime refuses to CONNECT to an address that is not
+ * public — loopback, private, link-local (cloud metadata), CGNAT, unique-local, multicast,
+ * reserved — judged on the RESOLVED address at connect time, so a public name that resolves (or
+ * rebinds) to a private one is refused too. Refusal rejects the promise, like a network error.
+ */
+export type PublicFetch = (url: string, init: RequestInit) => Promise<Response>
+
 // ---- Request lifetime -----------------------------------------------------------------------
 
 /** Work that may outlive the response (`waitUntil`). Never awaited on the response path. */
@@ -406,6 +417,8 @@ export interface Platform {
   readonly converter: DocumentConverter | null
   /** The Guide's static content; absent = the Guide is empty. */
   readonly guide: GuideContentSource | null
+  /** Guarded egress to a URL somebody else chose; absent = no such fetch is made (fails closed). */
+  readonly publicFetch: PublicFetch | null
 }
 
 /** A platform with nothing in it — the state a bare test or a script starts from. */
@@ -418,4 +431,5 @@ export const EMPTY_PLATFORM: Platform = Object.freeze({
   locks: null,
   converter: null,
   guide: null,
+  publicFetch: null,
 })

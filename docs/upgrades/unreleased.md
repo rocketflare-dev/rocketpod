@@ -48,6 +48,29 @@ The MCP server is rebuilt on Rocketflare 0.41.0: the app is its own OAuth 2.1 au
 12. Set `"db:generate": "dotenv -e .env -- tsx scripts/db-generate.ts"` in `apps/web/package.json` and take `apps/web/scripts/db-generate.ts` and `apps/web/scripts/lib/migration-check.ts`.
 13. Take `apps/web/tests/helpers/startup-error.ts` and wrap `prepareTestDatabase()` in `apps/web/tests/setup.ts` as `prepareTestDatabase().catch(plainStartupError)`; take the `uniqueId()` change in `apps/web/tests/helpers/auth.ts`, and change any test of yours that expected `_` in its value.
 14. Give every foreign key of yours that carries `tenant_id` `onDelete: 'cascade'`, then `pnpm db:generate` and `pnpm db:migrate`; `schema-invariants.test.ts` names any you miss.
+- Rocketflare 0.42.0: `pnpm plugin list --available` lists the ecosystem's published plugins live from `rocketflare-dev/rocketflare-plugins` (and the commercial repository when git can read it) at their newest tag; `/rp-plugin add` with no target shows it. Rocketpod has no catalogue of its own, so it points at https://rocketflare.dev/plugins and says the plugins are written for Rocketflare and translated on install.
+- `pnpm design:docs` (`scripts/design-docs.mjs` + `scripts/lib/{contrast,brand,markdown-lite,svg-sanitize,design-docs-lib}.mjs`) renders `docs/design/*.md` into static pages in the app's tokens; `/rp-design` writes the design and `/rp-start` runs detach, setup, design and rename in order. `contrast.test.ts` reads its pairs from `scripts/lib/contrast.mjs`.
+- `scripts/detach.sh` replaces the hand-written history reset (`/rp-setup`, `docs/ADAPTING.md` §0, `scripts/install.sh`) and records the kit commit in `.rocketflare.json`.
+- `/rp-adapt` row (h) writes the app's own `LICENSE` and keeps the kit's MIT notice in `LICENSES/kit-MIT.txt`; the rename and `pnpm plugin add` never translate a licence file (`isLicenceFile`).
+- `DEV_ACCOUNTS` (`ui/lib/dev-accounts.ts`) is the one list the seed creates and the quick-login buttons show; roles render through `roleLabel` / `ROLE_LABELS` (`@rocketpod/shared/tenants`); the seed labels its key and invite lines as local demo values.
+- Plugins: `RequestCtx.apiKeyId`, a `guard` on a settings tab (`PluginSettingsTab`), `hooks.seed` (every `pnpm seed`) and `setFeature` on both seed hooks, and `pnpm seed --feature <key>[=on|off][@<slug>]`.
+- The bootstrap's shell prerequisites (`scripts/lib/prereqs.sh`) name the WSL2 fixes: a root-only distro, Docker Desktop's WSL integration, Node through nvm/fnm, and a Windows `pnpm`/`node` on the PATH (`SETUP.md` "Windows (WSL2)").
+15. Take `scripts/bootstrap.sh` and the new `scripts/lib/prereqs.sh` together, `extractSeedKey` in `scripts/lib/bootstrap-lib.mjs`, and the seed verify wording in `scripts/bootstrap.mjs`.
+16. Add `apps/web/src/ui/lib/dev-accounts.ts`, move any accounts you added to `Login.tsx` or `apps/web/scripts/seed.ts` into `DEV_ACCOUNTS` with a `name` and a `role`, then take `Login.tsx`'s `isDevAccount` / `devAccountLabel` and the `SEED_USERS` / `SEED_OWNER` / `GLOBAL_ADMIN` derivation in `seed.ts`.
+17. Take `ROLE_LABELS` / `roleLabel` in `packages/shared/src/tenants.ts` and every `roleLabel(...)` call in `apps/web/src/ui`; a UI test of yours matching `getByText('owner')` now matches `'Owner'`.
+18. Take `apiKeyId` in `apps/web/src/plugins/api/{auth,http}.ts`, `apiKeyIdOf` in `apps/web/src/api/auth/api-key-session.ts` and the `apiKeyId` option in `apps/web/tests/kit/unit.ts`.
+19. Take `PluginSettingsTab` in `apps/web/src/plugins/types.ts`, its exports from `apps/web/src/plugins/api/{index,ui-wiring}.ts`, and the tab filter in `SettingsLayout.tsx` and `useNavigationEntries.ts`.
+20. Add `apps/web/scripts/lib/seed-features.ts`; take `hooks.seed` and `setFeature` in `apps/web/src/plugins/types.ts` and `apps/web/src/plugins/api/db.ts`, then `runPluginSeedHooks` / `applySeedFeatures` / `pluginSeedContext` in `apps/web/scripts/seed.ts`.
+21. Take `scripts/plugin.mjs`, `scripts/lib/{plugin,git,rename}-lib.mjs` and their `.d.mts` from the release, and `apps/web/tests/config/plugin-catalogue.test.ts` (local fixture repositories, no network).
+22. Search the ported files for your own domain followed by `/plugins` and change it back to `https://rocketflare.dev/plugins`: an upgrade run before `rename-lib.mjs` was ported translates that URL.
+23. Add `scripts/design-docs.mjs`, `scripts/lib/{contrast,brand,markdown-lite,svg-sanitize,design-docs-lib}.mjs` with their `.d.mts`, `apps/web/tests/config/design-docs.test.ts`, and `"design:docs": "node scripts/design-docs.mjs"` in the root `package.json`.
+24. Replace `apps/web/tests/ui/contrast.test.ts` with the kit's; move any pair you added into `contrastPairs()` in `scripts/lib/contrast.mjs`.
+25. Copy `.claude/skills/rp-design/` (`SKILL.md`, `shape.md`, `brand.md`), `.claude/skills/rp-start/` and `scripts/detach.sh`; in an app already renamed, `/rp-start` only reports every step done.
+26. `rp-adapt` is `neverPort`: copy checklist row (h) "Licence" and row (e)'s "From the design" paragraph from the kit's `.claude/skills/rp-adapt/checklist.md` by hand.
+27. If your root `LICENSE` is still the kit's MIT notice, copy it to `LICENSES/kit-MIT.txt` first, then walk row (h) to write your own `LICENSE` and the `package.json` `license` fields.
+28. Add `"LICENSES/**"` beside `"LICENSE"` in `neverPort` in `.rocketflare.json`.
+29. Check that every installed plugin's `LICENSE` still names its licensor; one installed into a renamed app before this release had its licence translated, so restore it from the plugin's repository.
+30. Port the text of `SETUP.md` "Windows (WSL2)" and §2.7, `docs/CONCEPTS.md` §7, §8 and §16, and the `rp-plugin`, `rp-setup` and `rp-how-do-i` skills, keeping your own wording.
 
 ## Conflicts to expect
 
@@ -59,6 +82,10 @@ The MCP server is rebuilt on Rocketflare 0.41.0: the app is its own OAuth 2.1 au
 - `apps/web/src/api/services/{members,idp-tenancy,admin}.ts` → a `revokeMcpGrantsOf` call in the removal and block transactions → keep yours and add the kit's.
 - `apps/web/tests/helpers/source-files.ts` → `git ls-files --cached --others --exclude-standard` and an optional `root` → take the kit's, keep your filters.
 - `apps/web/tests/helpers/auth.ts` → `uniqueId()` and `testTenantSlug` → keep your factories, take both.
+- `apps/web/scripts/seed.ts` → the account constants, the labelled key and invite lines and the plugin hook loop → keep your seed blocks, take the constants, the lines and `runPluginSeedHooks`.
+- `apps/web/src/ui/pages/Login.tsx` → `DEV_ACCOUNTS` moved out → keep your accounts in `apps/web/src/ui/lib/dev-accounts.ts`.
+- `scripts/bootstrap.sh` → the OS, root, docker, node and pnpm checks moved to `scripts/lib/prereqs.sh` → keep a check you added, take the rest.
+- `apps/web/tests/ui/contrast.test.ts` → its pairs moved into `scripts/lib/contrast.mjs` → take the kit's file, move your pairs into `contrastPairs()`.
 
 ## Verify
 
@@ -69,3 +96,6 @@ The MCP server is rebuilt on Rocketflare 0.41.0: the app is its own OAuth 2.1 au
 5. `pnpm gate` prints `✔ pnpm gate passed`.
 6. `pnpm kit:upgrade` on a tree with an uncommitted edit exits 0 and prints `5/6 plan`.
 7. With the dev database up, `pnpm db:generate --check` prints `✔ scratch check: all N migrations apply to an empty database`.
+8. `pnpm plugin list --available` prints a `Plugins (github.com/rocketflare-dev/rocketflare-plugins at <tag>)` block, or exits 3 with one `error:` line offline.
+9. `pnpm seed` prints the `/auth/dev-login` curl for the `DEV_ACCOUNTS` owner and an `api key:` line labelled a local demo key; Settings → People shows `Owner`, not `owner`.
+10. `pnpm design:docs` exits 2 naming `/rp-design` on a tree with no `docs/design/*.md`, and `LICENSES/kit-MIT.txt` matches the kit's MIT notice.

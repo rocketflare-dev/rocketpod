@@ -51,6 +51,9 @@ deleting them. Nothing else in the host ever names a plugin, which is what makes
   the replacement import. **Annotate the context explicitly** — `ctx.notFound()` returns `never`,
   and TypeScript narrows on that only when the call target is explicitly typed, so `const ctx =
   requestCtx(c)` throws at runtime while the compiler still believes the row may be undefined.
+  `ctx.apiKeyId` names the API key a Bearer request came in on (`null` for a browser session;
+  never the secret) — key a per-client limit or audit line on it, because `ctx.userId` is the
+  key's CREATOR and every key one person made shares it.
 - **Two things cannot be injected and are entries instead**: `@/db/schema/kit` for a table file (a
   `pgTable(...)` runs at module scope and drizzle-kit reads it statically — imported by RELATIVE
   path, since drizzle-kit bundles that file and resolves no tsconfig alias) and the split UI kit.
@@ -264,11 +267,14 @@ release.
   `SharedPlugin.subjects`), run after the kit's matrix in `buildAbility`. CASL can take a rule back
   only with `cannot`, so a plugin that revoked a kit grant would change what every role may do
   merely by being installed.
-- **`hooks.onTenantCreated`, `hooks.onTenantDeleted`, `hooks.onTenantStatusChanged` and
-  `hooks.seedDemo` are post-commit, idempotent and best-effort**, each try/caught by the host after the kit's own — a plugin hook that throws must
+- **`hooks.onTenantCreated`, `hooks.onTenantDeleted`, `hooks.onTenantStatusChanged`, `hooks.seed`
+  and `hooks.seedDemo` are post-commit, idempotent and best-effort**, each try/caught by the host after the kit's own — a plugin hook that throws must
   never break sign-up or invite accept, so nothing a tenant NEEDS may arrive only that way.
-  `onTenantCreated` is handed `features` (a hook that CREATES rows gates on them itself). `seedDemo`
-  gets a `demoId` already namespaced with the plugin's id; fixed ids + `onConflictDoNothing`.
+  `onTenantCreated` is handed `features` (a hook that CREATES rows gates on them itself). `seed`
+  runs on every `pnpm seed` (reference data the plugin needs), `seedDemo` only with `--demo`; both
+  get a `demoId` already namespaced with the plugin's id (fixed ids + `onConflictDoNothing`) and
+  `setFeature(key, enabled?, tenantId?)` — the per-organisation override that shows a plugin behind
+  its own flag after a plain seed.
 - **`onTenantStatusChanged(db, tenantId, status, env)`** runs after a suspend / reactivate
   (`setTenantSuspended`), each failure logged and swallowed — invalidate anything the plugin
   serves or caches for the tenant outside the auth middleware (public pages, a CDN in front).
@@ -305,6 +311,9 @@ release.
   boundary, so a throw renders nothing. Keep one compact at every width (an icon button below
   `sm`); a palette or drawer it opens is its own lazy chunk. Guard it with the same const as the
   route it serves.
+- **`settingsTabs(ctx)`** append after the kit's; a tab (`PluginSettingsTab`) may carry a `guard`
+  — the same `NavGuard`, checked by the host — so `{ feature: '<id>' }` hides it in an organisation
+  without the feature, which `can` cannot (a plugin's grants hold in every organisation).
 - **`useNavigationEntries()`** (`@/plugins/api/ui`, so from a lazy page or palette) lists every
   destination the reader may open: composed nav, settings tabs (`pages/settings/tabs.ts` + plugins'
   `settingsTabs`) and Home links, each through `useNavGuard`, first entry per path wins.

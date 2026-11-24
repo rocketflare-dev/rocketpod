@@ -10,7 +10,10 @@ here.
 > before assuming a capability exists; update it when you change one.**
 > **Setup**: asked for setup help → run `/rp-setup` (it drives `scripts/bootstrap.sh --no-dev`, then
 > starts the server): show each `✔ n/10` line, stop on failure. By hand: `SETUP.md` Part 1.
-> **Fresh copy?** `/rp-adapt <slug>`, then `docs/ADAPTING.md`. `/rp-setup`, `/rp-adapt`, `/rp-preflight`, `/rp-how-do-i`,
+> **Starting a new app?** `/rp-start`: detach, setup, the design conversation (`/rp-design`, writes
+> `docs/design/`), then the rename. Settle nothing about the app's design before it asks.
+> **Fresh copy?** `/rp-adapt <slug>`, then `docs/ADAPTING.md`. `/rp-start`, `/rp-design`, `/rp-setup`,
+> `/rp-adapt`, `/rp-preflight`, `/rp-how-do-i`,
 > `/rp-upgrade`, `/rp-traces`, `/rp-evals`, `/rp-agent-replay`, `/rp-agent-docs`, `/rp-doc-sync`, `/rp-mcp` and `/rp-plugin` you may run yourself. **Deploying** (image, Compose,
 > Helm — `docs/DEPLOY.md`) is `/rp-deploy`: it renders and checks locally, and asks the user before
 > it pushes an image, touches a cluster or creates anything billed.
@@ -20,7 +23,7 @@ here.
 > states is a `{{fact:key}}`, never typed.
 > **Plugins** (D31, `docs/CONCEPTS.md` §16): a plugin is a git repository copied in, wired through five
 > barrels — `pnpm plugin add|upgrade|remove|list|check`, driven by `/rp-plugin`, which always shows the
-> plan before `--apply`. It imports the host only through the DECLARED entries (`docs/plugin-api.md`,
+> plan before `--apply`. `pnpm plugin list --available` lists what is published: check it before building. It imports the host only through the DECLARED entries (`docs/plugin-api.md`,
 > generated and diff-checked) and receives everything else as injected context. `.rocketflare.json`'s `defaultPlugins` is what a fresh clone installs
 > (bootstrap step `6/10 plugins`).
 > **Copies of the kit upgrade.** `.rocketflare.json` records the kit version, the app's names and the
@@ -129,7 +132,8 @@ apps/evals/        @rocketpod/evals — vitest-evals suites over apps/web in-pro
 packages/shared/   @rocketpod/shared — src/*.ts zod contracts, errors, pagination, permissions,
                    plugins/ (SharedPlugin + the SHARED_PLUGINS barrel + each plugin's contracts) (CLAUDE.md)
 scripts/           bootstrap.sh → bootstrap.mjs (10 steps), rename.mjs, upgrade.mjs (port a kit
-                   release into a copy), release-check.mjs,
+                   release into a copy), release-check.mjs, detach.sh (drop the kit's history, record its commit),
+                   design-docs.mjs (`pnpm design:docs`: docs/design/*.md → HTML in the app's tokens),
                    kit-update-check.mjs (SessionStart: tells a copy about a newer kit release),
                    kit-check.mjs (the Launch kit conformance check, shared with the meta-kit — this
                    kit is not conformant: launch.kit.json `$runtime`), lib/;
@@ -143,7 +147,9 @@ docker-compose.yml the self-contained stack; deploy/ holds compose.single.yml, c
 launch.kit.json    the Launch kit contract (D36), Cloudflare-shaped; kept schema-valid, its `worker` and
                    `release` blocks describe nothing here (`$runtime`)
 docs/upgrades/     one porting note per kit release (+ unreleased.md, kit repo only) — CHANGELOG.md is the index
-.claude/skills/    rp-setup · rp-preflight · rp-adapt (+ checklist.md) ·
+.claude/skills/    rp-start (detach → setup → design → rename) · rp-design (+ shape.md, brand.md —
+                   the design conversation, docs/design/) ·
+                   rp-setup · rp-preflight · rp-adapt (+ checklist.md) ·
                    rp-how-do-i (+ example-orders.md) · rp-upgrade (+ porting.md — port later kit releases) ·
                    rp-plugin (+ reference.md — install/upgrade/remove a plugin, D31) ·
                    rp-traces (debug a run from its span tree; pick a tracing backend, D32) ·

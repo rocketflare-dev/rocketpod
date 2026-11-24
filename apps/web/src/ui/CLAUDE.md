@@ -101,8 +101,11 @@ The AI pages read the contracts in
   Magic link is `POST /auth/magic-link/request`. With `methods.oidcOnly` it shows the one SSO
   button and never redirects to `/auth/oidc` on its own — signing in is always a click.
   `?as=<email>` (what `pnpm bootstrap` opens) calls `POST /auth/dev-login` once on mount, ONLY when
-  `methods.devLogin` is true AND the email is in `DEV_ACCOUNTS` (the allow-list; an arbitrary
-  address does nothing); never widen the allow-list.
+  `methods.devLogin` is true AND the email is in `DEV_ACCOUNTS` (`lib/dev-accounts.ts` — also what
+  `scripts/seed.ts` creates and the quick-login buttons show; an arbitrary address does nothing);
+  never widen the allow-list beyond the seeded accounts.
+- Roles render through `roleLabel(role)` (`@rocketpod/shared/tenants` `ROLE_LABELS`), never the
+  raw value with `capitalize`: an app relabels them in one place.
 - No active tenant → `noTenantRoute(session)`: access request → `/pending`; memberships →
   `/select-tenant`; `signupMode === 'approval'` → `/pending`; else `/no-access`. Exception: a
   global admin opens `/admin/*` with no membership (the bootstrap admin must be able to approve the

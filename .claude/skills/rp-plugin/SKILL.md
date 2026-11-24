@@ -1,7 +1,7 @@
 ---
 name: rp-plugin
 description: Install, upgrade, remove and audit Rocketpod plugins — a plugin is a git repository copied into this app, not an npm package. Use when someone asks to add a plugin, pull in a plugin's later releases, uninstall one, check the installed set, or author a plugin of their own.
-argument-hint: "[add <repo|path> | upgrade <id> | remove <id> | list | check]"
+argument-hint: "[add [<repo|path>] | upgrade <id> | remove <id> | list [--available] | check]"
 ---
 
 # /rp-plugin — the capabilities this app installs
@@ -23,7 +23,12 @@ is as trusting as merging a pull request. Every command prints a plan and stops.
 plan to the user and get an explicit yes before you ever type `--apply`.** Never chain the two.
 
 `$ARGUMENTS` is the command and its target. With none, run step 4 (`list` + `check`) and ask what
-they want to do.
+they want to do. **`add` with no target** shows the catalogue (step 2) and asks which one — never
+"which repository?".
+
+**Before anyone writes a plugin:** check that none already does the job (`pnpm plugin list
+--available`). If none fits, the feature is usually built in the app itself; a plugin is for a
+capability meant to be installed in ANOTHER app too (step 6).
 
 ## 1. Check the ground
 
@@ -38,6 +43,26 @@ A dirty tree: ask them to commit or stash. `add` and `upgrade` refuse one (`--al
 and is for people who know why they are using it) because the install should be one reviewable diff.
 
 ## 2. `add` — read the plan, then ask
+
+**No id given?** Show what exists first:
+
+```
+pnpm plugin list --available
+```
+
+Expect one line per plugin under `Plugins (github.com/rocketflare-dev/rocketflare-plugins at
+<tag>)` — `id  version  [installed]  description` — read live from the repository at its newest
+release tag, and, only when the person's git credentials can read it, a second block headed
+`Commercial plugins (…)` with a `licence:` line. Say the commercial ones are licensed separately
+and point at that line; never offer one as if it were free. Exit 3 with one `error:` line means the
+repository could not be reached: say so and stop — never answer from memory or an old list.
+`--json` gives `{ catalogues: [{ repo, tag, commercial, licence, plugins: [{ id, version,
+description, subdir, installed, installedVersion }] }] }`. Ask (`AskUserQuestion`) which to
+install, offering the ones not yet installed, then continue below with its repository and
+`--subdir` from the `--json` output (Rocketpod takes no bare id). The catalogue is the ecosystem's:
+every plugin in it is written for Rocketflare, so its plan may still refuse one (a `minKit` above
+this kit, a Cloudflare binding) — say so rather than promising it installs. People browsing rather
+than installing can read https://rocketflare.dev/plugins.
 
 ```
 pnpm plugin add <repo|path>[@ref] [--subdir <dir>]
@@ -117,6 +142,8 @@ Then commit: one commit, message `Install plugin <id>@<version>`, so the next up
 pnpm plugin list
 pnpm plugin check
 ```
+
+(`pnpm plugin list --available` is the other list — what could be installed, step 2.)
 
 `check` exits 1 with one `✖` line per failure, and **every line carries the edit**:
 `<file>:<line> <what is wrong> — <the exact change>`. Do what the line says; you should not need

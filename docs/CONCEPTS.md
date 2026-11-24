@@ -161,7 +161,10 @@ suites on vitest 4, §9 — never part of the gate).
 
 **Known gaps:** no IdP group sync (SCIM/SAML claims); no group hierarchy or per-group roles;
 conversations, runs, prompts and non-Knowledge files have no visibility; agent-written documents
-are always `tenant`; no audit log beyond `activity_events`; no personal API keys (tenant keys only).
+are always `tenant`; no audit log beyond `activity_events`; no personal API keys (tenant keys only);
+no supported pattern for organisations that must share some facts (partners, franchises, shared
+venues), so an app builds its own copy-and-consent exchange; no identity for people outside every
+organisation (guests, customers of a member business) other than a link or a tenant API key.
 `AGENT_TENANT_DAILY_COST_USD` is per organisation, not per person — the creation limit above is
 what bounds one account. A deleted organisation's `ai_usage` rows go with it (the FK cascade), so
 the operator's record of what it spent is lost with the organisation.
@@ -175,7 +178,8 @@ the operator's record of what it spent is lost with the organisation.
   membership → groups → features in one query. The second strategy is a Bearer tenant API key
   (hashed, expiry, soft revoke), with scopes `authMiddleware` enforces on every request: `read`
   allows GET/HEAD/OPTIONS, `write` or `*` allows everything; anything else is 403
-  `insufficient_scope`. The CASL check on the creator's role still applies on top. A key acts only
+  `insufficient_scope`. The CASL check on the creator's role still applies on top. A plugin reads
+  which key it was as `RequestCtx.apiKeyId` (the id, never the secret; `null` for a cookie). A key acts only
   within its organisation, plus its creator's own profile (`GET`/`PATCH /api/me`): `GET
   /api/tenants` lists that one organisation, and the routes about the person's whole account —
   `POST /api/tenants`, `GET /api/invitations/pending`, `POST /api/access-requests` — answer 403
@@ -681,23 +685,50 @@ calls `putStream` yet (uploads are multipart forms under `MAX_UPLOAD_BYTES`).
   and by public-site stylesheets), where the brand hexes are the only
   hex values; `contrast.test.ts` gates them. Tailwind scanning is `source(none)` + explicit
   `@source` lines. A plugin's pages get the `../plugins/**/ui/**` line, and precompiled dependency
-  CSS gets none.
+  CSS gets none. The floors and pairs live in `scripts/lib/contrast.mjs`, which the test and the
+  design pages share.
+- **Design pages** (`pnpm design:docs`, `scripts/design-docs.mjs`): renders `docs/design/*.md` (a
+  numeric prefix orders them; the first is `index.html`) and inlines `docs/design/diagrams/*.svg`
+  into `docs/design/html/`: static HTML pages in the app's own tokens, light and dark, committed
+  with the design. `/rp-design` writes the markdown and runs it. The markdown is untrusted: the
+  renderer (`scripts/lib/markdown-lite.mjs`) knows a fixed subset and escapes everything else, and an
+  SVG is re-serialised through an allowlist (`scripts/lib/svg-sanitize.mjs`). A brand being tried
+  goes in `docs/design/brand.css`, written in the token files' own block shapes (`@theme`,
+  `@plugin "daisyui/theme"`, `[data-theme]`, matched by the `-light`/`-dark` suffix) and holding
+  only what it changes. `scripts/lib/brand.mjs` layers it per property over `theme-tokens.css`
+  and `index.css`: the pages' stylesheet, `--contrast` (the gate's floors, failing pairs printed per
+  theme) and `--apply-brand` (writes each property into whichever file defines it, plus
+  `<meta name="theme-color">`) all read that one result, and each warns about a derived tone
+  (`--focus-ring`, `--surface-active`, `--tone-*`) that a changed colour left at the kit's value.
+  `--check` exits 1 when the pages are stale. The output is deterministic, and a rebuild deletes only
+  pages carrying the generator's meta tag. The script is not kit-only, so it ships in every copy.
 - **Providers**: ErrorBoundary → QueryClient → Auth → Ability → WebSocket → Router. A global 401
   clears the cache and redirects to `/login?returnUrl=`.
 - **Guards**: one `RequireGuard` primitive; nav items use the same guard as their page.
   `/login?as=` dev sign-in only works when the server reports `devLogin` and the email is a seeded
-  account.
+  account — one of `DEV_ACCOUNTS` (`ui/lib/dev-accounts.ts`), the list `pnpm seed` creates and the
+  quick-login buttons show, so the two cannot drift.
+- **Role labels**: a role reaches the screen only through `roleLabel(role)` / `ROLE_LABELS`
+  (`@rocketpod/shared/tenants`) — badges, pickers, menus and the quick-login buttons. The stored
+  values (`owner`/`admin`/`member`/`support`) never change; an app whose people say "Manager"
+  edits the labels there.
 - **Data**: `api-client.ts` parses with shared schemas, there is one hook file per resource, and
   keys come from `queryKeys`. zustand holds only websocket state. Detail: `.claude/rules/ui.md`,
   `apps/web/src/ui/CLAUDE.md`.
 
-**Known gaps:** no route preloading; no "system" theme or cross-tab sync; the dev quick-login list
-is hard-coded.
+**Known gaps:** no route preloading; no "system" theme or cross-tab sync; every dev account is
+seeded into the one main tenant (an app wanting a second tenant's owner seeds that tenant itself);
+the CLI prints raw role values, not `ROLE_LABELS`. The rendered design's markdown has no raw HTML,
+footnotes, task lists or reference-style links. It inlines only SVGs under `docs/design/diagrams/`,
+and a brand font is linked from Google Fonts whenever it is not a known system font, without
+checking that Google serves it.
 
 ## 8. Analytics
 
 **The `analytics` PLUGIN (D31) — opt-in, and not installable yet (see gaps).** `plugins/analytics`
-in `rocketflare-dev/rocketflare-plugins`. Once installed, its docs are its own `CLAUDE.md`
+in `rocketflare-dev/rocketflare-plugins`, one of the ecosystem's published plugins that
+`pnpm plugin list --available` lists live (§16; https://rocketflare.dev/plugins to browse). Once
+installed, its docs are its own `CLAUDE.md`
 files. drizzle-cube cubes scope every `sql()` by tenant, dashboards are jsonb `DashboardConfig`s
 restrictable to groups, fact tables rebuild on the `:15` cron, and its cube-isolation test is
 mandatory. The kit core knows nothing about drizzle-cube, and other plugins extend it through
@@ -1430,6 +1461,23 @@ keep their names on purpose — they are the plugin ecosystem's fixed filenames 
   before anything is written, a plan run included: one that is not a plain path inside the
   repository (`scripts/lib/repo-paths.mjs`), is under `.git/`, or reaches an added file through a
   symlink stops the run.
+- **A copy starts with a design**:
+  - `/rp-start` is the one entry point the website's prompt names. It runs, in order:
+    1. `scripts/detach.sh`, which records the kit commit in `.rocketflare.json` and replaces the
+       history. `install.sh` and `/rp-setup` §0 run the same script. It refuses a copy that is already detached, so it and `/rp-start` stay in copies harmlessly, as `/rp-adapt` does.
+    2. setup (`/rp-setup`);
+    3. `/rp-design`;
+    4. `/rp-adapt`.
+  - `/rp-design` asks the shape questions the kit makes expensive later: organisations, roles and
+    words, AI, money, non-functional needs, hosting, licence, and integrations, matched against
+    `pnpm plugin list --available`. Each decision records the options weighed. It writes
+    `docs/design/*.md` and `docs/design/design.json`, runs an independent reviewer, and renders it
+    as local pages in the app's brand (`pnpm design:docs`, into `docs/design/html/`).
+  - `/rp-adapt` then reads the names, `docs/design/brand.css` and the licence answer from the
+    design. The app's `LICENSE` becomes its owner's, and the kit's MIT notice stays in
+    `LICENSES/kit-MIT.txt`. Both paths are `neverPort`.
+  - Known gaps: the shape questions are a conversation, so nothing checks that a later stage
+    stayed inside the design. That is the end-of-stage review's job, which doesn't exist yet.
 - **A copy hears about releases on its own**: a Claude Code `SessionStart` hook
   (`scripts/kit-update-check.mjs`, in `.claude/settings.json`) compares `kit.version` with the
   newest tag at `kit.repo` (`git ls-remote`, cached a day in the git-ignored
@@ -1569,8 +1617,19 @@ Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
   `defaultPlugins` installed (in the kit's own repository only), and plugin repos call
   `plugin-ci.yml` (floor + newest kit), which installs a plugin's `requires.plugins` from the
   same checkout first and takes the highest `minKit` across the set as the floor.
+- **Discovery**: `pnpm plugin list --available [--json]` is the catalogue — every
+  `rocketflare-plugin.json` in `rocketflare-dev/rocketflare-plugins` at its newest release tag, one
+  line each (id, version, installed here or not, description: the manifest's `description`, else
+  its README's lede, else its `label`), read through the same mirror `add` uses with the fetch made
+  mandatory. Nothing is copied into the kit, so it cannot go stale; unreachable is one line and
+  exit 3, never a cached list. `rocketflare-dev/rocketflare-commercial-plugins` follows under its own
+  `Commercial plugins` heading with a `licence:` pointer, only when the person's git credentials can
+  read it, and is otherwise not mentioned. `/rp-plugin add` with no id shows it, and
+  `/rp-how-do-i` asks "does a plugin already do this?" first: the order is an existing plugin, else
+  the app itself, and a plugin only for what another app will install too.
+  https://rocketflare.dev/plugins is the browsing page.
 - **Lifecycle** (`scripts/plugin.mjs`): `add` (plan, then `--apply`), `upgrade`, `remove`
-  (`--archive`), `list`, `check`, `export`. Every plan step is **declarative, agent (with its
+  (`--archive`), `list` (`--available`), `check`, `export`. Every plan step is **declarative, agent (with its
   assertion) or human** — a printed instruction is not a mechanism. The host generates the
   migration (`db:generate --name plugin-<id>-<version>`). A plugin's crons join the scheduled
   registry (pg-boss schedules, §5); its `vars` are environment keys, added to `.env.example` and
@@ -1742,7 +1801,9 @@ Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
   open as one flat list of `{ id, label, to, group, icon?, keywords?, source }` — the side nav as
   `SideNav` composes it (`composeNav` over `CORE_NAVIGATION` and every plugin's `nav`), the
   `/settings?tab=` tabs (the core list in `pages/settings/tabs.ts`, which `SettingsLayout` renders,
-  plus every plugin's `settingsTabs({ can })`, all behind the page's `admin`), and the Home quick
+  plus every plugin's `settingsTabs({ can })` — each tab may carry a `guard` (`PluginSettingsTab`,
+  the same `NavGuard` as a nav item, so `{ feature }` hides it where the organisation lacks the
+  flag), all behind the page's `admin`), and the Home quick
   links (plugins' `homeLinks`, then the core ones). Each is filtered by `useNavGuard`, the first
   entry for a path wins, and `source` is `kit` or the contributing plugin's id. It is what a
   command palette searches; `navigationEntries(plugins, checks)` is the pure half.
@@ -1917,8 +1978,12 @@ Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
   imports its own `apps/web/src/host/<id>/` as `@/host/<id>/…` (the existing `@/*` alias), and only
   its own id's (`tests/helpers/plugins.ts`). **Known gap:** `plugin export` does not write host
   files back to `from` — they are the app's content, not the plugin's.
-- **Hooks** (`onTenantCreated`, `onTenantDeleted`, `onTenantStatusChanged`, `seedDemo`) run post-commit, are idempotent,
-  and are try/caught. State a plugin keeps outside Postgres (its own storage prefix, an external
+- **Hooks** (`onTenantCreated`, `onTenantDeleted`, `onTenantStatusChanged`, `seed`, `seedDemo`) run
+  post-commit, are idempotent, and are try/caught. `seed` runs on EVERY `pnpm seed` (demo or not)
+  for reference data a plugin needs to be usable, `seedDemo` only with `--demo`; both get
+  `ctx.setFeature(key, enabled?, tenantId?)`, a per-organisation override (unknown key throws), and
+  `pnpm seed --feature <key>[=on|off][@<slug>]` writes the same row afterwards
+  (`apps/web/scripts/lib/seed-features.ts`). State a plugin keeps outside Postgres (its own storage prefix, an external
   system) is purged in `onTenantDeleted`, addressed by names **derived** from the tenant id.
   `onTenantStatusChanged(db, tenantId, status, env)` runs after a global admin suspends
   (`'suspended'`) or reactivates (`'active'`) a tenant, from `setTenantSuspended`
@@ -2012,6 +2077,12 @@ upsert reads the previous row before writing, so two racing re-ingests of a FILE
 replaced original behind in storage; a plugin skill edited in place is overwritten by the next
 `plugin upgrade` (copy it to a skill of your own first), and `check` validates a skill's name and
 description, not what it says — a stale command in a SKILL.md is caught only by reading it.
+The catalogue reads only the two published repositories (a third-party plugin is installed by URL
+and listed nowhere; `PLUGIN_CATALOGUES` replaces the list but does not extend it), describes a
+plugin from its README until manifests carry a `description`, lists only each repository's newest
+tag (not what a given `minKit` can install, so a Rocketflare plugin listed may still be refused
+here), and judges commercial access by whether git can read the repository, not by any licence
+record.
 
 ---
 

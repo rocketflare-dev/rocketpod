@@ -5,17 +5,21 @@ delete; no design decisions are needed to get to a running app.
 
 ## 0. Copy — decouple from the kit
 
-The kit is a template, not an upstream. Clone it, delete its history, and start your own:
+The kit is a template, not an upstream. Clone it, delete its history, and start your own. The
+guided way is `/rp-start` in Claude Code: it does this, the first run, the design conversation
+(`/rp-design`) and the rename (§1), in that order. By hand:
 
 ```bash
 git clone https://github.com/rocketflare-dev/rocketpod.git myapp && cd myapp
-rm -rf .git && git init && git add -A && git commit -m "Start from Rocketpod"
+bash scripts/detach.sh
 git remote add origin git@github.com:<you>/myapp.git
 ```
 
-Or the one-liner — `curl -fsSL https://raw.githubusercontent.com/rocketflare-dev/rocketpod/main/scripts/install.sh | bash -s -- myapp` (read
-`scripts/install.sh` first: it clones, detaches exactly as above with the kit commit recorded in the
-first message, then execs `scripts/bootstrap.sh`). Either way, `bash scripts/bootstrap.sh` (or
+`scripts/detach.sh` records the kit commit in `.rocketflare.json` (what `pnpm kit:upgrade` diffs
+against) and in the first commit's message, then replaces the history with one commit, "Start from
+Rocketpod". Or the one-liner: `curl -fsSL https://raw.githubusercontent.com/rocketflare-dev/rocketpod/main/scripts/install.sh | bash -s -- myapp`
+(read `scripts/install.sh` first: it clones, runs the same detach, then execs
+`scripts/bootstrap.sh`). Either way, `bash scripts/bootstrap.sh` (or
 `/rp-setup`) is the first run — `SETUP.md` Part 1 as one command.
 
 Why: you are about to rename packages, delete examples and rewrite docs; a fork or a shared history
@@ -47,7 +51,8 @@ The script walks every text file git knows about (tracked and untracked, `.gitig
 `pnpm-lock.yaml`, `LICENSE`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, the two svgs,
 the tool itself, its test and the adapt skill are skipped (`CONTRIBUTING.md` and
 `CODE_OF_CONDUCT.md` are then deleted as `kitOnly`, and `SECURITY.md` rewritten as the app's own); the `rocketflare-dev` org and every
-`rocketflare-dev/<repo>` — the kit's origin, its plugins, the reusable plugin CI — is preserved as upstream) plus `apps/web/.env` when it exists (git-ignored, but its
+`rocketflare-dev/<repo>` — the kit's origin, its plugins, the reusable plugin CI — is preserved as upstream, as is the plugin
+catalogue page `rocketflare.dev/plugins`) plus `apps/web/.env` when it exists (git-ignored, but its
 `DATABASE_URL` must follow the compose file), applies nine ordered token classes — `@rocketpod/`
 → `@<slug>/`, `ROCKETPOD` → `<UPPER>`, `rocketpod.example.com|.local` → `<domain>` (default
 `<slug>.example.com`), `.rocketpod` → `.<slug>`, the Postgres owner `rocketpod` → `<snake>`,
@@ -84,7 +89,7 @@ or nothing resolves.
 | `noreply@rocketpod.example.com`, `app.rocketpod.example.com` | `EMAIL_FROM`, `APP_URL` in the env templates and the chart's `values.yaml` (ingress host) | your domains | automatic (`domain`, from `--domain`) |
 | `rocketpod-light` / `rocketpod-dark` | `apps/web/src/ui/index.css` theme blocks, `index.html` pre-hydration script, `ThemeToggle.tsx`, `apps/web/tests/ui/theme-toggle.test.tsx` | `myapp-light` / `myapp-dark` (or keep) | automatic (`kebab`) |
 | `rocketpod-dev-postgres` / `rocketpod-test-postgres` (+ the S3 gateway containers) | `container_name` in `apps/web/docker-compose.dev.yml` / `docker-compose.test.yml` | `myapp-dev-postgres` / `myapp-test-postgres` (`scripts/dev-db.mjs` adds a per-checkout suffix in dev, so two checkouts never share a database) | automatic (`bare`; the `-dev-data` volumes too); reported as (c) with the `docker rm` / `volume rm` for the OLD names |
-| `admin@rocketpod.example.com` | `apps/web/scripts/seed.ts` (the seeded global admin), the dev quick-login list in `apps/web/src/ui/pages/Login.tsx`, `SETUP.md` | `admin@myapp.local` | automatic (`domain`) |
+| `admin@rocketpod.example.com` | `apps/web/scripts/seed.ts` (the seeded global admin), `DEV_ACCOUNTS` in `apps/web/src/ui/lib/dev-accounts.ts` (the seed and the dev quick-login list both read it), `SETUP.md` | `admin@myapp.local` | automatic (`domain`) |
 | brand colour variables | the header block of `apps/web/src/ui/index.css` (the only place hex values live) | your palette — then `pnpm web test:ui` (contrast gate) | `--colour` rewrites the LIGHT theme's primary hex only (`--color-primary`, `--surface-active`, `--focus-ring`, `--dc-primary-rgb`, `<meta name="theme-color">`); the dark primary, `-content` colours and `--tone-primary-*` tints reported as (e) |
 | `LogoMark` | `apps/web/src/ui/components/shared/LogoMark.tsx`, `apps/web/src/ui/public/logo.svg` + favicons | your mark | not touched — reported as (f) |
 | local ports — dev UI `3000`, dev API `3001`, test Postgres `5533`, test S3 `7433`, dev ranges from `5432` / `7070` | `scripts/lib/dev-ports.mjs` (`DEFAULT_UI_PORT`, `DEFAULT_API_PORT`), the dev CORS origins, the CLI's default server, `apps/web/.env.example`, `apps/web/docker-compose.test.yml`, `apps/web/.env.test`, `scripts/lib/bootstrap-lib.mjs` (`TEST_DB_PORT`, `DEV_DB_PORT_START`, `TEST_S3_PORT`, `DEV_S3_PORT_START`), CI and the docs — never compose, the Dockerfile or the chart, where `3001` is the container's port | the app's own block between 5600 and 6999 (dev UI `+10`, dev API `+11`, test Postgres `+33`, dev Postgres from `+40`, test S3 `+70`, dev S3 from `+80`), so it never collides with the kit, Rocketflare or another app | automatic — chosen from the slug and checked free on this machine; reported as (g) |
@@ -212,10 +217,10 @@ first and lives in the shared package, so the API, the UI and the CLI parse one 
 | cron | `CORE_SCHEDULED_TASKS` (`api/scheduled.ts`) | `ServerPlugin.scheduledTasks` |
 | RLS exclusion / allow-list | `RLS_EXCLUDED_TABLES` / `CORE_UNSCOPED_ALLOWLIST` | `ServerPlugin.rlsExcludedTables` / `unscopedAllowlist` |
 | D29 visibility | `VISIBILITY_RESOURCES` (`services/access.ts`) | `ServerPlugin.visibilityResources` |
-| new-tenant / demo data | `onTenantCreated` (`utils/db/tenant-helpers.ts`), `scripts/seed.ts` | `ServerPlugin.hooks.onTenantCreated` / `hooks.seedDemo` |
+| new-tenant / demo data | `onTenantCreated` (`utils/db/tenant-helpers.ts`), `scripts/seed.ts` | `ServerPlugin.hooks.onTenantCreated` / `hooks.seed` (every `pnpm seed`) / `hooks.seedDemo` |
 | page + route | `App.tsx` (lazy) | `UiPlugin.routes` (always `lazy()`) |
 | nav item | `CORE_NAVIGATION` (`SideNav.tsx`) | `UiPlugin.nav` (a group placed `before` a core one) |
-| settings tab | `SettingsLayout.tsx` | `UiPlugin.settingsTabs(ctx)` |
+| settings tab | `SettingsLayout.tsx` | `UiPlugin.settingsTabs(ctx)` (a tab's `guard` gates it on a feature) |
 | query keys | `CORE_QUERY_KEYS` (`lib/query-keys.ts`) | `UiPlugin.queryKeys` (roots `<id>:…`) |
 | agent form | `CORE_AGENT_FORMS` (`pages/agents/forms/index.ts`) | `UiPlugin.agentForms` |
 | CLI command | `apps/cli/src/commands/<feature>.ts` + `cli.ts` | `CliPlugin.register(program, action)` |
@@ -425,6 +430,14 @@ limits are an app change (`MAX_UPLOAD_BYTES` is one constant today).
 - **Turning chat's knowledge tools off**: `CHAT_KNOWLEDGE_TOOLS=false` in the deployment's config
   (`.env`, the chart's `config`). Tool-free chat is
   cheaper per turn and streams token by token on every provider.
+- **Your roles' names and your dev accounts**: the roles are stored as `owner` / `admin` /
+  `member` / `support` and stay so (permissions, the API, the CLI); what people SEE is
+  `ROLE_LABELS` in `packages/shared/src/tenants.ts` — set `admin: 'Manager'`, `member: 'Staff'`
+  and every badge, picker, menu and quick-login button follows. The seeded accounts are
+  `DEV_ACCOUNTS` in `apps/web/src/ui/lib/dev-accounts.ts`, one list read by `pnpm seed` and by the
+  login page's quick-login buttons and `?as=` allow-list: add or rename one there, never in two
+  places. A plugin behind its own flag turns it on for its organisation from `hooks.seed`
+  (`ctx.setFeature`), or `pnpm seed --feature <key>[@<slug>]` does it from the command line.
 - **Headless CLI login** (CI, agents, no browser): skip `pnpm cli login`; create a tenant API key in
   Settings → API keys (or `POST /api/keys` with a session cookie) and export `ROCKETPOD_API_KEY` +
   `ROCKETPOD_URL`. `pnpm cli whoami` confirms.

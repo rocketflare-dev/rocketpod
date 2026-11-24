@@ -12,7 +12,7 @@ sources:
   - apps/web/src/api/auth/magic-link.ts
   - apps/web/src/api/auth/cookies.ts
   - apps/web/src/api/auth/providers/**
-verified: a473396
+verified: 1f7f38c
 ---
 
 # Signing in
@@ -69,6 +69,10 @@ brings your organisations and role up to date.
 Open **Profile** from the user menu. Under **Sign-in methods** you can connect another provider
 to your account. Connect more than one, so that losing access to one account does not lock you out.
 You cannot disconnect your only way in.
+
+Where the app lets AI clients connect (Claude, ChatGPT), **Profile** also lists the ones you have
+connected under **Connected apps**, one row per organisation, each with **Revoke**. Each acts as
+you, with your permissions, in that one organisation.
 
 ## If you belong to more than one organisation
 

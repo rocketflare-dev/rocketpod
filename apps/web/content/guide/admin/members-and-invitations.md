@@ -12,7 +12,7 @@ sources:
   - apps/web/src/permissions/abilities.ts
   - packages/shared/src/tenants.ts
   - apps/web/src/api/services/members.ts
-verified: 77399c3
+verified: 1f7f38c
 ---
 
 # Members and invitations
@@ -26,7 +26,7 @@ Each person in the organisation has one role: {{fact:team.roles}}.
 | Role | What they can do |
 |---|---|
 | `owner` | Everything, including deleting the organisation and making someone else an owner |
-| `admin` | Invite and remove people, change roles (except owners), manage API keys and AI settings |
+| `admin` | Invite and remove people, change roles (except owners), manage API keys, AI settings and which AI clients may connect |
 | `member` | Use the app: chat, agents and the knowledge base. Settings is not open to them |
 
 Only an owner can give someone the owner role or change an owner's role. Nobody can remove
@@ -67,7 +67,8 @@ When someone accepts, they move to **Members** with the role you chose.
 
 In **Members**, change the role with the select on their row, or remove them with the button at
 the end of it. A removed person loses access to the organisation straight away: their open pages
-lose their live connection, and any invitations they sent that are still pending are revoked.
+lose their live connection, any invitations they sent that are still pending are revoked, and
+any AI client they connected to this organisation (Settings → MCP) is disconnected.
 Lowering someone's role revokes the pending invitations they sent that their new role could not
 send: an admin's owner invitations, a member's every invitation. There is a limit on how many
 organisations one person may own, so making someone an owner, or their accepting an owner

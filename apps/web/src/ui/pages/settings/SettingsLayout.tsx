@@ -62,7 +62,9 @@ export default function SettingsLayout() {
           can: (action, subject) => can(action as Actions, subject as Subjects),
         }) ?? []
     )
-    .map(tab => ({ ...tab, group: tab.group ?? 'More' }))
+    // A tab's own `guard` (a feature, say) goes through the same `useNavGuard` as a core tab's.
+    .filter(t => canAccess(t.guard))
+    .map(({ guard: _guard, ...tab }) => ({ ...tab, group: tab.group ?? 'More' }))
   return (
     <div>
       <PageHeader

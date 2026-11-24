@@ -33,8 +33,15 @@ the same commit, so the next port starts from it.
 | `cf-connecting-ip` in a test helper | `x-forwarded-for` (`client-ip.ts` reads its first entry for a bare `app.request`) |
 | A test overriding `kv.get` to make a limiter fail | `mcpTestEnv({ rateLimiter: { check } })` — replace the platform member |
 | A new settings tab | Add its rail `group` (`tabs.ts`) |
-| `pnpm dev:tunnel`, `cfld`, `.dev.vars`, "ChatGPT cannot reach `wrangler dev`" | Any tunnel to :3000 with `APP_URL` + `DEV_ALLOWED_HOSTS` in `apps/web/.env` (`SETUP.md` §1.10); the ChatGPT note does not apply |
+| Upstream's `dev:tunnel` script, `cfld`, `.dev.vars`, "ChatGPT cannot reach `wrangler dev`" | Any tunnel to :3000 with `APP_URL` + `DEV_ALLOWED_HOSTS` in `apps/web/.env` (`SETUP.md` §1.10); the ChatGPT note does not apply |
 | Two migrations in one release | Generated together as one when both schema files land at once (as 0.39.0's did) |
+| `rocketflare-dev/rocketflare` (the kit's own repository: a clone URL, `detach.sh`'s origin check) | `rocketflare-dev/rocketpod` **by hand** — `KIT.preservedPattern` keeps every `rocketflare-dev/*` ref, so the translator leaves it upstream's |
+| A sentence about Rocketflare itself ("it often lags behind Rocketpod", "start from Rocketpod") | Delete it: translated, it says Rocketpod about Rocketpod (0.42.0's README and `rp-design/shape.md` §6) |
+| `.dev.vars`, Workers AI "needs a `wrangler login`" in a skill or doc | `apps/web/.env`; AI needs a provider key (`ANTHROPIC_API_KEY` / `AI_*`, `EMBEDDINGS_*`) and answers 503 without |
+| The plugin catalogue (`rocketflare.dev/plugins`, `rocketflare-dev/rocketflare-plugins`) | Kept upstream's (Rocketpod has none), with a line that the plugins are Rocketflare's and translated on install |
+| A licence file (`LICENSE*`, `LICENCE*`, `NOTICE`, `LICENSES/**`) | Never translated (`isLicenceFile`); `LICENSES/kit-MIT.txt` is Rocketpod's own `LICENSE` |
+| A mini Hono app in a test that calls `requestCtx(c)` | Add `platformMiddleware` after `configMiddleware`: `requestCtx` reads `platform`, which upstream's chain has no middleware for |
+| The 4 GB `typecheck` heap (0.42.0) | Not needed: `tsc --noEmit` peaks at ~2 GB here — measure again before taking it |
 
 ## Test harness mappings
 
@@ -48,6 +55,18 @@ the same commit, so the next port starts from it.
 | A KV store assertion | the recorded platform member (`stubs(env).kv`, `.queue`, `.files`, `.hub`, `.workflow`) |
 | The queue name `rocketflare-jobs` | `rocketpod-jobs` |
 | Driving the Durable Object | Booting the Node server (`startServer`) and real sockets |
+
+## Porting mechanics
+
+- Build the release's patch with `git diff <prev>..<tag>`, run it through `pluginTranslator(null)`
+  (`scripts/lib/rename-lib.mjs`; a ten-line `tr.mjs` that reads stdin and writes stdout), and apply
+  it with `patch -p1 --fuzz=3 -N --no-backup-if-mismatch` — `git apply` rejects far more hunks on
+  Rocketpod's diverged docs. Resolve each `.rej` by hand, then `find . -name '*.rej'` must be empty.
+- Exclude from the patch: `CHANGELOG.md`, `docs/upgrades/`, `.rocketflare.json`, the root and
+  `apps/web` `package.json`, `docs/DEPLOY.md`, `.github/ci-plugins.json` — port their changes by hand.
+- `docs/plugin-api.md`: discard its rejects and regenerate (`node scripts/plugin-api-doc.mjs`).
+- `scripts/plugin.mjs` holds a literal NUL byte (`coreEditKey`): `grep -a` it, or grep sees a binary.
+- Rocketpod's `materialise(buffer, translate, rel)` takes `host.translate`, not upstream's `host.names`.
 
 ## Rocketpod differences to keep
 

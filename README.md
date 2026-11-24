@@ -28,6 +28,22 @@ here. Cut loose is not cut off: your copy keeps a `.rocketflare.json` saying whe
 pnpm@10` — Node 26 ships no corepack), Docker with Compose for the local Postgres and S3 gateway — or `--db-url` to use a
 Postgres you already run. Deployed, any Postgres 17 with pgvector and any S3-compatible bucket.
 
+**Starting a new app? Paste this into Claude Code** in the folder where you keep your projects:
+
+```
+I want to build an app with Rocketpod.
+Clone https://github.com/rocketflare-dev/rocketpod into a folder I name
+(default my-app), read its CLAUDE.md, then run the rp-start skill with me.
+Follow its steps in order, and don't settle anything about the app's
+design until it asks.
+```
+
+**`/rp-start`** detaches the clone, gets it running one prerequisite at a time, holds the design
+conversation with you (**`/rp-design`**: who it's for, how many organisations, roles and words, AI
+on or off, money, licence, the plugins that already do what you need, the stages, your brand), and
+renames it to your app. The design is written to `docs/design/` and opens as local pages in your
+colours.
+
 **Ask your coding agent.** Open the copy in Claude Code and type **`/rp-setup`** — it checks the
 toolchain, starts Postgres, migrates, seeds the demo workspace and leaves you signed in, showing one
 verification line per step. Then **`/rp-adapt <slug> "Your App"`** renames the kit to your app.
@@ -46,7 +62,7 @@ curl -fsSL https://raw.githubusercontent.com/rocketflare-dev/rocketpod/main/scri
 
 ```bash
 git clone https://github.com/rocketflare-dev/rocketpod.git myapp && cd myapp
-rm -rf .git && git init && git add -A && git commit -m "Start from Rocketpod"   # your history starts here
+bash scripts/detach.sh                                                            # your history starts here
 git remote add origin git@github.com:<you>/myapp.git                              # your own repo, when ready
 
 bash scripts/bootstrap.sh          # checks Node 26 / pnpm 10 / Docker, generates the local secret,
@@ -167,7 +183,9 @@ rocketpod/          workspace root: package.json (scripts delegate via pnpm -r /
 
 Everything runs from the root: `pnpm bootstrap` (= `bash scripts/bootstrap.sh` once Node and pnpm
 exist), `pnpm preflight` (the read-only check),
-`pnpm dev`, `pnpm seed` / `pnpm seed --demo`, `pnpm test`, `pnpm cli …`, `pnpm web <script>` (any
+`pnpm dev`, `pnpm seed` / `pnpm seed --demo`, `pnpm test`, `pnpm cli …`, `pnpm design:docs`
+(`docs/design/*.md` → HTML pages in your brand at `docs/design/html/`; `--open`, `--check`,
+`--contrast` and `--apply-brand` for a palette tried in `docs/design/brand.css`), `pnpm web <script>` (any
 `apps/web` script), `pnpm db:*`, `pnpm build` then `node apps/web/dist/server.js all` (the
 production server). Root `scripts/` holds the first-run tooling: `bootstrap.sh` / `bootstrap.mjs`,
 `rename.mjs` (`docs/ADAPTING.md` §1 as one command) and their `lib/` — plus, in the kit repository

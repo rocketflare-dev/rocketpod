@@ -243,6 +243,14 @@ describe('applyReplacements', () => {
     expect(preserved).toBe(4)
   })
 
+  it('never rewrites the published plugin catalogue page, while the app domain still moves', () => {
+    const input =
+      'Browse https://rocketflare.dev/plugins; the app is https://app.rocketpod.example.com'
+    const { text } = applyReplacements(input, deriveNames('acme', 'Acme'))
+    expect(text).toContain('https://rocketflare.dev/plugins;')
+    expect(text).not.toContain('https://app.rocketpod.example.com')
+  })
+
   it('applies the classes longest-first: the env class takes the bare ENV_PREFIX too', () => {
     const { text, counts } = applyReplacements("'ROCKETPOD' ROCKETPOD_X", deriveNames('a-b'))
     expect(text).toBe("'A_B' A_B_X")
@@ -339,6 +347,18 @@ describe('exclusions', () => {
     }
     // The kit's own tests, this file among them, by prefix — the rename deletes them anyway.
     expect(isExcluded('apps/web/tests/kit-only/rename-lib.test.ts')).toBe(true)
+    // Licence files anywhere: a commercial plugin's own LICENSE travels into the app and must
+    // keep its licensor's name. Source files that merely look similar are still translated.
+    for (const p of [
+      'apps/web/src/plugins/sso/LICENSE',
+      'LICENSES/kit-MIT.txt',
+      'packages/x/LICENCE.md',
+      'NOTICE',
+      'apps/web/LICENSE-MIT',
+    ])
+      expect(isExcluded(p), p).toBe(true)
+    for (const p of ['apps/web/src/ui/components/Notice.tsx', 'apps/web/src/api/license.ts'])
+      expect(isExcluded(p), p).toBe(false)
     for (const d of ['node_modules', 'dist', '.git']) expect(EXCLUDED_DIRS).toContain(d)
     expect(isExcluded('apps/web/node_modules/x/package.json')).toBe(true)
     expect(isExcluded('apps/web/dist/ui/index.html')).toBe(true)

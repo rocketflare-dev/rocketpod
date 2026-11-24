@@ -2372,7 +2372,9 @@ tool and connecting a client; `.claude/rules/tools.md` is the checklist for a sa
 - **A second issuer (Rocketpod only)**: `MCP_AUTHORIZATION_SERVER` names an OUTSIDE OAuth server
   (Cognito, Entra, Okta…) whose JWT access tokens `/mcp` also accepts (`api/auth/mcp.ts`). A
   bearer without the `mcpat_` prefix is verified against that server's JWKS (RFC 8414
-  `jwks_uri`, re-read hourly and for an unknown `kid`): `typ: at+jwt`, ES256/RS256, `iss` = the
+  `jwks_uri`, re-read hourly and for an unknown `kid`): ES256/RS256, `typ` `at+jwt`, `JWT` or
+  none (Cognito and Entra issue plain `JWT`; the audience keeps an ID token out, and a
+  `token_use` other than `access` is refused), `iss` = the
   server, `aud` = `<APP_URL>/mcp` (covering every `/mcp/t/<slug>`) or the exact URL, a verified
   `email`. The person then goes through the sign-in path's own rules — the SSO policy
   (`ssoDecisionFor`, as `core`), `admitUser`, and under `OIDC_MANAGED_TENANCY` the token's orgs

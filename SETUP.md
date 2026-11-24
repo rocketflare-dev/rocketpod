@@ -474,11 +474,15 @@ Entra, Okta…), `/mcp` can accept its access tokens too, beside the app's own �
 checks apply to both (`docs/CONCEPTS.md` §19).
 
 1. Register `{APP_URL}/mcp` (the origin, no trailing slash) with that server as this app's
-   resource. Its access tokens must be JWTs (`typ: at+jwt`, ES256 or RS256) with `aud` = that URL
+   resource. Its access tokens must be JWTs (ES256 or RS256; `typ` `at+jwt`, `JWT` or none) with `aud` = that URL
    (it covers every `/mcp/t/<slug>`; a token bound to one exact `/mcp/t/<slug>` URL works there
    only) and the person's `email`; under IdP-managed tenancy (2.3c) they must also carry the orgs
    claim, as its id_tokens do. MCP scopes in `scope` (`mcp:read`, `mcp:write`) narrow the
    connection; none named = both, and the organisation's exposure still decides what is listed.
+   Neither Cognito nor Entra puts both claims in an access token by default: in **Entra**, set the
+   API's Application ID URI to `{APP_URL}/mcp` and add `email` as an optional access-token claim;
+   in **Cognito**, bind the resource (a resource indicator) so `aud` is set, and add `email` with
+   a v2 pre token generation trigger. A Cognito ID token (`token_use: id`) is always refused.
 2. Set `MCP_AUTHORIZATION_SERVER` to the server's `issuer`, verbatim. It must publish RFC 8414
    metadata at `<issuer>/.well-known/oauth-authorization-server` with a `jwks_uri`.
 3. A person in several organisations names one: connect to `{APP_URL}/mcp/t/<slug>`, or send the

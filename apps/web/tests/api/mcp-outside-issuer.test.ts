@@ -60,10 +60,11 @@ const env = outsideEnv()
 
 function token(
   claims: JWTPayload & { email?: string },
-  opts: { aud?: string; iss?: string; iat?: number } = {}
+  opts: { aud?: string; iss?: string; iat?: number; typ?: string | null } = {}
 ) {
+  const typ = opts.typ === undefined ? 'at+jwt' : opts.typ
   return new SignJWT({ client_id: 'claude', ...claims })
-    .setProtectedHeader({ alg: 'ES256', typ: 'at+jwt', kid: 'k1' })
+    .setProtectedHeader({ alg: 'ES256', kid: 'k1', ...(typ === null ? {} : { typ }) })
     .setIssuer(opts.iss ?? AS)
     .setAudience(opts.aud ?? BASE)
     .setSubject(`person-${uniqueId()}`)
@@ -109,6 +110,29 @@ describe('the token', () => {
       await token({ email: user.email }, { iss: 'https://evil.example.test' }),
       await token({}),
       await token({ email: user.email, email_verified: false }),
+    ]) {
+      const res = await mcpPost(env, '/mcp', LIST, bearer(t))
+      expect(res.status).toBe(401)
+      expect(res.headers.get('www-authenticate')).toContain('error="invalid_token"')
+    }
+  })
+
+  it('accepts the plain JWT access tokens Cognito and Entra issue, typ JWT or none', async () => {
+    const { user } = await memberWithMcp()
+    for (const t of [
+      await token({ email: user.email, token_use: 'access' }, { typ: 'JWT' }),
+      await token({ email: user.email }, { typ: null }),
+      await token({ email: user.email }, { typ: 'application/at+jwt' }),
+    ]) {
+      expect((await mcpPost(env, '/mcp', LIST, bearer(t))).status).toBe(200)
+    }
+  })
+
+  it('refuses an ID token, or another declared token type, even with the right audience', async () => {
+    const { user } = await memberWithMcp()
+    for (const t of [
+      await token({ email: user.email, token_use: 'id' }, { typ: 'JWT' }),
+      await token({ email: user.email }, { typ: 'logout+jwt' }),
     ]) {
       const res = await mcpPost(env, '/mcp', LIST, bearer(t))
       expect(res.status).toBe(401)

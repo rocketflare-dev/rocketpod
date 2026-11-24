@@ -8,10 +8,14 @@
  *
  * What is particular to the outside server, and lives here:
  *
- * - **The token.** A JWT (`typ: at+jwt`, ES256 or RS256) signed by a key in the server's JWKS
+ * - **The token.** A JWT (ES256 or RS256) signed by a key in the server's JWKS
  *   (`jwks_uri` from its RFC 8414 metadata, cached; `jose` re-reads it for a `kid` it hasn't seen),
  *   with `iss` = the server, `aud` = `<APP_URL>/mcp` (which covers every `/mcp/t/<slug>`) or the
- *   exact URL it is used on, and a verified `email`. Anything else is `null` → the 401 challenge.
+ *   exact URL it is used on, and a verified `email`. Its `typ` header may be RFC 9068's `at+jwt`
+ *   or the plain `JWT` (or none) that Cognito and Entra access tokens carry (`ACCESS_TOKEN_TYPS`);
+ *   the audience check is what keeps an ID token out (its `aud` is the client, never `/mcp`),
+ *   and a `token_use` other than `access` (Cognito's ID tokens) is refused outright. Anything
+ *   else is `null` → the 401 challenge.
  * - **The person** is admitted exactly as an OIDC sign-in admits them (`admitUser`), so
  *   `SIGNUP_MODE`, blocking and `BOOTSTRAP_ADMIN_EMAILS` hold here too, and under
  *   `OIDC_MANAGED_TENANCY` the token's orgs claim is reconciled like an id_token's — once per
@@ -96,6 +100,17 @@ export function outsideTokenScopes(scope: unknown): McpScope[] {
 }
 
 /**
+ * The `typ` headers an outside access token may carry: RFC 9068's `at+jwt` (either spelling), or
+ * the plain `JWT` — or no header at all — that Cognito and Entra access tokens are issued with.
+ * Any other declared type (an ID token's, a logout token's) is refused.
+ */
+const ACCESS_TOKEN_TYPS = new Set(['at+jwt', 'application/at+jwt', 'jwt'])
+
+function isAccessTokenTyp(typ: string | undefined): boolean {
+  return typ === undefined || ACCESS_TOKEN_TYPS.has(typ.toLowerCase())
+}
+
+/**
  * The token's claims when it is a valid token from the outside server for `resource` (the URL
  * the request arrived on), else null.
  */
@@ -116,12 +131,13 @@ export async function verifyOutsideMcpToken(
     return null
   }
   try {
-    const { payload } = await jwtVerify(token, jwks, {
+    const { payload, protectedHeader } = await jwtVerify(token, jwks, {
       algorithms: ['ES256', 'RS256'],
-      typ: 'at+jwt',
       issuer,
       audience: [...new Set([mcpResourceUrl(cfg), resource])],
     })
+    if (!isAccessTokenTyp(protectedHeader.typ)) return null
+    if (payload.token_use !== undefined && payload.token_use !== 'access') return null
     const email = payload.email
     if (typeof email !== 'string' || !email.includes('@')) return null
     // An issuer that says outright the address is unverified is not trusted for it.

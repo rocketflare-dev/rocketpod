@@ -86,6 +86,12 @@ pnpm db:migrate       # db-roles --phase=role → migrations → db-roles --phas
 Verify: `db:up` prints the port it chose; `db:check` prints the server version; `db:migrate` ends
 with the applied migration count and no `role "rocketpod_app" does not exist` error.
 
+After a schema change, `pnpm db:generate` writes the migration and then applies every migration to
+a scratch database it creates beside this one and drops: `✔ scratch check` means the new SQL
+applies to an empty database; a `✖` names the statement Postgres refused, in the file not yet
+applied anywhere — fix it by hand (`.claude/rules/database.md`), then `pnpm db:generate --check`.
+A non-local `DATABASE_URL` skips the check with a note.
+
 **Object storage.** `dev:db:up` also starts the S3 gateway beside Postgres (Versity S3 Gateway,
 bucket `rocketpod-dev`, first free port from :7070, sticky like the database's) and writes the
 `STORAGE_*` lines into `apps/web/.env`. Point `STORAGE_ENDPOINT` at any other S3-compatible store

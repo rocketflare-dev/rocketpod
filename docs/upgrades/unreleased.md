@@ -27,6 +27,10 @@ The MCP server is rebuilt on Rocketflare 0.41.0: the app is its own OAuth 2.1 au
 - Removing a member or blocking a person revokes their MCP connections in the same transaction (`revokeMcpGrantsOf`).
 - Fix: deleting a document repairs the facts it superseded or conflicted with (`deleteDocumentsWithFacts`, `services/knowledge/remove.ts`); extraction drops a value, wording or date over 2,000 characters before parsing it.
 - Docs: `.claude/rules/tools.md`, the `/rp-mcp` skill, `services/mcp/CLAUDE.md`, `SETUP.md` §2.3d/§2.10, `docs/DEPLOY.md` "The MCP server", the dev-login and tunnel warnings in `SETUP.md` §1.6/§1.10.
+- Rocketflare 0.41.1: `pnpm kit:upgrade` plans on a dirty tree (only `--apply` needs a clean one), `--apply --apply-deletes` `git rm`s what the kit deleted, `--apply` `git add`s exactly what it wrote (`.rocketflare.json` included; files with rejects stay unstaged), and a vendored plugin (`example-feature`) is ported as core.
+- The rename records the package.json scripts it removed as `kitOnlyScripts` in `.rocketflare.json`; `/rp-agent-docs`'s `check.mjs` expects them missing in a copy, so a renamed copy no longer fails on `pnpm kit:release` or `pnpm web test:kit-only`.
+- `pnpm db:generate` (`apps/web/scripts/db-generate.ts`) applies every migration to a scratch database on the local dev Postgres when drizzle-kit wrote one, names the statement Postgres refused, and drops it; `--check` runs the check alone.
+- Tests: `source-files.ts` lists untracked sources too; `uniqueId()` is slug-safe (`[a-z0-9]+-[a-z0-9]+`); a test-database startup failure prints as itself (`tests/helpers/startup-error.ts`); `schema-invariants.test.ts` names a tenant FK's ON DELETE rule in words.
 
 ## How to apply
 
@@ -40,6 +44,10 @@ The MCP server is rebuilt on Rocketflare 0.41.0: the app is its own OAuth 2.1 au
 8. If you set `MCP_AUTHORIZATION_SERVER`: do step 7 for each organisation people connect to, and tell anyone in several organisations to connect to `/mcp/t/<slug>` or send `mcp-tenant` — a tool no longer takes a `tenant` argument and `list_tenants` is gone (`SETUP.md` §2.3d).
 9. If the web pods' egress is restricted, allow outbound https to the internet: the authorization server fetches each client's metadata document (`docs/DEPLOY.md` "The MCP server").
 10. Rename any tool of yours whose name has a `.`, is over 64 characters or repeats a core tool's name, and give a plugin tool an "over MCP" case with `callMcpTool` (copy `example-feature`'s).
+11. Add `"kitOnlyScripts": ["kit:release", "test:kit-only"]` at the top level of `.rocketflare.json` by hand (`kit:upgrade` never ports that file), and take `.claude/skills/rp-agent-docs/check.mjs`.
+12. Set `"db:generate": "dotenv -e .env -- tsx scripts/db-generate.ts"` in `apps/web/package.json` and take `apps/web/scripts/db-generate.ts` and `apps/web/scripts/lib/migration-check.ts`.
+13. Take `apps/web/tests/helpers/startup-error.ts` and wrap `prepareTestDatabase()` in `apps/web/tests/setup.ts` as `prepareTestDatabase().catch(plainStartupError)`; take the `uniqueId()` change in `apps/web/tests/helpers/auth.ts`, and change any test of yours that expected `_` in its value.
+14. Give every foreign key of yours that carries `tenant_id` `onDelete: 'cascade'`, then `pnpm db:generate` and `pnpm db:migrate`; `schema-invariants.test.ts` names any you miss.
 
 ## Conflicts to expect
 
@@ -49,6 +57,8 @@ The MCP server is rebuilt on Rocketflare 0.41.0: the app is its own OAuth 2.1 au
 - `apps/web/src/platform/types.ts`, `apps/web/src/node/platform.ts` → a `publicFetch` member → add it to any `Platform` you build by hand (`null` fails the fetch closed).
 - `apps/web/src/ui/pages/settings/tabs.ts`, `SettingsLayout.tsx`, `ui/lib/query-keys.ts`, `App.tsx`, `Profile.tsx` → the `mcp` tab, key family, `/consent` route and Connected apps → keep yours alongside.
 - `apps/web/src/api/services/{members,idp-tenancy,admin}.ts` → a `revokeMcpGrantsOf` call in the removal and block transactions → keep yours and add the kit's.
+- `apps/web/tests/helpers/source-files.ts` → `git ls-files --cached --others --exclude-standard` and an optional `root` → take the kit's, keep your filters.
+- `apps/web/tests/helpers/auth.ts` → `uniqueId()` and `testTenantSlug` → keep your factories, take both.
 
 ## Verify
 
@@ -57,3 +67,5 @@ The MCP server is rebuilt on Rocketflare 0.41.0: the app is its own OAuth 2.1 au
 3. With `MCP_AUTHORIZATION_SERVER` set, `curl -s http://localhost:3001/.well-known/oauth-protected-resource/mcp` lists that server first in `authorization_servers`.
 4. `pnpm --filter @rocketpod/web exec vitest run --project config tests/config/node-egress.test.ts tests/config/mcp-cimd.test.ts` passes.
 5. `pnpm gate` prints `✔ pnpm gate passed`.
+6. `pnpm kit:upgrade` on a tree with an uncommitted edit exits 0 and prints `5/6 plan`.
+7. With the dev database up, `pnpm db:generate --check` prints `✔ scratch check: all N migrations apply to an empty database`.

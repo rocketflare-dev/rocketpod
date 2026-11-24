@@ -503,7 +503,9 @@ per-PR previews; no public tunnel for OAuth callbacks in dev (use your own, e.g.
   `ROCKETPOD_ALLOW_ROOT=1` (its commands run as root; the container is the boundary) — `SETUP.md`
   Part 1.
 - **Migrations**: `db:generate` → read the SQL → `db:migrate` (role → migrations → grants).
-  Migrations are forward-only.
+  Migrations are forward-only. `db:generate` applies every migration to a scratch database on the
+  local dev Postgres whenever it writes one, and names the statement Postgres refused (drizzle-kit
+  can order a composite FK before the UNIQUE it needs); outside the gate, skipped for a non-local URL.
 - **Cross-tenant allow-list**: `tests/config/unscoped-allowlist.test.ts` fails a function that
   queries a `tenant_id` table without naming a tenant. Each exception carries a reason. It does
   not prove `admin.ts` is the only cross-tenant surface.
@@ -1381,7 +1383,9 @@ keep their names on purpose — they are the plugin ecosystem's fixed filenames 
   `scripts/rename.mjs` deletes them when a
   copy is born, and with them every package.json script (`kit:release`) and `.claude/settings.json`
   hook that names one (`stripKitOnlyWiring`, `stripKitOnlyHooks`); it also writes the app its own
-  `SECURITY.md` and drops `retiredSurfaces`. `classifyPath` never ports one (the TARGET kit's list
+  `SECURITY.md`, drops `retiredSurfaces` and records the scripts it removed as `kitOnlyScripts`,
+  which `/rp-agent-docs`'s check reads so kit text naming them ("in the kit repository only") is
+  not a failure in a copy. `classifyPath` never ports one (the TARGET kit's list
   too, and `KIT_ONLY_PATHS` is the floor for a pre-0.15.8 manifest); `tests/config/kit-manifest.test.ts`
   fails a copy that carries one or a script or hook that calls one, and `kit.yml`'s renamed-copy
   gate asserts none survive and passes at an app version (`1.2.3`).
@@ -1415,8 +1419,12 @@ keep their names on purpose — they are the plugin ecosystem's fixed filenames 
   and the copy releases by bumping its root version, tagging, and adding its own `CHANGELOG.md`
   section.
 - **`scripts/upgrade.mjs`**: a blobless mirror in `.upgrade/`. It classifies paths, drops absent
-  surfaces and plugin-owned files, translates through the same `applyReplacements()` as the rename,
-  then patches with `--reject` as a fallback. It **never** applies kit migrations (snapshots are
+  surfaces and plugin-owned files (a vendored plugin's are ported as core — it has no release chain
+  of its own), translates through the same `applyReplacements()` as the rename,
+  then patches with `--reject` as a fallback. A plan run works on a dirty tree; `--apply` needs a
+  clean one, `git rm`s the kit's deletions only with `--apply-deletes`, and `git add`s exactly
+  what it wrote (rejected files stay unstaged), so the gate's `git ls-files` scanners see the new
+  files. It **never** applies kit migrations (snapshots are
   cumulative), applies deletions unasked, or ports the root
   version. The version stamp is written last, only on a clean apply. Every release path is checked
   before anything is written, a plan run included: one that is not a plain path inside the
@@ -1548,7 +1556,8 @@ Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
   convention; **two plugins declaring the same table is a `plugin check` failure**.
 - **Record**: a `kind: 'plugin'` surface (`source: {repo, subdir, version, commit}`). In the kit or
   with `--local` it goes in the git-ignored `.rocketflare.local.json`. A kit diff never touches
-  plugin-owned files. A vendored plugin (`example-feature`) upgrades with the kit.
+  plugin-owned files. A vendored plugin (`example-feature`) upgrades with the kit: `kit:upgrade`
+  ports its files as core, and `plugin upgrade` refuses it and points there.
 - **Compatibility is OBSERVED (decision 5c)**: the kit emits a `## Surface ledger` in
   `docs/plugin-api.md` (generated, diff-checked). A plugin's `uses` is **derived** from its imports
   by `pnpm plugin export`, and compatibility is the set difference `uses \ ledger`, checked before

@@ -12,7 +12,7 @@ sources:
   - apps/web/src/api/auth/magic-link.ts
   - apps/web/src/api/auth/cookies.ts
   - apps/web/src/api/auth/providers/**
-verified: a4266a5
+verified: 8ed8bdd
 ---
 
 # Signing in

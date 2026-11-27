@@ -68,8 +68,7 @@ function fakeClient(answer: () => unknown) {
 const cfg = {
   region: 'us-east-1',
   bucket: 'b',
-  accessKeyId: 'k',
-  secretAccessKey: 's',
+  credentials: { accessKeyId: 'k', secretAccessKey: 's' },
   forcePathStyle: true,
 }
 

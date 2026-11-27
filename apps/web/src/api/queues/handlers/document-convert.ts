@@ -32,7 +32,7 @@ export async function handleDocumentConvert(
   const storage = ctx.platform.storage
   if (!storage) {
     throw new Error(
-      'document.convert: storage is not configured (set STORAGE_DRIVER=s3 and the STORAGE_* keys)'
+      'document.convert: storage is not configured (set STORAGE_DRIVER=s3 and STORAGE_BUCKET)'
     )
   }
   try {

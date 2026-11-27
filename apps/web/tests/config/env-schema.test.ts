@@ -68,6 +68,18 @@ describe('loadConfig', () => {
     expect(() => loadConfig({ ...base, OIDC_ISSUER: 'not a url' })).toThrow(/OIDC_ISSUER/)
   })
 
+  it('takes storage keys as a pair or not at all', () => {
+    const half = { ...base, STORAGE_DRIVER: 's3', STORAGE_BUCKET: 'b' }
+    expect(() => loadConfig({ ...half, STORAGE_ACCESS_KEY_ID: 'AKID' })).toThrow(
+      /STORAGE_SECRET_ACCESS_KEY: .*together or not at all/
+    )
+    expect(() => loadConfig({ ...half, STORAGE_SECRET_ACCESS_KEY: 'secret' })).toThrow(
+      /STORAGE_ACCESS_KEY_ID: .*together or not at all/
+    )
+    // Neither key: the bucket alone is a valid configuration (the SDK's default chain).
+    expect(loadConfig(half).STORAGE_ACCESS_KEY_ID).toBeUndefined()
+  })
+
   it('AUTH_OIDC_ONLY=true without an issuer and client id is a config error', () => {
     expect(() => loadConfig({ ...base, AUTH_OIDC_ONLY: 'true' })).toThrow(/AUTH_OIDC_ONLY/)
     expect(() =>

@@ -66,6 +66,42 @@ describe('S3 storage (StorageService over the S3 API)', () => {
     expect(createNodePlatform(loadConfig({ ...env, STORAGE_DRIVER: '' })).storage).toBeNull()
   })
 
+  it('without STORAGE_* keys signs with the SDK default chain (AWS_* env here)', async ({
+    skip,
+  }) => {
+    if (!s3Reachable || !s3) skip()
+    const keyless = { ...env, STORAGE_ACCESS_KEY_ID: '', STORAGE_SECRET_ACCESS_KEY: '' }
+    const saved = {
+      AWS_ACCESS_KEY_ID: process.env.AWS_ACCESS_KEY_ID,
+      AWS_SECRET_ACCESS_KEY: process.env.AWS_SECRET_ACCESS_KEY,
+      AWS_SESSION_TOKEN: process.env.AWS_SESSION_TOKEN,
+    }
+    const restore = () => {
+      for (const [name, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[name]
+        else process.env[name] = value
+      }
+    }
+    const key = `${prefix}keyless/${randomUUID()}.txt`
+    try {
+      delete process.env.AWS_SESSION_TOKEN
+      // The chain's env provider holds the gateway's real pair: storage exists and works.
+      process.env.AWS_ACCESS_KEY_ID = 'test'
+      process.env.AWS_SECRET_ACCESS_KEY = 'test-secret-key'
+      const platform = createNodePlatform(loadConfig(keyless))
+      expect(platform.storage).not.toBeNull()
+      await platform.storage?.put(key, 'from the default chain', { contentType: 'text/plain' })
+      expect(await new Response((await storage().get(key))?.body).text()).toBe(
+        'from the default chain'
+      )
+      // A wrong pair in the env is refused by the gateway: the chain is what signs, not a fallback.
+      process.env.AWS_SECRET_ACCESS_KEY = 'not-the-secret'
+      await expect(createNodePlatform(loadConfig(keyless)).storage?.head(key)).rejects.toThrow()
+    } finally {
+      restore()
+    }
+  })
+
   it('round-trips bytes, content type and case-preserved metadata, streamed', async ({ skip }) => {
     if (!s3Reachable) skip()
     const key = `${prefix}uploads/${randomUUID()}-hello.txt`

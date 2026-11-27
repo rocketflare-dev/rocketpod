@@ -447,7 +447,10 @@ const coreConfigSchema = z.object({
    * session-mode pool).
    */
   DATABASE_LISTEN_URL: optionalString,
-  /** Credentials for the `STORAGE_DRIVER=s3` bucket. */
+  /**
+   * Static credentials for the `STORAGE_DRIVER=s3` bucket — both or neither. Neither = the AWS
+   * SDK's default credential chain (an ECS task role, an instance profile, `AWS_*` env).
+   */
   STORAGE_ACCESS_KEY_ID: optionalString,
   STORAGE_SECRET_ACCESS_KEY: optionalString,
   /** AES-GCM key for OAuth tokens at rest. */
@@ -512,6 +515,17 @@ const configSchema = coreConfigSchema.extend(pluginConfigShape).superRefine((cfg
       code: z.ZodIssueCode.custom,
       path: ['EMAIL_FROM'],
       message: 'EMAIL_PROVIDER=ses needs EMAIL_FROM — an address or domain SES has verified',
+    })
+  }
+  // One storage key without the other is a typo, never a choice: refuse it rather than fall back
+  // to the SDK's default chain with a half-set pair.
+  if (Boolean(cfg.STORAGE_ACCESS_KEY_ID) !== Boolean(cfg.STORAGE_SECRET_ACCESS_KEY)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: [cfg.STORAGE_ACCESS_KEY_ID ? 'STORAGE_SECRET_ACCESS_KEY' : 'STORAGE_ACCESS_KEY_ID'],
+      message:
+        'STORAGE_ACCESS_KEY_ID and STORAGE_SECRET_ACCESS_KEY are set together or not at all ' +
+        "(neither = the AWS SDK's default credential chain, e.g. an ECS task role)",
     })
   }
   // An OIDC-only login page with no issuer would offer no way in at all.

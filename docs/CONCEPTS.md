@@ -678,13 +678,16 @@ downtime is pg-boss's default, untested.
   sets `embeddable`, which relaxes `DENY` to `SAMEORIGIN` for that one response. It is set before
   the 304 early return. Never use a path allowlist for this. A plugin route reaches the same flag
   through `ctx.embeddable(contentType)` (§16), which applies the same `isEmbeddableMimeType` test.
-- No storage (`STORAGE_*` not fully configured, so `platform.storage` is null) is 503
+- No storage (no `STORAGE_DRIVER=s3` with a `STORAGE_BUCKET`, so `platform.storage` is null) is 503
   `storage_not_configured`. `tenant.purge` pages through the
   tenant prefix and is idempotent.
 - **The S3 adapter (D41)**: `STORAGE_DRIVER=s3` + `STORAGE_ENDPOINT` / `STORAGE_REGION` /
   `STORAGE_BUCKET` / `STORAGE_ACCESS_KEY_ID` / `STORAGE_SECRET_ACCESS_KEY` /
   `STORAGE_FORCE_PATH_STYLE` (`src/node/storage.ts`, `@aws-sdk/client-s3`): AWS S3, MinIO,
-  Ceph, GCS interop — one adapter, the endpoint decides. It answers the quoted
+  Ceph, GCS interop — one adapter, the endpoint decides. The two keys are a pair or neither
+  (`loadConfig` refuses one alone); neither means no `credentials` on the client, so the AWS SDK's
+  default chain signs — an ECS task role on AWS, nothing stored (`docs/DEPLOY.md` § Storage on
+  AWS). It answers the quoted
   ETag, a listing with no content type or metadata, `deleteMany` in calls of ≤ 1000, a streamed
   body, a `Range` header parsed back from `Content-Range` (a malformed range is a `RangeError`
   before the request — S3 ignores one and answers the whole object — and a store that ignored a

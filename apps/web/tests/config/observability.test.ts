@@ -102,6 +102,34 @@ describe('exporter settings (presets)', () => {
     })
   })
 
+  it('phoenix: PHOENIX_API_KEY alone becomes the Bearer header, PHOENIX_PROJECT_NAME the project', () => {
+    const base = {
+      OBSERVABILITY_PRESET: 'phoenix',
+      OTEL_EXPORTER_OTLP_ENDPOINT: 'https://phoenix.example.com',
+      PHOENIX_API_KEY: 'abc',
+      PHOENIX_PROJECT_NAME: 'My-App',
+    }
+    expect(exporterSettings(cfgWith(base))).toEqual({
+      preset: 'phoenix',
+      endpoint: 'https://phoenix.example.com',
+      protocol: 'http/protobuf',
+      headers: { authorization: 'Bearer abc' },
+      projectName: 'My-App',
+    })
+    // An explicit header of the same name still wins; the project is the phoenix preset's only.
+    expect(
+      exporterSettings(
+        cfgWith({ ...base, OTEL_EXPORTER_OTLP_HEADERS: 'authorization=Bearer%20xyz' })
+      )?.headers
+    ).toEqual({ authorization: 'Bearer xyz' })
+    expect(exporterSettings(cfgWith({ ...base, OBSERVABILITY_PRESET: 'generic' }))).toEqual({
+      preset: 'generic',
+      endpoint: 'https://phoenix.example.com',
+      protocol: 'http/json',
+      headers: {},
+    })
+  })
+
   it('generic: endpoint + headers as given, JSON unless told otherwise', () => {
     expect(
       exporterSettings(
@@ -225,6 +253,29 @@ describe('OTLP/JSON shape', () => {
     expect(posts[0]?.headers.get('x-langfuse-ingestion-version')).toBe('4')
     const body = JSON.parse(String(posts[0]?.body))
     expect(body.resourceSpans[0].scopeSpans[0].spans[0].name).toBe('invoke_agent chat')
+  })
+
+  it('phoenix: sends the Bearer key and files the trace under openinference.project.name', async () => {
+    const { fetchImpl, posts } = recordingFetch()
+    const tracer = tracerFor(
+      cfgWith({
+        OBSERVABILITY_PRESET: 'phoenix',
+        OTEL_EXPORTER_OTLP_ENDPOINT: 'https://phoenix.example.com',
+        OTEL_EXPORTER_OTLP_PROTOCOL: 'http/json',
+        PHOENIX_API_KEY: 'abc',
+        PHOENIX_PROJECT_NAME: 'My-App',
+      }),
+      { fetch: fetchImpl }
+    )
+    tracer.startTrace({ name: 'chat', tenantId: 't' }).end({ output: 'ok' })
+    await tracer.flush()
+    expect(posts[0]?.url).toBe('https://phoenix.example.com/v1/traces')
+    expect(posts[0]?.headers.get('authorization')).toBe('Bearer abc')
+    const body = JSON.parse(String(posts[0]?.body))
+    expect(body.resourceSpans[0].resource.attributes).toContainEqual({
+      key: 'openinference.project.name',
+      value: { stringValue: 'My-App' },
+    })
   })
 
   it('swallows a failing backend: flush resolves', async () => {

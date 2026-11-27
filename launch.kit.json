@@ -70,11 +70,13 @@
       "LANGFUSE_SECRET_KEY",
       "OTEL_EXPORTER_OTLP_ENDPOINT",
       "OTEL_EXPORTER_OTLP_HEADERS",
+      "PHOENIX_API_KEY",
+      "PHOENIX_PROJECT_NAME",
       "STORAGE_ACCESS_KEY_ID",
       "STORAGE_SECRET_ACCESS_KEY",
       "TYPESAFE_API_KEY"
     ],
-    "plain": ["LANGFUSE_PUBLIC_KEY", "OTEL_EXPORTER_OTLP_ENDPOINT"],
+    "plain": ["LANGFUSE_PUBLIC_KEY", "OTEL_EXPORTER_OTLP_ENDPOINT", "PHOENIX_PROJECT_NAME"],
     "pluginManifests": "apps/web/src/plugins/*/plugin.json"
   },
   "database": {

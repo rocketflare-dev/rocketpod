@@ -1250,7 +1250,8 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   invocation) is a child of a root the `finish` step records once the run has settled. Covered:
   chat turns, agent runs, tools, retrieval, embeddings, the `chat.compact` / `document.index` /
   `document.convert` jobs. `OBSERVABILITY_PRESET` (`langfuse|phoenix|generic`) fills endpoint and
-  auth — existing `LANGFUSE_*` keys migrate with no new secret; content capture is off by default,
+  auth — existing `LANGFUSE_*` keys migrate with no new secret; Phoenix takes `PHOENIX_API_KEY` and
+  `PHOENIX_PROJECT_NAME`; content capture is off by default,
   and `OBSERVABILITY_CAPTURE_CONTENT=true` records prompts, completions and tool I/O in both sinks; `pruneAiSpans` on the nightly cron keeps
   `OBSERVABILITY_SPAN_RETENTION_DAYS` (14). Read back through `GET /api/traces[/:id]` (`read
   Trace`, admin+ — spans hold other people's prompts) and `rocketpod traces list|show`; the

@@ -107,7 +107,7 @@ Walk it as a table of **set / missing / not needed** — never values:
 | `EMBEDDINGS_API_KEY` (+ `EMBEDDINGS_BASE_URL`/`EMBEDDINGS_MODEL`, 1024-dim) | knowledge uploads and search |
 | `RESEND_API_KEY` | delivering magic links and invitations through Resend (otherwise logged — magic links by `web`, queued invitations by `worker`); SES needs no secret: `config.EMAIL_PROVIDER=ses`, a verified `EMAIL_FROM` and `ses:SendEmail` on the pod or task role (`docs/DEPLOY.md` § Email) |
 | `GOOGLE_*`, `MICROSOFT_*`, `OIDC_CLIENT_SECRET` | the matching sign-in buttons |
-| `TYPESAFE_API_KEY`, `LANGFUSE_*`, `OTEL_EXPORTER_OTLP_HEADERS` | optional: Jev decisions, trace export |
+| `TYPESAFE_API_KEY`, `LANGFUSE_*`, `PHOENIX_API_KEY`, `OTEL_EXPORTER_OTLP_HEADERS` | optional: Jev decisions, trace export |
 
 ## End of turn
 

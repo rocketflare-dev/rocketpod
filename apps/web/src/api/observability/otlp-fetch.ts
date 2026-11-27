@@ -56,6 +56,8 @@ export interface OtlpResource {
   serviceName: string
   serviceVersion: string
   environment: string
+  /** Phoenix's project, sent as `openinference.project.name`; omitted when unset. */
+  projectName?: string
 }
 
 export interface OtlpExporterOptions {
@@ -147,6 +149,7 @@ export function toOtlpRequest(
             'service.name': resource.serviceName,
             'service.version': resource.serviceVersion,
             'deployment.environment.name': resource.environment,
+            'openinference.project.name': resource.projectName,
             'telemetry.sdk.name': SCOPE_NAME,
             'telemetry.sdk.language': 'webjs',
             ...(options.langfuse && { 'langfuse.environment': resource.environment }),

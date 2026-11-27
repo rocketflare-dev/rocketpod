@@ -226,6 +226,12 @@ const coreConfigSchema = z.object({
    * are set (existing deployments migrate with no new secret), else `generic`.
    */
   OBSERVABILITY_PRESET: optionalEnum(['langfuse', 'phoenix', 'generic']),
+  /**
+   * The Phoenix project every trace is filed under (the `openinference.project.name` resource
+   * attribute), with the `phoenix` preset. It must match the project's name exactly, case
+   * included: an unknown name makes a new project. Unset → Phoenix's `default`.
+   */
+  PHOENIX_PROJECT_NAME: optionalString,
   /** Off by default. `true` records prompts, completions and tool I/O in the export AND `ai_spans`. */
   OBSERVABILITY_CAPTURE_CONTENT: optionalBoolean(false),
   /** Link-out template, `{traceId}` substituted — e.g. `https://cloud.langfuse.com/project/<id>/traces/{traceId}`. */
@@ -518,6 +524,8 @@ const coreConfigSchema = z.object({
   LANGFUSE_SECRET_KEY: optionalString,
   /** Extra OTLP request headers, `k=v,k=v` (values URL-encoded, per the OTel spec). A secret. */
   OTEL_EXPORTER_OTLP_HEADERS: optionalString,
+  /** A Phoenix API key, the key alone: the `phoenix` preset sends `authorization: Bearer <key>`. A secret. */
+  PHOENIX_API_KEY: optionalString,
 })
 
 /**

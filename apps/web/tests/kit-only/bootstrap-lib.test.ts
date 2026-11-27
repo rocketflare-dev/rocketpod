@@ -76,9 +76,18 @@ describe('describeTracing (preflight)', () => {
       OTEL_EXPORTER_OTLP_HEADERS: 'authorization=Bearer%20topsecret',
     })
     expect(phoenix).toBe(
-      'local ai_spans on; exporting to phoenix at http://localhost:6006 (http/protobuf, headers set)'
+      'local ai_spans on; exporting to phoenix at http://localhost:6006 (http/protobuf, project default, headers set)'
     )
-    for (const text of [lf, phoenix]) expect(text).not.toMatch(/secret/)
+    const project = describeTracing({
+      OBSERVABILITY_PRESET: 'phoenix',
+      OTEL_EXPORTER_OTLP_ENDPOINT: 'https://phoenix.example.com',
+      PHOENIX_API_KEY: 'topsecret',
+      PHOENIX_PROJECT_NAME: 'My-App',
+    })
+    expect(project).toBe(
+      'local ai_spans on; exporting to phoenix at https://phoenix.example.com (http/protobuf, project My-App, key set)'
+    )
+    for (const text of [lf, phoenix, project]) expect(text).not.toMatch(/secret/)
   })
 })
 

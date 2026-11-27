@@ -51,7 +51,7 @@ import {
 } from '../helpers/uploads'
 import { createTestEnv, stubs, type TestEnv } from '../mocks/bindings'
 
-const confirmed: { key: string; state: Record<string, unknown>; size: number }[] = []
+const confirmed: { key: string; state: Record<string, unknown>; size: number; head: string }[] = []
 const receipts: PluginUploadTarget<{ note: string }> = {
   id: 'uptest.receipt',
   permission: { action: 'create', subject: 'File' },
@@ -62,7 +62,10 @@ const receipts: PluginUploadTarget<{ note: string }> = {
     return { state: { note: input.fields.note } }
   },
   async confirm(_ctx, upload) {
-    confirmed.push({ key: upload.key, state: upload.state, size: upload.size })
+    // Through `bucket`, the Rocketflare name a translated plugin still reads: a ranged sniff.
+    const sniffed = await upload.bucket.get(upload.key, { range: { start: 0, end: 2 } })
+    const head = sniffed ? await new Response(sniffed.body).text() : ''
+    confirmed.push({ key: upload.key, state: upload.state, size: upload.size, head })
     return { body: { ok: true, key: upload.key } }
   },
 }
@@ -495,7 +498,12 @@ describe("a plugin's upload target", () => {
     expect(res.status).toBe(201)
     const body = (await json(res)) as { key: string }
     expect(body.key).toMatch(new RegExp(`^tenants/${tenant.id}/uptest/[0-9a-f-]{36}-notes\\.txt$`))
-    expect(confirmed.at(-1)).toEqual({ key: body.key, state: { note: 'lunch' }, size: 9 })
+    expect(confirmed.at(-1)).toEqual({
+      key: body.key,
+      state: { note: 'lunch' },
+      size: 9,
+      head: 'a r',
+    })
     expect(stubs(env).files.objects.has(body.key)).toBe(true)
   })
 

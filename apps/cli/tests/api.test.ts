@@ -147,7 +147,7 @@ describe('upload', () => {
   const ticket = {
     uploadId: UPLOAD_ID,
     method: 'PUT',
-    url: 'https://acct.r2.cloudflarestorage.com/bucket/tenants/t/uploads/x',
+    url: 'https://s3.eu-west-1.amazonaws.com/bucket/tenants/t/uploads/x',
     headers: { 'Content-Type': 'text/plain', 'If-None-Match': '*' },
     expiresAt: '2030-01-01T00:00:00.000Z',
   }

@@ -377,6 +377,7 @@ export function adaptPluginUploadTarget(
         size: upload.size,
         state: upload.state,
         storage: upload.storage,
+        bucket: upload.storage,
       })
       return { status: answer.status ?? 201, body: answer.body }
     },

@@ -329,7 +329,8 @@ release.
   any further check and validates `fields` before any URL is handed out; a key it answers must sit
   under `tenants/<tenantId>/<id>/` and contain the `uploadId` (else 500 `upload_key_invalid`) —
   omit `key` for the default; `confirm` gets the stored object's key, size and type (already
-  checked against the declaration), `read()` and the tenant's `storage`, and answers the response.
+  checked against the declaration), `read()` and the tenant's `storage` (`bucket` is the same
+  handle under Rocketflare's name, deprecated), and answers the response.
   The client is `api.upload('<id>.<name>', file, { fields })`. With `STORAGE_DIRECT_UPLOADS` off
   the bytes come through the server's own URL, capped at `MAX_SERVER_UPLOAD_BYTES` (50 MiB), so a
   larger `maxBytes` needs direct uploads on (413 `directUploads: false` otherwise). CONCEPTS §16.

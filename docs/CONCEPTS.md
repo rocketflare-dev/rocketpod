@@ -2202,7 +2202,9 @@ Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
   - optional `prepare(ctx, { uploadId, filename, contentType, size, fields })`, which makes any
     further check and may return `{ key?, contentType?, state? }`;
   - `confirm(ctx, { uploadId, key, filename, contentType, size, state, storage, read() })` →
-    `{ status?, body }` — `storage` is the tenant's handle, the one store there is.
+    `{ status?, body }` — `storage` is the tenant's handle, the one store there is. `bucket`,
+    Rocketflare's name, is the same handle (deprecated), so a plugin written for Rocketflare
+    compiles unchanged; a target's own `bucket` option is not supported (typed `never`).
 
   The default key is `tenants/<t>/<plugin id>/<uploadId>-<name>`. A key of the plugin's own must
   sit under `tenants/<t>/<plugin id>/` and contain the `uploadId`, in plain path segments; any

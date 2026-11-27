@@ -308,7 +308,7 @@ is `STORAGE_DIRECT_UPLOADS`:
 
 - **`false` (default)**: the app's own `PUT /api/upload-content/:id?token=`, which streams the body
   to the store (never buffered) with the same type, length and write-once rules, up to 50 MiB a
-  file. Nothing to configure beyond the ingress body size (§ Kubernetes). Every store works.
+  file. Nothing to configure beyond the ingress body size (§ Kubernetes). The write-once rule needs a store that honours `If-None-Match: *` on `PutObject` and `CompleteMultipartUpload`, as AWS S3 and the Versity gateway do; on one that ignores it, a second `PUT` before confirm overwrites the first.
 - **`true`**: a presigned S3 `PutObject`, valid for 10 minutes, signed with `Content-Type`,
   `Content-Length` and `If-None-Match: *` — the browser sends the file to the bucket and the store
   refuses another type, another length or a second write. Up to 5 GiB a file (the largest target's

@@ -58,6 +58,13 @@ export interface PluginConfirmedUpload {
   state: Record<string, unknown>
   /** The tenant's storage (`ctx.storage()`) — the object is in it, at `key`. */
   storage: StorageService
+  /**
+   * @deprecated Rocketflare's name for `storage` (an R2 bucket there), kept so a plugin written
+   * for it keeps compiling: the same object as `storage`. One difference from R2 shows at
+   * typecheck: a range is `{ start, end? }` or `{ suffix }` here (R2: `{ offset, length }`). Use
+   * `storage`.
+   */
+  bucket: StorageService
 }
 
 export interface PluginUploadTarget<F = unknown> {
@@ -77,6 +84,12 @@ export interface PluginUploadTarget<F = unknown> {
   /** Validates the request's `fields`; omitted = `fields` must be absent or empty. */
   fields?: z.ZodType<F>
   prepare?(ctx: RequestCtx, input: PluginUploadPrepareInput<F>): Promise<PluginUploadPrepared>
+  /**
+   * @deprecated Not supported here: Rocketflare's option for a bucket of the plugin's own. This
+   * kit has one object store, and every target writes to the tenant's storage under the plugin's
+   * prefix. Remove it, and read the object through `upload.storage` in `confirm`.
+   */
+  bucket?: never
   confirm(
     ctx: RequestCtx,
     upload: PluginConfirmedUpload

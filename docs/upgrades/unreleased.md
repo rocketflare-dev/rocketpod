@@ -24,7 +24,7 @@ Uploads move to `/api/uploads` (presign, PUT, confirm): a presigned S3 `PUT` whe
 - `pending_uploads` table (new). The nightly `prunePendingUploads` task (`0 4 * * *`) deletes unconfirmed uploads with their objects, and a confirmed core upload's object no `files` row records.
 - `pending_uploads.user_id` is nullable, `ON DELETE SET NULL`: the row outlives a deleted person, can be neither `PUT` nor confirmed, and the prune still deletes its object.
 - Dedupe of a document now happens at confirm. A duplicate's bytes are stored, then deleted.
-- Plugin seam: `ServerPlugin.uploadTargets` (`PluginUploadTarget` from `@/plugins/api`, `docs/CONCEPTS.md` §16) is new, with a REQUIRED `permission: { action, subject }` the host checks before `prepare`. `confirm` receives the tenant's `storage`.
+- Plugin seam: `ServerPlugin.uploadTargets` (`PluginUploadTarget` from `@/plugins/api`, `docs/CONCEPTS.md` §16) is new, with a REQUIRED `permission: { action, subject }` the host checks before `prepare`. `confirm` receives the tenant's `storage` (and `bucket`, the same handle under Rocketflare's name, deprecated); a target's `bucket` option is not supported.
 - A plugin upload key must sit under `tenants/<tenantId>/<pluginId>/` and name the upload id (else 500 `upload_key_invalid`); no URL is handed out for a key that already holds an object (409 `upload_key_exists`).
 - UI: `api.upload(target, file, { fields, schema })` replaces `api.upload(url, formData, …)`. CLI: `ApiClient.upload(target, { name, contentType, bytes }, { fields, schema })` replaces `postForm`.
 - Fix: a document upload now keeps its `visibility` and `groupIds`, which the old form post dropped.

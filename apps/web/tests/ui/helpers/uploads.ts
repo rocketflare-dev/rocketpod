@@ -7,7 +7,7 @@ import type { vi } from 'vitest'
 import { type FetchLike, jsonResponse, type RouteTable } from './renderWithProviders'
 
 export const UPLOAD_ID = '00000000-0000-4000-8000-0000000000aa'
-export const UPLOAD_PUT_URL = 'https://acct.r2.cloudflarestorage.com/bucket/tenants/t/key'
+export const UPLOAD_PUT_URL = 'https://s3.eu-west-1.amazonaws.com/bucket/tenants/t/key'
 
 export function uploadRoutes(confirm: RouteTable[string]): RouteTable {
   return {

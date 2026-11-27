@@ -130,7 +130,7 @@ export function eventCtx(ctx: EventContext): EventCtx {
     },
     emit: tenantEmitter(base, tenantId),
     features: () => tenantFeatures(ctx.db, ctx.config, tenantId),
-    storage: () => filesStorage(ctx.platform),
+    storage: () => filesStorage(ctx.platform, tenantId),
     startAgentRun: input => start({ ...input, tenantId }),
     startBoundAgent: async agentKey => {
       // Function-scope, for the reason `./agent-runs` gives: the agent registry reads the barrel.

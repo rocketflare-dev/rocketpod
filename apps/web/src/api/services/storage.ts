@@ -1,8 +1,9 @@
 /**
  * Object storage helpers over the neutral `StorageService` (`src/platform/types.ts`; the
  * S3 adapter is `src/node/storage.ts`). Routes read it as
- * `c.get('platform').storage`, so a test can pass an in-memory bucket and an app can swap the
- * backend without touching callers. Keys are tenant-prefixed
+ * `c.get('platform').storage.forTenant(tenantId)` (one tenant's handle, which refuses another's
+ * keys), so a test can pass an in-memory bucket and an app can swap the backend without touching
+ * callers. Keys are tenant-prefixed
  * (`tenants/<tenantId>/<scope>/<uuid>-<name>`) so one prefix scopes a whole tenant for listing
  * or bulk deletion; the UUID makes every key unique regardless of the client's filename.
  *

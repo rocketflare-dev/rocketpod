@@ -14,7 +14,7 @@ Plain modules; routes validate → authorise → call a service → respond. AI 
   service that **nudges** takes `realtime?: Realtime` trailing (`updateTenant(db, tenantId, patch,
   realtime?)`, `notify(db, input, realtime?)`) or inside its `input` (`changeMemberRole`,
   `removeMember`, `acceptInvitation`)
-- Storage routes read the seam from the platform: `c.get('platform').storage` → `StorageService`,
+- Storage routes read the seam from the platform: `c.get('platform').storage.forTenant(tenantId)` → that tenant's `StorageService`,
   503 `storage_not_configured` when it is null
 - The only paths to a capability: `jobs.ts` (`enqueueJob`) → `platform.jobs` (pg-boss),
   `realtime.ts` (`nudge*`) → `platform.realtime`, `ai/resolve.ts` → `ai_configs` / `agent_models`,

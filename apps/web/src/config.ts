@@ -180,6 +180,18 @@ const coreConfigSchema = z.object({
   /** Path-style addressing (`http://host/bucket/key`) — true for MinIO and most self-hosted stores. */
   STORAGE_FORCE_PATH_STYLE: optionalBoolean(false),
   /**
+   * The storage tenant fence (docs/TENANT-ISOLATION.md): `off` signs every tenant's objects with
+   * the process's credentials; `on` with an STS session of `FILES_ROLE_ARN` per tenant (session tag
+   * `tenant=<id>`), whose policy admits `tenants/<id>/` only; `shadow` tries that session, serves a
+   * denial with the process's credentials and logs `storage.fence_denied` (the rollout aid).
+   */
+  STORAGE_TENANT_FENCE: z.preprocess(
+    value => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+    z.enum(['off', 'shadow', 'on']).default('off')
+  ),
+  /** The role a tenant's storage session assumes (`STORAGE_TENANT_FENCE=on|shadow`). */
+  FILES_ROLE_ARN: optionalString,
+  /**
    * Platform chat over any OpenAI-compatible endpoint, the tier after `ANTHROPIC_API_KEY`:
    * `AI_API_KEY` + `AI_BASE_URL` (OpenRouter, vLLM, Ollama…) + `AI_MODEL`. Without a base URL the
    * key is OpenAI's own (`AI_MODEL` defaults to its chat default).
@@ -560,6 +572,14 @@ const configSchema = coreConfigSchema.extend(pluginConfigShape).superRefine((cfg
     const ssl = { DATABASE_SSL: cfg.DATABASE_SSL as string | undefined }
     const conflict = url ? databaseSslConflict(url, ssl, key) : undefined
     if (conflict) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [key], message: conflict })
+  }
+  // A fence with no role to assume would have to fall back to the process's credentials: refuse it.
+  if (cfg.STORAGE_TENANT_FENCE !== 'off' && !cfg.FILES_ROLE_ARN) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['FILES_ROLE_ARN'],
+      message: `STORAGE_TENANT_FENCE=${cfg.STORAGE_TENANT_FENCE} needs FILES_ROLE_ARN — the role each tenant's storage session assumes`,
+    })
   }
   // The owner bypasses every policy: `enforce` on it would look enforced and enforce nothing.
   if (cfg.TENANT_SCOPE_MODE === 'enforce' && !cfg.APP_DATABASE_URL) {

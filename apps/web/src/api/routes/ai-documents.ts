@@ -110,17 +110,17 @@ async function groupsOf(
 }
 
 /** The platform's storage or a 503 — same rule as `/api/files`: no storage fails loudly. */
-function storageFor(c: AppContext): StorageService {
+function storageFor(c: AppContext, tenantId: string): StorageService {
   const storage = c.get('platform').storage
   if (!storage) {
     throw new ServiceUnavailableError('File storage is not configured', 'storage_not_configured')
   }
-  return storage
+  return storage.forTenant(tenantId)
 }
 
 /** Storage may be absent (a delete still succeeds; the object is logged as left behind). */
-function optionalStorage(c: AppContext): StorageService | null {
-  return c.get('platform').storage
+function optionalStorage(c: AppContext, tenantId: string): StorageService | null {
+  return c.get('platform').storage?.forTenant(tenantId) ?? null
 }
 
 // ---- POST /api/ai/documents/ingest ----------------------------------------------------------------
@@ -171,7 +171,7 @@ aiDocumentsRouter.post('/ingest', validate('json', ingestTextRequestSchema), asy
 aiDocumentsRouter.post('/upload', uploadBodyLimit, async c => {
   const { db, tenantId, user, cfg, auth, defer, tracer } = withAuthAndDb(c)
   guardPermission(c, 'create', 'Document')
-  const storage = storageFor(c)
+  const storage = storageFor(c, tenantId)
 
   const form = await c.req.formData().catch(() => null)
   const file = form?.get('file')
@@ -534,7 +534,7 @@ aiDocumentsRouter.delete('/:id', async c => {
       where: and(eq(files.id, row.fileId), eq(files.tenantId, tenantId)),
     })
     if (file) {
-      const storage = optionalStorage(c)
+      const storage = optionalStorage(c, tenantId)
       if (!storage) {
         logger.warn({ key: file.key }, 'documents: no object storage, object left behind')
       }

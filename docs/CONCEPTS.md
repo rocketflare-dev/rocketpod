@@ -157,8 +157,8 @@ suites on vitest 4, §9 — never part of the gate).
   be made later from a MANUAL membership. An `idp` row is read-only in the app — role change and
   removal answer 409 `idp_managed` (People shows a "Managed" badge instead of controls); manual
   rows in the same tenant work as ever.
-- **Isolation = predicates + RLS (D1)** — §4, `docs/RLS.md`; the layers, the separate app login
-  and what each guarantees: `docs/TENANT-ISOLATION.md`.
+- **Isolation = predicates + RLS + the storage fence (D1)** — §4, §6, `docs/RLS.md`; the layers, the separate app login
+  and the per-tenant storage handle and credentials, and what each guarantees: `docs/TENANT-ISOLATION.md`.
 
 **Known gaps:** no IdP group sync (SCIM/SAML claims); no group hierarchy or per-group roles;
 conversations, runs, prompts and non-Knowledge files have no visibility; agent-written documents
@@ -387,7 +387,7 @@ signed-in account is not checked, and the host trusts the plugin's word that it 
   handlers, cron tasks and the agent-run body (`api/workflows/agent-run-body.ts`, over a neutral
   `Step`) are handed the same object; plugins get it as `ctx.platform`. The implementation is
   `src/node/platform.ts`: jobs (pg-boss), runs (OpenWorkflow), realtime (`ws` + LISTEN/NOTIFY),
-  storage (S3, when `STORAGE_*` is fully configured — else null and 503
+  storage (S3, one tenant at a time — `forTenant`; when `STORAGE_*` is fully configured — else null and 503
   `storage_not_configured`), the rate limiter and operation locks (Postgres tables) and the
   document converter (`unpdf`/`mammoth`). Tests' `createTestEnv()` carries in-memory
   implementations (`tests/mocks/bindings.ts`). `tests/config/platform-seam.test.ts` also fails on
@@ -683,8 +683,11 @@ downtime is pg-boss's default, untested.
   With no mailer, messages are logged (`[email:dev]`, without the link when `APP_ENV=production`),
   never errors; a provider refusal is reported (`delivered: false`, `error`), and an `email.send`
   job retries it. The magic link is sent inline; other email is `email.send` jobs.
-- **Storage (D23)**: the `StorageService` seam (`c.get('platform').storage`, any S3-compatible
-  store). Keys are `tenants/<tenantId>/<scope>/<uuid>-<name>`. Bytes
+- **Storage (D23)**: the `StorageService` seam, handed out one tenant at a time
+  (`c.get('platform').storage.forTenant(tenantId)`, any S3-compatible store). Keys are
+  `tenants/<tenantId>/<scope>/<uuid>-<name>`, and the handle refuses any other
+  (`StorageTenantMismatchError`) or a tenant id that is not a UUID (`StorageTenantRequiredError`)
+  before a network call. Bytes
   stream through the server (no presigned URLs). `get(key, { range })` reads `{ start, end? }`
   (end inclusive) or `{ suffix }` and answers `range: { start, end, total }` — what a `206`'s
   `Content-Range` needs, `size` staying the whole object's; past the end is
@@ -725,6 +728,13 @@ downtime is pg-boss's default, untested.
   ride in `x-amz-meta-rp-keys` and come back case-preserved. Locally and in tests the store is the
   **Versity S3 Gateway** (Apache-2.0) in the compose files — MinIO's images are no longer published
   for anonymous pulls; `pnpm dev:db:up` starts it and writes the `STORAGE_*` lines into `.env`.
+- **The tenant fence** (`STORAGE_TENANT_FENCE=off|shadow|on`, `FILES_ROLE_ARN`;
+  `createTenantStorage`, `docs/TENANT-ISOLATION.md` § The storage fence): `shadow`/`on` sign each
+  tenant's calls with an STS AssumeRole session of `FILES_ROLE_ARN` tagged `tenant=<id>` (cached
+  until five minutes before expiry, one AssumeRole per tenant at a time), whose policy admits that
+  tenant's prefix only. `on` never falls back (a denied HEAD/GET is not-found); `shadow` serves a
+  denial with the process's credentials and logs `storage.fence_denied`. `on`/`shadow` without
+  `FILES_ROLE_ARN` is a config error. The IAM contract: `docs/DEPLOY.md` § The storage tenant fence.
 
 **Known gaps:** `avatarUrl` is global but the object is tenant-scoped (initials fallback elsewhere);
 re-uploads leave the old object; no listing endpoint, quotas or presigned URLs; unbranded templates.
@@ -1972,12 +1982,13 @@ Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
   that they still may. `memberCan(ctx, { tenantId, userId }, action, subject)` from `@/plugins/api`
   re-reads the membership, role, account block and tenant status now; a public callback calls it
   right after `verifyState`, with the action and subject the start route guarded.
-- **Background feature checks (D34)**: `JobCtx`, `CronCtx` and `PublicCtx` carry `storage()`
-  (`platform.storage`, the same service `RequestCtx.storage()` returns, 503
-  `storage_not_configured` without one; keys under `tenants/<id>/<plugin id>/…` are purged with the
-  tenant) and `features(tenantId)` — the same resolution as `auth.features`, with no user, so a cron that fans
+- **Background feature checks (D34)**: `JobCtx`, `CronCtx` and `PublicCtx` carry
+  `storage(tenantId)` (that tenant's `platform.storage.forTenant`, as `RequestCtx.storage()` is
+  the request's, 503 `storage_not_configured` without one; keys under `tenants/<id>/<plugin id>/…`
+  are purged with the tenant, and a key outside the named tenant is refused) and `features(tenantId)` — the same resolution as `auth.features`, with no user, so a cron that fans
   out across tenants can skip the ones whose flag is off. `AgentCtx` and `ToolCtx` carry the same
-  `storage()` (one `filesStorage(platform)` behind every context's), keyed under the run's tenant.
+  `storage()` (one `filesStorage(platform, tenantId)` behind every context's), bound to the run's
+  tenant.
 - **Starting agent runs from the background**: the same three contexts carry
   `startAgentRun({ agentKey, tenantId, input, idempotencyKey?, concurrencyKey?, triggeredBy? })`
   → `{ runId, status, deduplicated }` — `POST /api/agents/runs` without a request, through the

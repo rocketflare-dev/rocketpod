@@ -112,7 +112,7 @@ reintroduce them:
 - `app.request(req, env, ctx)` with `env = createTestEnv(overrides)` from `apps/web/tests/mocks/bindings.ts`:
   `DATABASE_URL` from `apps/web/.env.test` and an in-memory `Platform` (as `env.PLATFORM` and as
   getters on `env` itself): a memory rate limiter and locks over `MemoryKV` (`rateLimiter`, `locks`),
-  a `RecordingQueue` (`jobs`), a `MemoryStorage` (`storage`), a `RecordingRealtime` (`realtime`), a
+  a `RecordingQueue` (`jobs`), a `MemoryStorage` behind the per-tenant key check (`storage.forTenant`), a `RecordingRealtime` (`realtime`), a
   `RecordingAi` (`stubs(env).ai` — an OpenAI-compatible model endpoint at `FAKE_MODELS_BASE_URL`,
   reached through `fetch` and routed in-process; the env's `AI_*`/`EMBEDDINGS_*` vars point at it,
   `ai: null` leaves them to `process.env`; deterministic 1024-dim vectors, a Cohere-style `POST /rerank` that scores in input order, `respond` overridable,

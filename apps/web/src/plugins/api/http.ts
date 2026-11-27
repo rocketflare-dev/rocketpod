@@ -360,7 +360,7 @@ export function requestCtx(c: AppContext): RequestCtx {
     nudge: (entity, id) => nudgeEntity(route.realtime, route.tenantId, entity, id),
     nudgeTopic: (topic, entity, id) =>
       nudgeEntityTopic(route.realtime, route.tenantId, topic, entity, id),
-    storage: () => filesStorage(c.get('platform')),
+    storage: () => filesStorage(c.get('platform'), route.tenantId),
     emit: tenantEmitter(
       {
         db: route.db,

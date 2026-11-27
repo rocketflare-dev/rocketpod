@@ -22,14 +22,14 @@ import {
   type RateLimiter,
   type RealtimeHub,
   type RunEngine,
-  type StorageService,
+  type TenantStorageFactory,
 } from '../platform/types'
 import { createNodeConverter } from './converter'
 import { createPublicFetch } from './egress'
 import { createNodeGuideSource } from './guide-content'
 import { createPostgresLocks, createPostgresRateLimiter } from './limits'
 import { createMailer } from './mailer'
-import { createS3Storage, storageConfigOf } from './storage'
+import { createPlatformStorage } from './storage'
 
 export interface NodePlatformParts {
   /** The pg-boss producer (`createNodeJobs(...).queue`). */
@@ -38,8 +38,8 @@ export interface NodePlatformParts {
   runs?: RunEngine | null
   /** The NOTIFY-backed hub (`createNodeRealtime(...).hub`). */
   realtime?: RealtimeHub | null
-  /** Overrides for tests; by default built from the config. */
-  storage?: StorageService | null
+  /** Overrides for tests; by default built from the config (`STORAGE_*`, `STORAGE_TENANT_FENCE`). */
+  storage?: TenantStorageFactory | null
   rateLimiter?: RateLimiter | null
   locks?: Locks | null
   converter?: DocumentConverter | null
@@ -47,16 +47,23 @@ export interface NodePlatformParts {
   guide?: GuideContentSource | null
   publicFetch?: PublicFetch | null
   mailer?: Mailer | null
+  /** Where the storage fence's warnings go (`storage.fence_denied` under `shadow`). */
+  log?: (message: string) => void
 }
 
 export function createNodePlatform(config: AppConfig, parts: NodePlatformParts = {}): Platform {
-  const s3 = storageConfigOf(config)
+  const log = parts.log ?? (message => console.log(message))
   return {
     ...EMPTY_PLATFORM,
     jobs: parts.jobs ?? null,
     runs: parts.runs ?? null,
     realtime: parts.realtime ?? null,
-    storage: parts.storage !== undefined ? parts.storage : s3 ? createS3Storage(s3) : null,
+    storage:
+      parts.storage !== undefined
+        ? parts.storage
+        : createPlatformStorage(config, (level, event, fields) => {
+            if (level === 'warn') log(`${event} ${JSON.stringify(fields)}`)
+          }),
     rateLimiter:
       parts.rateLimiter !== undefined ? parts.rateLimiter : createPostgresRateLimiter(config),
     locks: parts.locks !== undefined ? parts.locks : createPostgresLocks(config),

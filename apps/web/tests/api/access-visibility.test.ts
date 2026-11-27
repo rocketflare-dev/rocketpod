@@ -204,7 +204,7 @@ describe('documents: every read path agrees', () => {
 
   it('the ORIGINAL behind a restricted document is not downloadable by id', async () => {
     const key = `tenants/${tenantId}/documents/${crypto.randomUUID()}-payslips.pdf`
-    await env.storage?.put(key, new TextEncoder().encode('%PDF-1.4'), {
+    await env.storage?.forTenant(tenantId).put(key, new TextEncoder().encode('%PDF-1.4'), {
       contentType: 'application/pdf',
     })
     const [file] = await db

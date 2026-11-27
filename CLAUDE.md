@@ -203,7 +203,8 @@ LISTEN; direct or session-mode when PgBouncer runs in transaction mode), `DATABA
 `APP_VERSION_ID` (the build an agent run records per attempt; Helm sets the image tag) · **storage**: `STORAGE_DRIVER` (`s3`),
 `STORAGE_ENDPOINT`, `STORAGE_REGION`, `STORAGE_BUCKET`, `STORAGE_FORCE_PATH_STYLE`, secrets
 `STORAGE_ACCESS_KEY_ID`/`STORAGE_SECRET_ACCESS_KEY` (a pair or neither — neither = the AWS SDK
-default chain, an ECS task role) · **AI**: secrets `ANTHROPIC_API_KEY`,
+default chain, an ECS task role), `STORAGE_TENANT_FENCE` (`off|shadow|on` — per-tenant STS
+credentials, `docs/TENANT-ISOLATION.md`) + `FILES_ROLE_ARN` (required unless `off`) · **AI**: secrets `ANTHROPIC_API_KEY`,
 `AI_API_KEY` (+ `AI_BASE_URL`, `AI_MODEL` — OpenAI-compatible), `EMBEDDINGS_API_KEY` (+
 `EMBEDDINGS_BASE_URL`, `EMBEDDINGS_MODEL`; 1024 dims), `TYPESAFE_API_KEY` · **email**: `EMAIL_PROVIDER` (`log|resend|ses`;
 unset = resend with a key, else log), `EMAIL_FROM`, secret `RESEND_API_KEY`, `SES_REGION`,

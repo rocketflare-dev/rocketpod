@@ -32,7 +32,7 @@ export async function handleTenantPurge(
   // the hooks costs nothing.
   await runTenantDeletedHooks(ctx.db, tenantId, ctx.env, ctx.logger)
 
-  const storage = ctx.platform.storage
+  const storage = ctx.platform.storage?.forTenant(tenantId) ?? null
   if (!storage) {
     // Permanent, so ACK rather than throw: no storage means no objects were ever written, and
     // no number of retries can conjure one. Deliberately the opposite of `document.convert`, which

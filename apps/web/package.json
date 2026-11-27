@@ -52,6 +52,7 @@
     "@anthropic-ai/sdk": "^1.6.0",
     "@aws-sdk/client-s3": "3.1164.0",
     "@aws-sdk/client-sesv2": "3.1164.0",
+    "@aws-sdk/client-sts": "3.1164.0",
     "@aws-sdk/lib-storage": "3.1164.0",
     "@casl/ability": "^7.1.1",
     "@heroicons/react": "^2.2.0",

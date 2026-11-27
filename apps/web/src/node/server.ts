@@ -109,7 +109,7 @@ export async function startServer(options: StartServerOptions): Promise<RunningS
     options.realtime ?? createNodeRealtime({ config, log, sockets: mode !== 'worker' })
   const platform =
     options.platform ??
-    createNodePlatform(config, { jobs: jobs.queue, runs: runs.engine, realtime: realtime.hub })
+    createNodePlatform(config, { jobs: jobs.queue, runs: runs.engine, realtime: realtime.hub, log })
   const defer = createDeferSet(err => log(`deferred work failed: ${String(err)}`))
   const pool: DatabaseHandle = installProcessPool(config, {
     max: config.DATABASE_POOL_MAX,

@@ -297,6 +297,33 @@ its objects (`arn:aws:s3:::<bucket>/*`) `s3:GetObject`, `s3:PutObject`, `s3:Dele
 bucket encrypted with a customer-managed KMS key also needs `kms:GenerateDataKey` and
 `kms:Decrypt` on that key.
 
+## The storage tenant fence
+
+With `STORAGE_TENANT_FENCE=shadow|on` each tenant's object calls are signed by an STS session of
+its own, so the bucket, not only the app, keeps tenants apart (design and rollout:
+`docs/TENANT-ISOLATION.md` § The storage fence). The infrastructure provides a **files role**, set
+as `FILES_ROLE_ARN`, and the app does the rest. The contract, described for any IAM-shaped setup:
+
+- **Trust.** Only the app's identity (the ECS task role, the pod's IRSA / Pod Identity role) may
+  `sts:AssumeRole` and `sts:TagSession` on it. The app sends exactly one session tag, `tenant`,
+  whose value is the tenant id (a UUID), so the trust policy can require it
+  (`aws:RequestTag/tenant` present, `aws:TagKeys` only `tenant`) and refuse a value containing `*`,
+  `?` or `/`. Sessions last 3600 s, so the role's maximum session duration must be at least one
+  hour. The session name is `tenant-<id>`, which is what the audit trail shows.
+- **Permissions.** Objects under `arn:aws:s3:::<bucket>/tenants/${aws:PrincipalTag/tenant}/*`:
+  `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject`, `s3:AbortMultipartUpload`,
+  `s3:ListMultipartUploadParts`. On the bucket, `s3:ListBucket` with the condition `s3:prefix` in
+  `tenants/${aws:PrincipalTag/tenant}/` and `tenants/${aws:PrincipalTag/tenant}/*`. A
+  customer-managed KMS key: `kms:GenerateDataKey` and `kms:Decrypt` through S3 only
+  (`kms:ViaService`).
+- **The app's own identity** keeps the § Storage on AWS grants while `shadow` (it serves the
+  fallbacks) and needs `sts:AssumeRole` + `sts:TagSession` on the files role.
+- **The bucket**, once `on` has run clean: a policy denying object actions to every principal but
+  the files role (and whoever operates the bucket).
+
+The key layout is fixed: `tenants/<tenantId>/…`, nothing outside it. Leave the fence `off` on a
+store without STS (MinIO, the local gateway); the per-tenant key check applies in every mode.
+
 ## Email
 
 - **Resend**: `RESEND_API_KEY` (a secret) and `EMAIL_FROM` on a domain verified in Resend. Setting

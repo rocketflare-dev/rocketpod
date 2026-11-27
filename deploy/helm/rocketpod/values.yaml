@@ -51,6 +51,11 @@ config:
   STORAGE_REGION: us-east-1
   STORAGE_BUCKET: ""
   STORAGE_FORCE_PATH_STYLE: "false"
+  # The storage tenant fence (docs/TENANT-ISOLATION.md): off | shadow | on. shadow and on assume
+  # FILES_ROLE_ARN once per tenant (session tag tenant=<id>); shadow logs storage.fence_denied and
+  # still serves, on refuses. The pod's identity must be allowed sts:AssumeRole + sts:TagSession.
+  STORAGE_TENANT_FENCE: "off"
+  FILES_ROLE_ARN: ""
   AI_BASE_URL: ""
   AI_MODEL: ""
   EMBEDDINGS_BASE_URL: ""

@@ -126,8 +126,8 @@ async function checkGroups(ctx: PluginContext, input: IngestCommon): Promise<voi
   }
 }
 
-function optionalStorage(ctx: PluginContext): StorageService | null {
-  return ctx.platform.storage
+function optionalStorage(ctx: PluginContext, tenantId: string): StorageService | null {
+  return ctx.platform.storage?.forTenant(tenantId) ?? null
 }
 
 /**
@@ -156,7 +156,7 @@ export async function ingestDocument(
       origin: 'integration',
       reviewerUserId: input.reviewerUserId ?? null,
     },
-    { jobs: ctx.platform.jobs, storage: optionalStorage(ctx) }
+    { jobs: ctx.platform.jobs, storage: optionalStorage(ctx, input.tenantId) }
   )
   return toResult(result)
 }
@@ -183,7 +183,7 @@ export async function ingestDocumentFile(
       }
     )
   }
-  const storage = optionalStorage(ctx)
+  const storage = optionalStorage(ctx, input.tenantId)
   if (!storage) {
     throw new ServiceUnavailableError('File storage is not configured', 'storage_not_configured')
   }
@@ -223,7 +223,7 @@ export async function deleteIngestedDocument(
   ctx: PluginContext,
   input: { tenantId: string; source: string; externalId: string }
 ): Promise<boolean> {
-  return deleteExternalDocument(ctx.db, input, { storage: optionalStorage(ctx) })
+  return deleteExternalDocument(ctx.db, input, { storage: optionalStorage(ctx, input.tenantId) })
 }
 
 // ---- Platform documents ----------------------------------------------------------------------

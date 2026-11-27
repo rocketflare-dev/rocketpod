@@ -66,11 +66,12 @@ export interface BackgroundMethods {
    */
   features(tenantId: string): Promise<readonly string[]>
   /**
-   * The platform's object store, or a 503 `storage_not_configured` — loud, because a silently
-   * absent store loses bytes. The same service `RequestCtx.storage()` returns. Write under
+   * ONE tenant's object store (the tenant from the payload, never a key), or a 503
+   * `storage_not_configured` — loud, because a silently absent store loses bytes. Keys outside
+   * `tenants/<tenantId>/` are refused (`StorageTenantMismatchError`); write under
    * `tenants/<tenantId>/<plugin id>/…` so the `tenant.purge` job removes the objects with the tenant.
    */
-  storage(): StorageService
+  storage(tenantId: string): StorageService
   /**
    * Start an agent run for one organisation and return its id — `POST /api/agents/runs` from a
    * job, through the same `enqueueRun`: input validation (400), the exclusive slot, the active-run
@@ -134,7 +135,7 @@ export function backgroundMethods(
       )
     },
     features: tenantId => tenantFeatures(db, config, tenantId),
-    storage: () => filesStorage(platform),
+    storage: tenantId => filesStorage(platform, tenantId),
     startAgentRun: agentRunStarter({ db, config, logger, platform }),
     emit: eventEmitter({ db, config, logger, env: {}, platform }),
   }

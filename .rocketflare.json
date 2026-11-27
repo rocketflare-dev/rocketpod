@@ -14,6 +14,12 @@
   "$retiredSurfaces": "Surfaces a LATER release removed, and the release that removed each one (§13). A released porting note is never rewritten — every copy of the kit pins a commit, so editing history orphans them — which is why `docs/upgrades/0.2.0.md` still names `feature-analytics` after 0.6.0 moved analytics out into a plugin. Both readers of a note's `touches_surfaces` / `requires_surfaces` (`scripts/release-check.mjs` and `apps/web/tests/kit-only/upgrade-notes.test.ts`, through one `noteProblems()`) accept an id listed here, so the typo check stays meaningful for the note somebody is writing TODAY — the only note it can still protect. Add an entry in the same commit that deletes the surface; never delete one, or the kit stops being able to re-verify its own released tags.",
   "retiredSurfaces": {},
   "history": [],
+  "$guard": "The Claude Code guard (`scripts/kit-guard.mjs`, docs/CONCEPTS.md §13): a UI review after every edit to a UI file, and — in a copy — a pause before the first edit in a session to kit core, naming the seam that usually fits (a plugin slot, `@/plugins/api`, a `Platform` member), with generated files refused. `enabled: false` turns it off for everyone; `ROCKETPOD_GUARD=0` for one shell.",
+  "guard": {
+    "enabled": true
+  },
+  "$localEdits": "Why this copy differs from the kit in a kit-core file: one { \"path\", \"kind\": \"fix\"|\"change\", \"reason\", \"seamConsidered\", \"capability\"?, \"date\" } per edit that stands. The guard asks for an entry at the end of a turn that changed core without one; `pnpm kit:upgrade` and `/rp-upgrade` show the reason beside every kit hunk that lands on the path, and drop a `fix` entry once a kit release carries the fix. Empty in the kit.",
+  "localEdits": [],
   "surfaces": [
     {
       "id": "example-agent-summarize-text",

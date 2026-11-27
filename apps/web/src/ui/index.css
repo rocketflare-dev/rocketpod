@@ -69,7 +69,7 @@
   --surface-inset: #e4e4e7; /* zinc-200 — inset boxes, table heads, neutral tags */
   --surface-hover: #f4f4f5; /* row / card hover on white */
   --surface-nav-hover: #f4f4f5;
-  --surface-active: color-mix(in srgb, #2563eb 10%, #ffffff); /* soft accent tint */
+  --surface-active: color-mix(in srgb, #2563eb 8%, #ffffff); /* soft accent tint; 10% put the primary on it at 4.49:1 */
 
   --border-subtle: #e4e4e7; /* zinc-200 — separators */
   --border-default: #d4d4d8; /* zinc-300 — cards */
@@ -99,6 +99,27 @@
   --tone-warning-border: #fcd34d; /* amber-300 */
   --tone-error-surface: #fee2e2; /* red-100 */
   --tone-error-border: #fca5a5; /* red-300 */
+
+  /* The shell's tokens (the rail, the chart series, the flare, the selection, the chat turn),
+     named for the brand tooling and the contrast floors (`SHELL_PAIRS`, scripts/lib/contrast.mjs).
+     In this look the rail IS the white nav, so its values repeat the nav's. */
+  --rail-surface: #ffffff;
+  --rail-border: #e4e4e7; /* zinc-200 */
+  --rail-text: #18181b; /* zinc-900 */
+  --rail-text-muted: #52525b; /* zinc-600 */
+  --rail-hover: #f4f4f5; /* zinc-100 */
+  --rail-active: color-mix(in srgb, #2563eb 8%, #ffffff); /* = --surface-active */
+  --rail-active-text: #18181b;
+  --rail-focus-ring: #2563eb; /* = --focus-ring */
+  --series-1: #2563eb; /* blue-600 */
+  --series-2: #0f766e; /* teal-700 */
+  --series-3: #c2410c; /* orange-700 */
+  --series-4: #7c3aed; /* violet-600 */
+  --series-5: #52525b; /* zinc-600 */
+  --flare: #b45309; /* amber-700: the logo's gold, deep enough to draw on white */
+  --selection-surface: #bfdbfe; /* blue-200 */
+  --surface-bubble: #f4f4f5; /* zinc-100 — an assistant chat turn */
+  --selection-bubble: #93c5fd; /* blue-300 */
 }
 
 [data-theme="rocketpod-dark"] {
@@ -140,6 +161,25 @@
   --tone-warning-border: #b45309; /* amber-700 */
   --tone-error-surface: #450a0a; /* red-950 */
   --tone-error-border: #b91c1c; /* red-700 */
+
+  /* The shell's tokens, as in the light theme: the rail is the nav. */
+  --rail-surface: #1c1c20;
+  --rail-border: #3f3f46; /* zinc-700 */
+  --rail-text: #fafafa; /* zinc-50 */
+  --rail-text-muted: #acacb4;
+  --rail-hover: #27272a; /* zinc-800 */
+  --rail-active: color-mix(in srgb, #60a5fa 18%, #1c1c20); /* = --surface-active */
+  --rail-active-text: #fafafa;
+  --rail-focus-ring: #60a5fa; /* = --focus-ring */
+  --series-1: #60a5fa; /* blue-400 */
+  --series-2: #2dd4bf; /* teal-400 */
+  --series-3: #fb923c; /* orange-400 */
+  --series-4: #a78bfa; /* violet-400 */
+  --series-5: #a1a1aa; /* zinc-400 */
+  --flare: #fbbf24; /* amber-400: the logo's gold */
+  --selection-surface: #1e40af; /* blue-800 */
+  --surface-bubble: #27272a; /* zinc-800 — an assistant chat turn */
+  --selection-bubble: #1e40af; /* blue-800 */
 }
 
 /* ------------------------------------------------ Shape / spacing / motion */
@@ -195,6 +235,11 @@
   h1, h2, h3, h4 {
     color: var(--text-primary);
     letter-spacing: -0.014em;
+  }
+
+  /* The heading face (`--font-heading`, the body face unless a brand sets one alone) */
+  h1, h2, h3 {
+    font-family: var(--font-heading);
   }
 
   /* One consistent, visible focus ring everywhere */
@@ -294,7 +339,7 @@
     color: var(--text-muted);
     font-family: var(--font-mono);
     font-weight: 500;
-    font-size: 11px;
+    font-size: 0.75rem;
     letter-spacing: 0.06em;
     text-transform: uppercase;
     text-align: left;
@@ -476,17 +521,16 @@
   /* Mono uppercase section labels */
   .nav-group-label {
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: 0.75rem;
     font-weight: 500;
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--text-muted);
   }
 
-  /* Popover surface (dropdown menus, user menu) — raised, bordered, one shadow token */
+  /* Popover surface (dropdown menus, user menu) — raised, one shadow token, no border */
   .popover-surface {
     background: var(--surface-raised);
-    border: 1px solid var(--border-default);
     border-radius: var(--radius-popover);
     box-shadow: var(--shadow-popover);
   }
@@ -554,4 +598,48 @@
   font-size: 0.8em;
   font-weight: 600;
   color: var(--text-secondary);
+}
+
+/* ---------------------------------------------- DaisyUI overrides (unlayered)
+   The rules below must beat DaisyUI's own, which ship in layers inside `utilities`: a rule in
+   `@layer components` loses to them whatever its specificity, so these sit outside every layer.
+   `tests/ui/contrast.test.ts` holds them here. */
+
+/* Field labels: DaisyUI draws them in the ink at 60%, under 4.5:1 on the panel. */
+.label {
+  color: var(--text-secondary);
+}
+
+/* Tabs: DaisyUI draws an inactive tab in the ink at 50%, under 3:1. The text ramp instead. */
+.tab {
+  color: var(--text-secondary);
+}
+.tab:is(
+    :hover,
+    :checked,
+    label:has(:checked),
+    .tab-active,
+    [aria-selected="true"],
+    [aria-current="true"],
+    [aria-current="page"]
+  ) {
+  color: var(--text-primary);
+}
+.tab:is(:disabled, .tab-disabled, [aria-disabled="true"]) {
+  color: var(--text-muted);
+}
+
+/* The type floor is 12px: DaisyUI's `-xs` sizes are 10–11px. The control keeps its xs height. */
+.btn-xs {
+  --fontsize: 0.75rem;
+}
+.input-xs,
+.select-xs,
+.textarea-xs {
+  --font-size-min: 0.75rem;
+}
+.badge-xs,
+.kbd-xs,
+.file-input-xs {
+  font-size: 0.75rem;
 }

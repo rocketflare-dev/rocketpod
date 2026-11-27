@@ -99,6 +99,7 @@ pnpm eval [suite] [--model x] [--compare] · pnpm eval:baseline · pnpm eval:vie
 pnpm web agent:replay <agent> --tenant <slug> [--candidate f] [--live]  # today's agent code over past runs, read-only
 pnpm lint · pnpm typecheck · pnpm build  # workspace-wide
 pnpm web <script>  # any apps/web script (test:api, db:check…)
+pnpm design:lint  # the UI lint (.claude/rules/ui.md "Visual quality"): bans exit 1, reflexes are notes
 pnpm web docs:stale · pnpm web guide:index [--dry-run] · pnpm web guide:shots [--stale]  # the Guide: stale pages / re-embed (needs EMBEDDINGS_API_KEY, costs) / screenshots (Playwright, on demand)
 pnpm db:generate · pnpm db:studio
 pnpm kit:upgrade [--to X.Y.Z] [--apply]  # port a later kit release into this app (the kit repo also has kit:release)
@@ -139,6 +140,9 @@ scripts/           bootstrap.sh → bootstrap.mjs (10 steps), rename.mjs, upgrad
                    release into a copy), release-check.mjs, detach.sh (drop the kit's history, record its commit),
                    design-docs.mjs (`pnpm design:docs`: docs/design/*.md → HTML in the app's tokens),
                    kit-update-check.mjs (SessionStart: tells a copy about a newer kit release),
+                   kit-guard.mjs (the Claude Code guard: a UI review after each UI edit; in a copy,
+                   kit core paused once towards its seam, generated files refused, `localEdits`),
+                   design-lint.mjs (`pnpm design:lint`),
                    kit-check.mjs (the Launch kit conformance check, shared with the meta-kit — this
                    kit is not conformant: launch.kit.json `$runtime`), lib/;
                    kit repo only (`kitOnly`, deleted by the rename): install.sh (curl one-liner),
@@ -147,7 +151,8 @@ scripts/           bootstrap.sh → bootstrap.mjs (10 steps), rename.mjs, upgrad
 Dockerfile         ONE image: dist/server.js (web|worker|all) + dist/migrate.js + dist/ui, no node_modules
 docker-compose.yml the self-contained stack; deploy/ holds compose.single.yml, compose.env.example and
                    helm/rocketpod (web/worker Deployments, migrate hook Job, ConfigMap/Secret ≡ config.ts)
-.rocketflare.json  kit version + commit, the app's names, the replaceable-surface manifest
+.rocketflare.json  kit version + commit, the app's names, the replaceable-surface manifest, the guard
+                   switch and `localEdits` (why this copy differs from the kit in a core file)
 launch.kit.json    the Launch kit contract (D36), Cloudflare-shaped; kept schema-valid, its `worker` and
                    `release` blocks describe nothing here (`$runtime`)
 docs/upgrades/     one porting note per kit release (+ unreleased.md, kit repo only) — CHANGELOG.md is the index

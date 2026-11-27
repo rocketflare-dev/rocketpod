@@ -1673,6 +1673,47 @@ keep their names on purpose — they are the plugin ecosystem's fixed filenames 
   `changelog-nudge.mjs` (source changed, no `unreleased.md` entry). It answers with
   `hookSpecificOutput.additionalContext`, because a `PreToolUse` hook's plain stdout reaches only
   the debug log.
+- **A copy is paused once, then recorded, when it changes kit core** (`scripts/kit-guard.mjs`, one
+  Claude Code hook entry for `SessionStart`, `PreToolUse`, `PostToolUse` and `Stop`, registered
+  beside the update check, the changelog nudge and the Guide's `docs:stale` hook; decisions in
+  `lib/kit-guard-lib.mjs`, the map in `lib/kit-guard-rules.mjs`, kit-owned and ported like any
+  `scripts/lib/` file). The map has three tiers. `sealed` is the one deny, naming the command
+  that regenerates the file: `docs/plugin-api.md` (`node scripts/plugin-api-doc.mjs`), the
+  migration journal `apps/web/migrations/meta/**` (`pnpm db:generate`), `pnpm-lock.yaml` and the
+  five plugin barrels. `open` is the examples and every `example` surface's paths, Home and its
+  registries, the theme tokens, `LogoMark`, `ui/public/`, `docs/design/`, and every path the map
+  does not name — the app's own code. `steer` is the Node runtime (`src/node/**`, pointing at
+  `SharedPlugin.jobs`, `ServerPlugin.scheduledTasks` and the `Platform` members), the platform
+  seam (`src/platform/**`), `api/index.ts`, middleware, auth, the tenancy and driver seam
+  (`db/client.ts`, the ONE driver site, and `tenant-scope.ts`, the RLS helpers, `schema/kit.ts`),
+  permissions, the plugin types and `plugins/api`, job dispatch and `api/scheduled.ts`, the
+  generated migration SQL (a hand edit is right only for what drizzle-kit cannot write), the
+  route files the kit ships in `api/routes/` — listed by name, so an app's own
+  `api/routes/<feature>.ts` stays open —, observability, `scripts/**`, `tests/config/**` and
+  `ui/index.css`. Each rule's `instead` names a seam that exists here, or says there is none. The
+  first edit of an EXISTING steer file in a session is PAUSED: refused once with that guidance — the
+  seam, a new file wired in with one line, an app-owned capability `name@1` with its test at
+  `apps/web/tests/capabilities/<name>@1/app.test.ts` (#183), or a ledger entry shown in the final
+  message — and "make it again; it will go through". The path is recorded as steered before the
+  refusal is returned, so the retry passes silently, through the person's own permission prompt
+  (no `allow` is ever set). It refuses rather than allowing with context because Claude Code
+  hands an allowed edit's `additionalContext` to the model only after the edit has landed. A
+  ledgered path is silent; a sealed one is refused every time. At `Stop`, a tracked steer file
+  changed in the working tree with no acceptable `.rocketflare.json` `localEdits` entry (`{ path,
+  kind: "fix"|"change", reason, seamConsidered, capability?, date }`; a reason under 20 characters
+  or "user asked" is rejected) holds the turn once, and the agent drafts the entry and shows it.
+  `kit:upgrade` prints an entry's reason beside every kit change to its path (`localEditFor`,
+  `local-edit` in the plan), and `/rp-upgrade` drops a `fix` entry once the release carries the
+  fix. The rename carries `guard` and `localEdits` into the copy (`stampedManifest`). The same
+  hook runs the **UI lint** (`lib/ui-lint.mjs`, `pnpm design:lint`, the rules in
+  `.claude/rules/ui.md` "Visual quality"): a review after each edit to a UI file, and bans still in
+  a changed UI file hold the `Stop` once; reflexes are asked once, as a transcript notice, and never
+  hold it. `stop_hook_active` is honoured and every error is silence. The core half runs in a copy
+  (`app != null`) or with `ROCKETPOD_GUARD=1`; the lint half wherever the guard is on, the kit
+  included; `guard.enabled: false` or `ROCKETPOD_GUARD=0` turns both off. State is per session
+  in `$TMPDIR/rocketpod-guard/<session_id>.json`. Carried capabilities (#183) are read from
+  `apps/web/src/plugins/<id>/capabilities/<name>/capability.diff` + `NOTE.md` — a provisional
+  location, inert until a carrier exists.
 - **Released history is never rewritten** — every copy pins a commit.
 
 **Known gaps:** a copy pinned before 0.10.1 has no update hook until it upgrades (and
@@ -1690,7 +1731,17 @@ coupling `example-surfaces.test.ts` records rather than hides; `kit:upgrade` sho
 `launch.kit.json` as a `manual` diff translated through the token map, so a hunk touching its `kit`
 block reads as renamed (keep the kit's id and name); a copy that predates the contract gets
 `kit.id` only by following that release's porting note; `plugins.add` cannot express an entry
-without a `subdir` (`--subdir` refuses an empty value), which no default plugin has today.
+without a `subdir` (`--subdir` refuses an empty value), which no default plugin has today. The guard is
+Claude Code only (an editor, a terminal or another agent never sees it, and no gate step checks the
+ledger); an edit made through Bash is seen only at `Stop`, through `git status`, so it is never
+paused; the pause costs one refused tool call per steer path per session, and an agent that retries
+without reading the reason passes it (the `Stop` check still asks for the record); a route file the
+kit adds in a later release is open until `kit:upgrade` ports the rule naming it; `Stop` reads the
+whole working tree, so in a checkout shared by two sessions one can be held for the other's change;
+core edits committed before a session are not asked about; the UI lint is text heuristics (a JSX
+tag stack it cannot balance reports no nested card), so it misses what it cannot see and an earned
+exception costs a `ui-allow`; `.rocketflare.json` is never ported, so an upgraded copy adds `guard`
+and `localEdits` by hand (absent, the guard runs with an empty ledger).
 
 ## 14. Definition of done for the kit
 
@@ -1812,7 +1863,10 @@ Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
   read it, and is otherwise not mentioned. `/rp-plugin add` with no id shows it, and
   `/rp-how-do-i` asks "does a plugin already do this?" first: the order is an existing plugin, else
   the app itself, and a plugin only for what another app will install too.
-  https://rocketflare.dev/plugins is the browsing page.
+  https://rocketflare.dev/plugins is the browsing page. `pnpm plugin add <id>[@X.Y.Z]` resolves a
+  bare id through the same catalogue — the first-party repository, else the commercial one, at
+  its newest release tag (or the one typed), with `--subdir` where the catalogue found it — and
+  prints what it resolved to; an id in neither is exit 1, the open repository unreachable exit 3.
 - **Lifecycle** (`scripts/plugin.mjs`): `add` (plan, then `--apply`), `upgrade`, `remove`
   (`--archive`), `list` (`--available`), `check`, `export`. Every plan step is **declarative, agent (with its
   assertion) or human** — a printed instruction is not a mechanism. The host generates the
@@ -1825,8 +1879,13 @@ Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
   adds or re-ranges and removes what it drops only when a plugin brought it in — the surface's
   `addedDependencies` record, never range equality — no other plugin declares it and the host
   holds exactly the old range — a range a peer plugin cannot use is refused), Cloudflare-only
-  declarations, a tenant-isolation test for tenant tables, table collisions, declared skills. Each finding names file, line and exact edit.
-  Structural checks read comment-free code. It runs where a finding can still be acted on: at the
+  declarations, a tenant-isolation test for tenant tables, table collisions, declared skills, and
+  imports that resolve to nothing (`unresolvedPluginImports`, each file against its own package's
+  tsconfig: an unresolved import types as `any`, so every type-level check over it would pass; it
+  needs `pnpm install` first, and a `cloudflare:*` import fails here because nothing on Node
+  provides it). Each finding names file, line and exact edit. Structural checks read comment-free
+  code: `onTenantDeleted` and the isolation test are parsed with the TypeScript AST (`typescript6`),
+  so a name inside a comment or a string satisfies neither. It runs where a finding can still be acted on: at the
   end of `plugin add|upgrade --apply` (exit 8 when the tree it wrote fails), in the plugin's own CI
   (`plugin-ci.yml`) and in `kit.yml` — not in an app's `pnpm gate`, because an undeclared import
   compiles and passes the tests and only breaks at the next upgrade, where the check stops it first.

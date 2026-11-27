@@ -93,7 +93,7 @@ function LayoutSplitHandle({ layout, onToggle }: { layout: RunLayoutSplit; onTog
       onClick={onToggle}
       aria-label={label}
       title={label}
-      className="hidden lg:flex absolute right-0 top-1 z-10 translate-x-1/2 btn btn-circle btn-xs border border-[color:var(--border-subtle)] bg-base-100 text-base-content/70 shadow-md hover:bg-base-200 hover:text-base-content"
+      className="hidden lg:flex absolute right-0 top-1 z-10 translate-x-1/2 btn btn-circle btn-xs border border-[color:var(--border-control)] bg-[var(--surface-raised)] text-secondary hover:bg-[var(--surface-hover)] hover:text-[color:var(--text-primary)]"
     >
       <Chevron className="w-3.5 h-3.5" aria-hidden="true" />
     </button>

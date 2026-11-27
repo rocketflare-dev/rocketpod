@@ -74,7 +74,7 @@ export function GuideHelp() {
       {panelOpen && (
         <aside
           aria-label="Ask the Guide"
-          className="fixed inset-y-0 right-0 z-50 flex w-[420px] max-w-full flex-col border-l border-base-300 bg-base-100 shadow-xl"
+          className="fixed inset-y-0 right-0 z-50 flex w-[420px] max-w-full flex-col border-l border-base-300 bg-base-100"
         >
           <div className="flex flex-none items-center justify-between border-b border-base-300 px-4 py-2.5">
             <h2 className="text-sm">Ask the Guide</h2>

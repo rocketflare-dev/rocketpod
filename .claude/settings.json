@@ -11,6 +11,16 @@
             "timeout": 10
           }
         ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/kit-guard.mjs\"",
+            "timeout": 10
+          }
+        ]
       }
     ],
     "SessionStart": [
@@ -19,6 +29,11 @@
           {
             "type": "command",
             "command": "node \"$CLAUDE_PROJECT_DIR/scripts/kit-update-check.mjs\"",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/kit-guard.mjs\"",
             "timeout": 10
           }
         ]
@@ -31,6 +46,27 @@
             "type": "command",
             "command": "cd \"$CLAUDE_PROJECT_DIR/apps/web\" 2>/dev/null && pnpm -s docs:stale --changed --quiet --hook 2>/dev/null || true",
             "timeout": 30
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/kit-guard.mjs\"",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/kit-guard.mjs\"",
+            "timeout": 10
           }
         ]
       }

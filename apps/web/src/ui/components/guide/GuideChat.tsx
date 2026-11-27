@@ -174,7 +174,7 @@ export default function GuideChat({
                   </div>
                 )}
                 {m.lexicalOnly && (
-                  <p className="mt-1.5 text-[11px] text-muted">
+                  <p className="mt-1.5 text-xs text-muted">
                     Found by keyword search — the Guide's semantic index is not built on this
                     server.
                   </p>

@@ -51,6 +51,11 @@ the same commit, so the next port starts from it.
 | `env.JOBS_QUEUE` in a test, a `JobContext` of `{ db, env, config, logger }` | `env.jobs`; the context adds `platform: resolvePlatform(env)` |
 | A migration regenerating `chunks.search_vector` over a NEW column (0.45.0's `context`) | drizzle-kit writes the new column's `ADD COLUMN` after the `search_vector` that reads it, and drops `chunks_search_vector_idx` with the column: move the `ADD COLUMN`s first and add the `CREATE INDEX … USING gin` by hand; the vector stays STORED |
 | A new prompt in `CORE_PROMPT_REGISTRY` | An entry in `packages/shared/src/ai/eval-coverage.ts` (Rocketflare has no coverage contract): a suite, or an `exempt` with its reason |
+| A guard rule (`scripts/lib/kit-guard-rules.mjs`) naming a Worker path or seam (`worker.ts`, `worker-configuration.d.ts`, `worker-exports.ts`, `emailHandlers`, `DATABASE_DRIVER` `neon`) | Rocketpod's tree: `node-runtime` (`src/node/**` → `SharedPlugin.jobs`, `ServerPlugin.scheduledTasks`, `ctx.platform.*`), `platform-seam`, `migrations` (`*.sql` steered, `meta/**` sealed), five barrels, postgres.js as the one driver; `kit-routes` is this kit's route directory. `kit-guard-hook.test.ts` holds every guarded path to the tree |
+| `unresolvedPluginImports` treating `cloudflare:*` as ambient | It fails here, pointing at `ctx.platform`: nothing on Node provides it |
+| A plugin-lib change to `workerExportNames` | Nothing: Rocketpod has none (`workerExports` are refused) |
+| Brand tooling assuming the kit's palette is `oklch()` on one hue (0.45.0's `applyHue`, `--brand-hue`, the rename's `--colour`) | Rocketpod's palette is hex until it adopts one: `applyColour` keeps a hex mode and `--brand-hue` over hex is a reported problem; upstream tests that need the one-hue look read `tests/kit-only/fixtures/one-hue-look/` |
+| `.rocketflare.json` text naming an env var (`$guard`'s `ROCKETFLARE_GUARD`) | The rename's `stampedManifest` moves `$guard` into the app's names, because the renamed guard reads `<SLUG>_GUARD` |
 
 ## Test harness mappings
 

@@ -316,7 +316,7 @@ export default function SideNav({
         {/* Deployed release (RELEASE_VERSION via /api/health — the tag, e.g. `v0.2.0`, or "dev"),
             shown exactly as reported: never prefix a "v" */}
         {version && !isCollapsed && (
-          <div className="px-2.5 pt-4 text-[11px] font-mono text-muted" title="Deployed release">
+          <div className="px-2.5 pt-4 text-xs font-mono text-muted" title="Deployed release">
             {version}
           </div>
         )}

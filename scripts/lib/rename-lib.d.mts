@@ -124,17 +124,35 @@ export function rewriteIntConstant(
 ): string
 export function rewritePrefixComments(source: string, prefix: string, margin: number): string
 
+/** `.rocketflare.json` stamped for a renamed copy, the guard's keys carried over. */
+export function stampedManifest(
+  manifest: Record<string, unknown>,
+  names: Names,
+  kitOnlyScripts?: string[]
+): Record<string, unknown>
 export function hexToRgb(hex: string): string
+export function designTagline(designJson: unknown): string | null
+export function applyTagline(source: string, tagline: string): string | null
+export function colourProblem(colour: string): string | null
 export interface ColourResult {
-  css: string
+  /** `hue`: an oklch() palette turned to one hue. `hex`: a hex palette's light primary replaced. */
+  mode: 'hue' | 'hex'
+  tokensCss: string
+  indexCss: string
   html: string
-  from: string
-  to: string
+  /** The hue the palette was on and the hue it was turned to (degrees); the two hexes in `hex` mode. */
+  from: number | string
+  to: number | string
+  /** The new light primary as hex, also written to `<meta name="theme-color">`. */
+  primary: string | null
   cssReplacements: number
   htmlReplaced: boolean
   manual: string[]
 }
-export function applyColour(files: { css: string; html: string }, colour: string): ColourResult
+export function applyColour(
+  files: { tokensCss: string; indexCss: string; html: string },
+  colour: string
+): ColourResult
 
 export const APP_START_VERSION: string
 export const APP_CHANGELOG: string

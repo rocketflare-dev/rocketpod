@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url'
 import { drizzle as drizzlePostgres } from 'drizzle-orm/postgres-js'
 import { migrate as migratePostgres } from 'drizzle-orm/postgres-js/migrator'
 import postgres from 'postgres'
+import { databaseConnection, sslOption } from '../src/db/tls'
 import { installJobsSchema } from '../src/node/jobs-schema'
 import { installRunsSchema } from '../src/node/runs-schema'
 import { isNeonUrl, scriptDriver, toDirectNeonHost, waitForDatabase } from './lib/sql'
@@ -68,7 +69,9 @@ export async function runMigrations(
   ]
 
   scriptDriver(env)
-  const sql = postgres(url, { max: 1, onnotice: () => {} })
+  // `DATABASE_SSL` (src/db/tls.ts) reaches every connection below: this one, pg-boss's, OpenWorkflow's.
+  const connection = databaseConnection(url, env)
+  const sql = postgres(connection.url, { max: 1, onnotice: () => {}, ...sslOption(connection) })
   try {
     for (const statement of createExtensions) await sql.unsafe(statement)
     await migratePostgres(drizzlePostgres(sql), { migrationsFolder })
@@ -79,12 +82,12 @@ export async function runMigrations(
   // The jobs transport's own schema (pg-boss): created/migrated here, by the migrate one-shot,
   // never by a `web` process at boot.
   if (options.jobs !== false) {
-    await installJobsSchema({ DATABASE_URL: url })
+    await installJobsSchema({ DATABASE_URL: url, DATABASE_SSL: env.DATABASE_SSL })
     log('Jobs schema (pgboss) and queues applied')
   }
   // The durable-runs engine's own schema (OpenWorkflow): the same rule.
   if (options.runs !== false) {
-    await installRunsSchema({ DATABASE_URL: url })
+    await installRunsSchema({ DATABASE_URL: url, DATABASE_SSL: env.DATABASE_SSL })
     log('Runs schema (openworkflow) applied')
   }
 }

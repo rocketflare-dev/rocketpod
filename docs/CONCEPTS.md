@@ -433,6 +433,17 @@ per-PR previews; no public tunnel for OAuth callbacks in dev (use your own, e.g.
   OpenWorkflow (`openworkflow` schema, `RUNS_CONCURRENCY + 4`) each keep their own small pool, and
   a `web`/`all` process holds one more dedicated connection for realtime `LISTEN` (§5). Size
   Postgres `max_connections` for (`DATABASE_POOL_MAX` + 6 + `RUNS_CONCURRENCY` + 4 + 1) × replicas.
+- **TLS for every connection: `DATABASE_SSL`** (`off|require|verify-full`; unset = the URL's
+  `sslmode` decides, as before). Every connection the process opens — the pool, realtime's
+  publisher and `LISTEN`, pg-boss (node-postgres), OpenWorkflow, the scripts and the migrate
+  one-shot — takes it from ONE function, `databaseConnection(url, env)` (`src/db/tls.ts`), which
+  hands each driver the same `ssl` option (`false`, or `{ rejectUnauthorized }`; OpenWorkflow's
+  URL-only migrator gets it as `sslmode`). Set, it refuses a URL carrying a TLS parameter of its
+  own, because the two drivers rank URL and option oppositely: one place decides.
+  `verify-full` trusts Node's CAs plus `NODE_EXTRA_CA_CERTS` — the image ships the AWS RDS bundle
+  there — and `src/node/database-tls.ts` refuses to start on a bundle path that is missing or holds
+  no certificate. `tests/config/database-tls.test.ts` watches each factory's first message on the
+  wire. Operations: `docs/DEPLOY.md` § TLS to Postgres.
 - **The driver seam: code never sees the driver** (`src/db/CLAUDE.md`). `db/client.ts` is the only
   place it is named; everything else is normalised there or banned. Normalised: a raw
   `db.execute()` is `unknown` (`Database` is drizzle's `PgDatabase` base) and is read with
@@ -531,7 +542,10 @@ per-PR previews; no public tunnel for OAuth callbacks in dev (use your own, e.g.
 - **RLS** ships inert: every tenant table has `tenantIsolation()` (enforced by `rls-coverage`),
   and `TENANT_SCOPE_MODE=enforce` waits on the spike in `docs/RLS.md`.
 
-**Known gaps:** the RLS spike has not been run; no read replicas; three pools per process (above); the process pool turns named
+**Known gaps:** the RLS spike has not been run; no read replicas; with `DATABASE_SSL` set, no
+client certificates (`sslcert`/`sslkey` are URL-only, with `DATABASE_SSL` unset) and no
+`sslrootcert` — another CA goes through `NODE_EXTRA_CA_CERTS`; `pnpm db:generate`'s scratch
+database (local only) ignores `DATABASE_SSL`; three pools per process (above); the process pool turns named
 prepared statements on, so a PgBouncer in TRANSACTION mode in front of the Node server needs
 1.21+ (`max_prepared_statements`) — there is no switch to turn them off yet; the TEST database's port
 is fixed per app, not per checkout: the kit's is 5533 (Rocketflare's 5433; `pnpm test` reads the

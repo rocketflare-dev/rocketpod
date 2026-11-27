@@ -32,6 +32,7 @@ import type { AppBindings } from '../api/types'
 import { runAgentRun } from '../api/workflows/agent-run-body'
 import type { AppConfig } from '../config'
 import { resolveDatabaseUrl } from '../db/client'
+import { type DatabaseConnection, databaseConnection, sslOption } from '../db/tls'
 import {
   type Duration,
   type Platform,
@@ -297,9 +298,10 @@ export interface NodeRuns {
 }
 
 /** A postgres.js pool shaped the way OpenWorkflow's backend expects (camel-cased columns). */
-function owPool(url: string, max: number) {
-  return postgres(url, {
+function owPool(connection: DatabaseConnection, max: number) {
+  return postgres(connection.url, {
     max,
+    ...sslOption(connection),
     onnotice: () => {},
     transform: { column: { from: postgres.toCamel } },
   })
@@ -310,7 +312,7 @@ export function createNodeRuns(options: NodeRunsOptions): NodeRuns {
   const schema = options.schema ?? RUNS_SCHEMA
   // Concurrency + headroom for the heartbeat, claims and the producer side.
   const backend = BackendPostgres.fromPool(
-    owPool(resolveDatabaseUrl(config), config.RUNS_CONCURRENCY + 4),
+    owPool(databaseConnection(resolveDatabaseUrl(config), config), config.RUNS_CONCURRENCY + 4),
     { schema }
   )
   const ow = new OpenWorkflow({ backend })

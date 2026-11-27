@@ -15,7 +15,12 @@ esbuild (every dependency inside the bundle) and Vite builds the UI. The runtime
 the Guide's content (`content/guide`: pages, images, any committed vectors — every `web` boot
 chunks the pages into `guide_chunks`, so a release with edited pages needs nothing else run),
 about 14 MB on top of Node — running as the `node` user (uid 1000). It writes nothing to its
-filesystem, so a read-only root filesystem works (`/tmp` is mounted for libraries that expect one).
+filesystem outside `/tmp`, so a read-only root filesystem works (Kubernetes
+`readOnlyRootFilesystem`, AWS ECS Fargate `readonlyRootFilesystem`): `/tmp` is a declared `VOLUME`
+owned by `node`, so Docker and Fargate mount a fresh writable volume there and the chart mounts an
+`emptyDir`. Nothing the server or the migrate entry runs writes anywhere else (the only `writeFile`
+in the app is `pnpm web guide:index`, a dev script). The image also carries the AWS RDS CA bundle
+for `DATABASE_SSL=verify-full` (§ TLS to Postgres).
 
 **What it needs outside itself:**
 
@@ -27,7 +32,7 @@ filesystem, so a read-only root filesystem works (`/tmp` is mounted for librarie
   more than about a million chunks, run it in a maintenance window. One owner connection,
   `DATABASE_URL`, is used by migrate and by every process's pool (`DATABASE_POOL_MAX`, default 10 per
   process — plus a small pool each for pg-boss and OpenWorkflow, and one dedicated connection per
-  `web` process for realtime).
+  `web` process for realtime). `DATABASE_SSL` puts every one of them on TLS (§ TLS to Postgres).
 - **A LISTEN-capable connection for realtime.** `/ws` fans out across pods with Postgres
   `LISTEN/NOTIFY` on one dedicated connection per `web`/`all` process. PgBouncer in
   **transaction** mode breaks `LISTEN`: point `DATABASE_LISTEN_URL` straight at Postgres (or at a
@@ -210,6 +215,43 @@ Settings → MCP. Three things about the deployment:
   blocks the internet blocks every client.
 - **Optional outside issuer**: `MCP_AUTHORIZATION_SERVER` (a ConfigMap value, not a secret) makes
   `/mcp` accept that server's JWTs as well; `web` reads its JWKS over https (`SETUP.md` §2.3d).
+
+## TLS to Postgres
+
+`DATABASE_SSL` sets TLS for **every** Postgres connection a process opens — the pool, the realtime
+publisher and `LISTEN` connection (`DATABASE_LISTEN_URL` included), pg-boss, OpenWorkflow, and
+the migrate one-shot (Compose passes it to `migrate` like to every app service; the chart inlines
+`config.DATABASE_SSL` into the migrate Job, which runs before the ConfigMap exists):
+
+| `DATABASE_SSL` | Meaning |
+|---|---|
+| unset | As before: the URL's own `sslmode` decides, else no TLS |
+| `off` | No TLS |
+| `require` | TLS, the server certificate **not** verified (encrypts against a passive listener only) |
+| `verify-full` | TLS, the certificate verified against Node's trust store plus `NODE_EXTRA_CA_CERTS`, and the hostname checked |
+
+**One place decides.** With `DATABASE_SSL` set, a database URL (`DATABASE_URL`,
+`PREVIEW_DATABASE_URL`, `DATABASE_LISTEN_URL`) that carries a TLS parameter of its own (`sslmode`,
+`ssl`, `sslrootcert`, `sslcert`, `sslkey`, `uselibpqcompat`) is a startup error naming the var:
+remove it from the URL, or unset `DATABASE_SSL`. The two drivers in the process read those
+parameters differently (node-postgres, under pg-boss, lets the URL override its option and treats
+`sslmode=require` as `verify-full`), so a URL and `DATABASE_SSL` that disagreed would give
+different connections different TLS. Client certificates (`sslcert`/`sslkey`) stay a URL-only
+setup with `DATABASE_SSL` unset.
+
+**On AWS (RDS, Aurora).** Use `DATABASE_SSL=verify-full` with the RDS endpoint's hostname in the
+URL. The image carries the AWS RDS global CA bundle at `/etc/ssl/certs/rds-global-bundle.pem`
+(downloaded at build time and pinned by sha256 — `RDS_CA_BUNDLE_SHA256` in the `Dockerfile`, bumped
+with the bundle) and sets `NODE_EXTRA_CA_CERTS` to it, so nothing else is needed. Set the parameter
+group's `rds.force_ssl=1` so the database refuses a plain connection too. The extra bundle is
+harmless anywhere else: `NODE_EXTRA_CA_CERTS` only adds trust anchors to Node's own.
+
+**Another CA** (a self-managed Postgres, a private CA): build an image `FROM` this one that copies
+your PEM bundle in and points `NODE_EXTRA_CA_CERTS` at it (one file — concatenate the RDS bundle if
+you need both), or mount the file and set the variable on the container. Node reads it once, at
+start, and only warns on a bad path, so with `verify-full` the server and the migrate entry check
+the file themselves and refuse to start when it is missing or holds no certificate. A server
+certificate a public CA signed needs no bundle at all.
 
 ## Storage on AWS
 

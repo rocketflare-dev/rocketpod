@@ -4,9 +4,10 @@
  * `openworkflow` schemas) → `db-roles --phase=grants`. `scripts/build-server.mjs` bundles it into
  * `dist/migrate.js`, so the image's compose `migrate` service and the Helm pre-install/pre-upgrade
  * Job run `node dist/migrate.js` with nothing but `DATABASE_URL` (and optionally
- * `APP_DATABASE_URL`) in the environment. `MIGRATIONS_DIR` overrides where the drizzle SQL lives
+ * `APP_DATABASE_URL`, and `DATABASE_SSL` for TLS — `src/db/tls.ts`) in the environment. `MIGRATIONS_DIR` overrides where the drizzle SQL lives
  * (default `./migrations`, relative to the working directory — `/app` in the image).
  */
+import { assertDatabaseTrust } from '../src/node/database-tls'
 import { applyDbRoles } from './db-roles'
 import { runMigrations } from './migrate'
 
@@ -17,6 +18,7 @@ async function main(): Promise<void> {
     process.exit(1)
   }
   try {
+    assertDatabaseTrust(process.env)
     await applyDbRoles({ databaseUrl, phase: 'role' })
     await runMigrations(databaseUrl, { migrationsFolder: process.env.MIGRATIONS_DIR || undefined })
     await applyDbRoles({ databaseUrl, phase: 'grants' })

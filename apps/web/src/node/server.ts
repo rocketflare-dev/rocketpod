@@ -32,6 +32,7 @@ import { type AppConfig, loadConfig } from '../config'
 import { type DatabaseHandle, installProcessPool } from '../db/client'
 import type { Platform } from '../platform/types'
 import { createNodeAssets } from './assets'
+import { assertDatabaseTrust } from './database-tls'
 import { createDeferSet, type DeferSet } from './defer'
 import { describeGuideLoad, loadGuideFromDisk } from './guide-content'
 import { createNodeJobs, type NodeJobs } from './jobs'
@@ -259,6 +260,7 @@ async function writeHttpResponse(socket: Duplex, res: Response): Promise<void> {
 /** `node dist/server.js [web|worker|all]` / `tsx src/node/server.ts`. */
 export async function main(argv: string[] = process.argv.slice(2)): Promise<void> {
   const env = process.env
+  assertDatabaseTrust(env)
   const mode = parseServerMode(argv[0] ?? env.SERVER_MODE)
   const running = await startServer({
     env,

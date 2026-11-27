@@ -39,6 +39,8 @@ x-app: &app
     TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-0}
     DATABASE_URL: ${DATABASE_URL:-postgresql://rocketpod:rocketpod_pass@postgres:5432/rocketpod}
     DATABASE_LISTEN_URL: ${DATABASE_LISTEN_URL:-}
+    # TLS to Postgres: off | require | verify-full (docs/DEPLOY.md "TLS to Postgres"); blank = the URL decides.
+    DATABASE_SSL: ${DATABASE_SSL:-}
     APP_DATABASE_URL: ${APP_DATABASE_URL:-}
     STORAGE_DRIVER: s3
     STORAGE_ENDPOINT: ${STORAGE_ENDPOINT:-http://s3:7070}

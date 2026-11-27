@@ -71,6 +71,11 @@ spec:
                   name: {{ $secret }}
                   key: APP_DATABASE_URL
                   optional: true
+            {{- /* A hook runs before the release's ConfigMap exists: the value is inlined. */}}
+            {{- with .Values.config.DATABASE_SSL }}
+            - name: DATABASE_SSL
+              value: {{ . | quote }}
+            {{- end }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

@@ -1,6 +1,9 @@
 # Database access
 
-`client.ts` opens a database (`openDatabase(env)`, one handle per request), `tenant-scope.ts` wraps
+`client.ts` opens a database (`openDatabase(env)`, one handle per request), `tls.ts` holds
+`DATABASE_SSL` (`databaseConnection(url, env)` — the URL and `ssl` option EVERY Postgres connection
+in the process is opened with, the pool, `src/node/` and `scripts/` alike; a new connection site
+goes through it and gets a row in `tests/config/database-tls.test.ts`), `tenant-scope.ts` wraps
 tenant-scoped work (`withTenantScope`, `docs/RLS.md`), `schema/` holds the tables (its own
 CLAUDE.md). Rules for queries: `.claude/rules/database.md`.
 

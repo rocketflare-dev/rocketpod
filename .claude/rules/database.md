@@ -169,6 +169,10 @@ predicate**, not SQL injection — the app role can `set_config` itself.
   and a transaction `tx` IS a `Database` — no cast
 - Driver: `DATABASE_DRIVER` (`postgres`, missing = `postgres`; `loadConfig` refuses the removed
   `neon` with the fix). URL: `PREVIEW_DATABASE_URL ?? DATABASE_URL`
+- TLS: `DATABASE_SSL` (`off|require|verify-full`, unset = the URL's `sslmode`). Every connection
+  — the pool, `src/node/`'s pg-boss, OpenWorkflow and realtime clients, the scripts — is opened
+  with `databaseConnection(url, env)` (`src/db/tls.ts`) and spreads its `sslOption()`; a new one
+  does too, and gets a row in `tests/config/database-tls.test.ts`
 - **Node** (`src/node/server.ts`): `installProcessPool(config, { max: DATABASE_POOL_MAX, prepare:
   true })` once per process; every `openDatabase` for that URL is then a VIEW of the pool whose
   `close()` is a no-op. The pool closes once, on shutdown, after the defer set drains

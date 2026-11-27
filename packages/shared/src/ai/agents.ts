@@ -281,6 +281,22 @@ export const agentRunSchema = z.object({
 })
 export type AgentRun = z.infer<typeof agentRunSchema>
 
+/**
+ * Who asked for a run, by name — what the runs list shows instead of a user id. Null for a run
+ * nobody asked for (an event, a job) and for a requester whose account has since gone.
+ */
+export const agentRunRequesterSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+})
+export type AgentRunRequester = z.infer<typeof agentRunRequesterSchema>
+
+/** A `GET /api/agents/runs` item: the run and its requester's name. Defaulted for an older server. */
+export const agentRunListItemSchema = agentRunSchema.extend({
+  requestedBy: agentRunRequesterSchema.nullable().default(null),
+})
+export type AgentRunListItem = z.infer<typeof agentRunListItemSchema>
+
 /** `POST /api/agents/runs` → 202. `deduplicated` = an active run already existed (exclusive). */
 export const createAgentRunResponseSchema = agentRunSchema.extend({
   deduplicated: z.boolean().optional(),
@@ -296,6 +312,8 @@ export const agentRunListQuerySchema = paginationQuerySchema.extend({
   parentRunId: z.string().uuid().optional(),
   /** Created at or after this instant. */
   since: z.coerce.date().optional(),
+  /** Created before this instant (exclusive) — with `since`, one day of runs. */
+  until: z.coerce.date().optional(),
   /** Runs that recorded this `meta.version` — the ones a version change affects. */
   agentVersion: z.coerce.number().int().positive().optional(),
 })
@@ -417,6 +435,12 @@ export const agentToolStartEventDataSchema = z
      * the day two calls to the same tool run in one turn.
      */
     toolCallId: z.string().optional(),
+    /**
+     * `'model'`: a MODEL call the runtime recorded (`services/agents/recording.ts`) — `name` is
+     * the model, `input` counts what was sent. Not a tool the model called: the AG-UI projection
+     * and the evals export skip it. Absent: a tool call.
+     */
+    kind: z.literal('model').optional(),
   })
   .passthrough()
 export type AgentToolStartEventData = z.infer<typeof agentToolStartEventDataSchema>
@@ -427,6 +451,8 @@ export const agentToolEndEventDataSchema = z
     result: z.unknown().optional(),
     isError: z.boolean().optional(),
     toolCallId: z.string().optional(),
+    /** As on `tool.start`. */
+    kind: z.literal('model').optional(),
   })
   .passthrough()
 export type AgentToolEndEventData = z.infer<typeof agentToolEndEventDataSchema>
@@ -491,6 +517,8 @@ export const agentRunEventSchema = z.object({
 export type AgentRunEvent = z.infer<typeof agentRunEventSchema>
 
 export const agentRunWithEventsSchema = agentRunSchema.extend({
+  /** Who asked for it, by name (as on the runs list). Defaulted for an older server. */
+  requestedBy: agentRunRequesterSchema.nullable().default(null),
   events: z.array(agentRunEventSchema),
   /** Every ask this run has made, newest last — pending ones are what the action panel draws. */
   interrupts: z.array(agentRunInterruptSchema).default([]),

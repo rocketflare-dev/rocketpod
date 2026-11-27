@@ -180,6 +180,20 @@ describe('projectRunToAgui', () => {
     })
   })
 
+  it('projects a model call the runtime recorded to nothing: in AG-UI the model is the run', () => {
+    const out = projectRunToAgui(run(), [
+      event('tool.start', { name: 'claude-x', kind: 'model', toolCallId: 'model:0.a:1' }),
+      event('tool.end', { name: 'claude-x', kind: 'model', toolCallId: 'model:0.a:1' }),
+      event('tool.start', { name: 'search_knowledge', input: { query: 'x' } }),
+      event('tool.end', { name: 'search_knowledge', isError: false, result: { hits: 1 } }),
+    ])
+    const starts = out.filter(e => e.type === 'TOOL_CALL_START')
+    expect(starts.map(e => e.type === 'TOOL_CALL_START' && e.toolCallName)).toEqual([
+      'search_knowledge',
+    ])
+    expect(out.filter(e => e.type === 'TOOL_CALL_RESULT')).toHaveLength(1)
+  })
+
   it('projects a knowledge tool result into the same document cards a live chat shows', () => {
     // The runtime knows nothing about AG-UI: the row holds the SUMMARISED tool result, and the
     // projection runs the same pure mapper `chat-turn.ts` runs over the raw one. One function, so

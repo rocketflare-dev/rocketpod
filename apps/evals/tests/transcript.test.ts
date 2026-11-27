@@ -49,6 +49,12 @@ describe('transcriptFromRunEvents', () => {
     const t = transcriptFromRunEvents(
       [
         { type: 'step', data: { key: 's', label: 'x', status: 'running' } },
+        // A model call the runtime recorded is not a tool call the scorers grade.
+        {
+          type: 'tool.start',
+          data: { name: 'claude-x', kind: 'model', toolCallId: 'model:0.a:1' },
+        },
+        { type: 'tool.end', data: { name: 'claude-x', kind: 'model', toolCallId: 'model:0.a:1' } },
         {
           type: 'tool.start',
           data: { name: 'search_knowledge', input: { query: 'r' }, toolCallId: 'k' },

@@ -8,7 +8,8 @@ Built to `dist/ui`, served in production by the Node server (`src/node/assets.ts
 
 - The run page, timeline, action panel, agent forms/outputs, `useAgents` / `useRunStream` /
   `useNavBadges` → `pages/agents/CLAUDE.md`
-- Knowledge list, document viewer, search, `DocumentCard` / `DocumentLink`, `useDocuments` →
+- Knowledge list, document viewer, search, `Provenance` / `DocumentCard` / `DocumentLink`,
+  `useDocuments` →
   `pages/documents/CLAUDE.md`
 - The chat page or `useChat` / `useSendMessage` → `pages/chat/CLAUDE.md`
 - A Settings tab (AI providers, prompts, agent models, usage, MCP, groups, people) →
@@ -47,14 +48,18 @@ Built to `dist/ui`, served in production by the Node server (`src/node/assets.ts
   `WebSocketProvider`, `WebSocketStatus` (header dot), `ConnectionBanner` (after 5 s away from
   `open`). `components/shared/` — generic primitives (Toast, Modal, SectionPanel,
   PaginationControls, FieldError…) plus the visibility trio (`AccessPicker`, `AccessBadge`,
-  `VisibilityModal`), `DocumentCard` / `DocumentLink` and `GuideLink`, all markdown-free — the eager
-  barrel. `components/ai/` (`Markdown`, `ChatBubble`, `StatRows`, `FeedbackThumbs`) — lazy chunks
+  `VisibilityModal`), `Provenance` (the one "where this came from" treatment: `ProvenanceLink`,
+  `ProvenanceQuote`, `sourceFromCard` / `sourceFromCitation` / `sourceFromFact` — chat, document
+  links, agent outputs, the run timeline and knowledge facts; plugins import it from
+  `@/plugins/api/ui`), `DocumentCard` / `DocumentLink`, `GuideLink`, and Home's primitives
+  `RunsChart`, `TrendLine`, `AvatarStack` — all markdown-free, the eager barrel. `components/ai/` (`Markdown`, `ChatBubble`, `StatRows`, `FeedbackThumbs`) — lazy chunks
   only. `components/guide/` — `pages/guide/CLAUDE.md`. `components/knowledge/` — knowledge facts:
   `FactParts` (`FactStateBadge`, `FactItem`, `FactDoubt` — the inline "Is this still right?" —,
   `useCanSettle`), `PossibleMatch`, `ReviewItem`, `EntityFactsCard` (the chat card).
   Markdown-free, NOT in the eager barrel: only lazy pages (documents, knowledge, chat via
   `ChatBubble`) import them. Hooks: `useKnowledge.ts`, all under `['knowledge']`, which the server
-  nudges.
+  nudges — except the nav badge's count, `['knowledge-review-count']`, nudged to the affected
+  reviewers only.
 - `hooks/` — `useAuth` (session, `status`, `selectTenant`, `logout`, `applySession`,
   `useTenancyMode`), `usePermissions` (`can/cannot/isOwnerLevel/isAdminLevel/isGlobalAdmin`),
   `useNavGuard` (the ONE place nav and route guards are decided), `useFeature` (in
@@ -66,7 +71,12 @@ Built to `dist/ui`, served in production by the Node server (`src/node/assets.ts
   `useLocalStoragePreference`, `useEnvironmentTitle`. `useProfile` also holds the avatar upload
   (`useUploadAvatar`, `validateAvatarFile`, `AVATAR_ACCEPT`).
 - `lib/` — see `lib/CLAUDE.md`. `stores/websocketStore.ts` — the one zustand store.
-- `pages/` — route-level components, lazy in `App.tsx` except Home/Login/NotFound. `admin/` is
+- `pages/` — route-level components, lazy in `App.tsx` except Home/Login/NotFound. Home lays out
+  `home-sections.ts` (each feature's area: `chat/HomeComposer`, `agents/HomeRuns`,
+  `documents/HomeDocuments`; core Team, AI spend and Activity in `home/`) over one `useHome()`
+  query (`GET /api/home/summary`, `@rocketpod/shared/home`, its own `['home']` root that the
+  events behind each part also invalidate). Login is a split screen (`AuthCard split`): the form,
+  and a panel in the rail tokens with `LoginArt` or the name and tagline (`lib/login-panel.ts`). `admin/` is
   nested routes under `AdminLayout` (the `globalAdmin` guard). An installed plugin's pages are NOT
   here — they are `src/plugins/<id>/ui/pages/`. `public/` — static assets copied as-is.
 

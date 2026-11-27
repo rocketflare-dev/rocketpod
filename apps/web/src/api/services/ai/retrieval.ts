@@ -1,7 +1,7 @@
 /**
  * Hybrid retrieval over `chunks`: dense cosine (`<=>` on the pgvector HNSW index) +
  * Postgres full-text (ANY query term — `anyTermTsquery` — matched and ranked by `ts_rank_cd`
- * against `chunks.search_vector`, the GENERATED tsvector over heading path + table header + text,
+ * against `chunks.search_vector`, the GENERATED tsvector over context + heading path + table header + text,
  * GIN-indexed — nothing is computed per query), fused by Reciprocal Rank Fusion (`RRF_K = 60`).
  * Each dense leg reads only the chunks whose `embedding_model` is the query vector's model — a
  * vector from another model is noise — so a document embedded by an older model is found lexically

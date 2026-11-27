@@ -14,6 +14,12 @@
   "$retiredSurfaces": "Surfaces a LATER release removed, and the release that removed each one (§13). A released porting note is never rewritten — every copy of the kit pins a commit, so editing history orphans them — which is why `docs/upgrades/0.2.0.md` still names `feature-analytics` after 0.6.0 moved analytics out into a plugin. Both readers of a note's `touches_surfaces` / `requires_surfaces` (`scripts/release-check.mjs` and `apps/web/tests/kit-only/upgrade-notes.test.ts`, through one `noteProblems()`) accept an id listed here, so the typo check stays meaningful for the note somebody is writing TODAY — the only note it can still protect. Add an entry in the same commit that deletes the surface; never delete one, or the kit stops being able to re-verify its own released tags.",
   "retiredSurfaces": {},
   "history": [],
+  "$guard": "The Claude Code guard (`scripts/kit-guard.mjs`, docs/CONCEPTS.md §13): a UI review after every edit to a UI file, and — in a copy — a pause before the first edit in a session to kit core, naming the seam that usually fits (a plugin slot, `@/plugins/api`, a `Platform` member), with generated files refused. `enabled: false` turns it off for everyone; `ROCKETPOD_GUARD=0` for one shell.",
+  "guard": {
+    "enabled": true
+  },
+  "$localEdits": "Why this copy differs from the kit in a kit-core file: one { \"path\", \"kind\": \"fix\"|\"change\", \"reason\", \"seamConsidered\", \"capability\"?, \"date\" } per edit that stands. The guard asks for an entry at the end of a turn that changed core without one; `pnpm kit:upgrade` and `/rp-upgrade` show the reason beside every kit hunk that lands on the path, and drop a `fix` entry once a kit release carries the fix. Empty in the kit.",
+  "localEdits": [],
   "surfaces": [
     {
       "id": "example-agent-summarize-text",
@@ -24,6 +30,7 @@
         "apps/web/src/api/services/agents/examples/summarize-text.ts",
         "apps/web/src/ui/pages/agents/forms/summarize-text.tsx",
         "apps/web/tests/ui/agent-examples.test.tsx",
+        "apps/web/tests/config/summarize-text-title.test.ts",
         "apps/web/src/ui/pages/agents/outputs/summarize-text.tsx",
         "apps/evals/suites/agents/summarize-text.eval.ts",
         "apps/evals/datasets/summarize-text.jsonl",
@@ -50,6 +57,7 @@
         "apps/web/src/ui/pages/agents/forms/research-topic.tsx",
         "apps/web/tests/api/agent-research.test.ts",
         "apps/web/src/ui/pages/agents/outputs/research-topic.tsx",
+        "apps/web/tests/ui/agent-output-research-topic.test.tsx",
         "apps/evals/suites/agents/research-topic.eval.ts",
         "apps/evals/datasets/research-topic.jsonl",
         "apps/evals/baselines/agents-research-topic.json",
@@ -155,9 +163,14 @@
         "apps/web/tests/api/agui-run.test.ts",
         "apps/web/tests/api/chat.test.ts",
         "apps/web/tests/api/chat-tools.test.ts",
-        "apps/web/tests/ui/chat-page.test.tsx"
+        "apps/web/tests/ui/chat-page.test.tsx",
+        "apps/web/tests/ui/chat-hand-over.test.tsx"
       ],
-      "registries": ["apps/web/src/api/index.ts", "apps/web/src/ui/App.tsx"]
+      "registries": [
+        "apps/web/src/api/index.ts",
+        "apps/web/src/ui/App.tsx",
+        "apps/web/src/ui/pages/home-sections.ts#HOME_SECTIONS"
+      ]
     },
     {
       "id": "feature-agents",
@@ -176,7 +189,8 @@
         ".claude/skills/rp-agent-replay/**",
         "packages/shared/src/ai/agents.ts",
         "apps/web/src/plugins/api/agent-runs.ts",
-        "apps/web/tests/api/plugin-agent-runs.test.ts"
+        "apps/web/tests/api/plugin-agent-runs.test.ts",
+        "apps/web/tests/ui/home-runs.test.tsx"
       ],
       "registries": [
         "apps/web/src/node/runs.ts",
@@ -189,7 +203,9 @@
         "apps/web/src/plugins/api/emit.ts#EventCtx.startAgentRun",
         "apps/web/src/plugins/api/emit.ts#EventCtx.startBoundAgent",
         "apps/web/src/api/services/events/subscribers.ts#agentTriggerSubscribers",
-        "apps/web/tests/kit/unit.ts#recordingAgentRuns"
+        "apps/web/tests/kit/unit.ts#recordingAgentRuns",
+        "apps/web/src/ui/pages/home-sections.ts#HOME_SECTIONS",
+        "apps/web/src/api/services/home.ts#homeSummary"
       ]
     },
     {
@@ -207,12 +223,15 @@
         "apps/web/src/api/queues/handlers/document-index.ts",
         "apps/web/src/api/queues/handlers/document-convert.ts",
         "apps/web/src/plugins/api/knowledge.ts",
-        "apps/web/tests/api/plugin-ingest.test.ts"
+        "apps/web/tests/api/plugin-ingest.test.ts",
+        "apps/web/src/api/services/ai/home-knowledge.ts"
       ],
       "registries": [
         "apps/web/src/api/index.ts",
         "apps/web/src/ui/App.tsx",
-        "apps/web/src/plugins/api/index.ts"
+        "apps/web/src/plugins/api/index.ts",
+        "apps/web/src/ui/pages/home-sections.ts#HOME_SECTIONS",
+        "apps/web/src/api/services/home.ts#homeSummary"
       ]
     },
     {

@@ -91,10 +91,7 @@ const testSummarizeAgent: AgentDefinition<SummarizeInput, SummarizeOutput> = {
     const result = await ctx.once('summary', async () => {
       await ctx.step('summarize', 'Summarising', 'running')
       const system = await ctx.prompt({ style: input.style })
-      await ctx.emit({
-        type: 'tool.start',
-        data: { name: SUBMIT_SUMMARY_TOOL, style: input.style },
-      })
+      // No `tool.start`/`tool.end` of our own: the runtime records this call inside the step.
       const summary = await callStructuredTool(ctx.chat.client, {
         model: ctx.chat.model,
         maxTokens: ctx.chat.maxOutputTokens,
@@ -105,10 +102,6 @@ const testSummarizeAgent: AgentDefinition<SummarizeInput, SummarizeOutput> = {
           description: 'Submit the summary and its key points.',
           schema: submitSummarySchema,
         },
-      })
-      await ctx.emit({
-        type: 'tool.end',
-        data: { name: SUBMIT_SUMMARY_TOOL, keyPoints: summary.keyPoints.length },
       })
       await ctx.emit({ type: 'text', data: { text: summary.summary } })
       await ctx.step('summarize', 'Summarising', 'done', `${summary.keyPoints.length} key points`)

@@ -2,7 +2,8 @@
 
 Four pages, each its own lazy chunk, all `read AgentRun`, all full width:
 - `AgentsPage` (`/agents`): ONE row per agent — title (→ its page), one-line description, badges,
-  last run (status + time ago → the run), 30-day runs / tokens / avg time / cost, Run. Every metric
+  last run (status + time ago → the run), 30-day runs / tokens / avg time / cost, Run. Below `sm`
+  it stacks (`lib/stacked-table.ts`): the agent, then last run and Run; the figures drop out. Every metric
   comes from ONE `GET /api/agents/stats` (`useAgentStats`), never a request per agent; no runs
   table here — it must stay readable at fifty agents. "N waiting on you" → `/agents/runs?awaiting=1`.
 - `AgentPage` (`/agents/:agentKey`): description, Run, four metric cards, and `RunsTable` fixed to
@@ -56,6 +57,13 @@ are in `.claude/rules/ui.md`.
   stage groups, then the selectors (`selectArtifacts`, `selectPendingInterrupts`,
   `selectWorkStats`, `defaultExpanded`, `windowGroups`). **Everything the right pane shows that is
   not `run.output` is a selector over those same rows — never a second fetch.**
+- A stage key that closed and opens AGAIN is a new row (a resumed run re-enters `run()` and
+  repeats its early stages); merged into the first, the stage would span the whole park
+  ("Checking the input · 18h" for a 3 ms check). A status row's `error` is the failure's message.
+- Durations: `formatDuration` rolls into hours and days ("18h 2m", "3d 4h"); the header reads
+  "Ran X · Waited Y" when the run spent time parked (`runWaitMs(run, run.interrupts)` in
+  `lib/format.ts` — the union of its asks' open intervals inside the run), and the Usage tab adds
+  "Waiting for input". The runs table has no asks, so it shows the wall clock.
 - Three properties are load-bearing: `at` is the tool call's START (`endedAt`/`durationMs` are
   separate — overwriting `at` with the answer would make a per-call duration impossible); the
   reducer is **idempotent under duplicated events** (deduplicated by `event.id`, because a stream
@@ -65,7 +73,15 @@ are in `.claude/rules/ui.md`.
 - Grouping: a `running` step opens, non-step rows attach, its `done` closes, a different key
   implicitly closes (an unclosed step is a real state, shown spinning); `__preamble__` and
   `__tail__` hold the loose stretches. Expansion is `defaultExpanded` XOR the reader's toggles,
-  keyed by `headerId`, so a live run never reopens a group somebody closed.
+  keyed by `headerId`, so a live run never reopens a group somebody closed. A stage that recorded
+  no rows renders as a plain line (`TimelineGroup`): no button, no chevron that opens nothing.
+- **Model rows**: a `tool.*` event with `kind: 'model'` is a model call the runtime recorded
+  (`ToolRow.model`): `ToolCallRow` shows "Model call · <model> answered" with its tokens
+  (`modelUsage`) and no result cards; a group counts it in `modelCount`, never `toolCount`;
+  `selectWorkStats` adds `modelCalls` / `failedModelCalls` / tokens (the Usage tab's "Model
+  calls") and keeps it out of the per-tool totals. A `willRetry` error, or a `running` status
+  past attempt 1, marks every open call `stopped`; a later answer under the same id still closes
+  it (a journaled tool call the retry finishes).
 - Long runs **window (`TIMELINE_WINDOW_GROUPS` = 40 groups from the end), never virtualise** — row
   heights vary wildly and a virtualiser needs measurement, which fights auto-scroll and collapsing.
   `useStickToBottom` fires only when the reader is at the bottom AND the last row id changed — and
@@ -77,7 +93,8 @@ are in `.claude/rules/ui.md`.
   in the same place either way.
 - **The column split is `runLayout(status, override)`, pure and beside the rest of the model** —
   timeline-major while the run is active (progress is the story, the output pane is an empty
-  state), output-major once it settles, **and the reader's override wins permanently**. Same shape
+  state), output-major once it settles (the timeline then a sticky aside of about a third), **and
+  the reader's override wins permanently**. Same shape
   as `defaultExpanded` XOR the toggles: the default is a guess, and a run settling mid-read must
   never swap the columns under somebody. The chevron that flips it is a CHILD of the timeline panel
   riding that panel's own right edge — never absolutely positioned over the grid at a percentage,
@@ -89,8 +106,8 @@ are in `.claude/rules/ui.md`.
 
 - **Do not write tool-result parsers.** `documentCardsFromToolResult(name, result)` in
   `@rocketpod/shared/ai/embeddings` is the one mapper (four callers: the chat stream, the AG-UI
-  projection, a persisted message and `run/timeline/toolResults.tsx`) — the rendering is a
-  `DocumentLink` ONE-LINER there, not a card strip: in a timeline row four cards bury the stage
+  projection, a persisted message and `run/timeline/toolResults.tsx`) — the rendering is an
+  inline `Provenance` there (one wrapping line of sources), not a card strip: in a timeline row four cards bury the stage
   that comes next. Every other tool keeps `<details><pre>` truncated at `TOOL_RESULT_MAX_CHARS` — a
   200 KB result in the DOM is a real hang.
 - An agent should not emit tool frames for its TERMINAL tool: that "call" is the answer, which the
@@ -124,7 +141,10 @@ are in `.claude/rules/ui.md`.
   labelling the rest would silently hide it. "What was it asked?" is the first question about a run
   you did not start, and two homes for one fact is the trap the rest of this feature avoids.
 - **The right pane is `URLTabs` (`?tab=output|artifacts|usage`), and `run.error` is above it,
-  always — a failure is not a tab.** `outputs/` mirrors `forms/`: `outputFor(agentKey) → { schema,
+  always — a failure is not a tab** (`RunErrorAlert`: a panel with an icon, and Run again — the
+  same `useCreateAgentRun` path with the run's input — for `create AgentRun`). Status rows read as
+  sentences (`statusSentence`, pure, beside the model); an attempt is named only past the first.
+  The raw JSON of an output is behind the output's "…" menu, never a peer button. `outputs/` mirrors `forms/`: `outputFor(agentKey) → { schema,
   Component, artifacts? }`, so **an agent is one shared input schema + one `forms/` entry + one
   `outputs/` entry** and no component branches on an agent key. Artifacts come from the table,
   ordered by their event rows, with `outputFor().artifacts?.()` as the fallback for an agent that
@@ -173,15 +193,26 @@ are in `.claude/rules/ui.md`.
   second press makes the server terminate the run instance and settle the row, so a run that
   stopped polling never strands the user (and never blocks an exclusive agent). `SteerComposer`
   posts `POST …/steering` while the run is active; the note is an event row, so the timeline shows
-  it where it happened and the runtime delivers it once. Requested-by is "You" / short id /
-  "system" — the row carries only a user id (resolving names is on the to-document list).
+  it where it happened and the runtime delivers it once. Requested-by is a NAME: `requestedBy
+  { id, name } | null` rides on the list items and on `GET /runs/:id` (`agentRunListItemSchema`,
+  `agentRunRequesterSchema`), shown with initials; "You" for the reader, the event in words
+  (`eventLabel`) for an event-started run, "Automatic" for a run nobody asked for, "A former
+  member" for an account that has gone — never a user id. A failed run's `RunErrorAlert` offers
+  Run again (the same `useCreateAgentRun` path with the run's input, for `create AgentRun`); it
+  opens the new run and toasts nothing. The Output tab of a failed or cancelled run says "No
+  answer: the run failed" (or was cancelled). `cancelled` is a neutral badge: a person chose it.
+- `RunsTable` stacks below `sm` (agent, then status and when; `lib/stacked-table.ts`, one set of
+  DOM nodes) and takes no `title` where the page heading names the list — the filters are then its
+  first line. Times are the short `timeAgo` ("3h ago") with the absolute date as the title.
 - **Finding what is waiting**: `RunsTable`'s filters live in `useSearchParams`, so
   `/agents/runs?awaiting=1` is a URL and there is a chip for it, and every row is a real `<Link>` (so
   middle-click and open-in-new-tab work — half the point of a run being a page). The SideNav badge
   is `NavItem.badgeKey`/`badgeTone` resolved by `useNavBadges()` inside `SideNav` (the nav-badge
-  convention, `.claude/rules/ui.md`), fed by `GET /interrupts?status=pending&pageSize=1` under
-  `['agent-run','awaiting']` (`useAwaitingInterruptCount`; both server nudges cover it) — never
-  polled.
+  convention, `.claude/rules/ui.md`), fed by `GET /interrupts?status=pending&mine=true&pageSize=1`
+  under `['agent-run','awaiting']` (`useAwaitingInterruptCount`; both server nudges cover it) —
+  never polled. `mine` = the asks ADDRESSED to the reader (an assignee, else the requester or an
+  owner/admin per `approvers`), so an admin or a support visitor who may answer somebody else's ask
+  is not told it waits on them; the same count is AgentsPage's "N waiting on you".
 - `lib/notificationLink.ts` maps a notification's `type` + `data` to a path (unknown → `null`) and
   is used by BOTH `NotificationsBell` and `/notifications`, so a parked run's bell entry opens the
   run rather than a list of notifications about it.

@@ -21,6 +21,7 @@ import {
   PREAMBLE_KEY,
   runLayout,
   selectWorkStats,
+  statusSentence,
   TAIL_KEY,
   type TimelineEvent,
   windowGroups,
@@ -53,6 +54,20 @@ describe('buildTimeline', () => {
     // The stage keeps the START its `running` row announced; the `done` becomes its end.
     expect(step.at).toEqual(at(2))
     expect(step.kind === 'step' && step.endedAt).toEqual(at(7))
+  })
+
+  it('a closed stage that opens again (a resumed run re-entering run()) is a NEW row', () => {
+    const rows = buildTimeline([
+      ev(1, 'step', { key: 'precheck', label: 'Checking the input', status: 'running' }),
+      ev(2, 'step', { key: 'precheck', label: 'Checking the input', status: 'done' }),
+      ev(3, 'interrupt', { interruptId: eid(90), key: 'approve', kind: 'approval', message: '?' }),
+      ev(50, 'step', { key: 'precheck', label: 'Checking the input', status: 'running' }),
+      ev(51, 'step', { key: 'precheck', label: 'Checking the input', status: 'done' }),
+    ])
+    const steps = rows.filter(row => row.kind === 'step')
+    expect(steps).toHaveLength(2)
+    // Merged, the first stage would span the park: 1 → 51 seconds for a check that took one.
+    expect(groupTimeline(rows).map(group => group.durationMs)).toEqual([1000, undefined, 1000])
   })
 
   it('keeps a tool call’s start time and derives its duration — the `at`-overwrite regression', () => {
@@ -192,6 +207,67 @@ describe('groupTimeline', () => {
   })
 })
 
+describe('runtime-recorded model calls', () => {
+  const model = (seq: number, type: 'tool.start' | 'tool.end', id: string, extra = {}) =>
+    ev(seq, type, { name: 'claude-x', kind: 'model', toolCallId: id, ...extra })
+
+  it('are rows marked model, counted apart from tools in the stage', () => {
+    const groups = groupTimeline(
+      buildTimeline([
+        ev(1, 'step', { key: 's', label: 'Summarising', status: 'running' }),
+        model(2, 'tool.start', 'model:0.a:1'),
+        model(3, 'tool.end', 'model:0.a:1', {
+          result: { usage: { inputTokens: 5, outputTokens: 2 } },
+        }),
+        ev(4, 'tool.start', { name: 'lookup', toolCallId: 't1' }),
+        ev(5, 'tool.end', { name: 'lookup', toolCallId: 't1' }),
+        ev(6, 'step', { key: 's', label: 'Summarising', status: 'done' }),
+      ])
+    )
+    expect(groups[0]).toMatchObject({ toolCount: 1, modelCount: 1 })
+    expect(groups[0].rows[0]).toMatchObject({ kind: 'tool', model: true, done: true })
+    expect(groups[0].rows[1]).not.toHaveProperty('model')
+  })
+
+  it('a retry stops what the earlier invocation left open; a later answer under its id still closes it', () => {
+    const rows = buildTimeline([
+      ev(1, 'step', { key: 'r', label: 'Researching', status: 'running' }),
+      model(2, 'tool.start', 'model:0.a:1'),
+      ev(3, 'tool.start', { name: 'lookup', toolCallId: 'toolu_1' }),
+      ev(4, 'error', { message: 'database blip', willRetry: true }),
+      // The retry: a new model call id, and the journaled tool call finished under ITS id.
+      model(5, 'tool.start', 'model:0.b:1'),
+      model(6, 'tool.end', 'model:0.b:1'),
+      ev(7, 'tool.end', { name: 'lookup', toolCallId: 'toolu_1' }),
+    ])
+    const tools = rows.filter(row => row.kind === 'tool')
+    expect(tools.map(row => [row.toolCallId, row.done, row.stopped ?? false])).toEqual([
+      ['model:0.a:1', false, true],
+      ['toolu_1', true, false],
+      ['model:0.b:1', true, false],
+    ])
+  })
+
+  it('are counted as model calls with their tokens, never as tool calls', () => {
+    const stats = selectWorkStats(
+      buildTimeline([
+        model(1, 'tool.start', 'm1'),
+        model(2, 'tool.end', 'm1', { result: { usage: { inputTokens: 10, outputTokens: 4 } } }),
+        model(3, 'tool.start', 'm2'),
+        model(4, 'tool.end', 'm2', { isError: true, result: { error: 'no' } }),
+      ])
+    )
+    expect(stats).toMatchObject({
+      toolCalls: 0,
+      tools: [],
+      modelCalls: 2,
+      failedModelCalls: 1,
+      inputTokens: 10,
+      outputTokens: 4,
+    })
+  })
+})
+
 describe('selectWorkStats', () => {
   it('counts what the rows genuinely know', () => {
     const stats = selectWorkStats(
@@ -326,6 +402,19 @@ describe('formFor', () => {
     expect(built).not.toBe(jsonForm)
     expect(built.initial).toEqual({ topic: '' })
     expect(formFor({ key: 'nope' as never, inputJsonSchema: null })).toBe(jsonForm)
+  })
+})
+
+describe('statusSentence', () => {
+  it('says what happened in words, naming an attempt only past the first', () => {
+    expect(statusSentence({ status: 'running', attempt: 1 })).toBe('Started')
+    expect(statusSentence({ status: 'running', attempt: 2 })).toBe('Started again (attempt 2)')
+    expect(statusSentence({ status: 'succeeded' })).toBe('Finished')
+    expect(
+      statusSentence({ status: 'failed', error: 'The model provider timed out after 3 attempts' })
+    ).toBe('Failed: the model provider timed out after 3 attempts')
+    expect(statusSentence({ status: 'failed' })).toBe('Failed')
+    expect(statusSentence({ status: 'awaiting_input' })).toBe('Waiting for an answer')
   })
 })
 

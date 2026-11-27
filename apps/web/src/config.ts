@@ -294,9 +294,10 @@ const coreConfigSchema = z.object({
    */
   AGENT_TENANT_DAILY_COST_USD: optionalCap('number'),
   /**
-   * What one tenant's KNOWLEDGE work — document and query embeddings, reranking and (phase 2)
-   * fact extraction — may spend per UTC day, in USD. Unset = no cap. Only extraction pauses at it
-   * (`knowledgeExtractionAllowed`); indexing and search never do, because search must keep working.
+   * What one tenant's KNOWLEDGE work — document and query embeddings, reranking, fact extraction
+   * and contextual prefixes — may spend per UTC day, in USD. Unset = no cap. Only extraction and
+   * contextual prefixes pause at it (`knowledgeExtractionAllowed`); indexing and search never do,
+   * because search must keep working.
    */
   KNOWLEDGE_TENANT_DAILY_COST_USD: optionalCap('number'),
   /**

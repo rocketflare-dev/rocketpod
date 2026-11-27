@@ -4,8 +4,8 @@
  * `vector(EMBEDDING_DIM)` (1024 — every provider is asked for `dimensions: 1024`); changing the
  * dimension is a NEW table, not an `ALTER`. Dense retrieval is cosine (`<=>`) over the HNSW index,
  * limited to the chunks `embedding_model` says were embedded by the query vector's model. The
- * lexical half reads `search_vector`, a stored generated tsvector over heading path + table header
- * + text behind a GIN index (computed at query time it ran over every row twice, for the match and
+ * lexical half reads `search_vector`, a stored generated tsvector over context + heading path +
+ * table header + text behind a GIN index (computed at query time it ran over every row twice, for the match and
  * the rank — measured at 444 ms over 3,400 chunks). `text` is an exact slice of
  * `documents.content` at `[char_start, char_end)` (null only on rows written before 0.40.0). Every
  * query carries the tenant predicate first — `tenant_id = $t`, or `tenant_id is null` for a
@@ -58,7 +58,16 @@ export const chunks = pgTable(
     charStart: integer('char_start'),
     charEnd: integer('char_end'),
     /**
-     * The lexical half's vector, stored: heading path + table header + text in
+     * A model-written line placing the passage in its document (`knowledge-context` flag,
+     * `services/ai/contextualize.ts`); null until the `document.contextualize` job writes it, and
+     * for a tenant without the flag. Embedded and keyword-indexed WITH the passage, never shown as
+     * the passage's text and never quoted.
+     */
+    context: text('context'),
+    /** The model that wrote `context` (null with it). */
+    contextModel: text('context_model'),
+    /**
+     * The lexical half's vector, stored: context + heading path + table header + text in
      * `SEARCH_TEXT_CONFIG`. Raw SQL on purpose — a generated expression cannot take a bind
      * parameter, and the constant is ours.
      */
@@ -66,7 +75,7 @@ export const chunks = pgTable(
       .notNull()
       .generatedAlwaysAs(
         sql.raw(
-          `to_tsvector('${SEARCH_TEXT_CONFIG}', coalesce(heading_path, '') || ' ' || coalesce(table_header, '') || ' ' || text)`
+          `to_tsvector('${SEARCH_TEXT_CONFIG}', coalesce(context, '') || ' ' || coalesce(heading_path, '') || ' ' || coalesce(table_header, '') || ' ' || text)`
         )
       ),
     ...timestamps(),

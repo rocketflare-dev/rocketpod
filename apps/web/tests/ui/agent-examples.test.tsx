@@ -133,5 +133,7 @@ describe('summarize-text (example agent) UI', () => {
       'href',
       `/documents/${DOC_ID}`
     )
+    // The raw JSON is one click away, in the view's menu.
+    expect(screen.getByRole('button', { name: 'Show raw JSON' })).toBeInTheDocument()
   })
 })

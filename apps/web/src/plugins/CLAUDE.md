@@ -314,8 +314,10 @@ release.
   `sm`); a palette or drawer it opens is its own lazy chunk. Guard it with the same const as the
   route it serves.
 - **`homeCards`** (`{ id, Component: lazy(...), guard?, order? }`) are Home's "what needs doing"
-  section, above the quick links, via `PluginHomeCards` — same ordering and isolation as `header`.
-  A card with nothing to ask renders `null`. The core quick links are data in
+  section, under the composer and above the work areas, via `PluginHomeCards` — same ordering and
+  isolation as `header`. A card with nothing to ask renders `null`. `homeLinks` render as Home's
+  "Shortcuts" panel in the side column. The core quick links are no longer drawn on Home but stay
+  data in
   `pages/home-links.ts`: the plugin UI kit must never import the Home PAGE
   (`tests/config/plugin-ui-kit-graph.test.ts`), or `apps/evals` compiles Home's whole graph.
 - **A route serving a PDF a page frames calls `ctx.embeddable(row.contentType)`** — the type from

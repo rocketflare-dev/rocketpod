@@ -46,6 +46,16 @@ the same commit, so the next port starts from it.
 | `run_worker_first` upkeep (`pruneWorkerFirst`, `transformWranglerTomls`) | Nothing: the Node server receives every path |
 | A body cap justified by "the Worker holds the body in memory" | The Node process holds a buffered body, and the ingress has its own cap: name ingress-nginx's `proxy-body-size` (Helm values comment, `docs/DEPLOY.md`) |
 | `mapVirtualHost` on the test `ExecutionContext` | Not needed: no wrangler types |
+| "A Workflows step retry keeps `run.attempt`" (0.45.0's model-call ids) | The same on OpenWorkflow: a step retry re-runs `execute#N` with `run.attempt` unchanged, so an id per `executeRun` invocation still holds |
+| `realtime?.env.NOTIFICATIONS_HUB` as a "is there anyone to nudge?" guard (0.45.0's knowledge nudges) | `realtime?.hub` (`Realtime` is `{ defer, hub }`) |
+| `env.JOBS_QUEUE` in a test, a `JobContext` of `{ db, env, config, logger }` | `env.jobs`; the context adds `platform: resolvePlatform(env)` |
+| A migration regenerating `chunks.search_vector` over a NEW column (0.45.0's `context`) | drizzle-kit writes the new column's `ADD COLUMN` after the `search_vector` that reads it, and drops `chunks_search_vector_idx` with the column: move the `ADD COLUMN`s first and add the `CREATE INDEX … USING gin` by hand; the vector stays STORED |
+| A new prompt in `CORE_PROMPT_REGISTRY` | An entry in `packages/shared/src/ai/eval-coverage.ts` (Rocketflare has no coverage contract): a suite, or an `exempt` with its reason |
+| A guard rule (`scripts/lib/kit-guard-rules.mjs`) naming a Worker path or seam (`worker.ts`, `worker-configuration.d.ts`, `worker-exports.ts`, `emailHandlers`, `DATABASE_DRIVER` `neon`) | Rocketpod's tree: `node-runtime` (`src/node/**` → `SharedPlugin.jobs`, `ServerPlugin.scheduledTasks`, `ctx.platform.*`), `platform-seam`, `migrations` (`*.sql` steered, `meta/**` sealed), five barrels, postgres.js as the one driver; `kit-routes` is this kit's route directory. `kit-guard-hook.test.ts` holds every guarded path to the tree |
+| `unresolvedPluginImports` treating `cloudflare:*` as ambient | It fails here, pointing at `ctx.platform`: nothing on Node provides it |
+| A plugin-lib change to `workerExportNames` | Nothing: Rocketpod has none (`workerExports` are refused) |
+| Brand tooling assuming the kit's palette is `oklch()` on one hue (0.45.0's `applyHue`, `--brand-hue`, the rename's `--colour`) | Rocketpod's palette is hex until it adopts one: `applyColour` keeps a hex mode and `--brand-hue` over hex is a reported problem; upstream tests that need the one-hue look read `tests/kit-only/fixtures/one-hue-look/` |
+| `.rocketflare.json` text naming an env var (`$guard`'s `ROCKETFLARE_GUARD`) | The rename's `stampedManifest` moves `$guard` into the app's names, because the renamed guard reads `<SLUG>_GUARD` |
 
 ## Test harness mappings
 
@@ -65,6 +75,7 @@ the same commit, so the next port starts from it.
 | A KV store assertion | the recorded platform member (`stubs(env).kv`, `.queue`, `.files`, `.hub`, `.workflow`) |
 | The queue name `rocketflare-jobs` | `rocketpod-jobs` |
 | Driving the Durable Object | Booting the Node server (`startServer`) and real sockets |
+| An upstream case on `fixture-agent`'s body (`agent-run-runtime.test.ts`, its `submit_answer` pair) | `test-summarize` mirrors `summarize-text`, so it follows the example's changes (0.45.0: no own pair); a case that needs another body installs one with `installAgent` in `agent-run-workflow.test.ts` |
 
 ## Porting mechanics
 

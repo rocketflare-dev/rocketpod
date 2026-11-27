@@ -58,15 +58,22 @@ and point at that line; never offer one as if it were free. Exit 3 with one `err
 repository could not be reached: say so and stop — never answer from memory or an old list.
 `--json` gives `{ catalogues: [{ repo, tag, commercial, licence, plugins: [{ id, version,
 description, subdir, installed, installedVersion }] }] }`. Ask (`AskUserQuestion`) which to
-install, offering the ones not yet installed, then continue below with its repository and
-`--subdir` from the `--json` output (Rocketpod takes no bare id). The catalogue is the ecosystem's:
+install, offering the ones not yet installed, then continue below with that id. The catalogue is the ecosystem's:
 every plugin in it is written for Rocketflare, so its plan may still refuse one (a `minKit` above
 this kit, a Cloudflare binding) — say so rather than promising it installs. People browsing rather
 than installing can read https://rocketflare.dev/plugins.
 
 ```
-pnpm plugin add <repo|path>[@ref] [--subdir <dir>]
+pnpm plugin add <id|repo|path>[@ref] [--subdir <dir>]
 ```
+
+**A bare id** (`/rp-plugin add analytics`) is passed as it is: `pnpm plugin add analytics` looks
+it up in the same catalogue `list --available` reads and prints what it resolved to
+(`analytics → <repo>@<newest tag> --subdir plugins/analytics`) — the first-party repository, else
+the commercial one, at its newest release tag, never the default branch, which can be ahead of
+every release. `<id>@X.Y.Z` pins the release. Leaving the `@ref` off a repository does the same: it
+is read at its newest `X.Y.Z` tag. An id in neither repository stops (exit 1): it is not
+published, so ask for the repository.
 
 A **repo URL** is mirrored under `.upgrade/plugins/` (`--no-fetch` reuses the cache offline); a
 **local path** is read directly, which is the authoring loop (step 6). Expect a plan with these

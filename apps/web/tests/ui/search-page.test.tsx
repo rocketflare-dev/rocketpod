@@ -1,6 +1,6 @@
 /**
- * `/search`: search POSTs `{ query, limit, documentId?, filters? }` and renders hits ranked with
- * dense/lexical badges; `?documentId=` preselects the per-document filter and is sent; the filter
+ * `/search`: search POSTs `{ query, limit, documentId?, filters? }` and renders hits in ranked
+ * order, with no ranking diagnostics; `?documentId=` preselects the per-document filter and is sent; the filter
  * column offers the facets' sources and types (grouped by label) and a date range, all in the URL
  * and re-running the search; the facts block shows only with the flag; an empty knowledge base
  * shows an empty state pointing at `/documents`.
@@ -83,6 +83,7 @@ const FACETS = {
   oldest: now,
   newest: now,
   staleEmbeddings: 0,
+  withoutContext: 0,
 }
 
 function mount(routes: RouteTable = {}, route = '/search', session = makeSession()) {
@@ -119,7 +120,7 @@ const searchCalls = (fetchMock: ReturnType<typeof stubFetch>) =>
 describe('Search page', () => {
   afterEach(() => vi.unstubAllGlobals())
 
-  it('searches and renders ranked hits with dense/lexical badges', async () => {
+  it('searches and renders ranked hits, without rank numbers or ranking diagnostics', async () => {
     const fetchMock = mount({
       'POST /api/ai/documents/search': (init: RequestInit | undefined) => {
         const { query } = JSON.parse(String(init?.body)) as { query: string }
@@ -147,13 +148,10 @@ describe('Search page', () => {
     const results = await screen.findByRole('region', { name: 'Search results' })
     const rows = within(results).getAllByRole('listitem')
     expect(rows.map(r => r.getAttribute('data-rank'))).toEqual(['1', '2'])
-    expect(rows[0]).toHaveTextContent('#1')
-    expect(rows[0]).toHaveTextContent('passage 1 of 4')
-    expect(rows[0]).toHaveTextContent('dense #1')
-    expect(rows[0]).toHaveTextContent('lexical #2')
+    expect(rows[0]).toHaveTextContent('Passage 1 of 4')
     expect(rows[0]).toHaveTextContent('Snippet 1')
-    expect(rows[1]).toHaveTextContent('lexical #1')
-    expect(rows[1]).not.toHaveTextContent('dense #')
+    // The ranking's internals are not the reader's business.
+    expect(results).not.toHaveTextContent(/#\d|dense|lexical|score/)
     // Hits group under a card per document, built from the list the page already fetched.
     expect(within(results).getByRole('link', { name: 'Release notes' })).toBeInTheDocument()
     // The hit's own link is the passage deep link, carrying the offset, the chunk and the query.
@@ -234,7 +232,7 @@ describe('Search page', () => {
     )
     const filters = await screen.findByRole('complementary', { name: 'Search filters' })
     await within(filters).findByLabelText(/Uploaded or pasted/)
-    expect(within(filters).getByLabelText(/Agent · weekly-digest/)).not.toBeChecked()
+    expect(within(filters).getByLabelText(/Weekly digest agent/)).not.toBeChecked()
     // The two media types read as Text are ONE option, counted together.
     const text = within(filters).getByLabelText(/^Text/)
     expect(text.closest('label')).toHaveTextContent('Text2')
@@ -440,5 +438,49 @@ describe('Search page', () => {
     await waitFor(() =>
       expect(screen.queryByText(/indexed with a different model/)).not.toBeInTheDocument()
     )
+  })
+
+  it('missing context: a member is shown nothing — search still works for them', async () => {
+    mount(
+      { '/api/ai/documents/facets': { ...FACETS, withoutContext: 3 } },
+      '/search',
+      makeSession({ tenant: makeTenant({ role: 'member' }) })
+    )
+    await screen.findByRole('button', { name: 'Search' })
+    await waitFor(() => expect(screen.queryByText(/no search context yet/)).not.toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: 'Add context' })).not.toBeInTheDocument()
+  })
+
+  it('missing context: an admin adds it, calling again while documents remain, and the notice goes', async () => {
+    let missing = 250
+    let calls = 0
+    const fetchMock = mount(
+      {
+        '/api/ai/documents/facets': () => ({ ...FACETS, withoutContext: missing }),
+        'POST /api/ai/documents/contextualize': () => {
+          calls += 1
+          const body =
+            calls === 1 ? { enqueued: 200, remaining: 50 } : { enqueued: 50, remaining: 0 }
+          if (calls === 2) missing = 0
+          return new Response(JSON.stringify(body), {
+            status: 202,
+            headers: { 'Content-Type': 'application/json' },
+          })
+        },
+      },
+      '/search',
+      makeSession({ tenant: makeTenant({ role: 'admin' }) })
+    )
+    expect(await screen.findByText(/250 documents have no search context yet/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Add context' }))
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.filter(
+          ([input, init]) =>
+            String(input).includes('/api/ai/documents/contextualize') && init?.method === 'POST'
+        )
+      ).toHaveLength(2)
+    )
+    await waitFor(() => expect(screen.queryByText(/no search context yet/)).not.toBeInTheDocument())
   })
 })

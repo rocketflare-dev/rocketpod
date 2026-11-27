@@ -90,48 +90,73 @@ grep -n "JOBS_QUEUE_NAME_PREFIX =" apps/web/src/api/services/jobs.ts
 
 ## (e) Brand colour — the user's choice
 
-**What to check.** With `--colour`, the script rewrote the light theme's primary
-(`--color-primary`, `--surface-active`, `--focus-ring`, `--dc-primary-rgb`) in
-`apps/web/src/ui/index.css` and `<meta name="theme-color">` in `apps/web/src/ui/index.html`.
-Without it, the kit's blue is still there. Either way the rest of the palette is untouched: the
-dark theme's `--color-primary`, both `--color-primary-content` values (text on the accent), the
-`--tone-primary-*` tints, `--color-accent`, and the neutral ramp. The header comment block of
-`index.css` ("REBRANDING — change these and nothing else") lists every knob.
+**What to check.** `--colour` takes a `#hex`, an `oklch()` or a hue in degrees. What it does
+depends on the palette in `apps/web/src/shared/theme-tokens.css` and the two `[data-theme]`
+blocks of `apps/web/src/ui/index.css`:
+- **an `oklch()` palette on one hue** — every one of those literals turned to the colour's hue,
+  keeping each lightness and chroma (which is what keeps contrast); the flare and the state
+  colours keep their own hue. It takes only the HUE: an exact primary is a brand.css job.
+- **a hex palette** (the kit's blue on zinc today) — the light theme's `--color-primary` hex
+  replaced wherever it appears (`--color-primary`, `--surface-active`, `--focus-ring`, the rail's
+  active tones); a bare hue is refused. The dark primary, both `--color-primary-content` values,
+  the `--tone-primary-*` tints, `--selection-surface`, `--color-accent` and the series are left
+  for you (the report lists them).
+
+Either way `<meta name="theme-color">` in `apps/web/src/ui/index.html` becomes the new light
+primary. The header comment block of `index.css` ("REBRANDING — change these and nothing else")
+lists every knob.
 
 **How to check.**
 ```
-grep -n "color-primary\|surface-active\|focus-ring\|dc-primary-rgb\|tone-primary" apps/web/src/ui/index.css
+grep -n "color-primary\|surface-active\|focus-ring\|rail-active\|tone-primary" apps/web/src/shared/theme-tokens.css apps/web/src/ui/index.css
 pnpm web test:ui
 ```
-Expect the new hex where the script said and the UI tests green. No test checks contrast, so
-check WCAG AA by hand (text 4.5:1, controls and focus ring 3:1).
+Expect the new colour where the script said, and `tests/ui/contrast.test.ts` green (WCAG AA: text
+4.5:1, controls, focus ring and chart series 3:1).
 
-**From the design.** If `docs/design/brand.css` exists (the `rp-design` brand step, signed off),
+**From the design.** If `docs/design/brand.css` exists (the `rp-design` style step, signed off),
 apply it instead of asking: `pnpm design:docs --apply-brand` writes each property into whichever of
-`theme-tokens.css` and `index.css` defines it, plus `<meta name="theme-color">`. Then run
-`pnpm web test:ui`. Show the user `git diff --stat` and the swatches from
-`docs/design/06-brand.md`. Skip `--colour` on the rename in that case, because the brand already
-sets the primary.
+`theme-tokens.css` and `index.css` defines it (a `--brand-hue` turns an `oklch()` palette first),
+plus `<meta name="theme-color">`. A brand.css that names a new font also needs its
+`@fontsource-variable/*` package added to `apps/web/package.json` and imported in
+`apps/web/src/ui/main.tsx`. Then run `pnpm web test:ui`. Show the user `git diff --stat` and the
+swatches from `docs/design/06-brand.md`. Skip `--colour` on the rename in that case, because the
+brand already sets the colour.
 
-**What to change.** Ask the user for their palette. Change the values in `index.css` only (the
-`/* blue-600 */`-style comments beside them are now stale — update or drop them). Re-run
-`pnpm web test:ui` after every change and re-check the contrast ratios yourself.
+**What to change.** Ask the user for their colour. Write it in `docs/design/brand.css` (a hue as
+`@theme { --brand-hue: <n>; }` on an `oklch()` palette, else `--color-primary` and its tones) and
+run `pnpm design:docs --apply-brand`. Re-run `pnpm web test:ui` after every change; a failing
+contrast test names the token and the ratio.
 
-## (f) Logo — report only
+## (f) Logo and the sign-in panel — report only
 
 **What to check.** `apps/web/src/ui/components/shared/LogoMark.tsx` (inline SVG paths),
 `apps/web/src/ui/public/logo.svg` and `apps/web/src/ui/public/favicon.svg` still carry the kit's
 rocket. The script never touches them.
 
+Beside them, the sign-in page's right-hand panel:
+- **the image:** `apps/web/src/ui/components/LoginArt.tsx`, the kit's rocket as tonal linework.
+  It takes its colours from the rail and flare tokens (`.login-art*` in `index.css`), so it
+  already wears the new palette, but it is still the kit's picture;
+- **the tagline:** `LOGIN_PANEL.tagline` in `apps/web/src/ui/lib/login-panel.ts`. The rename set it
+  from `docs/design/design.json` `app.tagline` when the design has one (the report says which);
+  otherwise it is still the kit's line.
+
 **How to check.**
 ```
 ls -la apps/web/src/ui/public/ apps/web/src/ui/components/shared/LogoMark.tsx
+grep -n "art:\|tagline:" apps/web/src/ui/lib/login-panel.ts
 ```
-Open the app (`pnpm dev` prints its URL) once it runs: the mark in the header and the browser tab.
+Open the app (`pnpm dev` prints its URL) once it runs: the mark in the header and the browser tab,
+then sign out to see the sign-in panel (it shows from `lg` up).
 
 **What to change.** Replace the `<path>`s in `LogoMark.tsx` (keep the `viewBox` and the
 `className` prop) and the two svgs with the user's mark. A monochrome mark can use
-`fill="currentColor"` with `className="text-primary"` to follow the theme.
+`fill="currentColor"` with `className="text-primary"` to follow the theme. For the panel, do what
+`docs/design/06-brand.md` recorded, or ask: keep the rocket in their colours, replace the SVG in
+`LoginArt.tsx` with imagery they own (colours from `currentColor` and the `.login-art*` classes,
+so it follows the theme), or set `art: 'type'` in `login-panel.ts` for the name and tagline alone.
+Write the tagline in their words if the rename did not.
 
 ## (g) Installed plugins — translated on the way in, and again on the way forward
 

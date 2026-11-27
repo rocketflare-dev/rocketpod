@@ -14,11 +14,12 @@ import {
   documentCardsFromToolResult,
   documentExcerpt,
   documentPath,
+  documentSourceLabel,
   KNOWLEDGE_TOOLS,
   windowStart,
 } from '@rocketpod/shared/ai/embeddings'
 import { describe, expect, it } from 'vitest'
-import { highlightMatches } from '@/ui/lib/highlight'
+import { highlightMatches, looksLikeMarkdown, stripMarkdown } from '@/ui/lib/highlight'
 
 const DOC = '55555555-5555-4555-8555-555555555555'
 
@@ -76,6 +77,44 @@ describe('highlightMatches', () => {
     expect(highlightMatches('hello', null)).toEqual([{ text: 'hello', match: false }])
     // Marking every "a" marks the whole document and says nothing.
     expect(highlightMatches('a banana', 'a')).toEqual([{ text: 'a banana', match: false }])
+  })
+
+  it('marks whole words only, and never a stop-word', () => {
+    const segments = highlightMatches(
+      'Whether the shipment ships then, the shipments wait.',
+      'the shipment?'
+    )
+    expect(segments.filter(s => s.match).map(s => s.text)).toEqual(['shipment'])
+    expect(highlightMatches('the then whether', 'the')).toEqual([
+      { text: 'the then whether', match: false },
+    ])
+  })
+})
+
+describe('looksLikeMarkdown / stripMarkdown', () => {
+  it('reads pasted markdown as markdown, and prose with one dash line as prose', () => {
+    expect(looksLikeMarkdown('# Customs\n\n| a | b |\n| --- | --- |')).toBe(true)
+    expect(looksLikeMarkdown('Dear team,\n- thanks\nBest')).toBe(false)
+  })
+
+  it('drops the syntax a snippet would show raw, keeping the words', () => {
+    const md =
+      '## Who signs\n\n| Document | Signed by |\n| --- | --- |\n| **CMR** | the [driver](/x) |'
+    expect(stripMarkdown(md)).toBe('Who signs\n\nDocument · Signed by\nCMR · the driver')
+    // A passage that starts mid-row keeps the words and loses the stray pipe.
+    expect(stripMarkdown('origin; approves additions |\n| DG | signs |')).toBe(
+      'origin; approves additions\nDG · signs'
+    )
+  })
+})
+
+describe('documentSourceLabel', () => {
+  it('names a source in words: pasted text, an agent by its key, anything else as it is', () => {
+    expect(documentSourceLabel('text')).toBe('Pasted')
+    expect(documentSourceLabel('upload')).toBe('Uploaded or pasted')
+    expect(documentSourceLabel('agent:weekly-digest')).toBe('Weekly digest agent')
+    expect(documentSourceLabel('agent:')).toBe('Agent')
+    expect(documentSourceLabel('m365:mail')).toBe('m365:mail')
   })
 })
 
@@ -231,5 +270,13 @@ describe('facetsPollInterval', () => {
     expect(facetsPollInterval(true, 0)).toBe(false)
     expect(facetsPollInterval(true, undefined)).toBe(false)
     expect(facetsPollInterval(false, 3)).toBe(false)
+  })
+
+  it('polls while a context backfill this page started still has documents without one', async () => {
+    const { facetsPollInterval, REEMBED_POLL_MS } = await import('@/ui/hooks/useDocuments')
+    expect(facetsPollInterval(false, 0, true, 4)).toBe(REEMBED_POLL_MS)
+    expect(facetsPollInterval(false, 0, true, 0)).toBe(false)
+    expect(facetsPollInterval(false, 0, false, 4)).toBe(false)
+    expect(facetsPollInterval(true, 2, true, 0)).toBe(REEMBED_POLL_MS)
   })
 })

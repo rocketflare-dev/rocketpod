@@ -22,9 +22,12 @@ export function RunUsageTab({
   run,
   stats,
   requestedBy,
+  waitedMs = 0,
 }: {
   run: AgentRun
   stats: RunWorkStats
+  /** Time parked awaiting input (`runWaitMs`). */
+  waitedMs?: number
   /** "you" / "system" / a short id — the row carries only a user id (no name resolution yet). */
   requestedBy: string
 }) {
@@ -42,8 +45,26 @@ export function RunUsageTab({
         <Row label="Finished" value={formatDateTime(run.finishedAt)} />
         <Row label="Attempts" value={String(run.attempt)} />
         <Row label="Wall clock" value={elapsed ?? '—'} hint="Started to finished, not CPU." />
+        {waitedMs >= 1000 && (
+          <Row
+            label="Waiting for input"
+            value={formatDuration(waitedMs)}
+            hint="Part of the wall clock spent parked on a question."
+          />
+        )}
         <Row label="Stages" value={String(stats.steps)} />
         <Row label="Model turns" value={String(stats.textTurns)} hint="Replies the model wrote." />
+        {stats.modelCalls > 0 && (
+          <Row
+            label="Model calls"
+            value={`${stats.modelCalls} · ${stats.inputTokens.toLocaleString()} in · ${stats.outputTokens.toLocaleString()} out`}
+            hint={
+              stats.failedModelCalls > 0
+                ? `${stats.failedModelCalls} failed.`
+                : 'Tokens of the calls that answered.'
+            }
+          />
+        )}
       </Section>
       <Section title="Tools">
         <Row label="Calls" value={String(stats.toolCalls)} />

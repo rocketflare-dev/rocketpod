@@ -47,14 +47,16 @@ run (`../services/agents/CLAUDE.md`).
 
 - Queued in the kit: `tenant.purge`, invitation (create/bulk/resend) and access-request-decided
   emails (`email.send`), `activity.record`, `document.index`, `document.convert`,
-  `document.reembed`, `chat.compact`, `event.deliver`, `knowledge.extract`. The **magic-link email
+  `document.reembed`, `chat.compact`, `event.deliver`, `knowledge.extract`,
+  `document.contextualize`. The **magic-link email
   stays inline** — a person is waiting on it
 - A message that throws on every retry goes to the dead-letter queue (`rocketpod-jobs-dlq`).
   Nothing consumes it, so a handler must leave its rows in a state a person can recover from
   (`failed` + Retry, a re-requestable job), never half-written
 - `knowledge.extract` (`{ tenantId, documentId, contentHash? }`) reads typed facts from one
   indexed document (`extractDocumentFacts`, `../services/knowledge/CLAUDE.md`; a run that wrote
-  or removed facts nudges `entity.changed { entity: 'knowledge' }` through `collectingRealtime`,
+  or removed facts nudges `entity.changed { entity: 'knowledge' }` and the affected reviewers'
+  `knowledge-review-count` through `collectingRealtime`,
   flushed before the handler returns). Only `afterTextIndexed` (`services/ai/ingest.ts`) enqueues
   it — after an inline index, a `document.index` or a `document.convert` that changed the text —
   and only with the `knowledge-facts` flag on and an entity type registered; a producer whose text
@@ -62,6 +64,13 @@ run (`../services/agents/CLAUDE.md`).
   a document whose hash moved on, and at the tenant's `KNOWLEDGE_TENANT_DAILY_COST_USD` cap
   re-enqueues ITSELF with a delay to the next UTC day (≤ 12 h a hop, pg-boss's `startAfter`)
   instead of throwing. Re-extraction replaces the document's facts, so a redelivery is idempotent
+- `document.contextualize` (`{ tenantId, documentId, contentHash? }`, `knowledge-context` flag)
+  writes each passage's situating context and re-embeds it (`contextualizeDocument`,
+  `services/ai/contextualize.ts`). Enqueued by `afterTextIndexed` beside `knowledge.extract`
+  (flag on, text changed) and by `POST /api/ai/documents/contextualize` (the backfill). Gates ack
+  (document gone, not indexed or changed since, flag off, no chat model, nothing left); the daily
+  cap re-enqueues ITSELF for the next UTC day (`secondsUntilNextUtcDay`, `startAfter`); a provider
+  failure throws and the retry asks only the passages still without a context
 - `document.reembed` (`{ tenantId, model }`) is a self-continuing chain: ONE bounded batch of the
   tenant's stale documents per message (`reembedBatch`, `services/ai/reindex.ts`), then the same
   payload re-enqueued while any remain — the stale predicate is the cursor, so a retry resumes. A

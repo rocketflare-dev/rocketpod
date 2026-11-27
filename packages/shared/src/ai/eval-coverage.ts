@@ -156,6 +156,10 @@ export const CORE_PROMPT_EVAL_COVERAGE: Readonly<Record<string, EvalCoverageEntr
     exempt:
       'Fact extraction is measured by `pnpm eval facts` over a corpus of documents (`apps/evals/datasets/<name>/facts.jsonl`, docs/EVALS.md § Corpora), and this kit ships no corpus: an app adds its own, then a baseline.',
   },
+  'knowledge-context': {
+    exempt:
+      'Contextual prefixes are measured by what they change, retrieval: `pnpm eval retrieval --context` against `pnpm eval retrieval` over a corpus with a `retrieval.jsonl` (docs/EVALS.md § Run and read), and this kit ships none: an app adds its own, then a baseline.',
+  },
   'knowledge-decide': {
     exempt:
       'The chat-model fallback for the knowledge-facts decision model (same entity? same value?), asked only inside fact extraction: `pnpm eval facts` measures it with `knowledge-extract`, over a corpus this kit does not ship.',

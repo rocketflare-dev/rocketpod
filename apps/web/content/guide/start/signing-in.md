@@ -12,13 +12,13 @@ sources:
   - apps/web/src/api/auth/magic-link.ts
   - apps/web/src/api/auth/cookies.ts
   - apps/web/src/api/auth/providers/**
-verified: bb61f14
+verified: a4266a5
 ---
 
 # Signing in
 
-The sign-in page shows only the ways in that your organisation has turned on. You will see some of
-these:
+The sign-in page shows only the ways in that your organisation has turned on, in the form on the
+left; on a wide screen the app's name and picture sit beside it. You will see some of these:
 
 - **A provider button** — "Continue with Google", "Continue with Microsoft", or your company's
   single sign-on. You are sent to the provider and back.

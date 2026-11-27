@@ -778,11 +778,81 @@ calls `putStream` yet (uploads are multipart forms under `MAX_UPLOAD_BYTES`).
 ## 7. UI shell
 
 - **Design tokens (D20)**: two DaisyUI themes in `shared/theme-tokens.css` (read by `ui/index.css`
-  and by public-site stylesheets), where the brand hexes are the only
-  hex values; `contrast.test.ts` gates them. Tailwind scanning is `source(none)` + explicit
-  `@source` lines. A plugin's pages get the `../plugins/**/ui/**` line, and precompiled dependency
-  CSS gets none. The floors and pairs live in `scripts/lib/contrast.mjs`, which the test and the
-  design pages share.
+  and by public-site stylesheets) and the semantic tokens in the two `[data-theme]` blocks of
+  `ui/index.css`; colour literals live nowhere else, and `contrast.test.ts` gates both files.
+  Rocketpod's look is its own: a cool grey (zinc) ramp, one blue primary, the system face,
+  squared-off corners, all hex. White chrome — the side rail and the top bar — frames a light grey
+  canvas with white panels; in dark the canvas is the darkest plane. The shell reads named tokens
+  a brand can move: the rail (`--rail-surface`, `-border`, `-text`, `-text-muted`, `-hover`,
+  `-active`, `-active-text`, `-focus-ring`; in this look the rail IS the white nav, so its values
+  repeat the nav's, and a brand may make it a deep tone with light text), five chart series
+  (`--series-1…5`, for categories; a state uses the state colours), `--flare` (the logo's gold: the
+  sign-in drawing's flame, never text or a state), `--selection-surface`, and the chat turn's
+  `--surface-bubble` / `--selection-bubble`. Shape is in `@theme` (`--radius-control` 5px,
+  `--radius-panel` 6px, `--radius-popover` 8px → `rounded-control` …); depth is
+  `--shadow-panel` / `--shadow-popover`, declared once per surface — a panel has a shadow or a
+  border, never both, and here `--shadow-panel` is a spread-only 1px ring in `--border-default`,
+  which keeps the hairline look. `--font-heading` (default `var(--font-sans)`) is the face of h1–h3
+  alone — page and section titles, the sign-in heading — so a brand can set a heading serif without
+  touching the body. Density is comfortable; `data-density="compact"` on the root tightens it.
+  Tailwind scanning is `source(none)` + explicit `@source` lines. A plugin's pages get the
+  `../plugins/**/ui/**` line, and precompiled dependency CSS gets none. The floors and pairs live
+  in `scripts/lib/contrast.mjs` — text on every surface, the semantic fills, and the shell's
+  `SHELL_PAIRS` (rail text on the rail and its hover and active fills, the rail focus ring, each
+  series ≥3:1 on a panel, ink on the selection and the active row, the flare on the rail) — which
+  the test and the design pages share.
+- **Rocketflare's ember look is offered, never applied.** Upstream's default since 0.45.0 is a
+  tinted shell on one warm rust hue (`oklch(L C 35)` literals, a deep rail, IBM Plex Sans and
+  JetBrains Mono). Rocketpod took its mechanics (the token names, the rail and Home styles, the
+  radii in `@theme`) and kept its own palette and the system face. To take ember:
+  `pnpm design:docs --adopt-default-look --from <dir>`, where `<dir>` holds Rocketflare's three
+  look files (`apps/web/src/shared/theme-tokens.css`, `apps/web/src/ui/index.css`,
+  `apps/web/src/ui/index.html`) in Rocketpod's names — the kit repository keeps a copy at
+  `apps/web/tests/kit-only/fixtures/one-hue-look/` (kit-only: the rename deletes it, so fetch it
+  from the kit's tag into a copy). Without `--from`, a copy adopts the token files of the
+  Rocketpod release it records, which is this look. The faces need their packages:
+  `@fontsource-variable/ibm-plex-sans` and `@fontsource-variable/jetbrains-mono` in
+  `apps/web/package.json` and imported in `ui/main.tsx`; without them the stack falls back to the
+  system face. Then `pnpm design:docs --contrast` and `pnpm web test:ui`.
+- **Sign-in page**: a split screen (`AuthCard split`) — the form on the left (dev quick-login below
+  it, marked as development-only), a panel in the rail tokens on the right that folds away below
+  `lg`. The panel shows `components/LoginArt.tsx`, the rocket as tonal linework coloured from the
+  rail and flare tokens (`.login-art*` in `index.css`), so it follows a rebrand until someone
+  replaces it; `LOGIN_PANEL` in `ui/lib/login-panel.ts` (`art: 'rocket'|'type'`, `tagline`)
+  switches to a type-only panel of the app's name and tagline. The rename sets the tagline from
+  `docs/design/design.json` `app.tagline`.
+- **Home sections**: Home is an operational dashboard laid out from `pages/home-sections.ts`, a
+  registry of `{ id, placement: 'lead'|'main'|'aside', order, guard?, Component }`. A feature owns
+  its section — the chat composer (`lead`, `chat/HomeComposer`, which hands its first message to
+  the chat page), recent agent runs (`agents/HomeRuns`: the fortnight's chart, the newest runs, a
+  clicked day narrowing the list through `GET /api/agents/runs?since=&until=`), recent documents
+  (`documents/HomeDocuments`) — as one entry pointing at a lazily imported component in its own
+  directory, and the file is listed in each feature surface's `registries` in `.rocketflare.json`,
+  so deleting a feature deletes its area. Core owns Team, AI spend and Activity (`pages/home/`);
+  Team counts owners, admins and members and names a support membership apart ("· 1 support
+  visitor"). One request, `GET /api/home/summary` (`routes/home.ts` → `services/home.ts`,
+  `@rocketpod/shared/home`), feeds every section; each part is decided by the reader's
+  permissions, and a section renders nothing when its part is `null`. Its query key is the
+  `['home']` root, which the realtime events behind each part also invalidate (`HOME` and
+  `HOME_ENTITY_ROOTS` in `@rocketpod/shared/realtime`). A plugin does not edit the registry: it
+  contributes `UiPlugin.homeCards` and `homeLinks` (Home's Shortcuts). The core quick links in
+  `home-links.ts` are destinations for the navigation search, no longer drawn on Home. The SVG
+  primitives the sections use are in `components/shared/`: `RunsChart` (bars over days, stacked by
+  status), `TrendLine` (only beside a number that moves) and `AvatarStack`, token-coloured, no
+  chart library. `pnpm seed --demo` spreads its runs, failures included, over the last 14 days and
+  moves its timestamps forward on every run, so the chart is never empty.
+- **Provenance**: one treatment for "where this came from" — `components/shared/Provenance.tsx`,
+  `<Provenance sources work? layout="list"|"inline" />`, with the builders `sourceFromCard`,
+  `sourceFromCitation` and `sourceFromFact` and the pieces `ProvenanceLink` / `ProvenanceQuote`.
+  Chat answers (`ChatBubble`), `Markdown` document links (`DocumentLink` renders through
+  `ProvenanceLink`), agent outputs (`pages/agents/outputs/citationSources.ts`), the run timeline's
+  tool results and Knowledge facts all use it. A plugin imports it from `@/plugins/api/ui`.
+- **Product words**: runs, documents and search read in the reader's words — a run's requester by
+  name (`requestedBy`), status rows as sentences (`statusSentence`), a failed run's Run again,
+  `cancelled` a neutral badge, "Pasted" / "<Key> agent" for a document's source
+  (`documentSourceLabel`), dates without the current year and `timeAgo` short ("3h ago"); search
+  shows no rank numbers or ranking diagnostics, marks whole words minus stop-words and strips
+  markdown from a snippet (`lib/highlight.ts`). Tables stack below `sm` (`lib/stacked-table.ts`).
 - **Design pages** (`pnpm design:docs`, `scripts/design-docs.mjs`): renders `docs/design/*.md` (a
   numeric prefix orders them; the first is `index.html`) and inlines `docs/design/diagrams/*.svg`
   into `docs/design/html/`: static HTML pages in the app's own tokens, light and dark, committed
@@ -795,7 +865,17 @@ calls `putStream` yet (uploads are multipart forms under `MAX_UPLOAD_BYTES`).
   and `index.css`: the pages' stylesheet, `--contrast` (the gate's floors, failing pairs printed per
   theme) and `--apply-brand` (writes each property into whichever file defines it, plus
   `<meta name="theme-color">`) all read that one result, and each warns about a derived tone
-  (`--focus-ring`, `--surface-active`, `--tone-*`) that a changed colour left at the kit's value.
+  (`--focus-ring`, `--surface-active`, `--tone-*`, `--rail-active`, `--rail-focus-ring`,
+  `--selection-surface`) that a changed colour left at the kit's value. A brand may set any token
+  either file defines — colours, rail, series, depth, and in `@theme` fonts and radii — and on an
+  `oklch()` palette `@theme { --brand-hue: <deg|colour>; }` turns the whole palette first (over
+  Rocketpod's hex palette it is reported and ignored). `--adopt-default-look` (only when asked: an
+  upgrade never restyles) takes a look's three token files — from the upgrade's mirror
+  `.upgrade/kit.git` at `.rocketflare.json` `kit.commit`, or `--from <dir>` — translated into the
+  copy's names: `theme-tokens.css` whole, the `[data-theme]` blocks of `index.css` (its styles
+  untouched), `theme-color`; a token of the app's own the look lacks is kept; then brand.css on top
+  (`adoptDefaultLook`). `/rp-design` also writes `docs/design/DESIGN.md`, the visual system in one
+  page, which `.claude/rules/ui.md` sends agents to before they build a screen.
   `--check` exits 1 when the pages are stale. The output is deterministic, and a rebuild deletes only
   pages carrying the generator's meta tag. The script is not kit-only, so it ships in every copy.
 - **Providers**: ErrorBoundary → QueryClient → Auth → Ability → WebSocket → Router. A global 401
@@ -817,7 +897,11 @@ seeded into the one main tenant (an app wanting a second tenant's owner seeds th
 the CLI prints raw role values, not `ROLE_LABELS`. The rendered design's markdown has no raw HTML,
 footnotes, task lists or reference-style links. It inlines only SVGs under `docs/design/diagrams/`,
 and a brand font is linked from Google Fonts whenever it is not a known system font, without
-checking that Google serves it.
+checking that Google serves it. `--adopt-default-look` never ports a look's font imports
+(`main.tsx`, `package.json`) or components, and in a brand.css a new font family still needs its
+package added by hand. Home's sections reach a plugin only through `homeCards`/`homeLinks`: a
+plugin cannot place a work area in the main or side column. The sign-in drawing is the kit's
+rocket until an app replaces it.
 
 ## 8. Analytics
 
@@ -1001,7 +1085,14 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   (`cancelled`, note `Nobody answered before the deadline`) and wakes the run, where the default
   `expire` cancels it. An ask may name `assignees: { userIds, groupIds }` (visibility groups): they
   are notified, see it in their inbox, may read the run and answer it — the requester then may
-  not; an owner or admin always may. **Child runs**: `ctx.spawn(key, agentKey, input)` starts
+  not; an owner or admin always may. Once an ask is no longer pending (answered, declined,
+  expired, or settled with its run), `resolveInterrupt` / `expireInterrupts` mark its
+  notifications read for every recipient, the reminder included, and nudge `notification.read`,
+  so the bell stops counting a question nobody can answer. "Waiting on you" (the Agents nav badge
+  and the Agents page button) reads `GET /interrupts?mine=true`: only the asks put to the reader,
+  the same people `recipientsFor` notifies (an assignee; otherwise the requester under
+  `approvers: 'requester'`, or the owners and admins by membership role under `'admin'`), never
+  every ask an admin or a support visitor is allowed to read and answer. **Child runs**: `ctx.spawn(key, agentKey, input)` starts
   another agent as its own run (`parent_run_id`; id from `spawn:<parent>:<key>`, so a retried
   parent finds the same child), parks the parent with NO ask while it runs, and the child's
   `finish` (or a cancel of it) wakes the parent, which gets the output (recorded as effect
@@ -1111,7 +1202,26 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   projection (`/agui`), also streamed live by tailing `seq` (`/agui/stream`, #7). A read-stream
   failure emits no `RUN_ERROR` (clients reconnect); `id:` goes on the last frame of a row's group,
   and reconciliation runs once before the first frame. Payloads never go over the tenant-wide realtime channel,
-  because run visibility is per run.
+  because run visibility is per run. **The runtime writes a step's rows itself**
+  (`services/agents/recording.ts`). Each call through `ctx.chat.client` becomes a `tool.start` /
+  `tool.end` pair marked `kind: 'model'` and named for the model, carrying the forced tool, the
+  usage, the stop reason, the tools the model called and a forced answer's shape (counts, never
+  its text); the end is written in a `finally`, so a call that throws or is cancelled never spins.
+  A `runToolLoop` given `ctx.journal` and no `onEvent` of its own gets a row per text block, tool
+  call and result through `ctx.journal.onEvent` (the terminal tool is skipped); a loop with its
+  own `onEvent` keeps writing its own rows. Served work (a `ctx.once` body, a journaled turn)
+  makes no model call and so writes no row. The ids are `model:<round>.<tag>:<n>`, naming one
+  `executeRun` invocation, because an OpenWorkflow step retry re-runs `execute#N` with
+  `run.attempt` unchanged; the timeline marks a call an earlier invocation left open as stopped
+  once a `willRetry` error (or a later attempt's `running` status) lands. A worker killed mid-call
+  writes neither (the retry keeps `run.attempt`), so that call's row shows as open while the retry
+  runs and as stopped once the run settles (`stopOpenWork`); no `tool.end` is ever stored for it.
+  Model rows are counted
+  apart from tools in a stage header and on the Usage tab ("Model calls"), and the AG-UI
+  projection, the evals export (`rocketpod evals promote`) and the eval transcript skip them. An
+  agent therefore never brackets a model call with its own pair (that shows the call twice); it
+  still emits a pair around a tool handler it calls directly. A stage that recorded no rows is a
+  plain line, not a disclosure.
 - **Knowledge (D18)**: `documents` + `chunks` (pgvector HNSW). Text is ingested inline or by job;
   uploads go to storage, then the platform `converter` (`src/node/converter.ts`: `unpdf` for PDF,
   `mammoth` for .docx → markdown, HTML stripped to text, XML/text decoded), then the same indexer.
@@ -1122,7 +1232,7 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   (jsonb refuses `\u0000`, 22P05). Search is hybrid dense + lexical
   (the lexical half matches ANY query word, ranked by `ts_rank_cd` — `anyTermTsquery` — so a
   sentence's filler words cannot veto it — over `chunks.search_vector`, a STORED generated
-  `to_tsvector(SEARCH_TEXT_CONFIG, heading path + table header + text)` behind a GIN index) with RRF, scoped by `AccessScope`
+  `to_tsvector(SEARCH_TEXT_CONFIG, context + heading path + table header + text)` behind a GIN index) with RRF, scoped by `AccessScope`
   (§1). `searchChunks` takes an optional `documents` corpus (a predicate over `documents`) that is
   ANDed with the reader's visibility, so it narrows a search and can never widen it.
   `document-content.ts` is the one text reader behind both
@@ -1163,6 +1273,31 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   counts what is stale, and a `failed` document has a Retry. An unchanged upsert (same
   `contentHash`, current model) re-embeds nothing. A plain ingest whose text matches a tenant-wide
   document of the same source answers that document (`deduplicated: true`).
+- **Contextual prefixes** (flag `knowledge-context`, default off, rolled out per tenant;
+  `services/ai/contextualize.ts`, after Anthropic's "Contextual Retrieval"): a passage cut out of
+  its document often never says what it is about ("the fee rises to £300 from April"). When an
+  index changed a document's text, `afterTextIndexed` enqueues `document.contextualize` beside
+  fact extraction. The job asks the model on prompt key `knowledge-context` (point it at a cheap
+  one) for one or two sentences that place each passage in its document. The document, or past
+  48,000 characters the window around the passage, is the stable system prompt, so the provider
+  caches it; the passage is the user turn. The answer is cleaned, cut to
+  `SITUATING_CONTEXT_MAX_CHARS` and stored in `chunks.context` (with `context_model`). The passage
+  is then re-embedded with the context ahead of its heading path (`embeddingInput`), and the
+  stored `search_vector` reads `context` first, so keyword search matches it too. The stored text,
+  offsets and citations do not change, and no reader is ever shown a context. Only passages
+  without a context are asked, and each window is written as it finishes, so a retry resumes. A
+  row is written only while the document still holds the text the job read. Re-indexing the same
+  text (a re-embed or a retry) keeps each passage's context, matched by `seq` and exact text; new
+  text starts with none until its own job runs. Every call is a `knowledge.context` usage row and
+  the re-embed a `knowledge.embeddings` one. The daily knowledge cap pauses the job until the next
+  UTC day, as it does extraction (`secondsUntilNextUtcDay`, now in `services/ai/usage.ts`). For
+  documents indexed before the flag was on, `/facets` counts the visible ones with no context on
+  any passage (`withoutContext`, 0 without the flag). The Search page shows that count to a
+  `manage Document` reader only, with "Add context", which calls
+  `POST /api/ai/documents/contextualize` (admin+, flag on, 202 `{ enqueued, remaining }`, at most
+  200 a call) until nothing remains, then polls the count down. A document's text is untrusted:
+  the prompt tells the model to ignore instructions in it, and a context only ever helps retrieval.
+  `pnpm eval retrieval --context` measures the change over a corpus (`docs/EVALS.md`).
 - **Search filters**: `POST /api/ai/documents/search` takes `filters` (`sources`, `contentTypes`,
   `createdFrom` / `createdTo` as inclusive UTC days). They become one predicate over `documents`
   (`documentFilterPredicate`) ANDed with the tenant and visibility predicates, so a filter can only
@@ -1220,10 +1355,22 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   viewer's Facts tab, whose "Show in document" marks the quoted span), every entity with current
   visible facts (`GET /api/knowledge/entities`, the Knowledge page's `?view=facts`), and the facts
   about the entities a query names (`GET /api/knowledge/mentioned`, cards above the Search
-  results). Chat and the run timeline show an entity card per entity for `lookup_facts` and the
+  results). A query names staging entities and also the DOMAIN rows of each registered type
+  (`mentionFinderFor`: the registration's own `mentions`, else `word_similarity` over its label and
+  alias columns, only over rows some non-rejected fact is about), so a row that never had a
+  staging entity is still found by being named; at most 3 entities come back, counted among those
+  with a fact the reader can see. The entity page's Promote is a picker: `GET
+  /api/knowledge/entities/:id/promote-candidates?q=` searches the type's rows (the entity's own
+  name when `q` is empty) by `similarity` or `word_similarity` ≥ 0.3, at most 10, in the reader's
+  scope and behind the same gate as promoting; each row has its own Link button. Every review
+  action and every extraction run nudges `entity.changed { entity: 'knowledge' }` tenant-wide for
+  the pages, and `knowledge-review-count` only to the reviewers whose items moved
+  (`services/knowledge/notify.ts`): the nav badge has its own query-key root,
+  `['knowledge-review-count']`, because every member has it mounted. `access.changed` invalidates
+  both. Chat and the run timeline show an entity card per entity for `lookup_facts` and the
   `search_knowledge` facts block. Extraction is metered
-  (`knowledge.extraction`, beside `knowledge.embeddings` and `knowledge.rerank`), and it pauses
-  until the next UTC day at `KNOWLEDGE_TENANT_DAILY_COST_USD`.
+  (`knowledge.extraction`, beside `knowledge.embeddings`, `knowledge.rerank` and
+  `knowledge.context`), and it pauses until the next UTC day at `KNOWLEDGE_TENANT_DAILY_COST_USD`.
 - **Usage**: one `ai_usage` row per call, costed at write time from the one price table
   (`shared/ai/pricing`, longest prefix wins; an unknown model gets `null` and is counted as
   unpriced). The two `*_compatible` providers are priced only for VENDOR-QUALIFIED ids — Fireworks'
@@ -1328,7 +1475,7 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
 from the Models API; no `effort` setting (thinking is on/off — on means the model's default); Haiku
 5.5's > 100k-token price tier is not modelled (`pricing.ts` uses the ≤ 100k rate); OpenAI tools are
 sent non-strict; an assistant message's `phase` is not replayed to the Responses API;
-no page numbers on chunks (`page` is always null); no platform reranker; knowledge facts have no `private` visibility yet and ship no entity type of their own (a plugin registers them); an entity's name is the first document's wording, so one created from a group-restricted document keeps that name once a tenant-visible document links to it, and aliases stored before 0.40.0 stay on their entity; the decision model is asked about an entity only when trigram or embedding puts a known one nearby, so two names sharing no words stay two entities, and never about a `refs` key; a person's decision survives a re-read only when the value repeats or was judged the same; no Excel or OpenDocument conversion (refused at upload); no document summary or thumbnail (the card is an excerpt);
+no page numbers on chunks (`page` is always null); no platform reranker; knowledge facts have no `private` visibility yet and ship no entity type of their own (a plugin registers them); an entity's name is the first document's wording, so one created from a group-restricted document keeps that name once a tenant-visible document links to it, and aliases stored before 0.40.0 stay on their entity; the decision model is asked about an entity only when trigram or embedding puts a known one nearby, so two names sharing no words stay two entities, and never about a `refs` key; a person's decision survives a re-read only when the value repeats or was judged the same; the Promote picker and a domain row's mention finder scan the type's table (no index serves `word_similarity`), the finder only the rows some fact names, and a type with a custom `resolve`, no `labelColumn` and no `mentions` is found only through `lookup_facts`, never by being named in a search; the badge nudge reaches the reviewers of the facts and entities a write touched, so a reviewer whose possible match only lists an entity that was merged away sees the count move on their next page load; contextual prefixes are not rewritten when the `knowledge-context` prompt or model changes (only new text gets new ones), cost one model call per passage with no batching, and come with no query rewriting (chat's `search_knowledge` query is already model-written); no Excel or OpenDocument conversion (refused at upload); no document summary or thumbnail (the card is an excerpt);
 `charOffset` does not map to PDF pages; no image input in chat or uploads (the `image` block is for callers that build their own turns), and the tracer records image bytes like any other content (redact them yourself, or leave `OBSERVABILITY_CAPTURE_CONTENT` off); no images inside rendered
 Markdown (a model's or document's image is shown as a link, `MarkdownImageLink`); no frontend tools
 in chat and no human approval in chat (a tool with an approval gate is available to agent runs
@@ -1468,8 +1615,10 @@ a second copy of the contract (D26). `api.ts` is the only `fetch` site. Config l
 case to `apps/evals/datasets/` (D33, both admin+). `agents list`, `agents run <key> --input x.json |
 --batch x.jsonl` (chunks of 100, failed lines reported, exit 1) and `agents runs list [--batch id] [--parent id]
 [--since iso] [--agent-version n]` start and follow runs (D39); `agents inspect <runId>` prints the
-run's timeline — versions, spend against budget, turns, effects, decisions, asks, children (admin). Exit codes: 0 ok · 1 error · 2 not logged in ·
-3 forbidden.
+run's timeline — versions, spend against budget, turns, effects, decisions, asks, children (admin).
+`docs list|search|ingest|retry` reach the knowledge base, and `facts review` / `facts
+confirm|reject|prefer <factId>` the knowledge-facts review items (D43). Exit codes: 0 ok · 1 error ·
+2 not logged in · 3 forbidden.
 No command prints a full key. Human output shows server text as inert text: `renderTable` cells,
 free-text lines and the logger drop terminal control characters, and colour is applied after that
 (a column's `style`); `--json` is unchanged. Plugins register top-level commands named after their id.
@@ -1477,7 +1626,9 @@ Detail: `.claude/rules/cli.md`.
 
 **Known gaps:** no device-code flow; one profile at a time; `logout` does not revoke the key; no
 shell completion; not yet published to npm (`rocketpod` / `@rocketpod/cli` are the intended names;
-no publish workflow exists).
+no publish workflow exists); `docs ingest` takes a text file only (a PDF or Word file goes through
+the web upload, which converts it) and always shares it tenant-wide; `facts review` lists possible
+matches, but they are settled in the web app (no merge or promote command).
 
 ## 12. Shared package
 
@@ -1609,6 +1760,47 @@ keep their names on purpose — they are the plugin ecosystem's fixed filenames 
   `changelog-nudge.mjs` (source changed, no `unreleased.md` entry). It answers with
   `hookSpecificOutput.additionalContext`, because a `PreToolUse` hook's plain stdout reaches only
   the debug log.
+- **A copy is paused once, then recorded, when it changes kit core** (`scripts/kit-guard.mjs`, one
+  Claude Code hook entry for `SessionStart`, `PreToolUse`, `PostToolUse` and `Stop`, registered
+  beside the update check, the changelog nudge and the Guide's `docs:stale` hook; decisions in
+  `lib/kit-guard-lib.mjs`, the map in `lib/kit-guard-rules.mjs`, kit-owned and ported like any
+  `scripts/lib/` file). The map has three tiers. `sealed` is the one deny, naming the command
+  that regenerates the file: `docs/plugin-api.md` (`node scripts/plugin-api-doc.mjs`), the
+  migration journal `apps/web/migrations/meta/**` (`pnpm db:generate`), `pnpm-lock.yaml` and the
+  five plugin barrels. `open` is the examples and every `example` surface's paths, Home and its
+  registries, the theme tokens, `LogoMark`, `ui/public/`, `docs/design/`, and every path the map
+  does not name — the app's own code. `steer` is the Node runtime (`src/node/**`, pointing at
+  `SharedPlugin.jobs`, `ServerPlugin.scheduledTasks` and the `Platform` members), the platform
+  seam (`src/platform/**`), `api/index.ts`, middleware, auth, the tenancy and driver seam
+  (`db/client.ts`, the ONE driver site, and `tenant-scope.ts`, the RLS helpers, `schema/kit.ts`),
+  permissions, the plugin types and `plugins/api`, job dispatch and `api/scheduled.ts`, the
+  generated migration SQL (a hand edit is right only for what drizzle-kit cannot write), the
+  route files the kit ships in `api/routes/` — listed by name, so an app's own
+  `api/routes/<feature>.ts` stays open —, observability, `scripts/**`, `tests/config/**` and
+  `ui/index.css`. Each rule's `instead` names a seam that exists here, or says there is none. The
+  first edit of an EXISTING steer file in a session is PAUSED: refused once with that guidance — the
+  seam, a new file wired in with one line, an app-owned capability `name@1` with its test at
+  `apps/web/tests/capabilities/<name>@1/app.test.ts` (#183), or a ledger entry shown in the final
+  message — and "make it again; it will go through". The path is recorded as steered before the
+  refusal is returned, so the retry passes silently, through the person's own permission prompt
+  (no `allow` is ever set). It refuses rather than allowing with context because Claude Code
+  hands an allowed edit's `additionalContext` to the model only after the edit has landed. A
+  ledgered path is silent; a sealed one is refused every time. At `Stop`, a tracked steer file
+  changed in the working tree with no acceptable `.rocketflare.json` `localEdits` entry (`{ path,
+  kind: "fix"|"change", reason, seamConsidered, capability?, date }`; a reason under 20 characters
+  or "user asked" is rejected) holds the turn once, and the agent drafts the entry and shows it.
+  `kit:upgrade` prints an entry's reason beside every kit change to its path (`localEditFor`,
+  `local-edit` in the plan), and `/rp-upgrade` drops a `fix` entry once the release carries the
+  fix. The rename carries `guard` and `localEdits` into the copy (`stampedManifest`). The same
+  hook runs the **UI lint** (`lib/ui-lint.mjs`, `pnpm design:lint`, the rules in
+  `.claude/rules/ui.md` "Visual quality"): a review after each edit to a UI file, and bans still in
+  a changed UI file hold the `Stop` once; reflexes are asked once, as a transcript notice, and never
+  hold it. `stop_hook_active` is honoured and every error is silence. The core half runs in a copy
+  (`app != null`) or with `ROCKETPOD_GUARD=1`; the lint half wherever the guard is on, the kit
+  included; `guard.enabled: false` or `ROCKETPOD_GUARD=0` turns both off. State is per session
+  in `$TMPDIR/rocketpod-guard/<session_id>.json`. Carried capabilities (#183) are read from
+  `apps/web/src/plugins/<id>/capabilities/<name>/capability.diff` + `NOTE.md` — a provisional
+  location, inert until a carrier exists.
 - **Released history is never rewritten** — every copy pins a commit.
 
 **Known gaps:** a copy pinned before 0.10.1 has no update hook until it upgrades (and
@@ -1626,7 +1818,17 @@ coupling `example-surfaces.test.ts` records rather than hides; `kit:upgrade` sho
 `launch.kit.json` as a `manual` diff translated through the token map, so a hunk touching its `kit`
 block reads as renamed (keep the kit's id and name); a copy that predates the contract gets
 `kit.id` only by following that release's porting note; `plugins.add` cannot express an entry
-without a `subdir` (`--subdir` refuses an empty value), which no default plugin has today.
+without a `subdir` (`--subdir` refuses an empty value), which no default plugin has today. The guard is
+Claude Code only (an editor, a terminal or another agent never sees it, and no gate step checks the
+ledger); an edit made through Bash is seen only at `Stop`, through `git status`, so it is never
+paused; the pause costs one refused tool call per steer path per session, and an agent that retries
+without reading the reason passes it (the `Stop` check still asks for the record); a route file the
+kit adds in a later release is open until `kit:upgrade` ports the rule naming it; `Stop` reads the
+whole working tree, so in a checkout shared by two sessions one can be held for the other's change;
+core edits committed before a session are not asked about; the UI lint is text heuristics (a JSX
+tag stack it cannot balance reports no nested card), so it misses what it cannot see and an earned
+exception costs a `ui-allow`; `.rocketflare.json` is never ported, so an upgraded copy adds `guard`
+and `localEdits` by hand (absent, the guard runs with an empty ledger).
 
 ## 14. Definition of done for the kit
 
@@ -1748,7 +1950,10 @@ Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
   read it, and is otherwise not mentioned. `/rp-plugin add` with no id shows it, and
   `/rp-how-do-i` asks "does a plugin already do this?" first: the order is an existing plugin, else
   the app itself, and a plugin only for what another app will install too.
-  https://rocketflare.dev/plugins is the browsing page.
+  https://rocketflare.dev/plugins is the browsing page. `pnpm plugin add <id>[@X.Y.Z]` resolves a
+  bare id through the same catalogue — the first-party repository, else the commercial one, at
+  its newest release tag (or the one typed), with `--subdir` where the catalogue found it — and
+  prints what it resolved to; an id in neither is exit 1, the open repository unreachable exit 3.
 - **Lifecycle** (`scripts/plugin.mjs`): `add` (plan, then `--apply`), `upgrade`, `remove`
   (`--archive`), `list` (`--available`), `check`, `export`. Every plan step is **declarative, agent (with its
   assertion) or human** — a printed instruction is not a mechanism. The host generates the
@@ -1761,8 +1966,13 @@ Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
   adds or re-ranges and removes what it drops only when a plugin brought it in — the surface's
   `addedDependencies` record, never range equality — no other plugin declares it and the host
   holds exactly the old range — a range a peer plugin cannot use is refused), Cloudflare-only
-  declarations, a tenant-isolation test for tenant tables, table collisions, declared skills. Each finding names file, line and exact edit.
-  Structural checks read comment-free code. It runs where a finding can still be acted on: at the
+  declarations, a tenant-isolation test for tenant tables, table collisions, declared skills, and
+  imports that resolve to nothing (`unresolvedPluginImports`, each file against its own package's
+  tsconfig: an unresolved import types as `any`, so every type-level check over it would pass; it
+  needs `pnpm install` first, and a `cloudflare:*` import fails here because nothing on Node
+  provides it). Each finding names file, line and exact edit. Structural checks read comment-free
+  code: `onTenantDeleted` and the isolation test are parsed with the TypeScript AST (`typescript6`),
+  so a name inside a comment or a string satisfies neither. It runs where a finding can still be acted on: at the
   end of `plugin add|upgrade --apply` (exit 8 when the tree it wrote fails), in the plugin's own CI
   (`plugin-ci.yml`) and in `kit.yml` — not in an app's `pnpm gate`, because an undeclared import
   compiles and passes the tests and only breaks at the next upgrade, where the check stops it first.
@@ -1909,12 +2119,15 @@ Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
   `shell` (the default), `noTenant` and `public`. `Breadcrumbs` (from `@/plugins/api/ui`) is the
   trail on its own, for a surface with no page title.
 - **Home cards (`UiPlugin.homeCards`)**: `{ id, Component, guard?, order? }[]` — Home's "what needs
-  doing" section, above the quick links (approvals waiting, an inbox to triage). `PluginHomeCards`
+  doing" section, under the composer and above the work areas (approvals waiting, an inbox to
+  triage). `PluginHomeCards`
   merges them across plugins, orders by `order`, then plugin id, then card id, and puts each behind
   its guard, its own `Suspense` and its own error boundary, like a header item. A card with nothing
   to ask renders `null`; the section brings no chrome, and with no card passing its guard it is
-  absent. `Component` is `lazy(() => import(...))`. The core quick links are data in
-  `pages/home-links.ts`, so the plugin UI kit never imports the Home page (`plugin-ui-kit-graph.test.ts`).
+  absent. `Component` is `lazy(() => import(...))`. A plugin's `homeLinks` render as a
+  "Shortcuts" panel in Home's side column; the core quick links are no longer on Home (the nav
+  carries them) but stay data in `pages/home-links.ts` as destinations, so the plugin UI kit never
+  imports the Home page (`plugin-ui-kit-graph.test.ts`).
 - **Framing a response (`ctx.embeddable(contentType)`)**: a plugin route that has proved its body
   is an `EMBEDDABLE_MIME_TYPES` type (today PDF) — from its own row, never the request — lets a
   same-origin page frame that one response, the opt-in `/api/files/:id` uses (§6). Any other type

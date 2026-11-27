@@ -140,6 +140,14 @@ provider. Fireworks serverless availability varies by account, so pick one your 
 Neither vendor is in the kit's price table, so their cost reads "—". Hold the judge constant when
 comparing targets.
 
+`--context` measures contextual prefixes (`docs/CONCEPTS.md` §9): `pnpm eval retrieval --context`
+gives the corpus tenant the `knowledge-context` flag and contextualises every passage
+(`contextualizeDocument`, the `--model` on prompt key `knowledge-context`) before any case runs, so
+a run with it and one without differ in that alone. It costs one model call per passage, once per
+process, and the run file's header records `context: true`. It needs a corpus with a
+`retrieval.jsonl` (the kit ships none), and each run writes its contexts afresh, so compare at
+least three runs a side.
+
 Each case prints its judge scores. The run ends with a table of score, tokens, cost and
 milliseconds, plus the path of the run file. For a failure, the run file has the judge's
 `rationale`, the transcript, the tool calls and exactly what retrieval returned.

@@ -8,14 +8,19 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { brandHue } from '../../../../scripts/lib/brand.mjs'
+import { themeTokens } from '../../../../scripts/lib/contrast.mjs'
 import {
   API_KEY_HANDLE_MARGIN,
   applyColour,
   applyReplacements,
+  applyTagline,
   CLASS_IDS,
   choosePortBlock,
+  colourProblem,
   DEPLOY_PORT_PATHS,
   deriveNames,
+  designTagline,
   EXCLUDED_DIRS,
   EXCLUDED_PATHS,
   hexToRgb,
@@ -40,6 +45,7 @@ import {
   rewriteIntConstant,
   rewritePorts,
   rewritePrefixComments,
+  stampedManifest,
   topLevelObjectSpan,
   validateSlug,
 } from '../../../../scripts/lib/rename-lib.mjs'
@@ -68,7 +74,7 @@ describe('deriveNames', () => {
 
   it('rejects a bad domain or colour', () => {
     expect(() => deriveNames('acme', undefined, { domain: 'nodots' })).toThrow(/apex host/)
-    expect(() => deriveNames('acme', undefined, { colour: 'red' })).toThrow(/6-digit hex/)
+    expect(() => deriveNames('acme', undefined, { colour: 'red' })).toThrow(/not a colour/)
   })
 
   it('refuses a multi-line display name', () => {
@@ -423,27 +429,167 @@ describe('prefix guard (row a)', () => {
 })
 
 describe('colour (row e)', () => {
-  it('rewrites the light primary everywhere it appears, the rgb triple and the meta tag', () => {
-    const css = [
-      '@plugin "daisyui/theme" { name: "x-light";',
-      '  --color-primary: #2563eb; /* blue-600 */',
-      '  --color-primary-content: #ffffff;',
-      '  --surface-active: color-mix(in srgb, #2563eb 10%, #ffffff);',
-      '  --focus-ring: #2563eb; }',
-      '@plugin "daisyui/theme" { name: "x-dark"; --color-primary: #60a5fa; }',
-      ':root { --dc-primary-rgb: 37, 99, 235; }',
-    ].join('\n')
-    const html = '<meta name="theme-color" content="#2563eb" />'
-    const r = applyColour({ css, html }, '#b91c1c')
-    expect(r.from).toBe('#2563eb')
-    expect(r.cssReplacements).toBe(3)
-    expect(r.css).not.toContain('#2563eb')
-    expect(r.css).toContain('--dc-primary-rgb: 185, 28, 28;')
-    expect(r.css).toContain('--color-primary: #60a5fa')
-    expect(r.html).toBe('<meta name="theme-color" content="#b91c1c" />')
+  // Rocketpod's own palette is hex, with no oklch() hue to turn: the hue cases read the one-hue
+  // look in `fixtures/one-hue-look/` (brand-look.test.ts says why), the hex case the real files.
+  const repo = path.resolve(__dirname, '../../../..')
+  const look = path.join(__dirname, 'fixtures/one-hue-look')
+  const read = (rel: string) => readFileSync(path.join(look, rel), 'utf8')
+  const live = () => ({
+    tokensCss: readFileSync(path.join(repo, 'apps/web/src/shared/theme-tokens.css'), 'utf8'),
+    indexCss: readFileSync(path.join(repo, 'apps/web/src/ui/index.css'), 'utf8'),
+    html: readFileSync(path.join(repo, 'apps/web/src/ui/index.html'), 'utf8'),
+  })
+  const files = () => ({
+    tokensCss: read('apps/web/src/shared/theme-tokens.css'),
+    indexCss: read('apps/web/src/ui/index.css'),
+    html: read('apps/web/src/ui/index.html'),
+  })
+
+  it("turns the palette to the colour's hue, keeping lightness, the flare and the state colours", () => {
+    const before = files()
+    const kitHue = brandHue(`${before.tokensCss}\n${before.indexCss}`) as number
+    const kitTokens = themeTokens(`${before.tokensCss}\n${before.indexCss}`).light.tokens
+    const lc = (token: string) => {
+      const [, l, c, h] = /oklch\(([\d.]+) ([\d.]+) ([\d.]+)\)/.exec(kitTokens[token]) ?? []
+      return { l: l.replace('.', '\\.'), c: c.replace('.', '\\.'), h: Number(h) }
+    }
+    const r = applyColour(before, '#b91c1c')
+    expect(r.from).toBe(kitHue)
+    expect(r.to).toBeCloseTo(27.5, 0)
+    expect(r.cssReplacements).toBeGreaterThan(50)
+    // The kit's primary keeps its lightness and chroma at the new hue.
+    const primary = lc('--color-primary')
+    expect(r.tokensCss).toMatch(
+      new RegExp(`--color-primary: oklch\\(${primary.l} ${primary.c} 27\\.\\d+\\);`)
+    )
+    expect(r.tokensCss).not.toContain(`--color-primary: ${kitTokens['--color-primary']};`)
+    // The accent keeps its offset from the brand hue.
+    const accent = lc('--color-accent')
+    const accentHue = (((accent.h - kitHue + Number(r.to)) % 360) + 360) % 360
+    expect(r.tokensCss).toMatch(
+      new RegExp(
+        `--color-accent: oklch\\(${accent.l} ${accent.c} ${Math.floor(accentHue)}\\.\\d+\\);`
+      )
+    )
+    // The flare and the hex state colours are their own.
+    expect(r.indexCss).toContain(`--flare: ${kitTokens['--flare']};`)
+    expect(r.tokensCss).toContain('--color-error: #be123c;')
+    // Comments are not rewritten: the header still documents the kit's own hue.
+    const header =
+      before.indexCss.match(/\/\*[\s\S]*?\*\//g)?.find(c => c.includes('REBRANDING')) ?? ''
+    expect(header).toContain(`oklch(L C ${kitHue})`)
+    expect(r.indexCss).toContain(header)
+    expect(r.primary).toMatch(/^#[0-9a-f]{6}$/)
+    expect(r.html).toContain(`<meta name="theme-color" content="${r.primary}"`)
     expect(r.htmlReplaced).toBe(true)
-    expect(r.manual.join('\n')).toContain('#60a5fa')
+    // Turning back to the kit's hue restores the kit's files byte for byte.
+    const back = applyColour(
+      { tokensCss: r.tokensCss, indexCss: r.indexCss, html: r.html },
+      String(kitHue)
+    )
+    expect(back.tokensCss).toBe(before.tokensCss)
+    expect(back.indexCss).toBe(before.indexCss)
+  })
+
+  it('takes a hue in degrees, refuses a grey, and keeps the hex helper', () => {
+    expect(applyColour(files(), '145').to).toBe(145)
+    expect(() => applyColour(files(), '#777777')).toThrow(/grey/)
+    expect(colourProblem('oklch(0.6 0.15 30)')).toBeNull()
+    expect(colourProblem('400')).toMatch(/0–360/)
     expect(hexToRgb('#ffffff')).toBe('255, 255, 255')
+  })
+
+  it('over a hex palette, rewrites the light primary wherever it appears, and the meta tag', () => {
+    const before = live()
+    const from = /--color-primary:\s*(#[0-9a-f]{6})/i.exec(before.tokensCss)?.[1] ?? ''
+    expect(from).toMatch(/^#/)
+    const r = applyColour(before, '#b91c1c')
+    expect(r.mode).toBe('hex')
+    expect(r.from).toBe(from.toLowerCase())
+    expect(r.tokensCss).not.toMatch(new RegExp(from, 'i'))
+    expect(r.indexCss).not.toMatch(new RegExp(from, 'i'))
+    expect(r.tokensCss).toContain('--color-primary: #b91c1c')
+    expect(r.indexCss).toContain('--focus-ring: #b91c1c')
+    expect(r.cssReplacements).toBeGreaterThan(3)
+    expect(r.html).toContain('<meta name="theme-color" content="#b91c1c"')
+    // The dark primary is its own contrast decision: kept, and listed.
+    const dark = [...before.tokensCss.matchAll(/--color-primary:\s*(#[0-9a-f]{6})/gi)][1]?.[1] ?? ''
+    expect(r.tokensCss).toContain(`--color-primary: ${dark}`)
+    expect(r.manual.join('\n')).toContain(dark)
+    // A bare hue names no hex to write.
+    expect(() => applyColour(before, '145')).toThrow(/needs a colour, not a hue/)
+  })
+})
+
+describe('stampedManifest (.rocketflare.json in a copy)', () => {
+  const kitManifest = () =>
+    JSON.parse(
+      readFileSync(path.resolve(__dirname, '../../../../.rocketflare.json'), 'utf8')
+    ) as Record<string, unknown>
+
+  it("carries the guard's keys into the copy, with the guard's variable in the app's names", () => {
+    const names = deriveNames('acme', 'Acme')
+    const kit = kitManifest()
+    expect(kit.guard).toEqual({ enabled: true })
+    expect(kit.localEdits).toEqual([])
+    const out = stampedManifest(kit, names, ['design:docs'])
+    expect(out.app).toEqual({ slug: 'acme', display: 'Acme', domain: names.domain })
+    expect(out.guard).toEqual({ enabled: true })
+    expect(out.localEdits).toEqual([])
+    expect(out.kitOnlyScripts).toEqual(['design:docs'])
+    expect(out).not.toHaveProperty('retiredSurfaces')
+    expect(String(out.$guard)).toContain('ACME_GUARD=0')
+    expect(String(out.$guard)).not.toContain('ROCKETPOD_GUARD')
+    // The kit block names the KIT, verbatim.
+    expect(out.kit).toEqual(kit.kit)
+    // The renamed guard reads the same variable the explanation names.
+    const lib = readFileSync(
+      path.resolve(__dirname, '../../../../scripts/lib/kit-guard-lib.mjs'),
+      'utf8'
+    )
+    expect(applyReplacements(lib, names).text).toContain("env.ACME_GUARD === '0'")
+  })
+
+  it("keeps a copy's guard setting and ledger, and fills them in when an older manifest lacks them", () => {
+    const names = deriveNames('acme', 'Acme')
+    const entry = { path: 'apps/web/src/db/client.ts', kind: 'fix', reason: 'x'.repeat(30) }
+    const kept = stampedManifest(
+      { kit: {}, app: null, guard: { enabled: false }, localEdits: [entry] },
+      names
+    )
+    expect(kept.guard).toEqual({ enabled: false })
+    expect(kept.localEdits).toEqual([entry])
+    const filled = stampedManifest({ kit: {}, app: null }, names)
+    expect(filled.guard).toEqual({ enabled: true })
+    expect(filled.localEdits).toEqual([])
+  })
+})
+
+describe('the sign-in tagline (row f)', () => {
+  const source = `/** \`tagline\` is the one line. */
+export const LOGIN_PANEL: { art: 'rocket' | 'type'; tagline: string } = {
+  art: 'rocket',
+  tagline: "Your team's work, in one place.",
+}
+`
+  it("reads design.json's app.tagline: one trimmed line, or nothing", () => {
+    expect(designTagline({ app: { tagline: '  Rooms, guests, done.  ' } })).toBe(
+      'Rooms, guests, done.'
+    )
+    expect(designTagline({ app: { name: 'x' } })).toBeNull()
+    expect(designTagline({ app: { tagline: 'two\nlines' } })).toBeNull()
+    expect(designTagline(null)).toBeNull()
+  })
+
+  it('rewrites LOGIN_PANEL.tagline only, quoting for an apostrophe', () => {
+    expect(applyTagline(source, 'Rooms, guests, done.')).toContain(
+      "  tagline: 'Rooms, guests, done.',"
+    )
+    expect(applyTagline(source, "The front desk's ledger")).toContain(
+      '  tagline: "The front desk\'s ledger",'
+    )
+    expect(applyTagline(source, 'x')).toContain('`tagline` is the one line')
+    expect(applyTagline('export const OTHER = 1\n', 'x')).toBeNull()
   })
 })
 
@@ -473,6 +619,7 @@ describe('parseArgs', () => {
     expect(parseArgs(['--colour', 'red', 'acme'])).toMatchObject({
       error: expect.stringMatching(/hex/),
     })
+    expect(parseArgs(['--colour', '145', 'acme'])).toMatchObject({ colour: '145', slug: 'acme' })
     expect(parseArgs(['--help'])).toEqual({ help: true })
   })
 })

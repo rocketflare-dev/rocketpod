@@ -159,6 +159,21 @@ async function run(tenantId: string, requestedByUserId: string) {
       type: 'tool.end',
       data: { name: 'search_knowledge', result: SEARCH_RESULT },
     },
+    // A model call the runtime recorded: never an expected tool in the exported case.
+    {
+      tenantId,
+      runId: row.id,
+      seq: 3,
+      type: 'tool.start',
+      data: { name: 'fake-model', kind: 'model', toolCallId: 'model:0.a:1' },
+    },
+    {
+      tenantId,
+      runId: row.id,
+      seq: 4,
+      type: 'tool.end',
+      data: { name: 'fake-model', kind: 'model', toolCallId: 'model:0.a:1' },
+    },
   ])
   return row
 }

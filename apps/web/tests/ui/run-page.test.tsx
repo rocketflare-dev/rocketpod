@@ -13,12 +13,12 @@
  * - an `entity.changed { entity: 'agent-run' }` nudge refetches the run and leaves
  *   `['agent-run-agui']` — the key the stream owns — untouched.
  */
-import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { Route, Routes } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WebSocketProvider } from '@/ui/components/WebSocketProvider'
 import { RUN_POLL_MS, runOwesAnswer, runPollInterval } from '@/ui/hooks/useAgents'
-import { formatDuration } from '@/ui/lib/format'
+import { formatDuration, runWaitMs } from '@/ui/lib/format'
 import { queryKeys } from '@/ui/lib/query-keys'
 import { websocketClient } from '@/ui/lib/websocketClient'
 import RunPage from '@/ui/pages/agents/RunPage'
@@ -207,6 +207,27 @@ describe('runOwesAnswer / runPollInterval / formatDuration', () => {
     expect(formatDuration(840)).toBe('840ms')
     expect(formatDuration(4000)).toBe('4s')
     expect(formatDuration(72_000)).toBe('1m 12s')
+    // Minutes roll into hours, and hours into days — never "1082m 27s".
+    expect(formatDuration(1082 * 60_000 + 27_000)).toBe('18h 2m')
+    expect(formatDuration(3 * 86_400_000 + 4 * 3_600_000 + 59_000)).toBe('3d 4h')
+  })
+  it('counts the time a run was parked on a person once, inside its own start and finish', () => {
+    const t = (s: number) => new Date(Date.UTC(2026, 0, 1, 0, 0, s))
+    const run = { startedAt: t(0), finishedAt: t(100) }
+    const ask = (from: number, to: number | null, status = 'resolved') => ({
+      status,
+      createdAt: t(from),
+      resolvedAt: to === null ? null : t(to),
+      updatedAt: t(to ?? from),
+    })
+    expect(runWaitMs(run, [])).toBe(0)
+    expect(runWaitMs(run, [ask(10, 40)])).toBe(30_000)
+    // Two asks open at once are one wait, not two.
+    expect(runWaitMs(run, [ask(10, 40), ask(20, 50)])).toBe(40_000)
+    // A pending ask on a parked run runs to now; one before the start is clipped.
+    expect(
+      runWaitMs({ startedAt: t(0), finishedAt: null }, [ask(-5, null, 'pending')], t(30))
+    ).toBe(30_000)
   })
 })
 
@@ -228,10 +249,13 @@ describe('RunPage', () => {
     expect(await screen.findByText('Summarising')).toBeInTheDocument()
     expect(document.querySelector('[role="dialog"]')).toBeNull()
     expect(screen.getByRole('link', { name: 'Agents' })).toHaveAttribute('href', '/agents')
-    // Two stages, each a disclosure; the tool call and the text live inside the one that is open.
-    expect(screen.getByRole('button', { name: /Checking the input/ })).toHaveAttribute(
+    // Two stages. One recorded nothing inside it, so it is a plain line, not a disclosure; the
+    // tool call and the text live inside the other, which is open.
+    expect(screen.getByText('Checking the input')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Checking the input/ })).toBeNull()
+    expect(screen.getByRole('button', { name: /Summarising/ })).toHaveAttribute(
       'aria-expanded',
-      'false'
+      'true'
     )
     expect(screen.getByText('Bold').tagName).toBe('STRONG')
     expect(screen.getByText('Submit summary')).toBeInTheDocument()
@@ -322,6 +346,31 @@ describe('RunPage', () => {
     expect(input.querySelector('pre')?.textContent).toContain('"style": "bullets"')
   })
 
+  it('says how long the run worked and how long it waited apart, once it waited for somebody', async () => {
+    const hours = (h: number) => new Date(Date.parse(t(0)) + h * 3_600_000).toISOString()
+    mount({
+      [`/api/agents/runs/${RUN_ID}`]: run({
+        status: 'succeeded',
+        finishedAt: new Date(Date.parse(hours(18)) + 12_000).toISOString(),
+        interrupts: [
+          ask(
+            { kind: 'approval', message: 'Index it?' },
+            { status: 'resolved', createdAt: t(0), resolvedAt: hours(18), updatedAt: hours(18) }
+          ),
+        ],
+      }),
+    })
+    const summary = await screen.findByRole('region', { name: 'Run summary' })
+    await waitFor(() => expect(summary).toHaveTextContent(/Ran\s*12s · Waited 18h 0m/))
+    // The Usage tab says the same apart from the wall clock.
+    fireEvent.click(screen.getByRole('tab', { name: /Usage/ }))
+    const usage = await screen.findByRole('tabpanel')
+    expect(await within(usage).findByText('Waiting for input')).toBeInTheDocument()
+    expect(
+      within(usage).getByTitle('Part of the wall clock spent parked on a question.')
+    ).toHaveTextContent('18h 0m')
+  })
+
   it('gives the timeline the major column while working, the output once settled', async () => {
     mount()
     await screen.findByText('Summarising')
@@ -368,11 +417,13 @@ describe('RunPage', () => {
     expect(link.closest('[data-document]')).toHaveTextContent('3 passages')
   })
 
-  it('expands a collapsed stage on click and keeps the choice', async () => {
+  it('collapses an open stage on click and keeps the choice', async () => {
     mount()
-    const header = await screen.findByRole('button', { name: /Checking the input/ })
-    fireEvent.click(header)
+    const header = await screen.findByRole('button', { name: /Summarising/ })
     expect(header).toHaveAttribute('aria-expanded', 'true')
+    fireEvent.click(header)
+    expect(header).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByText('Submit summary')).toBeNull()
   })
 
   it('shows a settled output with no typed view as its JSON, and no Cancel', async () => {
@@ -400,6 +451,30 @@ describe('RunPage', () => {
     // Above the tab bar: it is visible whichever tab is selected.
     expect(alert.compareDocumentPosition(screen.getByRole('tab', { name: /Output/ }))).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING
+    )
+    // The empty output pane points at the reason rather than saying only "no output".
+    expect(screen.getByText('No answer: the run failed')).toBeInTheDocument()
+  })
+
+  it('offers Run again on a failed run, with the same input, and opens the new run', async () => {
+    const NEXT = '00000000-0000-4000-8000-0000000000ff'
+    const failed = run({ status: 'failed', finishedAt: t(4), error: 'The model refused' })
+    const { fetchMock } = mount({
+      [`/api/agents/runs/${RUN_ID}`]: failed,
+      'POST /api/agents/runs': { ...failed, id: NEXT, status: 'queued', error: null },
+      [`/api/agents/runs/${NEXT}`]: { ...failed, id: NEXT, status: 'queued', error: null },
+    })
+    fireEvent.click(await screen.findByRole('button', { name: 'Run again' }))
+    await waitFor(() => {
+      const post = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST')
+      expect(JSON.parse(String(post?.[1]?.body))).toEqual({
+        agentKey: failed.agentKey,
+        input: failed.input,
+      })
+    })
+    // Opens the new run: its row is read next.
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.some(([input]) => String(input).includes(NEXT))).toBe(true)
     )
   })
 

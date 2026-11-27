@@ -204,9 +204,17 @@ describe('GET /api/agents/runs(/:id) — visibility', () => {
     const mineDetail = agentRunWithEventsSchema.parse(
       await json(await request(`/api/agents/runs/${mine.id}`, { headers: a.cookie }, { env }))
     )
-    expect(mineDetail).toMatchObject({ id: mine.id, status: 'queued', events: [] })
+    expect(mineDetail).toMatchObject({
+      id: mine.id,
+      status: 'queued',
+      events: [],
+      requestedBy: { id: a.user.id, name: a.user.name },
+    })
 
-    const adminList = await json<{ items: Array<{ id: string }>; pagination: { total: number } }>(
+    const adminList = await json<{
+      items: Array<{ id: string; requestedBy: { id: string; name: string } | null }>
+      pagination: { total: number }
+    }>(
       await request(
         `/api/agents/runs?agentKey=${TEST_SUMMARIZE}`,
         { headers: admin.cookie },
@@ -215,6 +223,8 @@ describe('GET /api/agents/runs(/:id) — visibility', () => {
     )
     expect(adminList.items.map(i => i.id)).toEqual([mine.id])
     expect(adminList.pagination.total).toBe(1)
+    // The list names who asked — the requester's name, never only an id.
+    expect(adminList.items[0]?.requestedBy).toEqual({ id: a.user.id, name: a.user.name })
     expect(
       (await request(`/api/agents/runs/${mine.id}`, { headers: admin.cookie }, { env })).status
     ).toBe(200)

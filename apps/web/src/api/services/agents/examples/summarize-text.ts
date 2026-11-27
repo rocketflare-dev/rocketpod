@@ -2,8 +2,9 @@
  * `summarize-text` — the single-call example agent, shaped like the simplest real
  * definition: exclusive per tenant, a precheck, ONE terminal tool (`submit_summary`) forced through
  * `callStructuredTool`, output persisted by the runtime, usage ledgered by the runtime's meter under
- * `feature: 'agent:summarize-text'` (the agent writes no usage row itself). Emits `step` /
- * `tool.start` / `tool.end` / `text` events and polls for cancellation before and after the model call. With `input.index: true` it also stores
+ * `feature: 'agent:summarize-text'` (the agent writes no usage row itself). Emits `step` and `text`
+ * events — the model call's own row (model, tokens, the answer's shape) the runtime records — and
+ * polls for cancellation before and after the model call. With `input.index: true` it also stores
  * the summary as a searchable document through `ingestText` — the reason retrieval is never dead
  * code — wrapped in `ctx.once` so a retried attempt replays the recorded document instead
  * of indexing a second copy. Copy this file to start a real agent.
@@ -34,6 +35,42 @@ import { ingestText } from '../../ai/ingest'
 import type { AgentDefinition } from '../registry'
 
 export const SUBMIT_SUMMARY_TOOL = 'submit_summary'
+
+/** Longest subject an indexed summary's title carries, before the "Summary: " prefix. */
+export const SUMMARY_TITLE_MAX_CHARS = 80
+
+/** Markdown decoration a first line may carry: heading marks, list bullets, emphasis. */
+function plainLine(line: string): string {
+  return line
+    .replace(/^\s{0,3}(#{1,6}\s+|[-*+•]\s+|>\s*)/, '')
+    .replace(/[*_`]+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function clip(text: string, max: number): string {
+  if (text.length <= max) return text
+  const cut = text.slice(0, max - 1)
+  const space = cut.lastIndexOf(' ')
+  return `${(space > max / 2 ? cut.slice(0, space) : cut).replace(/[\s,;:.–—-]+$/, '')}…`
+}
+
+/**
+ * The title an indexed summary is stored, searched and CITED under — "Summary: <what it is
+ * about>", never a timestamp nobody can tell apart from the next one (the document's own
+ * `createdAt` already says when). The subject is the text's heading when it opens with one, else
+ * its first sentence, else the summary's; clipped at a word to `SUMMARY_TITLE_MAX_CHARS`.
+ */
+export function summaryDocumentTitle(text: string, summary: string): string {
+  const firstSentence = (value: string) => {
+    const line = plainLine(value.split('\n').find(l => l.trim()) ?? '')
+    return line.match(/^(.+?)[.!?](\s|$)/)?.[1] ?? line
+  }
+  const opening = text.split('\n').find(l => l.trim()) ?? ''
+  const heading = /^\s{0,3}#{1,6}\s/.test(opening) ? plainLine(opening) : ''
+  const subject = heading || firstSentence(text) || firstSentence(summary)
+  return subject ? `Summary: ${clip(subject, SUMMARY_TITLE_MAX_CHARS)}` : 'Summary'
+}
 
 /** What the model returns — the `documentId` is added by the agent, not the model. */
 const submitSummarySchema = z.object({
@@ -76,10 +113,7 @@ export const summarizeTextAgent: AgentDefinition<SummarizeTextInput, SummarizeTe
     const result = await ctx.once('summary', async () => {
       await ctx.step('summarize', 'Summarising', 'running')
       const system = await ctx.prompt({ style: input.style })
-      await ctx.emit({
-        type: 'tool.start',
-        data: { name: SUBMIT_SUMMARY_TOOL, style: input.style },
-      })
+      // No `tool.start`/`tool.end` of our own: the runtime records this call inside the step.
       const summary = await callStructuredTool(ctx.chat.client, {
         model: ctx.chat.model,
         maxTokens: ctx.chat.maxOutputTokens,
@@ -90,10 +124,6 @@ export const summarizeTextAgent: AgentDefinition<SummarizeTextInput, SummarizeTe
           description: 'Submit the summary and its key points. Call exactly once.',
           schema: submitSummarySchema,
         },
-      })
-      await ctx.emit({
-        type: 'tool.end',
-        data: { name: SUBMIT_SUMMARY_TOOL, keyPoints: summary.keyPoints.length },
       })
       await ctx.emit({ type: 'text', data: { text: summary.summary } })
       await ctx.step('summarize', 'Summarising', 'done', `${summary.keyPoints.length} key points`)
@@ -156,7 +186,7 @@ export const summarizeTextAgent: AgentDefinition<SummarizeTextInput, SummarizeTe
           {
             tenantId: ctx.tenantId,
             userId: ctx.userId,
-            title: `Summary ${new Date().toISOString().slice(0, 16).replace('T', ' ')}`,
+            title: summaryDocumentTitle(text, result.summary),
             text: [result.summary, ...result.keyPoints.map(p => `- ${p}`)].join('\n\n'),
             source: 'agent:summarize-text',
           },

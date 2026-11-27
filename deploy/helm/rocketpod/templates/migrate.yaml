@@ -2,10 +2,15 @@
 {{- /*
   The migrate one-shot as a pre-install/pre-upgrade hook. Hooks run BEFORE the release's
   ConfigMap and Secret exist on a first install, so the Job reads its two connection strings from
-  `existingSecret` when one is named, else from a hook-scoped Secret rendered here.
+  `migrate.existingSecret`, else `existingSecret` when one is named, else from a hook-scoped
+  Secret rendered here. With `migrate.ownerOnly` the owner's DATABASE_URL is in that Secret alone:
+  the release Secret web and worker read carries APP_DATABASE_URL and no owner credential.
 */ -}}
-{{- $secret := include "rocketpod.secretName" . }}
-{{- if not .Values.existingSecret }}
+{{- if and .Values.migrate.ownerOnly .Values.existingSecret (not .Values.migrate.existingSecret) }}
+{{- fail "migrate.ownerOnly with existingSecret needs migrate.existingSecret: a Secret holding DATABASE_URL (and APP_DATABASE_URL) for the migrate Job alone" }}
+{{- end }}
+{{- $secret := default (include "rocketpod.secretName" .) .Values.migrate.existingSecret }}
+{{- if not (or .Values.existingSecret .Values.migrate.existingSecret) }}
 {{- $secret = printf "%s-migrate" (include "rocketpod.fullname" .) }}
 apiVersion: v1
 kind: Secret

@@ -80,6 +80,16 @@ describe('loadConfig', () => {
     expect(loadConfig(half).STORAGE_ACCESS_KEY_ID).toBeUndefined()
   })
 
+  it('TENANT_SCOPE_MODE=enforce needs the app login: on the owner it would enforce nothing', () => {
+    expect(() => loadConfig({ ...base, TENANT_SCOPE_MODE: 'enforce' })).toThrow(
+      /TENANT_SCOPE_MODE: TENANT_SCOPE_MODE=enforce needs APP_DATABASE_URL/
+    )
+    const app = 'postgres://app_login:pw@db/app'
+    expect(
+      loadConfig({ ...base, TENANT_SCOPE_MODE: 'enforce', APP_DATABASE_URL: app }).TENANT_SCOPE_MODE
+    ).toBe('enforce')
+  })
+
   it('AUTH_OIDC_ONLY=true without an issuer and client id is a config error', () => {
     expect(() => loadConfig({ ...base, AUTH_OIDC_ONLY: 'true' })).toThrow(/AUTH_OIDC_ONLY/)
     expect(() =>

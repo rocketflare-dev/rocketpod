@@ -127,6 +127,13 @@
       "when": 1795499172481,
       "tag": "0017_kit-mcp-server",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1795763471284,
+      "tag": "0018_kit-system-role",
+      "breakpoints": true
     }
   ]
 }

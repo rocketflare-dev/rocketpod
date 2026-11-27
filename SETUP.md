@@ -134,9 +134,10 @@ and the Node server from `.env` too (`pnpm dev` points it at this checkout's dat
 `db:migrate` also installs the `pgboss` (jobs, cron) and `openworkflow` (agent runs) schemas — the
 server never creates them at boot.
 
-Why three steps: a policy's `TO rocketpod_app` needs the role
-before migrations; the `REVOKE`s need the tables after. With `APP_DATABASE_URL` unset the role is
-created `NOLOGIN` and RLS stays inert ([`docs/RLS.md`](docs/RLS.md)).
+Why three steps: a policy's `TO rocketpod_app, rocketpod_system` needs the roles
+before migrations; the `REVOKE`s need the tables after. With `APP_DATABASE_URL` unset no login is
+created and RLS stays inert; set, migrate creates that login and the server uses it
+([`docs/TENANT-ISOLATION.md`](docs/TENANT-ISOLATION.md), [`docs/RLS.md`](docs/RLS.md)).
 
 **No Docker: use an existing database.** Where Docker is not available (a coding sandbox with a
 hosted branch, a shared dev server), point the bootstrap at the database you already have:

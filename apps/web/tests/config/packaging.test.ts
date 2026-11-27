@@ -116,7 +116,7 @@ describe('docker compose', () => {
 
   it('passes the required settings, and only real ones', () => {
     const { vars, secrets } = configKeys()
-    const known = new Set([...vars, ...secrets, 'APP_DATABASE_URL'])
+    const known = new Set([...vars, ...secrets])
     // The shared `x-app` environment block every app service merges.
     const start = COMPOSE.indexOf('environment: &app-env')
     const end = COMPOSE.indexOf('depends_on: &app-depends', start)
@@ -132,8 +132,7 @@ describe('the Helm chart', () => {
   it('maps every config var to the ConfigMap and every secret to the Secret — no more, no less', () => {
     const { vars, secrets } = configKeys()
     expect(valuesMap('config').sort()).toEqual([...vars].sort())
-    // APP_DATABASE_URL is read by the migrate Job (scripts/db-roles.ts), not by loadConfig.
-    expect(valuesMap('secrets').sort()).toEqual([...secrets, 'APP_DATABASE_URL'].sort())
+    expect(valuesMap('secrets').sort()).toEqual([...secrets].sort())
   })
 
   it('runs the same entry points as the image and compose', () => {

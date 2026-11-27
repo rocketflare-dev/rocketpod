@@ -47,7 +47,7 @@ Rocketpod): `postgres.js`** — the Node entry's process pool. Never add `pg`. *
   AND source = ANY(…)` in `searchChunks`. Code reading `DocumentRow.tenantId` gets
   `string | null`; `documentTenantId(row)` is the narrowing that throws on a platform row
 
-## Row-level security — shipped inert (D1, docs/RLS.md)
+## Row-level security (D1, docs/RLS.md, docs/TENANT-ISOLATION.md)
 
 Every table with a `tenantId` MUST include `tenantIsolation('<table>')` in its `extraConfig`; a table
 without one goes in `RLS_EXCLUDED_TABLES` (`apps/web/src/db/schema/rls.ts`) with the reason.
@@ -57,15 +57,18 @@ without one goes in `RLS_EXCLUDED_TABLES` (`apps/web/src/db/schema/rls.ts`) with
 the platform rows, and writes stay under `tenantIsolation` alone, whose `WITH CHECK` refuses a
 null tenant. `rls-coverage` pins the pair and the exact table list: a new platform-readable table
 is a design decision. The policies are `FOR ALL TO
-rocketpod_app` with `USING` and `WITH CHECK` on `tenant_id = nullif(current_setting('app.tenant_id',
-true), '')::uuid`. `apps/web/scripts/db-roles.ts` creates `rocketpod_app` `NOLOGIN`, `NOBYPASSRLS`
-via SQL, so policies resolve while nothing can connect as the role.
+rocketpod_app, rocketpod_system` with `USING` and `WITH CHECK` on `tenant_id =
+nullif(current_setting('app.tenant_id', true), '')::uuid or current_user = 'rocketpod_system'`.
+`apps/web/scripts/db-roles.ts` creates both roles `NOLOGIN`, `NOBYPASSRLS` via SQL, and, with
+`APP_DATABASE_URL`, the app login (NOINHERIT, both roles granted). The owner bypasses every policy;
+the app login works as `rocketpod_system` (every row, no DDL) and as `rocketpod_app` (one tenant)
+inside a scope.
 
-`TENANT_SCOPE_MODE`: `off` (default — `withTenantScope(db, tenantId, fn)` is `fn(db)`) · `enforce`
-(`db.transaction` + `set_config('app.tenant_id', $1, true)` on an app-role connection that is not
-wired yet — `APP_DATABASE_URL` for a second Node pool; needs the spike
-in docs/RLS.md to pass first). Threat model stated honestly: RLS catches a **forgotten
-predicate**, not SQL injection — the app role can `set_config` itself.
+`TENANT_SCOPE_MODE`: `off` (default — `withTenantScope(db, tenantId, mode, fn)` is `fn(db)`) ·
+`enforce` (`db.transaction` + `set_config('app.tenant_id', $1, true)` and, on the app login,
+`set_config('role', 'rocketpod_app', true)`; `loadConfig` refuses it without `APP_DATABASE_URL`;
+needs the spike in docs/RLS.md to pass first). Threat model stated honestly: RLS catches a
+**forgotten predicate**, not SQL injection — the login can `SET ROLE` and `set_config` itself.
 
 ## Schema conventions
 
@@ -168,7 +171,9 @@ predicate**, not SQL injection — the app role can `set_config` itself.
   `env` is the config. `Database = PgDatabase<PgQueryResultHKT, typeof schema>`,
   and a transaction `tx` IS a `Database` — no cast
 - Driver: `DATABASE_DRIVER` (`postgres`, missing = `postgres`; `loadConfig` refuses the removed
-  `neon` with the fix). URL: `PREVIEW_DATABASE_URL ?? DATABASE_URL`
+  `neon` with the fix). URL: `PREVIEW_DATABASE_URL ?? APP_DATABASE_URL ?? DATABASE_URL` for the
+  runtime (`resolveDatabaseUrl`; the app login as `rocketpod_system`), the owner's for DDL and
+  scripts (`ownerDatabaseUrl`)
 - TLS: `DATABASE_SSL` (`off|require|verify-full`, unset = the URL's `sslmode`). Every connection
   — the pool, `src/node/`'s pg-boss, OpenWorkflow and realtime clients, the scripts — is opened
   with `databaseConnection(url, env)` (`src/db/tls.ts`) and spreads its `sslOption()`; a new one

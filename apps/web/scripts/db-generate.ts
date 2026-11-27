@@ -17,7 +17,7 @@ import { randomBytes } from 'node:crypto'
 import { readdirSync } from 'node:fs'
 import path from 'node:path'
 import postgres from 'postgres'
-import { APP_ROLE } from '../src/db/schema/rls'
+import { APP_ROLE, SYSTEM_ROLE } from '../src/db/schema/rls'
 import {
   describeMigrationFailure,
   newMigrationFiles,
@@ -50,16 +50,18 @@ async function scratchCheck(added: string[]): Promise<number> {
       console.log(`· scratch check skipped: could not create a scratch database (${message}).`)
       return 0
     }
-    // Policies name the app role; it is cluster-wide, so it exists wherever `db:migrate` ran.
-    // On a fresh cluster, create it the way `db-roles.ts` does (NOLOGIN, nothing granted).
-    await admin.unsafe(
-      `DO $do$ BEGIN
-         IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${APP_ROLE}') THEN
-           CREATE ROLE "${APP_ROLE}" NOLOGIN;
-         END IF;
-       EXCEPTION WHEN duplicate_object THEN NULL;
-       END $do$`
-    )
+    // Policies name the app and system roles; they are cluster-wide, so they exist wherever
+    // `db:migrate` ran. On a fresh cluster, create them the way `db-roles.ts` does (NOLOGIN, nothing granted).
+    for (const role of [APP_ROLE, SYSTEM_ROLE]) {
+      await admin.unsafe(
+        `DO $do$ BEGIN
+           IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${role}') THEN
+             CREATE ROLE "${role}" NOLOGIN;
+           END IF;
+         EXCEPTION WHEN duplicate_object THEN NULL;
+         END $do$`
+      )
+    }
     try {
       await runMigrations(withDatabase(databaseUrl, name), {
         migrationsFolder: MIGRATIONS,

@@ -62,6 +62,9 @@ nudge), never a crash.
 - **TLS to Postgres** is `DATABASE_SSL` for every connection (`src/db/tls.ts`,
   `docs/DEPLOY.md` § TLS to Postgres); the image trusts the AWS RDS CA bundle via
   `NODE_EXTRA_CA_CERTS` and runs on a read-only root, writing only to `/tmp` (a declared `VOLUME`)
+- **Two logins** (`docs/TENANT-ISOLATION.md`): with `APP_DATABASE_URL` set every runtime
+  connection (pool, pg-boss, OpenWorkflow, realtime) is that non-owner login, as `rocketpod_system`;
+  the owner `DATABASE_URL` is for the migrate one-shot. Nothing in `web`/`worker` runs DDL
 - **One database pool per process** (`DATABASE_POOL_MAX`); `openDatabase(config)` returns a view
   over it whose `close()` is a no-op. pg-boss and OpenWorkflow keep their own small pools, and the
   realtime listener holds one direct connection (`DATABASE_LISTEN_URL` behind PgBouncer)

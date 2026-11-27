@@ -7,7 +7,7 @@
  */
 import postgres from 'postgres'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { APP_ROLE } from '@/db/schema/rls'
+import { APP_ROLE, SYSTEM_ROLE } from '@/db/schema/rls'
 import { applyDbRoles } from '../../scripts/db-roles'
 import { testDatabaseUrl } from '../helpers/db'
 import { isEphemeralTestRun } from '../helpers/db-safety'
@@ -52,7 +52,7 @@ describe.skipIf(EPHEMERAL)(`db-roles as a non-superuser owner (Neon)${SKIPPED}`,
 
   it('runs the role phase and leaves the app role unable to bypass RLS', async () => {
     await expect(
-      applyDbRoles({ databaseUrl: ownerUrl(), phase: 'role', quiet: true })
+      applyDbRoles({ databaseUrl: ownerUrl(), appDatabaseUrl: '', phase: 'role', quiet: true })
     ).resolves.toMatchObject({ revoked: [] })
 
     const [attrs] = await superuser<
@@ -110,7 +110,7 @@ describe.skipIf(EPHEMERAL)(
 
     it('runs the role phase without touching attributes that are already off', async () => {
       await expect(
-        applyDbRoles({ databaseUrl: leanUrl(), phase: 'role', quiet: true })
+        applyDbRoles({ databaseUrl: leanUrl(), appDatabaseUrl: '', phase: 'role', quiet: true })
       ).resolves.toMatchObject({ revoked: [] })
       const [attrs] = await admin<{ rolcreatedb: boolean; rolcreaterole: boolean }[]>`
       SELECT rolcreatedb, rolcreaterole FROM pg_roles WHERE rolname = ${APP_ROLE}`
@@ -118,3 +118,74 @@ describe.skipIf(EPHEMERAL)(
     })
   }
 )
+
+/**
+ * The app login (`APP_DATABASE_URL`) on a database whose bootstrap REVOKEd CONNECT from PUBLIC, the
+ * shape an outside bootstrap may leave. Without the role phase's own `GRANT CONNECT` the login
+ * could not open a connection at all; without NOINHERIT it would hold the system role's
+ * privileges itself, so a `RESET ROLE` would still read every tenant.
+ */
+describe.skipIf(EPHEMERAL)(`db-roles: the app login${SKIPPED}`, () => {
+  const suffix = crypto.randomUUID().replaceAll('-', '').slice(0, 12)
+  const scratchDb = `rf_connect_${suffix}`
+  const login = `rf_login_${suffix}`
+  const admin = postgres(testDatabaseUrl(), { max: 1, onnotice: () => {} })
+  const at = (user: string, password: string) => {
+    const url = new URL(testDatabaseUrl())
+    url.username = user
+    url.password = password
+    url.pathname = `/${scratchDb}`
+    return url.toString()
+  }
+  const owner = new URL(testDatabaseUrl())
+  const ownerUser = decodeURIComponent(owner.username)
+  const ownerAt = () => at(ownerUser, decodeURIComponent(owner.password))
+
+  beforeAll(async () => {
+    await admin.unsafe(`CREATE DATABASE ${scratchDb}`)
+    await admin.unsafe(`REVOKE CONNECT ON DATABASE ${scratchDb} FROM PUBLIC`)
+  })
+
+  afterAll(async () => {
+    await admin.unsafe(`DROP DATABASE IF EXISTS ${scratchDb} WITH (FORCE)`)
+    await admin.unsafe(`DROP ROLE IF EXISTS ${login}`)
+    await admin.end({ timeout: 5 })
+  })
+
+  it('creates a NOINHERIT login that can connect and holds both roles with SET only', async () => {
+    await expect(
+      applyDbRoles({
+        databaseUrl: ownerAt(),
+        appDatabaseUrl: at(login, 'login_pw'),
+        phase: 'all',
+        quiet: true,
+      })
+    ).resolves.toMatchObject({ login })
+
+    const asLogin = postgres(at(login, 'login_pw'), { max: 1, onnotice: () => {} })
+    try {
+      const [roles] = await asLogin<{ user: string; set: boolean; app: boolean; uses: boolean }[]>`
+        select current_user as user,
+               pg_has_role(current_user, ${SYSTEM_ROLE}, 'SET') as set,
+               pg_has_role(current_user, ${APP_ROLE}, 'SET') as app,
+               pg_has_role(current_user, ${SYSTEM_ROLE}, 'USAGE') as uses`
+      expect(roles).toEqual({ user: login, set: true, app: true, uses: false })
+    } finally {
+      await asLogin.end({ timeout: 5 })
+    }
+  })
+
+  it('refuses the owner or a policy role as the app login, before connecting', async () => {
+    for (const user of [ownerUser, APP_ROLE, SYSTEM_ROLE]) {
+      await expect(
+        applyDbRoles({
+          databaseUrl: ownerAt(),
+          appDatabaseUrl: at(user, 'x'),
+          phase: 'role',
+          quiet: true,
+          maxAttempts: 1,
+        })
+      ).rejects.toThrow(/APP_DATABASE_URL must/)
+    }
+  })
+})

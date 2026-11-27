@@ -116,7 +116,11 @@ const coreConfigSchema = z.object({
   TENANCY_MODE: z.enum(['multi', 'single']).default('multi'),
   /** Who may create an account. */
   SIGNUP_MODE: z.enum(['open', 'invite_only', 'approval']).default('invite_only'),
-  /** `enforce` wraps tenant-scoped work in a transaction with `set_config(..., true)`. */
+  /**
+   * `enforce` wraps tenant-scoped work (`withTenantScope`) in a transaction that switches to the
+   * tenant role and sets `app.tenant_id`, so row-level security binds. Needs `APP_DATABASE_URL`:
+   * on the owner connection the policies are bypassed, so `enforce` there would enforce nothing.
+   */
   TENANT_SCOPE_MODE: z.enum(['off', 'enforce']).default('off'),
   /**
    * `postgres` (postgres.js — any Postgres, Neon included, over TCP) is the only driver. Missing
@@ -443,10 +447,18 @@ const coreConfigSchema = z.object({
   // ---- Secrets (.env locally, the deployment's secret store deployed) — all optional here;
   //      features gate on presence (zero-creds first run) or demand them at use time. -------
   /**
-   * The owner connection string: THE connection for the Node server (its process pool), the
-   * scripts and the tests.
+   * The owner connection string: migrations, the scripts and the tests — and the Node server's
+   * own connections too while `APP_DATABASE_URL` is unset.
    */
   DATABASE_URL: optionalString,
+  /**
+   * A separate, NON-owner login for the web and worker processes (docs/TENANT-ISOLATION.md). Set,
+   * every runtime connection (the pool, pg-boss, OpenWorkflow, realtime) uses it as the system
+   * role, and the migrate one-shot (`DATABASE_URL`, the owner) creates the login, sets its
+   * password and grants it what the runtime needs. Its user is any role name but the owner's,
+   * `rocketpod_app` or `rocketpod_system` (`scripts/db-roles.ts`).
+   */
+  APP_DATABASE_URL: optionalString,
   /** Per-PR database branch; when set it wins over DATABASE_URL (see db/client.ts). */
   PREVIEW_DATABASE_URL: optionalString,
   /**
@@ -538,11 +550,25 @@ const configSchema = coreConfigSchema.extend(pluginConfigShape).superRefine((cfg
   }
   // DATABASE_SSL and a URL's own `sslmode` would give different connections different TLS
   // (the two drivers rank them oppositely): one place decides, so a URL carrying one is refused.
-  for (const key of ['DATABASE_URL', 'PREVIEW_DATABASE_URL', 'DATABASE_LISTEN_URL'] as const) {
+  for (const key of [
+    'DATABASE_URL',
+    'APP_DATABASE_URL',
+    'PREVIEW_DATABASE_URL',
+    'DATABASE_LISTEN_URL',
+  ] as const) {
     const url = cfg[key] as string | undefined
     const ssl = { DATABASE_SSL: cfg.DATABASE_SSL as string | undefined }
     const conflict = url ? databaseSslConflict(url, ssl, key) : undefined
     if (conflict) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [key], message: conflict })
+  }
+  // The owner bypasses every policy: `enforce` on it would look enforced and enforce nothing.
+  if (cfg.TENANT_SCOPE_MODE === 'enforce' && !cfg.APP_DATABASE_URL) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['TENANT_SCOPE_MODE'],
+      message:
+        'TENANT_SCOPE_MODE=enforce needs APP_DATABASE_URL — the owner connection bypasses row-level security',
+    })
   }
   // An OIDC-only login page with no issuer would offer no way in at all.
   if (cfg.AUTH_OIDC_ONLY && !(cfg.OIDC_ISSUER && cfg.OIDC_CLIENT_ID)) {

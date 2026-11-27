@@ -20,6 +20,7 @@ import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core'
 import { drizzle as drizzlePostgres } from 'drizzle-orm/postgres-js'
 import postgres from 'postgres'
 import * as schema from './schema'
+import { SYSTEM_ROLE } from './schema/rls'
 import { type DatabaseTls, databaseConnection, sslOption } from './tls'
 
 export type Database = PgDatabase<PgQueryResultHKT, typeof schema>
@@ -57,6 +58,11 @@ export interface DatabaseEnv {
   DATABASE_DRIVER?: string
   PREVIEW_DATABASE_URL?: string
   DATABASE_URL?: string
+  /**
+   * A separate, non-owner login for the runtime (web, worker): set, every runtime connection uses
+   * it, as the system role (`runtimeDatabaseUrl`). The owner `DATABASE_URL` is then for migrate.
+   */
+  APP_DATABASE_URL?: string
   /** `off|require|verify-full`; unset = the URL decides (`./tls.ts`). */
   DATABASE_SSL?: string
 }
@@ -74,16 +80,45 @@ export function databaseDriver(env: Pick<DatabaseEnv, 'DATABASE_DRIVER'>): Datab
 }
 
 /**
- * The connection string: `PREVIEW_DATABASE_URL ?? DATABASE_URL`. A preview deployment's own
- * database wins over the shared one.
+ * The OWNER connection string: `PREVIEW_DATABASE_URL ?? DATABASE_URL`. A preview deployment's own
+ * database wins over the shared one. Migrations, the engines' schema installs and the scripts use
+ * it; the runtime uses `resolveDatabaseUrl`.
  */
-export function resolveDatabaseUrl(env: DatabaseEnv): string {
+export function ownerDatabaseUrl(env: DatabaseEnv): string {
   databaseDriver(env)
   const url = env.PREVIEW_DATABASE_URL || env.DATABASE_URL
   if (!url) {
     throw new Error('No database connection available: set DATABASE_URL')
   }
   return url
+}
+
+/**
+ * The RUNTIME connection string — what the web and worker processes (the pool, pg-boss,
+ * OpenWorkflow, realtime) dial. `APP_DATABASE_URL` set (and no preview database): that login, as
+ * the system role (`runtimeDatabaseUrl`). Otherwise the owner's, exactly as before.
+ */
+export function resolveDatabaseUrl(env: DatabaseEnv): string {
+  databaseDriver(env)
+  if (env.APP_DATABASE_URL && !env.PREVIEW_DATABASE_URL) {
+    return runtimeDatabaseUrl(env.APP_DATABASE_URL)
+  }
+  return ownerDatabaseUrl(env)
+}
+
+/**
+ * An app login's URL with `options=-c role=rocketpod_system`: every session starts as the
+ * cross-tenant system role (`schema/rls.ts`), which the login holds with SET but not INHERIT —
+ * so the login itself has no privilege at all, a `RESET ROLE` leaves a connection that can read
+ * nothing, and `withTenantScope` narrows a transaction to the tenant role. Both drivers send
+ * `options` as the startup parameter Postgres reads; an `options` the URL already carries is kept.
+ */
+export function runtimeDatabaseUrl(appDatabaseUrl: string): string {
+  const parsed = new URL(appDatabaseUrl)
+  const existing = parsed.searchParams.get('options')
+  const role = `-c role=${SYSTEM_ROLE}`
+  parsed.searchParams.set('options', existing ? `${existing} ${role}` : role)
+  return parsed.toString()
 }
 
 // ---- The process pool (Node) ----------------------------------------------------------------
@@ -339,7 +374,7 @@ export function getScriptDatabase(
   const key = `${databaseDriver(scoped)} ${scoped.DATABASE_SSL ?? ''} ${url}`
   let handle = scriptHandles.get(key)
   if (!handle) {
-    const resolved = resolveDatabaseUrl(scoped)
+    const resolved = ownerDatabaseUrl(scoped)
     handle = createDatabase(resolved, { max, ...sslOption(databaseConnection(resolved, scoped)) })
     scriptHandles.set(key, handle)
   }

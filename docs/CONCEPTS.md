@@ -157,7 +157,8 @@ suites on vitest 4, §9 — never part of the gate).
   be made later from a MANUAL membership. An `idp` row is read-only in the app — role change and
   removal answer 409 `idp_managed` (People shows a "Managed" badge instead of controls); manual
   rows in the same tenant work as ever.
-- **Isolation = predicates + inert RLS (D1)** — §4, `docs/RLS.md`.
+- **Isolation = predicates + RLS (D1)** — §4, `docs/RLS.md`; the layers, the separate app login
+  and what each guarantees: `docs/TENANT-ISOLATION.md`.
 
 **Known gaps:** no IdP group sync (SCIM/SAML claims); no group hierarchy or per-group roles;
 conversations, runs, prompts and non-Knowledge files have no visibility; agent-written documents
@@ -424,7 +425,7 @@ per-PR previews; no public tunnel for OAuth callbacks in dev (use your own, e.g.
 - **One driver, postgres.js (D35)**. postgres.js reaches any Postgres, Neon included, over TCP.
   `DATABASE_DRIVER` remains, accepting only `postgres` (missing means it), and
   `neon` fails config validation naming the fix. `openDatabase(env)` (`db/client.ts`) is the one
-  resolver — URL `PREVIEW_DATABASE_URL ?? DATABASE_URL`. The Node entry installs ONE pool per
+  resolver — URL `PREVIEW_DATABASE_URL ?? APP_DATABASE_URL ?? DATABASE_URL`. The Node entry installs ONE pool per
   process (`installProcessPool`, `DATABASE_POOL_MAX`, default 10, named prepared statements on)
   and every `openDatabase` for that URL is a view of it whose `close()` is a no-op; the pool is
   ended once on shutdown (tests and scripts open their own clients). The connection is pooled, so
@@ -444,6 +445,16 @@ per-PR previews; no public tunnel for OAuth callbacks in dev (use your own, e.g.
   there — and `src/node/database-tls.ts` refuses to start on a bundle path that is missing or holds
   no certificate. `tests/config/database-tls.test.ts` watches each factory's first message on the
   wire. Operations: `docs/DEPLOY.md` § TLS to Postgres.
+- **Two logins: the owner and the app (`APP_DATABASE_URL`).** Unset, every connection is the
+  owner's (`DATABASE_URL`), as before. Set, the web and worker processes dial it for everything —
+  the pool, pg-boss, OpenWorkflow, realtime — through `resolveDatabaseUrl`, with `options=-c
+  role=rocketpod_system`; the owner (`ownerDatabaseUrl`) is left to the migrate one-shot, the
+  engines' schema installs and the scripts. Migrate creates the login NOINHERIT with the two
+  NOLOGIN policy roles granted, and CONNECT; the engine installers grant `rocketpod_system` their
+  schemas (`src/node/engine-grants.ts`). The test suite's requests run on such a login
+  (`.env.test`), its fixtures on the owner. `TENANT_SCOPE_MODE=enforce` needs it. The layers and
+  what each guarantees: `docs/TENANT-ISOLATION.md`; operations: `docs/DEPLOY.md` § Two database
+  logins.
 - **The driver seam: code never sees the driver** (`src/db/CLAUDE.md`). `db/client.ts` is the only
   place it is named; everything else is normalised there or banned. Normalised: a raw
   `db.execute()` is `unknown` (`Database` is drizzle's `PgDatabase` base) and is read with
@@ -506,7 +517,7 @@ per-PR previews; no public tunnel for OAuth callbacks in dev (use your own, e.g.
   whole gate's tests where there is no Docker — a coding sandbox, whose orchestrator creates a
   throwaway database branch per gate attempt and passes its owner connection string, reached by
   postgres.js over TCP. The runner sets `TEST_DATABASE_EPHEMERAL=1` and an empty
-  `APP_DATABASE_URL` (the app role stays NOLOGIN) and runs every web project.
+  `APP_DATABASE_URL` (no app login: the suite runs on the owner) and runs every web project.
   `TEST_DATABASE_EPHEMERAL=1` without a branch is refused. `safetyCheck()`
   (`tests/helpers/db-safety.ts`) still refuses any non-local `DATABASE_URL` unless ALL hold: that
   profile, a `*.neon.tech` host, `TEST_DATABASE_BRANCH` matching `^gate-[a-z0-9]+-\d+$`, and
@@ -539,10 +550,13 @@ per-PR previews; no public tunnel for OAuth callbacks in dev (use your own, e.g.
 - **Cross-tenant allow-list**: `tests/config/unscoped-allowlist.test.ts` fails a function that
   queries a `tenant_id` table without naming a tenant. Each exception carries a reason. It does
   not prove `admin.ts` is the only cross-tenant surface.
-- **RLS** ships inert: every tenant table has `tenantIsolation()` (enforced by `rls-coverage`),
-  and `TENANT_SCOPE_MODE=enforce` waits on the spike in `docs/RLS.md`.
+- **RLS**: every tenant table has `tenantIsolation()` (enforced by `rls-coverage`), one policy for
+  the tenant role (`app.tenant_id`) and the cross-tenant system role. Inert on the owner; on the
+  app login the system role reads every row outside a scope, and `withTenantScope(…, 'enforce')`
+  narrows a transaction to the tenant role (`rls-enforcement.test.ts` proves it binds).
+  `TENANT_SCOPE_MODE=enforce` waits on the spike in `docs/RLS.md`.
 
-**Known gaps:** the RLS spike has not been run; no read replicas; with `DATABASE_SSL` set, no
+**Known gaps:** the RLS spike has not been run; only the MCP server's tool calls run in a tenant scope (every other path works as the system role on an app login, guarded by the predicates); no audit table for system-role reads; no read replicas; with `DATABASE_SSL` set, no
 client certificates (`sslcert`/`sslkey` are URL-only, with `DATABASE_SSL` unset) and no
 `sslrootcert` — another CA goes through `NODE_EXTRA_CA_CERTS`; `pnpm db:generate`'s scratch
 database (local only) ignores `DATABASE_SSL`; three pools per process (above); the process pool turns named

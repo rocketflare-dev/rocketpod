@@ -102,8 +102,10 @@ deliberately outside `index.ts`. pg-boss (`src/node/jobs-schema.ts`) and OpenWor
 
 ## Row-level security — read before adding a table
 
-RLS scaffolding ships inert (`TENANT_SCOPE_MODE=off`; the `rocketpod_app` role is NOLOGIN). Policies still
-exist in every environment so enabling enforcement later is a config change, not a migration.
+Policies exist in every environment and name two NOLOGIN roles: `rocketpod_app` (one tenant) and
+`rocketpod_system` (every row, what an app login works as outside a scope). They are inert on the
+owner and bind on the app login (`APP_DATABASE_URL`, `docs/TENANT-ISOLATION.md`), so enabling
+enforcement is a config change, not a migration.
 `tests/api/rls-coverage.test.ts` reads the live catalog, so every table must do ONE of:
 
 1. **Has `tenant_id`** → add `tenantIsolation('<table_name>')` to its extraConfig array.

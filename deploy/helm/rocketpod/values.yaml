@@ -51,6 +51,10 @@ config:
   STORAGE_REGION: us-east-1
   STORAGE_BUCKET: ""
   STORAGE_FORCE_PATH_STYLE: "false"
+  # "true": uploads PUT straight to the bucket over a presigned URL (needs a bucket CORS rule for
+  # APP_URL, docs/DEPLOY.md § Direct uploads); "false": through the pod's /api/upload-content,
+  # streamed, up to 50 MiB a file — which the ingress's proxy-body-size must also admit.
+  STORAGE_DIRECT_UPLOADS: "false"
   # The storage tenant fence (docs/TENANT-ISOLATION.md): off | shadow | on. shadow and on assume
   # FILES_ROLE_ARN once per tenant (session tag tenant=<id>); shadow logs storage.fence_denied and
   # still serves, on refuses. The pod's identity must be allowed sts:AssumeRole + sts:TagSession.

@@ -37,9 +37,11 @@ worker loops. Keeping the entry out of `api/index.ts` is what lets tests drive
 4. `securityHeaders` — **returns a 101 untouched**; the `embeddable` opt-in is for a route that has
    PROVED the content type, never a path allowlist (a plugin route: `ctx.embeddable(type)`)
 5. `apiBodyLimit` (1 MB) on `/api/*`, `jsonBodyLimit` on `/auth/*`, `/mcp`, `/mcp/*`, `/oauth/*`
-   and each plugin `apiPrefixes` entry outside `/api` — beneath `UPLOAD_PATHS` / `uploadPaths` only a non-JSON body is let past
-   1 MB, up to 10 MB + 64 KB, and each upload route caps itself tighter; a plugin's `uploadLimits`
-   lifts that for one EXACT path (≤ 50 MiB, checked first); a plugin public mount's
+   and each plugin `apiPrefixes` entry outside `/api` — a file is an upload TARGET of
+   `/api/uploads`, never a route taking the bytes; what lifts the cap: the server's own upload URL
+   `/api/upload-content/:id` (`STORAGE_DIRECT_UPLOADS` off; the largest target's `maxBytes`,
+   within `MAX_SERVER_UPLOAD_BYTES`, 50 MiB), a plugin's DEPRECATED `uploadPaths` (10 MB + 64 KB,
+   non-JSON) and `uploadLimits` (one exact path, ≤ 50 MiB); a plugin public mount's
    `bodyLimitBytes` replaces it beneath its prefix
 6. `cors` (before CSRF so preflights are answered; **bypassed for `Upgrade: websocket` and for
    `/mcp`, `/oauth/token`, `/oauth/revoke` and the OAuth `.well-known` documents** — `isMcpPath`

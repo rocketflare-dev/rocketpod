@@ -29,6 +29,7 @@ import { getAgent, isAgentKey } from './services/agents/registry'
 import { sweepRun } from './services/agents/runs'
 import { pruneInvitationSendCounters, pruneInvitations } from './services/invitations'
 import { runPruneMcp } from './services/mcp/retention'
+import { prunePendingUploads } from './services/uploads/service'
 import type { AppBindings } from './types'
 import { type Logger, loggerFor } from './utils/core/logger'
 import { pruneTenantCreationCounters } from './utils/db/tenant-helpers'
@@ -299,6 +300,19 @@ export const pruneEvents: ScheduledTask = {
   },
 }
 
+/**
+ * Uploads whose URL and confirm window are both over: an unconfirmed one loses its object (it was
+ * never recorded, or its confirm failed), a confirmed one its row — and, for a core target, its
+ * object too when no `files` row records the key.
+ */
+export const prunePendingUploadsTask: ScheduledTask = {
+  name: 'prunePendingUploads',
+  async run({ db, platform, logger }) {
+    const result = await prunePendingUploads(db, platform)
+    logger.info(result, 'prunePendingUploads: removed expired uploads')
+  },
+}
+
 /** Nightly retention for the MCP server: the call log, expired tokens, spent OAuth requests. */
 export const pruneMcp: ScheduledTask = {
   name: 'pruneMcp',
@@ -310,7 +324,14 @@ export const pruneMcp: ScheduledTask = {
 
 /** Cron expression → tasks. The registry IS the schedule: nothing else lists an expression. */
 const CORE_SCHEDULED_TASKS: Record<string, ScheduledTask[]> = {
-  '0 4 * * *': [pruneExpired, pruneAiSpans, pruneEvents, pruneAgentTurns, pruneMcp],
+  '0 4 * * *': [
+    pruneExpired,
+    pruneAiSpans,
+    pruneEvents,
+    pruneAgentTurns,
+    pruneMcp,
+    prunePendingUploadsTask,
+  ],
   '*/10 * * * *': [sweepLostRuns, sendReminders],
 }
 

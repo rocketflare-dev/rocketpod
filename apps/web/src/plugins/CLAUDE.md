@@ -323,10 +323,18 @@ release.
 - **A route serving a PDF a page frames calls `ctx.embeddable(row.contentType)`** — the type from
   YOUR row, before any 304 early return; only an `EMBEDDABLE_MIME_TYPES` type is let through
   (`SAMEORIGIN` + `frame-ancestors 'self'` for that response). Never a header of your own.
-- **A file above 10 MB** goes to an exact path in `uploadLimits` (`{ '/api/<id>/upload': bytes }`,
-  ≤ 50 MiB, `uploadLimitIssues`), never a wider `uploadPaths` prefix; the route still mounts its
-  own `bodyLimit` and checks each file. The ingress in front needs `proxy-body-size` raised to
-  match (`docs/DEPLOY.md`).
+- **A file upload is an `uploadTargets` entry** (`PluginUploadTarget`, `<id>.<name>`, ≤ 5 GiB,
+  `uploadTargetIssues`), never a route taking the bytes. Its `permission: { action, subject }` is
+  REQUIRED and the host checks it before `prepare` (as core checks `create File`). `prepare` makes
+  any further check and validates `fields` before any URL is handed out; a key it answers must sit
+  under `tenants/<tenantId>/<id>/` and contain the `uploadId` (else 500 `upload_key_invalid`) —
+  omit `key` for the default; `confirm` gets the stored object's key, size and type (already
+  checked against the declaration), `read()` and the tenant's `storage`, and answers the response.
+  The client is `api.upload('<id>.<name>', file, { fields })`. With `STORAGE_DIRECT_UPLOADS` off
+  the bytes come through the server's own URL, capped at `MAX_SERVER_UPLOAD_BYTES` (50 MiB), so a
+  larger `maxBytes` needs direct uploads on (413 `directUploads: false` otherwise). CONCEPTS §16.
+  `uploadPaths` / `uploadLimits` (a multipart route taking the bytes) still work but are
+  DEPRECATED: never add one; move an existing one to `uploadTargets`.
 - **`settingsTabs(ctx)`** append after the kit's; a tab (`PluginSettingsTab`) may carry a `guard`
   — the same `NavGuard`, checked by the host — so `{ feature: '<id>' }` hides it in an organisation
   without the feature, which `can` cannot (a plugin's grants hold in every organisation).

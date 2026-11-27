@@ -56,8 +56,12 @@ takes), `jobEnvelopeSchema` (`+ id, enqueuedAt, attempt?`, what the consumer par
 `files.ts` — `FILE_SCOPES`/`fileScopeSchema`, `MAX_UPLOAD_BYTES`, `AVATAR_MIME_TYPES`/`isAvatarMimeType`,
 `INLINE_MIME_TYPES`/`isInlineMimeType` (served `Content-Disposition: inline`) and
 `EMBEDDABLE_MIME_TYPES`/`isEmbeddableMimeType` (may ALSO be framed) — two lists on purpose, because
-inline and framable are different properties, `filePath(id)`, `fileSchema`/`uploadResponseSchema`,
-`uploadQuerySchema` (D23) ·
+inline and framable are different properties, `filePath(id)`, `fileSchema`/`uploadResponseSchema` (D23) ·
+`uploads.ts` — the upload flow: `CORE_UPLOAD_TARGETS`, `UPLOAD_TARGET_PATTERN`
+(`<name>` or `<plugin id>.<name>`), `UPLOAD_URL_TTL_SECONDS`, `createUploadRequestSchema`
+(`{ target, name, contentType, size, fields? }`), `createUploadResponseSchema` (`{ uploadId, method:
+'PUT', url, headers, expiresAt }`), `confirmUploadPath(id)` — `/api/uploads`, the UI's `api.upload`
+and the CLI's `upload` ·
 `jobs.ts` also carries `document.index` (`{ tenantId, documentId }` — re-index a `documents` row, D18) ·
 **`ai/`** (Phase 3, D17/D18/D32; barrel `ai/index.ts`, deep imports `@rocketpod/shared/ai/<file>` equally valid):
 `config.ts` — `AI_PROVIDERS`/`aiProviderSchema` (append LAST: the DB column is a text enum; `typesafe`

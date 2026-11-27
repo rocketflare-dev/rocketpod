@@ -109,6 +109,13 @@ missing key. `shadow` is the rollout aid: a stream body can be sent only once, s
 session, logging a denial; an AssumeRole failure is logged `storage.fence_session_failed` and
 served. `on` or `shadow` without `FILES_ROLE_ARN` is a config error.
 
+A presigned upload `PUT` (`presignPut`, `STORAGE_DIRECT_UPLOADS=true`) is a call like any other:
+the key passes the tenant check first, and under `on` the URL is signed with the tenant's session —
+renewed first when it would expire before the URL's 10 minutes, and the answered `expiresAt` is the
+earlier of the two — so the bucket refuses a write outside the prefix even from a browser holding
+the URL. Under `shadow` it is signed with the process's credentials (the browser's request cannot
+fall back).
+
 The contract the infrastructure provides (`docs/DEPLOY.md` § The storage tenant fence): a files
 role the app's identity may assume and tag, whose permissions interpolate the `tenant` tag into the
 object ARN and the `s3:prefix` condition, and a bucket that, once fenced, admits object calls from
@@ -147,8 +154,9 @@ The storage fence, independently:
   that forgets its predicate is caught by layer 1's guard, not by RLS.
 - **The job and run engines' tables** sit outside RLS. Payloads carry ids; each handler names its
   tenant.
-- **Presigned URLs** are not issued: every object passes through the server, so the fence covers
-  every byte a browser reads or writes.
+- **Presigned URLs** are issued for uploads only, with `STORAGE_DIRECT_UPLOADS` on: one key, one
+  type and length, write-once, 10 minutes. A leaked URL is usable by anyone holding it until it
+  expires or the object exists. Every read still passes through the server.
 - **The storage fence's process.** The app's identity may assume the files role for ANY tenant;
   the fence defends against a call site that names the wrong tenant or a key that escapes its
   prefix, not against code that chooses to assume another tenant's session.

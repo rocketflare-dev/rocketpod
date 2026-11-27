@@ -34,6 +34,11 @@ the same commit, so the next port starts from it.
 | A test overriding `kv.get` to make a limiter fail | `mcpTestEnv({ rateLimiter: { check } })` — replace the platform member |
 | A new settings tab | Add its rail `group` (`tabs.ts`) |
 | Upstream's `dev:tunnel` script, `cfld`, `.dev.vars`, "ChatGPT cannot reach `wrangler dev`" | Any tunnel to :3000 with `APP_URL` + `DEV_ALLOWED_HOSTS` in `apps/web/.env` (`SETUP.md` §1.10); the ChatGPT note does not apply |
+| The R2 key pair (`R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY`, `R2_ACCOUNT_ID`, `FILES_BUCKET_NAME`) deciding direct uploads | `STORAGE_DIRECT_UPLOADS` (`true` or `false`, default `false`); the bucket CORS rule is a `docs/DEPLOY.md` § Direct uploads step, never provisioned |
+| `services/uploads/sigv4.ts` (SigV4 over WebCrypto) | `StorageService.presignPut` (`@aws-sdk/s3-request-presigner`, pinned with `client-s3`), reached through the tenant's storage handle so the fence signs it |
+| The Worker's own upload URL (`localUploadRouter`, `receiveLocalUpload`, `LOCAL_UPLOAD_PREFIX`, `MAX_WORKER_UPLOAD_BYTES`, `workerUpload: { maxBytes: fn }`) | The server's (`serverUploadRouter`, `receiveServerUpload`, `SERVER_UPLOAD_PREFIX`, `MAX_SERVER_UPLOAD_BYTES` = 50 MiB in every environment, `serverUpload: { maxBytes: number }`), streamed with `putStream` |
+| R2 `put(key, body, { onlyIf: … })` answering `null` | `put` / `putStream` with `ifAbsent: true`, throwing `StorageObjectExistsError` |
+| `pending_uploads.bucket`, a target's `bucket: { binding, name(env) }`, `ConfirmedUpload.bucket: R2Bucket` | Dropped (one store); `confirm` gets `storage: StorageService` |
 | Two migrations in one release | Generated together as one when both schema files land at once (as 0.39.0's did) |
 | `rocketflare-dev/rocketflare` (the kit's own repository: a clone URL, `detach.sh`'s origin check) | `rocketflare-dev/rocketpod` **by hand** — `KIT.preservedPattern` keeps every `rocketflare-dev/*` ref, so the translator leaves it upstream's |
 | A sentence about Rocketflare itself ("it often lags behind Rocketpod", "start from Rocketpod") | Delete it: translated, it says Rocketpod about Rocketpod (0.42.0's README and `rp-design/shape.md` §6) |
@@ -76,6 +81,9 @@ the same commit, so the next port starts from it.
 | The queue name `rocketflare-jobs` | `rocketpod-jobs` |
 | Driving the Durable Object | Booting the Node server (`startServer`) and real sockets |
 | An upstream case on `fixture-agent`'s body (`agent-run-runtime.test.ts`, its `submit_answer` pair) | `test-summarize` mirrors `summarize-text`, so it follows the example's changes (0.45.0: no own pair); a case that needs another body installs one with `installAgent` in `agent-run-workflow.test.ts` |
+| `MemoryR2Bucket.put` with `onlyIf`, `env.FILES?.put(...)` in an upload test | `MemoryStorage.put` with `ifAbsent`; `stubs(env).files.put(key, body, { contentType })` |
+| `createTestEnv({ FILES: undefined })` (the unbound bucket) | `createTestEnv({ storage: null })` → 503 `storage_not_configured` |
+| A case on the Worker URL in `development` vs deployed | One case on the server URL's cap (`serverUploadMaxBytes()`); the presign's own case drives `STORAGE_DIRECT_UPLOADS` |
 
 ## Porting mechanics
 

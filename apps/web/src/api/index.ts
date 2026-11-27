@@ -63,7 +63,9 @@ import { oauthRouter, wellKnownRouter } from './routes/oauth'
 import { tenantRouter } from './routes/tenant'
 import { tenantsRouter } from './routes/tenants'
 import { tracesRouter } from './routes/traces'
+import { serverUploadRouter, uploadsRouter } from './routes/uploads'
 import { wsRouter } from './routes/ws'
+import { SERVER_UPLOAD_PREFIX, serverUploadMaxBytes } from './services/uploads/service'
 import type { AppEnv } from './types'
 import { assertNoReservedPluginPaths, isApiPath } from './utils/routes/api-prefixes'
 import { createRouter } from './utils/routes/router'
@@ -88,16 +90,19 @@ app.use('*', configMiddleware)
 app.use('*', platformMiddleware)
 app.use('*', securityHeaders)
 
-// 5. Reject oversized bodies before any parsing or DB work. The upload routes mount their own
-//    (larger) limit, and a public mount's `bodyLimitBytes` replaces the 1 MB cap beneath its
-//    prefix — see middleware/body-limit.ts.
+// 5. Reject oversized bodies before any parsing or DB work. No core route takes a file (uploads
+//    go through `/api/uploads`); a public mount's `bodyLimitBytes` replaces the 1 MB cap beneath
+//    its prefix; the server's own upload URL takes up to the largest target within
+//    `MAX_SERVER_UPLOAD_BYTES`; a plugin's deprecated `uploadPaths` / `uploadLimits` keep their
+//    caps — see middleware/body-limit.ts.
 app.use(
   '/api/*',
-  apiBodyLimit(
-    publicBodyLimitOverrides(publicMounts),
-    serverPlugins.flatMap(p => p.uploadPaths ?? []),
-    pluginUploadLimits(serverPlugins)
-  )
+  apiBodyLimit({
+    overrides: publicBodyLimitOverrides(publicMounts),
+    serverUpload: { prefix: SERVER_UPLOAD_PREFIX, maxBytes: serverUploadMaxBytes() },
+    pluginUploadPaths: serverPlugins.flatMap(p => p.uploadPaths ?? []),
+    uploadLimits: pluginUploadLimits(serverPlugins),
+  })
 )
 // A plugin may own a prefix outside `/api` (a protocol endpoint); it gets the JSON cap too.
 for (const prefix of serverPlugins.flatMap(p => p.apiPrefixes ?? [])) {
@@ -135,6 +140,9 @@ app.route('/auth', authRouter)
 app.route('/api/identity', identityEventsRouter)
 app.use('/api/invite/:token/accept', authRateLimit)
 app.route('/api/invite', inviteRouter)
+// The server's own upload URL, handed out when `STORAGE_DIRECT_UPLOADS` is off: the URL's token is
+// its credential, as the signature is on a presigned S3 URL, so it is not in the authed table.
+app.route(SERVER_UPLOAD_PREFIX, serverUploadRouter)
 // The MCP server: an OAuth access token is its only credential, resolved by the route itself
 // (never `authMiddleware`, which takes cookies and API keys). Its own CORS, deployment gate and
 // Origin rule are in `routes/mcp.ts`; the global CORS skips it (`middleware/cors.ts`).
@@ -174,6 +182,7 @@ const mounts: readonly (readonly [string, Hono<AppEnv>, MiddlewareHandler?])[] =
   ['/api/home', homeRouter],
   ['/api/access-requests', accessRequestsRouter],
   ['/api/files', filesRouter],
+  ['/api/uploads', uploadsRouter],
   ['/api/ai/config', aiConfigRouter],
   ['/api/ai/prompts', aiPromptsRouter],
   ['/api/ai/usage', aiUsageRouter],

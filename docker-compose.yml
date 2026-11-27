@@ -49,6 +49,9 @@ x-app: &app
     STORAGE_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:-rocketpod}
     STORAGE_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY:-rocketpod-secret}
     STORAGE_FORCE_PATH_STYLE: ${STORAGE_FORCE_PATH_STYLE:-true}
+    # The bundled gateway (http://s3:7070) is not reachable from a browser: keep uploads on the
+    # server unless STORAGE_ENDPOINT is a public store with a CORS rule (docs/DEPLOY.md).
+    STORAGE_DIRECT_UPLOADS: ${STORAGE_DIRECT_UPLOADS:-false}
     STORAGE_TENANT_FENCE: ${STORAGE_TENANT_FENCE:-off}
     FILES_ROLE_ARN: ${FILES_ROLE_ARN:-}
     ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}

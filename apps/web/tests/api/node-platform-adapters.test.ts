@@ -22,7 +22,11 @@ import { createNodeConverter, htmlToText } from '@/node/converter'
 import { createPostgresLocks, createPostgresRateLimiter } from '@/node/limits'
 import { createNodePlatform } from '@/node/platform'
 import { createS3Storage, quoteEtag, storageConfigOf } from '@/node/storage'
-import { type GetOptions, StorageRangeNotSatisfiableError } from '@/platform/types'
+import {
+  type GetOptions,
+  StorageObjectExistsError,
+  StorageRangeNotSatisfiableError,
+} from '@/platform/types'
 import { setupTestDatabase, testDatabaseUrl } from '../helpers/db'
 
 const db = setupTestDatabase()
@@ -318,6 +322,32 @@ describe('S3 storage (StorageService over the S3 API)', () => {
       storage().putStream(broken, failing, { contentType: 'video/webm' })
     ).rejects.toThrow()
     expect(await storage().head(broken)).toBeNull()
+  })
+
+  it('ifAbsent writes once: a second put, stream or multipart stream is refused and changes nothing', async ({
+    skip,
+  }) => {
+    if (!s3Reachable) skip()
+    const key = `${prefix}once/${randomUUID()}`
+    await storage().put(key, 'first', { contentType: 'text/plain', ifAbsent: true })
+    await expect(
+      storage().put(key, 'second', { contentType: 'text/plain', ifAbsent: true })
+    ).rejects.toThrow(StorageObjectExistsError)
+    await expect(
+      storage().putStream(key, new Blob(['third']).stream(), {
+        contentType: 'text/plain',
+        ifAbsent: true,
+      })
+    ).rejects.toThrow(StorageObjectExistsError)
+    // Over one part: the condition rides on CompleteMultipartUpload, not only PutObject.
+    const big = new Blob([new Uint8Array(6 * 1024 * 1024)]).stream()
+    await expect(
+      storage().putStream(key, big, { contentType: 'text/plain', ifAbsent: true })
+    ).rejects.toThrow(StorageObjectExistsError)
+    expect(await new Response((await storage().get(key))?.body).text()).toBe('first')
+    // Without it, a put still replaces.
+    await storage().put(key, 'replaced', { contentType: 'text/plain' })
+    expect(await new Response((await storage().get(key))?.body).text()).toBe('replaced')
   })
 
   it('normalises an ETag to the quoted, HTTP-ready form', () => {

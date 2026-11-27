@@ -130,15 +130,18 @@ Rules:
   `document.contextualize` are enqueued, and only when the text changed (never on `unchanged` or a
   dedupe); it reaches `../knowledge/enqueue` and `./contextualize` through a LAZY import, because `@/plugins/api` loads this file and the
   knowledge registry reads the plugin barrel (`tests/config/plugin-api-load-order.test.ts`); `ingest.ts` — `ingestText(db, cfg, env, input, { jobs })` (JSON text)
-  and `ingestFile(db, cfg, env, input, { jobs, storage })` (multipart — original to object storage
-  as a `files` row scope `documents`, `fileId` on the document). Text-like types index inline ≤ 50
+  and `ingestFile(db, cfg, env, input, { jobs, storage })` (original to object storage
+  as a `files` row scope `documents`, `fileId` on the document; `input.file` is a `Blob` to store,
+  or a `StoredOriginal { key, size, read() }` the upload flow already put in storage — then a
+  dedupe or an unchanged hash deletes that object again). Text-like types index inline ≤ 50
   chunks else a `document.index` job; PDF/Office/HTML enqueue `document.convert`
   (`convertAndIndexDocument`: storage → the platform `DocumentConverter` → the same
   `indexDocument`, shared with `queues/handlers/document-index.ts` / `document-convert.ts`).
   `convert.ts` is `needsConversion` / `canConvert` / `converterSupports` / `decodeText` /
   `convertToText` over the platform `DocumentConverter`; `ConversionFailedError` is the permanent
   case. Everything that can refuse (`resolveEmbeddings`, `canConvert`, `converterSupports`) runs
-  BEFORE any write; the upload route maps `ConversionNotConfiguredError` → 503
+  BEFORE any write — for an upload, in the `documents` target's `prepare`
+  (`services/uploads/targets.ts`), before the URL is handed out: 503
   `conversion_not_configured`, and a `convert` type the converter does not declare in
   `contentTypes` is a 415 `unsupported_media_type` (`UnsupportedConversionTypeError`)
 - **Strip NULs before storing**: every stored text — `documents.content`, `chunks.text`, every

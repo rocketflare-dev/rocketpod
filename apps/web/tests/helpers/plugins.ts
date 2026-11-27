@@ -9,6 +9,7 @@
  */
 
 import { eventNameProblem } from '@rocketpod/shared/plugins'
+import { UPLOAD_TARGET_PATTERN } from '@rocketpod/shared/uploads'
 import {
   MAX_PLUGIN_UPLOAD_LIMIT_BYTES,
   MAX_PUBLIC_MOUNT_BODY_BYTES,
@@ -199,7 +200,13 @@ export function publicMountIssues(
   return issues
 }
 
-/** A prefix that skips the 1 MB cap: only a plugin's own routes, and never its whole mount. */
+/** The largest single `PUT` S3 accepts; a target above it could never be uploaded. */
+export const MAX_UPLOAD_TARGET_BYTES = 5 * 1024 ** 3
+
+/**
+ * Deprecated `uploadPaths`: a prefix that skips the 1 MB cap — only a plugin's own routes, and never
+ * its whole mount.
+ */
 export function uploadPathIssues(id: string, paths: readonly string[]): string[] {
   const root = `/api/${id}/`
   return paths
@@ -244,6 +251,34 @@ export interface EventDeclarations {
 }
 
 const HANDLER_NAME_RE = /^[a-z][a-z0-9-]*$/
+
+/**
+ * A plugin's `uploadTargets`: each id `<plugin id>.<name>` (so none can claim a core target or
+ * another plugin's), each id once, and `maxBytes` a positive integer within a single `PUT`.
+ */
+export function uploadTargetIssues(
+  id: string,
+  targets: readonly { id: string; maxBytes: number }[] | undefined
+): string[] {
+  const issues: string[] = []
+  const seen = new Set<string>()
+  for (const target of targets ?? []) {
+    const [owner, name, ...rest] = target.id.split('.')
+    if (owner !== id || !name || rest.length > 0 || !UPLOAD_TARGET_PATTERN.test(target.id)) {
+      issues.push(`${id}: upload target '${target.id}' must be '${id}.<name>'`)
+    }
+    if (seen.has(target.id)) issues.push(`${id}: upload target '${target.id}' is declared twice`)
+    seen.add(target.id)
+    if (!Number.isInteger(target.maxBytes) || target.maxBytes <= 0) {
+      issues.push(`${id}: upload target '${target.id}' maxBytes must be a positive integer`)
+    } else if (target.maxBytes > MAX_UPLOAD_TARGET_BYTES) {
+      issues.push(
+        `${id}: upload target '${target.id}' maxBytes exceeds a single PUT (${MAX_UPLOAD_TARGET_BYTES})`
+      )
+    }
+  }
+  return issues
+}
 
 /**
  * **Declared, namespaced, once; subscribed only to what is declared**. A name outside its

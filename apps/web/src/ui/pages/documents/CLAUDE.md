@@ -12,7 +12,8 @@ viewer's below), all under the `['documents']` root so one invalidation covers t
   Paste text posts `ingestTextRequestSchema` output (blank source omitted; the server defaults it
   to `upload`); Upload file checks the pick with `validateDocumentUpload` (the shared allowlist
   `DOCUMENT_UPLOAD_ACCEPT` + `MAX_UPLOAD_BYTES`) before any request, then `useUploadDocument()`
-  posts multipart `file` (+ optional `title`/`source`) to `/api/ai/documents/upload`.
+  uploads it through the `documents` target (`api.upload`: presign → `PUT` → confirm), with
+  `title`, `source`, `visibility` and `groupIds` as the target's `fields`.
 - Neither toasts a success (the document appears in the list with its status); both invalidate
   `documents`, and the list polls every 5 s (`DOCUMENT_POLL_MS`) while a row is `pending` (there
   is no document nudge yet). Text that matches a tenant-wide document of the same source answers

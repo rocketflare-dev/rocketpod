@@ -50,6 +50,7 @@ export function fenceToTenant(storage: StorageService, tenantId: string): Storag
     deleteMany: async keys => storage.deleteMany(keys.map(check)),
     listPage: async (p, options) => storage.listPage(check(p), options),
     list: async p => storage.list(check(p)),
+    presignPut: async (key, options) => storage.presignPut(check(key), options),
   } satisfies StorageService)
 }
 

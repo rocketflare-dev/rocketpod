@@ -7,13 +7,17 @@
  * (`tenants/<tenantId>/<scope>/<uuid>-<name>`) so one prefix scopes a whole tenant for listing
  * or bulk deletion; the UUID makes every key unique regardless of the client's filename.
  *
- * Bytes stream THROUGH the server on download (no presigned URLs).
+ * Uploads go through `services/uploads` (a presigned S3 `PUT` when `STORAGE_DIRECT_UPLOADS` is
+ * on, the server's own upload URL otherwise); downloads stream THROUGH the server (no presigned
+ * GETs).
  */
 import {
   AVATAR_MIME_TYPES,
   type FileScope,
+  filePath,
   isAvatarMimeType,
   MAX_UPLOAD_BYTES,
+  type StoredFile,
 } from '@rocketpod/shared/files'
 import { eq } from 'drizzle-orm'
 import type { Database } from '../../db/client'
@@ -23,6 +27,8 @@ import { newId } from '../utils/core/ids'
 
 export type {
   GetOptions,
+  PresignedPut,
+  PresignPutOptions,
   PutOptions,
   StorageBody,
   StorageListPage,
@@ -32,7 +38,10 @@ export type {
   StoredObjectMeta,
   StoredRange,
 } from '../../platform/types'
-export { StorageRangeNotSatisfiableError } from '../../platform/types'
+export {
+  StorageObjectExistsError,
+  StorageRangeNotSatisfiableError,
+} from '../../platform/types'
 export { AVATAR_MIME_TYPES, isAvatarMimeType, MAX_UPLOAD_BYTES }
 
 export const MAX_FILENAME_LENGTH = 120
@@ -134,7 +143,7 @@ export interface StoreUploadInput {
   tenantId: string
   ownerUserId: string
   scope: FileScope
-  /** The multipart part — a Blob carries its length, which the S3 upload needs. */
+  /** The bytes — a Blob carries its length, which the S3 upload needs. */
   file: Blob
   /** The client's filename (sanitised here). */
   filename: string
@@ -144,7 +153,8 @@ export interface StoreUploadInput {
 /**
  * Put the bytes under a tenant-scoped key, then insert the `files` row that is the ONLY thing the
  * browser can name. No orphaned objects: if the row cannot be written the object is deleted again.
- * Shared by `/api/files` (avatars, generic uploads) and `/api/ai/documents/upload` (originals).
+ * Used by a plugin's `ingestDocument` with bytes it already holds; a person's upload goes straight
+ * to storage instead (`services/uploads`) and is recorded with `recordStoredFile`.
  */
 export async function storeUploadedFile(
   db: Database,
@@ -157,6 +167,41 @@ export async function storeUploadedFile(
     contentType: input.contentType,
     metadata: { tenantId: input.tenantId, ownerUserId: input.ownerUserId, scope: input.scope },
   })
+  return recordStoredFile(db, storage, {
+    tenantId: input.tenantId,
+    ownerUserId: input.ownerUserId,
+    scope: input.scope,
+    key,
+    filename,
+    contentType: input.contentType,
+    sizeBytes: input.file.size,
+  })
+}
+
+export interface RecordStoredFileInput {
+  tenantId: string
+  ownerUserId: string
+  scope: FileScope
+  /** Already in storage, under `tenants/<tenantId>/`. */
+  key: string
+  /** Already sanitised. */
+  filename: string
+  contentType: string
+  sizeBytes: number
+}
+
+/**
+ * The `files` row for an object that is already stored (a confirmed direct upload). If the row
+ * cannot be written the object is deleted, so a failure leaves neither.
+ */
+export async function recordStoredFile(
+  db: Database,
+  storage: StorageService,
+  input: RecordStoredFileInput
+): Promise<FileRow> {
+  if (!input.key.startsWith(tenantStoragePrefix(input.tenantId))) {
+    throw new Error(`files: key ${input.key} is outside the tenant's prefix`)
+  }
   try {
     const [row] = await db
       .insert(files)
@@ -164,17 +209,32 @@ export async function storeUploadedFile(
         tenantId: input.tenantId,
         ownerUserId: input.ownerUserId,
         scope: input.scope,
-        key,
-        filename,
+        key: input.key,
+        filename: input.filename,
         contentType: input.contentType,
-        sizeBytes: input.file.size,
+        sizeBytes: input.sizeBytes,
       })
       .returning()
     if (!row) throw new Error('files: insert returned no row')
     return row
   } catch (err) {
-    await storage.delete(key).catch(() => {})
+    await storage.delete(input.key).catch(() => {})
     throw err
+  }
+}
+
+/** The API's view of a `files` row: the download URL, never the key. */
+export function toStoredFile(row: FileRow): StoredFile {
+  return {
+    id: row.id,
+    tenantId: row.tenantId,
+    ownerUserId: row.ownerUserId,
+    scope: row.scope,
+    filename: row.filename,
+    contentType: row.contentType,
+    sizeBytes: row.sizeBytes,
+    url: filePath(row.id),
+    createdAt: row.createdAt,
   }
 }
 

@@ -61,6 +61,37 @@ export interface PutOptions {
   contentType: string
   /** Free-form key/value pairs stored with the object. */
   metadata?: Record<string, string>
+  /**
+   * Write only if NO object is at the key (S3's `If-None-Match: *`), checked by the store at the
+   * write itself, so two concurrent writes cannot both land. One already there →
+   * `StorageObjectExistsError`, and nothing is written.
+   */
+  ifAbsent?: boolean
+}
+
+/** What a presigned `PUT` holds the client to. All three are in the signature. */
+export interface PresignPutOptions {
+  /** The `Content-Type` the client must send. */
+  contentType: string
+  /** The exact body length the client must send (`Content-Length`). */
+  contentLength: number
+  /** How long the URL is valid for. */
+  expiresInSeconds: number
+}
+
+/** A presigned `PUT` URL: write-once (`If-None-Match: *`), one type, one length. */
+export interface PresignedPut {
+  url: string
+  /**
+   * Send exactly these with the `PUT` (`Content-Type`, `If-None-Match`). `Content-Length` is signed
+   * too but never listed: a browser sets it from the body and may not set it itself.
+   */
+  headers: Record<string, string>
+  /**
+   * When the store stops accepting the URL: `expiresInSeconds` from now, or earlier when the
+   * credentials that signed it expire first (temporary credentials from the default chain).
+   */
+  expiresAt: Date
 }
 
 export interface StoredObjectMeta {
@@ -113,6 +144,14 @@ export class StorageRangeNotSatisfiableError extends Error {
   }
 }
 
+/** A conditional write (`ifAbsent`) found an object already at the key: nothing was written. */
+export class StorageObjectExistsError extends Error {
+  constructor(readonly key: string) {
+    super(`storage: an object already exists at ${key}`)
+    this.name = 'StorageObjectExistsError'
+  }
+}
+
 /** One page of a listing: the objects, and the cursor to resume from when there are more. */
 export interface StorageListPage {
   objects: StoredObjectMeta[]
@@ -150,6 +189,13 @@ export interface StorageService {
   listPage(prefix: string, options?: { cursor?: string; limit?: number }): Promise<StorageListPage>
   /** Every object under a prefix, accumulated. Fine for a bounded prefix; `listPage` otherwise. */
   list(prefix: string): Promise<StoredObjectMeta[]>
+  /**
+   * A URL a client `PUT`s ONE object to directly, never through this process: the store itself
+   * refuses another `Content-Type`, another length, a second write to the key and a late request.
+   * Signed with the same credentials every other call on this handle uses — under the tenant fence,
+   * the tenant's own session, so the URL can write under `tenants/<tenantId>/` only.
+   */
+  presignPut(key: string, options: PresignPutOptions): Promise<PresignedPut>
 }
 
 /**

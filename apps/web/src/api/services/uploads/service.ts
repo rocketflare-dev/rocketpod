@@ -25,7 +25,11 @@
  * plugin's under its own `tenants/<tenantId>/<pluginId>/`, naming the upload id), every object call
  * goes through `platform.storage.forTenant(row.tenantId)`, and no URL is handed out for a key that
  * already holds an object. Confirm finds the row by id AND the caller's tenant AND user, so another
- * tenant's upload id is the same 404 as an unknown one.
+ * tenant's upload id is the same 404 as an unknown one. Two lookups are deliberately cross-tenant
+ * (the allow-list scan reads them as scoped, since each names `tenantId`): `receiveServerUpload`
+ * runs before any session, so the id names the row and its stored token hash is the credential;
+ * `prunePendingUploads` sweeps every tenant's expired rows in one statement, and looks confirmed
+ * keys up in `files` by key alone (a key embeds its tenant's prefix and is unique).
  */
 import { ERROR_CODES } from '@rocketpod/shared/errors'
 import {

@@ -454,7 +454,9 @@ describe('OpenWorkflow under the neutral Step', () => {
 
 // ---- The agent run, end to end ----------------------------------------------------------------
 
-describe('agent runs on the Node worker', () => {
+// Each test waits for the worker with `until` (15s, or 20s for a park to expire), so the suite's own
+// limit sits above those waits: under the 5s default a slow runner cut a 3-second park expiry short.
+describe('agent runs on the Node worker', { timeout: 30_000 }, () => {
   let runs: NodeRuns
   let platform: Platform
 

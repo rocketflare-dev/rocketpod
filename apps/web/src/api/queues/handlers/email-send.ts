@@ -1,7 +1,7 @@
 /**
- * `email.send`: deliver a pre-rendered email through `services/email.ts`. A provider
- * failure is thrown so the consumer retries with backoff; the "no RESEND_API_KEY" dev fallback is
- * a successful outcome (logged, `delivered: false`, no error) and is acked.
+ * `email.send`: deliver a pre-rendered email through `services/email.ts` and
+ * `ctx.platform.mailer`. A provider failure is thrown so the consumer retries with backoff; the
+ * no-mailer (`log`) dev fallback is a successful outcome (logged, `delivered: false`, no error) and is acked.
  */
 import type { JobOf } from '@rocketpod/shared/jobs'
 import { sendEmail } from '../../services/email'
@@ -10,7 +10,13 @@ import type { JobContext } from '../jobs'
 export async function handleEmailSend(job: JobOf<'email.send'>, ctx: JobContext): Promise<void> {
   const { to, subject, html, text, link, reason, tenantId } = job.payload
   const logger = ctx.logger.child({ reason, tenantId })
-  const result = await sendEmail(ctx.config, logger, { to, subject, html, text: text ?? '', link })
+  const result = await sendEmail(ctx.config, ctx.platform.mailer, logger, {
+    to,
+    subject,
+    html,
+    text: text ?? '',
+    link,
+  })
   if (result.error) {
     throw new Error(`email.send failed: ${result.error}`)
   }

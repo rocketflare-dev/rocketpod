@@ -23,7 +23,14 @@ config:
   # The build an agent run records per attempt (agent_runs.worker_version_id). Empty = the image tag.
   APP_VERSION_ID: ""
   LOG_LEVEL: info
+  # The sender on every email. Required with EMAIL_PROVIDER=ses (an identity SES has verified).
   EMAIL_FROM: ""
+  # log | resend | ses. Empty = resend when secrets.RESEND_API_KEY is set, else log (links in the
+  # pod logs). ses = Amazon SES v2 on the pod's AWS credentials (IRSA / the task role), no key here.
+  EMAIL_PROVIDER: ""
+  # SES's region; empty = the SDK's own (AWS_REGION). Optional SES configuration set per message.
+  SES_REGION: ""
+  SES_CONFIGURATION_SET: ""
   TENANCY_MODE: multi
   SIGNUP_MODE: invite_only
   TENANT_SCOPE_MODE: "off"

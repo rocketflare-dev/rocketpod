@@ -38,7 +38,10 @@ function stubLogger() {
 /** Issue a link the way the route does and return the verify URL (the "returned test hook"). */
 async function linkFor(email: string, env: TestEnv = createTestEnv(), redirectTo?: string) {
   const logger = stubLogger()
-  const { verifyUrl } = await requestMagicLink(db, loadConfig(env), logger, { email, redirectTo })
+  const { verifyUrl } = await requestMagicLink(db, loadConfig(env), env.mailer, logger, {
+    email,
+    redirectTo,
+  })
   return { verifyUrl, logger }
 }
 

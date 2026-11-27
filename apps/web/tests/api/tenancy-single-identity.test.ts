@@ -134,7 +134,7 @@ async function signInVia(
 
 /** Mint a magic link and press "Sign in" on its confirm page. */
 async function magicLinkSignIn(email: string, env: TestEnv = singleEnv) {
-  const { verifyUrl } = await requestMagicLink(db, loadConfig(env), logger, { email })
+  const { verifyUrl } = await requestMagicLink(db, loadConfig(env), env.mailer, logger, { email })
   const opened = await request(verifyUrl, {}, { env })
   const confirm = location(opened)
   return request(

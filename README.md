@@ -84,7 +84,7 @@ docker compose up --build             # postgres + S3 gateway → migrate → we
 
 [`docs/DEPLOY.md`](docs/DEPLOY.md) covers Compose and the Helm chart (`deploy/helm/rocketpod`).
 
-Nothing external is required: no `RESEND_API_KEY` → magic-link URLs are logged by the server; no AI
+Nothing external is required: no email provider (`RESEND_API_KEY` or `EMAIL_PROVIDER=ses`) → magic-link URLs are logged by the server; no AI
 key → chat, agents and uploads answer 503 until you set `ANTHROPIC_API_KEY` or `AI_API_KEY` (any
 OpenAI-compatible endpoint) and `EMBEDDINGS_API_KEY` in `apps/web/.env`.
 Then `pnpm gate` — lint, typecheck, test and build, the same command CI runs; `pnpm test` starts a
@@ -135,7 +135,7 @@ you removed. [`CHANGELOG.md`](CHANGELOG.md) is what you would be catching up on.
 - **Realtime** — WebSockets on the Node server, fanned out across pods with Postgres LISTEN/NOTIFY; the server "nudges" (`member.changed`, `invitation.changed`, `entity.changed { entity, id }`…) and the UI re-queries. **The database is the truth; the WebSocket is a nudge.** Reconnecting client with backoff, header status dot, outage banner.
 
 ### Email and files
-- **Email** through Resend over plain `fetch` with shared templates (magic link, invitation, accepted, access decision); absent an API key, messages are logged, never failed. Invitation mail is queued; the magic link stays inline because someone is waiting.
+- **Email** through Resend over plain `fetch` or Amazon SES v2 on the AWS SDK's default credentials (`EMAIL_PROVIDER`), with shared templates (magic link, invitation, accepted, access decision); absent a provider, messages are logged, never failed. Invitation mail is queued; the magic link stays inline because someone is waiting.
 - **File storage** on any S3-compatible store (AWS S3, MinIO, Ceph, GCS…) behind a `StorageService` seam: tenant-prefixed keys, bytes streamed through the server, an indexed `files` table, per-scope MIME and size limits, avatars wired end-to-end (upload UI → `/api/files/:id` with ETag/304).
 
 ### AI layer

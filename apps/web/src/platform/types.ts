@@ -388,6 +388,32 @@ export interface GuideContentSource {
  */
 export type PublicFetch = (url: string, init: RequestInit) => Promise<Response>
 
+// ---- Email ----------------------------------------------------------------------------------
+
+/** One rendered message, as a provider sends it: a single recipient, both bodies. */
+export interface OutgoingEmail {
+  to: string
+  /** `Name <address>` or a bare address — for SES an identity it has verified. */
+  from: string
+  subject: string
+  html: string
+  text: string
+  /** Extra MIME headers (`List-Unsubscribe`…), passed through to the provider verbatim. */
+  headers?: Record<string, string>
+}
+
+/**
+ * The transactional email provider (`EMAIL_PROVIDER`): Resend or Amazon SES. `send` resolves with
+ * the provider's message id once it accepted the message and REJECTS on any refusal (a 4xx/5xx, an
+ * unverified sender, throttling) — `services/email.ts` reports it and the `email.send` job retries.
+ * Absent = the `log` provider: nothing is sent, the message is logged (zero-creds first run).
+ */
+export interface Mailer {
+  /** Which provider this is — what a log line or a health answer names. */
+  readonly provider: 'resend' | 'ses'
+  send(message: OutgoingEmail): Promise<{ id?: string }>
+}
+
 // ---- Request lifetime -----------------------------------------------------------------------
 
 /** Work that may outlive the response (`waitUntil`). Never awaited on the response path. */
@@ -419,6 +445,8 @@ export interface Platform {
   readonly guide: GuideContentSource | null
   /** Guarded egress to a URL somebody else chose; absent = no such fetch is made (fails closed). */
   readonly publicFetch: PublicFetch | null
+  /** Transactional email (Resend or SES); absent = messages are logged, never sent. */
+  readonly mailer: Mailer | null
 }
 
 /** A platform with nothing in it — the state a bare test or a script starts from. */
@@ -432,4 +460,5 @@ export const EMPTY_PLATFORM: Platform = Object.freeze({
   converter: null,
   guide: null,
   publicFetch: null,
+  mailer: null,
 })

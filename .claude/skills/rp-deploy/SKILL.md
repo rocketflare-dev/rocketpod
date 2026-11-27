@@ -105,13 +105,13 @@ Walk it as a table of **set / missing / not needed** — never values:
 | `OAUTH_ENCRYPTION_KEY` (32+ chars) | OAuth/OIDC sign-in and tenant AI keys at rest |
 | `ANTHROPIC_API_KEY` or `AI_API_KEY` (+ `AI_BASE_URL`/`AI_MODEL`) | chat and agents |
 | `EMBEDDINGS_API_KEY` (+ `EMBEDDINGS_BASE_URL`/`EMBEDDINGS_MODEL`, 1024-dim) | knowledge uploads and search |
-| `RESEND_API_KEY` | delivering magic links and invitations (otherwise logged — magic links by `web`, queued invitations by `worker`) |
+| `RESEND_API_KEY` | delivering magic links and invitations through Resend (otherwise logged — magic links by `web`, queued invitations by `worker`); SES needs no secret: `config.EMAIL_PROVIDER=ses`, a verified `EMAIL_FROM` and `ses:SendEmail` on the pod or task role (`docs/DEPLOY.md` § Email) |
 | `GOOGLE_*`, `MICROSOFT_*`, `OIDC_CLIENT_SECRET` | the matching sign-in buttons |
 | `TYPESAFE_API_KEY`, `LANGFUSE_*`, `OTEL_EXPORTER_OTLP_HEADERS` | optional: Jev decisions, trace export |
 
 ## End of turn
 
 End with `AskUserQuestion`, not a paragraph. The choices after a deploy are: **sign in as the first
-admin** (the magic link from the `web` log or email), **set up email** (`RESEND_API_KEY`),
+admin** (the magic link from the `web` log or email), **set up email** (`RESEND_API_KEY`, or SES — `docs/DEPLOY.md` § Email),
 **add AI keys**, or **wire tracing** (`/rp-traces`). After a dry run (render only), the choice is
 whether to install now.

@@ -26,14 +26,14 @@ function logged(appEnv: 'production' | 'staging' | 'development') {
 describe('sign-in links in logs', () => {
   it('are not logged in production', async () => {
     const { logger, cfg, text } = logged('production')
-    await sendEmail(cfg, logger, message)
+    await sendEmail(cfg, null, logger, message)
     expect(text()).not.toContain('secret-token-value')
     expect(logger.warn).toHaveBeenCalled()
   })
 
   it.each(['development', 'staging'] as const)('are logged in %s', async appEnv => {
     const { logger, cfg, text } = logged(appEnv)
-    await sendEmail(cfg, logger, message)
+    await sendEmail(cfg, null, logger, message)
     expect(text()).toContain('secret-token-value')
   })
 })

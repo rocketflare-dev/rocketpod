@@ -20,7 +20,9 @@ const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
 async function issuedLink() {
   const { user } = await createTestTenantWithUser(db, 'member')
   const env = createTestEnv({ APP_ENV: 'production', APP_URL: APP })
-  const { verifyUrl } = await requestMagicLink(db, loadConfig(env), logger, { email: user.email })
+  const { verifyUrl } = await requestMagicLink(db, loadConfig(env), env.mailer, logger, {
+    email: user.email,
+  })
   return { env, user, token: new URL(verifyUrl).searchParams.get('token') as string }
 }
 

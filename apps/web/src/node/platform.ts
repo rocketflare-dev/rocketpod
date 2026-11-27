@@ -3,7 +3,8 @@
  * realtime (`ws` + LISTEN/NOTIFY — `realtime.ts`), object storage (S3 —
  * `storage.ts`, null unless `STORAGE_DRIVER=s3` is fully configured), the rate limiter and
  * operation locks (Postgres — `limits.ts`), the document converter (`converter.ts`) and the Guide's
- * static content (`guide-content.ts`) and the guarded egress (`egress.ts`). A null
+ * static content (`guide-content.ts`), the guarded egress (`egress.ts`) and the mailer
+ * (`mailer.ts` — Resend or SES per `EMAIL_PROVIDER`, null for `log`). A null
  * member is the configuration state the app already answers for (503 `storage_not_configured`,
  * a no-op realtime nudge, a run that cannot start). Models are reached through the provider keys
  * (`ANTHROPIC_API_KEY`, `AI_*`, `EMBEDDINGS_*`), not a platform member.
@@ -15,6 +16,7 @@ import {
   type GuideContentSource,
   type JobsQueue,
   type Locks,
+  type Mailer,
   type Platform,
   type PublicFetch,
   type RateLimiter,
@@ -26,6 +28,7 @@ import { createNodeConverter } from './converter'
 import { createPublicFetch } from './egress'
 import { createNodeGuideSource } from './guide-content'
 import { createPostgresLocks, createPostgresRateLimiter } from './limits'
+import { createMailer } from './mailer'
 import { createS3Storage, storageConfigOf } from './storage'
 
 export interface NodePlatformParts {
@@ -43,6 +46,7 @@ export interface NodePlatformParts {
   /** The Guide's pages and images (`guide-content.ts`); by default `content/guide`. */
   guide?: GuideContentSource | null
   publicFetch?: PublicFetch | null
+  mailer?: Mailer | null
 }
 
 export function createNodePlatform(config: AppConfig, parts: NodePlatformParts = {}): Platform {
@@ -59,5 +63,6 @@ export function createNodePlatform(config: AppConfig, parts: NodePlatformParts =
     converter: parts.converter !== undefined ? parts.converter : createNodeConverter(),
     guide: parts.guide !== undefined ? parts.guide : createNodeGuideSource(),
     publicFetch: parts.publicFetch !== undefined ? parts.publicFetch : createPublicFetch(),
+    mailer: parts.mailer !== undefined ? parts.mailer : createMailer(config),
   }
 }

@@ -241,7 +241,7 @@ pnpm dev              # apps/web: Node server (tsx watch) :3001 + vite :3000 (st
 
 Verify: both processes report ready; `curl -s localhost:3001/api/health` returns `{"status":"ok",…}`;
 http://localhost:3000 renders the shell. Sign in: enter the seeded owner email, copy the magic-link
-URL from the **`pnpm dev` server log** (no `RESEND_API_KEY` → links are logged, not sent), open it,
+URL from the **`pnpm dev` server log** (no email provider → links are logged, not sent), open it,
 press **Sign in** on the confirm page, land on Home. Shortcut (dev only): `http://localhost:3000/login?as=owner@example.test` signs in
 through `/auth/dev-login` on load — honoured only when the server reports `devLogin`
 (`APP_ENV=development`). The page's shortcut acts only for the seeded `DEV_ACCOUNTS`, but the
@@ -333,11 +333,23 @@ secret or not — is an environment variable: `apps/web/.env` locally; deployed,
 Compose or the chart's `config` (ConfigMap) / `secrets` (Secret, or your `existingSecret`) for Helm
 (`docs/DEPLOY.md`). A secret never goes into a committed values file.
 
-### 2.1 Email — Resend
+### 2.1 Email — Resend or Amazon SES
+`EMAIL_PROVIDER` picks the provider: `resend`, `ses` or `log`. Unset = `resend` when
+`RESEND_API_KEY` is set, else `log`.
+
+**Resend**
 1. resend.com → verify your sending domain (SPF/DKIM)
 2. Create an API key → `RESEND_API_KEY`
 3. `EMAIL_FROM` in the environment (`apps/web/.env` locally): a verified sender,
    `App <noreply@mail.example.com>`
+
+**Amazon SES** (for a deployment on AWS: ECS task role, SES — no key in config)
+1. SES console → verify the sending domain or address in the region you send from (and request
+   production access, or the account delivers only to verified recipients)
+2. `EMAIL_PROVIDER=ses`, `EMAIL_FROM` = that verified identity (required — the server refuses to
+   start without it); optionally `SES_REGION` (unset = `AWS_REGION`) and `SES_CONFIGURATION_SET`
+3. Grant `ses:SendEmail` on the identity to the role the server runs as. Credentials come from the
+   AWS SDK's default chain: the task role on ECS, a profile or `AWS_*` variables locally
 
 Absent: magic links, invitations and admin notifications are logged, never sent. Verify: request a
 magic link — it arrives by email.

@@ -4,7 +4,7 @@ previous: 0.44.1
 date: null
 breaking: true
 migrations: []
-areas: [api, config, docs, deploy]
+areas: [api, config, db, docs, deploy]
 touches_surfaces: []
 requires_surfaces: []
 manual: false
@@ -21,6 +21,8 @@ Email goes through a new `mailer` platform member, and Amazon SES v2 joins Resen
 - `createTestEnv()` has `mailer: null` (every email logged, whatever `RESEND_API_KEY` says); a test of delivery passes `mailer: createResendMailer(key)` or `createSesMailer(config, client)`.
 - `hasEmail(cfg)` is true for `resend` and `ses`; `emailProvider(cfg)` names the resolved provider. Design: `docs/CONCEPTS.md` §6; operations: `docs/DEPLOY.md` § Email.
 - S3 storage no longer needs access keys: `STORAGE_DRIVER=s3` plus `STORAGE_BUCKET` configures it, and with neither `STORAGE_ACCESS_KEY_ID` nor `STORAGE_SECRET_ACCESS_KEY` the client signs with the AWS SDK's default credential chain (an ECS task role on AWS). `loadConfig` refuses exactly one of the two. `S3StorageConfig`'s `accessKeyId`/`secretAccessKey` became an optional `credentials: { accessKeyId, secretAccessKey }`. Operations: `docs/DEPLOY.md` § Storage on AWS.
+- `DATABASE_SSL` (`off|require|verify-full`; unset = the URL's `sslmode` decides, as before) sets TLS for every Postgres connection — the pool, realtime's publisher and `LISTEN`, pg-boss, OpenWorkflow, the scripts and the migrate one-shot — through one function, `databaseConnection(url, env)` in the new `src/db/tls.ts`. Set, `loadConfig` (and the function) refuses a `DATABASE_URL`/`PREVIEW_DATABASE_URL`/`DATABASE_LISTEN_URL` carrying `sslmode`, `ssl`, `sslrootcert`, `sslcert`, `sslkey` or `uselibpqcompat`. With `verify-full`, `src/node/database-tls.ts` refuses to start when `NODE_EXTRA_CA_CERTS` names a missing or certificate-less file. Design: `docs/CONCEPTS.md` §4; operations: `docs/DEPLOY.md` § TLS to Postgres.
+- The image (`# syntax=docker/dockerfile:1.10`) carries the AWS RDS global CA bundle at `/etc/ssl/certs/rds-global-bundle.pem` (`ADD --checksum`, hash in `ARG RDS_CA_BUNDLE_SHA256`) with `NODE_EXTRA_CA_CERTS` pointing at it, and declares `/tmp` a `VOLUME` owned by `node`, so it runs on a read-only root filesystem (ECS Fargate `readonlyRootFilesystem`).
 
 ## How to apply
 
@@ -34,11 +36,18 @@ Email goes through a new `mailer` platform member, and Amazon SES v2 joins Resen
 8. Port `storageConfigOf` and `createS3Client` and the `S3StorageConfig.credentials` field in `apps/web/src/node/storage.ts`, and the storage-key `superRefine` check in `apps/web/src/config.ts`. In the app's own code and tests, replace any `{ accessKeyId, secretAccessKey }` on an `S3StorageConfig` with `credentials: { accessKeyId, secretAccessKey }`.
 9. A deployment that set only one of `STORAGE_ACCESS_KEY_ID`/`STORAGE_SECRET_ACCESS_KEY` (storage was silently off) now fails to start: set both, or neither to use the default chain. To drop the keys on AWS, grant the task role the bucket actions listed in `docs/DEPLOY.md` § Storage on AWS, then unset both.
 
+10. Add `apps/web/src/db/tls.ts` and `apps/web/src/node/database-tls.ts`. Port the `DATABASE_SSL` key (after `DATABASE_POOL_MAX`) and the URL-conflict `superRefine` loop in `apps/web/src/config.ts`; add `DATABASE_SSL` to `apps/web/.env.example`, the chart's `config:` block, the `&app-env` block of `docker-compose.yml`, and the inlined `DATABASE_SSL` env entry in `deploy/helm/rocketpod/templates/migrate.yaml`.
+11. Route every Postgres connection through `databaseConnection(url, env)` and spread `sslOption(...)` into its options: `createDatabase`'s `ssl` option, `installProcessPool`, `openDatabase` and `getScriptDatabase` in `apps/web/src/db/client.ts` (and `DATABASE_SSL` on `DatabaseEnv`); `createBoss` in `src/node/jobs-schema.ts`; `owPool` in `src/node/runs.ts`; `urlWithDatabaseSsl` in `src/node/runs-schema.ts`; both clients in `src/node/realtime.ts`; `openScriptSql` in `apps/web/scripts/lib/sql.ts`; the migrator client and the two schema installs in `apps/web/scripts/migrate.ts`. Call `assertDatabaseTrust(process.env)` in `src/node/server.ts` `main()` and `apps/web/scripts/migrate-all.ts`. Do the same for any connection the app opens itself.
+12. Port the `Dockerfile` changes: the syntax line, the two `RDS_CA_BUNDLE_*` args, the `ADD --checksum` + `ENV NODE_EXTRA_CA_CERTS`, and `RUN chown node:node /tmp && chmod 1777 /tmp` + `VOLUME ["/tmp"]` in the runtime stage.
+13. A deployment whose `DATABASE_URL` already says `?sslmode=…` keeps working with `DATABASE_SSL` unset. To move to `DATABASE_SSL`, drop the TLS parameters from every database URL in the same change; on RDS set `DATABASE_SSL=verify-full` and `rds.force_ssl=1`.
+
 ## Conflicts to expect
 
 - `apps/web/src/api/services/email.ts` → `sendEmail` gained a `mailer` parameter and lost its Resend `fetch` → keep the app's templates, take the kit's `sendEmail`.
 - `apps/web/tests/mocks/bindings.ts` → `PLATFORM_KEYS` and the base platform gained `mailer` → keep both sides' members.
 - `deploy/helm/rocketpod/values.yaml` → three keys after `EMAIL_FROM` in `config:` → keep both sides' keys.
+- `Dockerfile` → the runtime stage gained the CA bundle and `/tmp` volume lines → keep the app's own additions after them.
+- `apps/web/src/db/client.ts` → `createDatabase` options and `DatabaseEnv` gained `ssl` / `DATABASE_SSL` → take the kit's.
 - `apps/web/src/node/storage.ts` → `storageConfigOf` returns a config without keys → take the kit's; keep any app-specific options beside it.
 
 ## Verify
@@ -46,4 +55,6 @@ Email goes through a new `mailer` platform member, and Amazon SES v2 joins Resen
 1. `pnpm test config apps/web/tests/config/node-mailer.test.ts apps/web/tests/config/packaging.test.ts` passes.
 2. `pnpm test api apps/web/tests/api/email.test.ts apps/web/tests/api/jobs-consumer.test.ts apps/web/tests/api/node-platform-adapters.test.ts` passes (the last includes storage signed through the SDK's default chain).
 3. With no `EMAIL_PROVIDER` and no `RESEND_API_KEY`, `pnpm dev` still logs the magic-link URL on a sign-in request.
-4. `pnpm gate` prints `✔ pnpm gate passed`.
+4. `pnpm test config apps/web/tests/config/database-tls.test.ts` passes (every connection factory asks for TLS under `require`/`verify-full`, none without).
+5. `docker build -t app . && docker run --rm --read-only --entrypoint node app -e "require('fs').writeFileSync('/tmp/x','1'); console.log(require('tls').getCACertificates('extra').length)"` prints a non-zero count with nothing on stderr.
+6. `pnpm gate` prints `✔ pnpm gate passed`.

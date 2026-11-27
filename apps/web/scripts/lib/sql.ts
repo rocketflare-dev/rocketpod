@@ -3,10 +3,14 @@
  * `DATABASE_DRIVER` is still read (and must be `postgres` or unset — `databaseDriver()` refuses
  * the removed `neon` with the fix), so a stale `.env` fails loudly rather than silently.
  *
+ * `DATABASE_SSL` comes from the same environment and applies like it does in the server
+ * (`src/db/tls.ts`), so the migrate one-shot talks TLS to the database the server does.
+ *
  * Queries are text + `$n` parameters.
  */
 import postgres from 'postgres'
 import { type DatabaseDriver, databaseDriver } from '../../src/db/client'
+import { type DatabaseConnection, databaseConnection, sslOption } from '../../src/db/tls'
 
 export type Query = <T = Record<string, unknown>>(text: string, params?: unknown[]) => Promise<T[]>
 
@@ -36,11 +40,12 @@ export function openScriptSql(
   options: ScriptSqlOptions = {}
 ): ScriptSql {
   scriptDriver(env)
-  return postgresSql(url, options)
+  return postgresSql(databaseConnection(url, env), options)
 }
 
-function postgresSql(url: string, options: ScriptSqlOptions): ScriptSql {
-  const sql = postgres(url, {
+function postgresSql(connection: DatabaseConnection, options: ScriptSqlOptions): ScriptSql {
+  const sql = postgres(connection.url, {
+    ...sslOption(connection),
     max: 1,
     onnotice: () => {},
     ...(options.connectTimeout ? { connect_timeout: options.connectTimeout } : {}),

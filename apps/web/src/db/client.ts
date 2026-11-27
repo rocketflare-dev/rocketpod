@@ -20,6 +20,7 @@ import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core'
 import { drizzle as drizzlePostgres } from 'drizzle-orm/postgres-js'
 import postgres from 'postgres'
 import * as schema from './schema'
+import { type DatabaseTls, databaseConnection, sslOption } from './tls'
 
 export type Database = PgDatabase<PgQueryResultHKT, typeof schema>
 
@@ -40,6 +41,11 @@ export interface CreateDatabaseOptions {
    * support them across queries. A process pool connected straight to Postgres may turn them on.
    */
   prepare?: boolean
+  /**
+   * The driver's `ssl` option, from `databaseConnection()` (`./tls.ts`, `DATABASE_SSL`). Absent =
+   * none passed: the URL's `sslmode` (or no TLS) decides.
+   */
+  ssl?: DatabaseTls
 }
 
 /**
@@ -51,6 +57,8 @@ export interface DatabaseEnv {
   DATABASE_DRIVER?: string
   PREVIEW_DATABASE_URL?: string
   DATABASE_URL?: string
+  /** `off|require|verify-full`; unset = the URL decides (`./tls.ts`). */
+  DATABASE_SSL?: string
 }
 
 /** The driver `env` selects. Throws on anything but `postgres`, rather than guessing. */
@@ -99,7 +107,11 @@ export function installProcessPool(
 ): DatabaseHandle {
   if (processPool) throw new Error('installProcessPool: a process pool is already installed')
   const url = resolveDatabaseUrl(env)
-  const pooled = createDatabase(url, { max: options.max ?? 10, prepare: options.prepare })
+  const pooled = createDatabase(url, {
+    max: options.max ?? 10,
+    prepare: options.prepare,
+    ...sslOption(databaseConnection(url, env)),
+  })
   const installed: ProcessPool = { url, handle: pooled }
   processPool = installed
   let closed: Promise<void> | undefined
@@ -124,7 +136,7 @@ export function openDatabase(
   if (processPool && processPool.url === url) {
     return { db: processPool.handle.db, close: () => Promise.resolve() }
   }
-  return createDatabase(url, options)
+  return createDatabase(url, { ...options, ...sslOption(databaseConnection(url, env)) })
 }
 
 /**
@@ -141,6 +153,7 @@ export function createDatabase(url: string, options: CreateDatabaseOptions = {})
     // (pgvector's `vector` is sent/received as text by drizzle).
     fetch_types: false,
     onnotice: () => {},
+    ...(options.ssl === undefined ? {} : { ssl: options.ssl }),
   })
   const db = drizzlePostgres(client, { schema }) as unknown as Database
   // After drizzle, which installs its own transparent parsers for the date types on the same map.
@@ -318,11 +331,16 @@ export function getScriptDatabase(
   env: { readonly [key: string]: string | undefined } = {},
   max = 5
 ): Database {
-  const scoped: DatabaseEnv = { DATABASE_DRIVER: env.DATABASE_DRIVER, DATABASE_URL: url }
-  const key = `${databaseDriver(scoped)} ${url}`
+  const scoped: DatabaseEnv = {
+    DATABASE_DRIVER: env.DATABASE_DRIVER,
+    DATABASE_URL: url,
+    DATABASE_SSL: env.DATABASE_SSL,
+  }
+  const key = `${databaseDriver(scoped)} ${scoped.DATABASE_SSL ?? ''} ${url}`
   let handle = scriptHandles.get(key)
   if (!handle) {
-    handle = createDatabase(resolveDatabaseUrl(scoped), { max })
+    const resolved = resolveDatabaseUrl(scoped)
+    handle = createDatabase(resolved, { max, ...sslOption(databaseConnection(resolved, scoped)) })
     scriptHandles.set(key, handle)
   }
   return handle.db

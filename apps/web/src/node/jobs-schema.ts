@@ -5,13 +5,14 @@
  *
  * pg-boss owns the `pgboss` schema. `installJobsSchema` creates/migrates it and the queues — the
  * `pnpm db:migrate` step, never a `web` boot. It connects with `DATABASE_URL` (the schema owner)
- * through its own small `pg` pool. The retry curve is the consumer's `backoffSeconds`
+ * through its own small `pg` pool, with `DATABASE_SSL`'s `ssl` option (`db/tls.ts`). The retry curve is the consumer's `backoffSeconds`
  * (`src/api/queues/jobs.ts`): `tests/api/node-jobs.test.ts` holds the two together.
  */
 import { JOBS_RETRY_LIMIT } from '@rocketpod/shared/jobs'
 import { PgBoss, type Queue as QueueSpec } from 'pg-boss'
 import { JOBS_QUEUE_NAME_PREFIX } from '../api/services/jobs'
 import { type DatabaseEnv, resolveDatabaseUrl } from '../db/client'
+import { databaseConnection, sslOption } from '../db/tls'
 
 export const PGBOSS_SCHEMA = 'pgboss'
 /** The jobs queue — `JOBS_QUEUE_NAME_PREFIX` itself, so `isJobsQueue` routes it. */
@@ -69,8 +70,11 @@ export interface BossOptions {
  * cron); `worker` also supervises the queues and runs the cron pass.
  */
 export function createBoss(env: DatabaseEnv, role: BossRole, options: BossOptions = {}): PgBoss {
+  // node-postgres lets a URL's `sslmode` override `ssl`; `databaseConnection` refuses that pair.
+  const connection = databaseConnection(resolveDatabaseUrl(env), env)
   return new PgBoss({
-    connectionString: resolveDatabaseUrl(env),
+    connectionString: connection.url,
+    ...sslOption(connection),
     schema: options.schema ?? PGBOSS_SCHEMA,
     application_name: `rocketpod-${role}`,
     max: options.max ?? (role === 'worker' ? 4 : 2),

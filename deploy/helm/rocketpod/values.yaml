@@ -36,6 +36,10 @@ config:
   TENANT_SCOPE_MODE: "off"
   DATABASE_DRIVER: postgres
   DATABASE_POOL_MAX: "10"
+  # TLS to Postgres for every connection (pool, LISTEN, pg-boss, OpenWorkflow, the migrate Job):
+  # off | require (unverified) | verify-full (verified; the image trusts the AWS RDS CA bundle).
+  # Empty = the URL's sslmode decides. Set, a URL carrying sslmode of its own is refused.
+  DATABASE_SSL: ""
   # Proxies between the client and the pod that append to X-Forwarded-For (an ingress controller = 1).
   TRUSTED_PROXY_HOPS: "1"
   JOBS_CONCURRENCY: "2"

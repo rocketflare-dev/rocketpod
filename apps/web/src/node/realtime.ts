@@ -50,6 +50,7 @@ import postgres from 'postgres'
 import { type WebSocket, WebSocketServer } from 'ws'
 import type { AppConfig } from '../config'
 import { resolveDatabaseUrl } from '../db/client'
+import { databaseConnection, sslOption } from '../db/tls'
 import type { BroadcastResult, RealtimeHub, RealtimeMember } from '../platform/types'
 
 export const REALTIME_CHANNEL = 'rp_realtime'
@@ -145,6 +146,7 @@ export function createNodeRealtime(options: NodeRealtimeOptions): NodeRealtime {
   const url = resolveDatabaseUrl(config)
   const appName = options.applicationName ?? 'rocketpod-realtime'
   const publisher = postgres(url, {
+    ...sslOption(databaseConnection(url, config)),
     max: 2,
     onnotice: () => {},
     fetch_types: false,
@@ -325,7 +327,9 @@ export function createNodeRealtime(options: NodeRealtimeOptions): NodeRealtime {
     const previous = listener
     listener = null
     if (previous) void previous.end({ timeout: 0 }).catch(() => {})
-    const client = postgres(config.DATABASE_LISTEN_URL || url, {
+    const listenUrl = config.DATABASE_LISTEN_URL || url
+    const client = postgres(listenUrl, {
+      ...sslOption(databaseConnection(listenUrl, config)),
       max: 1,
       idle_timeout: 0,
       connection: { application_name: `${appName}-listen` },

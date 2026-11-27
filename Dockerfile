@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.7
+# syntax=docker/dockerfile:1.10
 #
 # Rocketpod's one image (docs/DEPLOY.md): the Hono API + React UI + background worker, and the
 # migrate one-shot. `pnpm build` bundles the Node entry into `dist/server.js` and the migrate entry
@@ -10,8 +10,15 @@
 #   docker run IMAGE worker           → jobs, cron and agent runs
 #   docker run IMAGE all              → both in one process (small installs)
 #   docker run --entrypoint node IMAGE dist/migrate.js   → the migrate one-shot
+#
+# Runs with a read-only root filesystem (Kubernetes `readOnlyRootFilesystem`, AWS ECS Fargate
+# `readonlyRootFilesystem`): the app writes nothing outside /tmp, a declared VOLUME.
 
 ARG NODE_VERSION=26
+# The AWS RDS global CA bundle (docs/DEPLOY.md, "TLS to Postgres"). Bump both together when AWS
+# rotates it: download into an empty directory, `shasum -a 256 global-bundle.pem`.
+ARG RDS_CA_BUNDLE_URL=https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
+ARG RDS_CA_BUNDLE_SHA256=90a6f1a7978a1b1b096dca6c57511ca48d3b8cf052f8e704baf358f34ea2f21b
 
 # ---------------------------------------------------------------------------------------- build
 FROM node:${NODE_VERSION}-bookworm-slim AS build
@@ -37,11 +44,22 @@ RUN pnpm --filter @rocketpod/web build
 # Alpine: the bundles are pure JavaScript (no native addons), so musl is fine. npm, npx, corepack
 # and yarn are removed — the image runs `node` and nothing else installs anything.
 FROM node:${NODE_VERSION}-alpine AS runtime
+ARG RDS_CA_BUNDLE_URL
+ARG RDS_CA_BUNDLE_SHA256
 # apk upgrade: Alpine security fixes published since the node image was built (openssl, zlib
 # and the rest), so a release clears ECR's high and critical findings (weekly check, A.8.8).
 RUN apk upgrade --no-cache \
  && rm -rf /usr/local/lib/node_modules /usr/local/bin/npm /usr/local/bin/npx \
       /usr/local/bin/corepack /usr/local/bin/yarn /usr/local/bin/yarnpkg /opt/yarn-*
+# `DATABASE_SSL=verify-full` against RDS / Aurora verifies the server with this bundle. Harmless
+# anywhere else: NODE_EXTRA_CA_CERTS only ADDS trust anchors to Node's own, it replaces none.
+ADD --checksum=sha256:${RDS_CA_BUNDLE_SHA256} --chmod=0644 ${RDS_CA_BUNDLE_URL} \
+    /etc/ssl/certs/rds-global-bundle.pem
+ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/rds-global-bundle.pem
+# /tmp stays writable under a read-only root: Fargate (and Docker) mount a fresh volume at a declared
+# VOLUME, root-owned unless the image directory says otherwise — so the `node` user owns it.
+RUN chown node:node /tmp && chmod 1777 /tmp
+VOLUME ["/tmp"]
 WORKDIR /app
 ENV NODE_ENV=production \
     PORT=3001 \
@@ -56,7 +74,7 @@ COPY --from=build --chown=node:node /repo/apps/web/migrations ./migrations
 # `guide_chunks` at boot (`src/node/guide-content.ts` resolves `content/guide` under WORKDIR).
 COPY --from=build --chown=node:node /repo/apps/web/content/guide ./content/guide
 
-# The `node` user (uid 1000) from the base image; the app writes nothing to its filesystem.
+# The `node` user (uid 1000) from the base image; the app writes nothing to its filesystem but /tmp.
 USER node
 EXPOSE 3001
 HEALTHCHECK --interval=15s --timeout=3s --start-period=20s --retries=3 \

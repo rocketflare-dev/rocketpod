@@ -114,7 +114,7 @@ apps/web/          @rocketpod/web — .env(.example), .env.test, docker-compose.
 │                  drizzle.config.ts, migrations/, scripts/, tests/
 │  src/node/       the Node entry: server.ts (modes, probes, shutdown) · platform.ts · assets.ts
 │                  (static + SPA fallback) · defer.ts (waitUntil) · jobs{,-schema}.ts (pg-boss) · runs{,-schema}.ts (OpenWorkflow agent runs)
-│                  · realtime.ts (ws + NOTIFY) · storage.ts (S3) · limits.ts · converter.ts — `dist/server.js`
+│                  · realtime.ts (ws + NOTIFY) · storage.ts (S3) · limits.ts · converter.ts · database-tls.ts — `dist/server.js`
 │  src/platform/   types.ts — the Platform interfaces every capability is read through
 │  src/config.ts   loadConfig(env): zod over the env; routes read c.get('config')
 │  src/permissions/  CASL owner/admin/member/support + isGlobalAdmin   src/db/  client, tenant-scope, schema/
@@ -187,7 +187,9 @@ Environment variables — `apps/web/.env` locally; deployed, the compose `.env` 
 `APP_ENV` (`development|staging|production`) · `APP_URL` · `TENANCY_MODE` (`multi|single` — same
 schema; single auto-joins the one tenant) · `SIGNUP_MODE` (`open|invite_only|approval`;
 `BOOTSTRAP_ADMIN_EMAILS` seeds the first admin) · `TENANT_SCOPE_MODE` (`off|enforce`, `docs/RLS.md`) ·
-**database**: `DATABASE_URL` (secret), `DATABASE_POOL_MAX` (10), `DATABASE_LISTEN_URL` (realtime
+**database**: `DATABASE_URL` (secret), `DATABASE_POOL_MAX` (10), `DATABASE_SSL` (`off|require|verify-full`
+for every connection; unset = the URL's `sslmode`; set, a URL with its own is refused —
+`src/db/tls.ts`, `docs/DEPLOY.md`), `DATABASE_LISTEN_URL` (realtime
 LISTEN; direct or session-mode when PgBouncer runs in transaction mode), `DATABASE_DRIVER`
 (`postgres` only) · **server**: `SERVER_MODE`/first arg (`web|worker|all`), `PORT` (3001),
 `TRUSTED_PROXY_HOPS` (proxies appending `X-Forwarded-For`, 0) · secret `OAUTH_ENCRYPTION_KEY` ·

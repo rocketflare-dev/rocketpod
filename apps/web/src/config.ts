@@ -8,6 +8,7 @@
  */
 import { sharedPlugins } from '@rocketpod/shared/plugins'
 import { z } from 'zod'
+import { DATABASE_SSL_MODES, databaseSslConflict } from './db/tls'
 
 /** `EMAIL_FROM` when unset — a placeholder no real provider accepts as a sender. */
 export const DEFAULT_EMAIL_FROM = 'Rocketpod <noreply@example.com>'
@@ -135,6 +136,13 @@ const coreConfigSchema = z.object({
    * (`installProcessPool`).
    */
   DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(200).default(10),
+  /**
+   * TLS for EVERY Postgres connection (the pool, LISTEN, pg-boss, OpenWorkflow, migrate):
+   * `off` | `require` (TLS, certificate not verified) | `verify-full` (verified against the system
+   * trust store + `NODE_EXTRA_CA_CERTS`, hostname checked). Unset = the URL's `sslmode` decides.
+   * Set, it refuses a database URL that carries TLS parameters of its own (`src/db/tls.ts`).
+   */
+  DATABASE_SSL: optionalEnum(DATABASE_SSL_MODES),
   /**
    * Node entry: how many reverse proxies in front of the server append to `X-Forwarded-For`.
    * 0 (the default) ignores the header and uses the socket's address; behind one ingress, 1.
@@ -527,6 +535,14 @@ const configSchema = coreConfigSchema.extend(pluginConfigShape).superRefine((cfg
         'STORAGE_ACCESS_KEY_ID and STORAGE_SECRET_ACCESS_KEY are set together or not at all ' +
         "(neither = the AWS SDK's default credential chain, e.g. an ECS task role)",
     })
+  }
+  // DATABASE_SSL and a URL's own `sslmode` would give different connections different TLS
+  // (the two drivers rank them oppositely): one place decides, so a URL carrying one is refused.
+  for (const key of ['DATABASE_URL', 'PREVIEW_DATABASE_URL', 'DATABASE_LISTEN_URL'] as const) {
+    const url = cfg[key] as string | undefined
+    const ssl = { DATABASE_SSL: cfg.DATABASE_SSL as string | undefined }
+    const conflict = url ? databaseSslConflict(url, ssl, key) : undefined
+    if (conflict) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [key], message: conflict })
   }
   // An OIDC-only login page with no issuer would offer no way in at all.
   if (cfg.AUTH_OIDC_ONLY && !(cfg.OIDC_ISSUER && cfg.OIDC_CLIENT_ID)) {

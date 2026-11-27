@@ -5,6 +5,7 @@
  */
 import { BackendPostgres } from 'openworkflow/postgres'
 import { type DatabaseEnv, resolveDatabaseUrl } from '../db/client'
+import { urlWithDatabaseSsl } from '../db/tls'
 
 export const RUNS_SCHEMA = 'openworkflow'
 /** The one workflow the app registers: the agent run (`api/workflows/agent-run-body.ts`). */
@@ -15,7 +16,9 @@ export async function installRunsSchema(
   env: DatabaseEnv,
   options: { schema?: string } = {}
 ): Promise<void> {
-  const backend = await BackendPostgres.connect(resolveDatabaseUrl(env), {
+  // OpenWorkflow's migrator takes a URL only, so `DATABASE_SSL` travels as the URL's `sslmode`
+  // (postgres.js reads it exactly like the `ssl` option — `db/tls.ts`).
+  const backend = await BackendPostgres.connect(urlWithDatabaseSsl(resolveDatabaseUrl(env), env), {
     schema: options.schema ?? RUNS_SCHEMA,
     runMigrations: true,
   })

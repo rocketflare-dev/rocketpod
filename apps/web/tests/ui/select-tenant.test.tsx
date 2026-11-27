@@ -5,6 +5,7 @@
  */
 import { screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import NoAccess from '@/ui/pages/NoAccess'
 import SelectTenant from '@/ui/pages/SelectTenant'
 import {
   makeSession,
@@ -40,5 +41,45 @@ describe('SelectTenant and creating an organisation', () => {
     })
     expect(screen.queryByLabelText(/Organisation name|Name/)).not.toBeInTheDocument()
     expect(screen.getByText('Ask an administrator to add you to one.')).toBeInTheDocument()
+  })
+
+  it('under IdP-managed tenancy there is no form, and the empty list names the identity provider', async () => {
+    stubFetch({
+      '/auth/methods': {
+        magicLink: false,
+        providers: [],
+        devLogin: false,
+        oidc: { label: 'Corp SSO' },
+      },
+    })
+    renderWithProviders(<SelectTenant />, {
+      // The hook gates on the flag even if the server's canCreateTenant said otherwise.
+      session: makeSession({ idpManagedTenancy: true, tenant: null, tenants: [] }),
+      route: '/select-tenant?create=1',
+    })
+    expect(await screen.findByText(/Organisations come from Corp SSO/)).toBeInTheDocument()
+    expect(screen.queryByLabelText(/Name/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Create organisation/ })).not.toBeInTheDocument()
+  })
+})
+
+describe('NoAccess under IdP-managed tenancy', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('says organisations come from the identity provider instead of asking for an invitation', async () => {
+    stubFetch({
+      '/auth/methods': {
+        magicLink: false,
+        providers: [],
+        devLogin: false,
+        oidc: { label: 'Corp SSO' },
+      },
+    })
+    renderWithProviders(<NoAccess />, {
+      session: makeSession({ idpManagedTenancy: true, tenant: null, tenants: [] }),
+      route: '/no-access',
+    })
+    expect(await screen.findByText(/Organisations come from Corp SSO/)).toBeInTheDocument()
+    expect(screen.queryByText(/Access is by invitation/)).not.toBeInTheDocument()
   })
 })

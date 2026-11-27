@@ -5,7 +5,7 @@
  */
 import { and, eq } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
-import { oauthProviders, tenantUsers, users } from '@/db/schema'
+import { activityEvents, oauthProviders, tenants, tenantUsers, users } from '@/db/schema'
 import {
   createTestGlobalAdmin,
   createTestSession,
@@ -15,7 +15,7 @@ import {
   uniqueId,
 } from '../../helpers/auth'
 import { setupTestDatabase } from '../../helpers/db'
-import { request } from '../../helpers/request'
+import { json, request } from '../../helpers/request'
 import { createTestEnv } from '../../mocks/bindings'
 
 const db = setupTestDatabase()
@@ -43,13 +43,31 @@ async function sign(id: string, ts: number, body: string) {
   return `v1,${Buffer.from(mac).toString('base64')}`
 }
 
+interface TestEvent {
+  id: string
+  type: string
+  occurredAt: string
+  data: Record<string, unknown>
+}
+
+/** An event `minutesAgo` old (negative: in the future), with a fresh id. */
+function makeEvent(type: string, data: Record<string, unknown>, minutesAgo = 0): TestEvent {
+  const occurredAt = new Date(Date.now() - minutesAgo * 60_000).toISOString()
+  return { id: `evt_${uniqueId()}`, type, occurredAt, data }
+}
+
 async function postEvent(
   env: ReturnType<typeof eventsEnv>,
   type: string,
   data: Record<string, unknown>
 ) {
-  const id = `evt_${uniqueId()}`
-  const body = JSON.stringify({ id, type, occurredAt: new Date().toISOString(), data })
+  return deliver(env, makeEvent(type, data))
+}
+
+/** Deliver `event` as the issuer would; delivering the same object twice is a replay. */
+async function deliver(env: ReturnType<typeof eventsEnv>, event: TestEvent) {
+  const { id } = event
+  const body = JSON.stringify(event)
   const ts = Math.floor(Date.now() / 1000)
   return request(
     '/api/identity/events',
@@ -177,5 +195,141 @@ describe('which person an event names', () => {
       orgId,
     })
     expect(await membership(tenant.id, user.id)).toBeUndefined()
+  })
+})
+
+describe("access-giving events create the org's tenant", () => {
+  const newOrg = () => {
+    const id = uniqueId()
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '')
+    return { orgId: `org-${id}`, orgSlug: `acme-${id}`, orgName: `Acme ${id}` }
+  }
+  const tenantOf = async (orgId: string) =>
+    db.query.tenants.findFirst({ where: eq(tenants.externalOrgId, orgId) })
+  const personOf = (user: { email: string }) => ({ personId: `p-${user.email}`, email: user.email })
+  const membersOf = (tenantId: string) =>
+    db.select().from(tenantUsers).where(eq(tenantUsers.tenantId, tenantId))
+
+  it('grant.added makes the linked tenant with the members the app knows, then membership.added adds one', async () => {
+    const env = eventsEnv()
+    const org = newOrg()
+    const [first, second] = [await createTestUser(db), await createTestUser(db)]
+    const stranger = { personId: 'p-stranger', email: `stranger_${uniqueId()}@example.test` }
+
+    const granted = await postEvent(env, 'grant.added', {
+      ...org,
+      members: [
+        { ...personOf(first), role: 'admin' },
+        { ...stranger, role: 'member' },
+        // A role the map does not know is skipped, as at sign-in.
+        { ...personOf(second), role: 'org_viewer' },
+      ],
+    })
+    expect(granted.status).toBe(204)
+    const tenant = await tenantOf(org.orgId)
+    expect(tenant).toMatchObject({ name: org.orgName, slug: org.orgSlug, externalOrgId: org.orgId })
+    const tenantId = tenant?.id as string
+    // No owner: the identity provider's memberships only.
+    expect(await membersOf(tenantId)).toEqual([
+      expect.objectContaining({ userId: first.id, role: 'admin', source: 'idp' }),
+    ])
+    // A session the person already has sees it, with no new sign-in.
+    const token = await createTestSession(db, first.id)
+    const session = await json<{ tenants: Array<{ id: string }> }>(
+      await request('/auth/session', { headers: sessionCookieHeader(token) }, { env })
+    )
+    expect(session.tenants.map(t => t.id)).toContain(tenantId)
+
+    const joined = await postEvent(env, 'membership.added', {
+      ...personOf(second),
+      ...org,
+      role: 'member',
+    })
+    expect(joined.status).toBe(204)
+    expect(await membership(tenantId, second.id)).toMatchObject({ role: 'member', source: 'idp' })
+  })
+
+  it('membership.added alone makes the tenant for the person it names', async () => {
+    const env = eventsEnv()
+    const org = newOrg()
+    const user = await createTestUser(db)
+    const res = await postEvent(env, 'membership.added', {
+      ...personOf(user),
+      ...org,
+      role: 'admin',
+    })
+    expect(res.status).toBe(204)
+    const tenant = await tenantOf(org.orgId)
+    expect(tenant).toMatchObject({ slug: org.orgSlug, name: org.orgName })
+    expect(await membership(tenant?.id as string, user.id)).toMatchObject({
+      role: 'admin',
+      source: 'idp',
+    })
+  })
+
+  it('an event naming nobody the app knows makes no tenant', async () => {
+    const env = eventsEnv()
+    const org = newOrg()
+    const stranger = { personId: 'p-x', email: `nobody_${uniqueId()}@example.test`, role: 'member' }
+    expect((await postEvent(env, 'grant.added', { ...org, members: [stranger] })).status).toBe(204)
+    expect((await postEvent(env, 'membership.added', { ...stranger, ...org })).status).toBe(204)
+    expect(await tenantOf(org.orgId)).toBeUndefined()
+  })
+
+  it('a late membership.added never lets a person removed after it back in', async () => {
+    const env = eventsEnv()
+    const { user, tenant, orgId } = await seatedPerson()
+    const org = { orgId, orgSlug: tenant.slug, orgName: tenant.name }
+    const added = makeEvent('membership.added', { ...personOf(user), ...org, role: 'member' }, 2)
+    const removed = makeEvent('membership.removed', { ...personOf(user), orgId }, 1)
+
+    expect((await deliver(env, removed)).status).toBe(204)
+    expect((await deliver(env, added)).status).toBe(204)
+    expect(await membership(tenant.id, user.id)).toBeUndefined()
+
+    // Added again after the removal: back in. The removal is dated by the database's clock, which
+    // may run ahead of this process's, so the later event is dated clearly later.
+    const readded = makeEvent('membership.added', { ...personOf(user), ...org, role: 'member' }, -1)
+    expect((await deliver(env, readded)).status).toBe(204)
+    expect(await membership(tenant.id, user.id)).toMatchObject({ source: 'idp' })
+  })
+
+  it('a replayed event, or a second grant.added for the org, changes nothing', async () => {
+    const env = eventsEnv()
+    const org = newOrg()
+    const user = await createTestUser(db)
+    const grant = makeEvent('grant.added', {
+      ...org,
+      members: [{ ...personOf(user), role: 'admin' }],
+    })
+    expect((await deliver(env, grant)).status).toBe(204)
+    const tenant = await tenantOf(org.orgId)
+    const tenantId = tenant?.id as string
+    const snapshot = async () => ({
+      tenants: await db.select().from(tenants).where(eq(tenants.externalOrgId, org.orgId)),
+      members: await membersOf(tenantId),
+      activity: await db
+        .select({ id: activityEvents.id })
+        .from(activityEvents)
+        .where(eq(activityEvents.tenantId, tenantId)),
+    })
+    const before = await snapshot()
+
+    // The same delivery again (same webhook-id), then another grant naming the org differently.
+    expect((await deliver(env, grant)).status).toBe(204)
+    const again = makeEvent('grant.added', {
+      ...org,
+      orgName: 'Another name',
+      orgSlug: `other-${org.orgSlug}`,
+      members: [{ ...personOf(user), role: 'admin' }],
+    })
+    expect((await deliver(env, again)).status).toBe(204)
+    const after = await snapshot()
+    expect(after.tenants).toEqual([expect.objectContaining({ id: tenantId, name: org.orgName })])
+    expect(after.members.map(m => [m.userId, m.role, m.source])).toEqual(
+      before.members.map(m => [m.userId, m.role, m.source])
+    )
+    expect(after.activity).toHaveLength(before.activity.length)
   })
 })

@@ -1,15 +1,18 @@
 /**
  * `/no-access` (invite-only): signed in, in no organisation, and sign-up is by invitation.
  * Any pending invitations for this email are surfaced so the reader can accept one right here.
+ * Under IdP-managed tenancy it says organisations come from the identity provider instead.
  */
 import { LockClosedIcon } from '@heroicons/react/24/outline'
 import { Navigate } from 'react-router'
 import { AdminAreaLink, AuthCard, SignedInAs } from '@/ui/components/AuthCard'
 import { PendingInvitationsBanner } from '@/ui/components/PendingInvitationsBanner'
 import { useAuth } from '@/ui/hooks/useAuth'
+import { useIdpOrganisationsHint } from '@/ui/hooks/useAuthMethods'
 
 export default function NoAccess() {
-  const { user, tenant, tenants, logout, isGlobalAdmin } = useAuth()
+  const { user, tenant, tenants, logout, isGlobalAdmin, idpManagedTenancy } = useAuth()
+  const idpHint = useIdpOrganisationsHint()
   if (tenant) return <Navigate to="/" replace />
   if (tenants.length > 0) return <Navigate to="/select-tenant" replace />
   if (!user) return null
@@ -22,11 +25,15 @@ export default function NoAccess() {
         </span>
         <div className="min-w-0">
           <h1 className="text-lg font-semibold mb-1">You're not in an organisation yet</h1>
-          <p className="text-sm text-secondary">
-            Access is by invitation. Ask an administrator of your organisation to invite{' '}
-            <span className="font-medium text-base-content">{user.email}</span>; the invitation will
-            appear here and in your inbox.
-          </p>
+          {idpManagedTenancy ? (
+            <p className="text-sm text-secondary">{idpHint}</p>
+          ) : (
+            <p className="text-sm text-secondary">
+              Access is by invitation. Ask an administrator of your organisation to invite{' '}
+              <span className="font-medium text-base-content">{user.email}</span>; the invitation
+              will appear here and in your inbox.
+            </p>
+          )}
         </div>
       </div>
       <PendingInvitationsBanner className="mt-5" />

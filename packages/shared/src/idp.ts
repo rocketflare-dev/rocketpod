@@ -7,8 +7,9 @@
  *   `orgs`): `[{ id, name, slug?, role }]`. `role` is the issuer's own word; `OIDC_ROLE_MAP` maps it
  *   to the app's `admin` or `member`. Read on every sign-in.
  * - **Identity events.** Between sign-ins the issuer posts signed events (Standard Webhooks) to
- *   `POST /api/identity/events`: a person suspended, a membership removed or changed, the app's
- *   grant revoked, an org renamed or suspended. Applied idempotently and in any order.
+ *   `POST /api/identity/events`: the app granted to an org or a person added to one, a person
+ *   suspended, a membership removed or changed, the app's grant revoked, an org renamed or
+ *   suspended. Applied idempotently and in any order.
  *
  * The server trusts claims only from an id_token it verified itself (`auth/providers/oidc.ts`) and
  * events only with a valid signature (`services/identity-events.ts`).
@@ -30,6 +31,9 @@ export const idpOrgClaimSchema = z.object({
 })
 export type IdpOrgClaim = z.infer<typeof idpOrgClaimSchema>
 
+/** At most this many members are read from one `grant.added`; the body limit binds first anyway. */
+export const IDP_EVENT_MEMBERS_MAX = 5000
+
 export const idpOrgsClaimSchema = z.array(idpOrgClaimSchema).max(IDP_ORGS_MAX)
 
 /** The app roles an issuer role may map to: never `owner` (the app's own) or `support`. */
@@ -37,6 +41,8 @@ export const idpAppRoleSchema = z.enum(['admin', 'member'])
 export type IdpAppRole = z.infer<typeof idpAppRoleSchema>
 
 export const IDENTITY_EVENT_TYPES = [
+  'grant.added',
+  'membership.added',
   'person.suspended',
   'membership.removed',
   'membership.role_changed',
@@ -68,7 +74,33 @@ export const identityEventEnvelopeSchema = z.object({
 
 const base = { id: z.string().min(1), occurredAt: z.string().datetime({ offset: true }) }
 
+/** The org an access-giving event names, as the orgs claim names it: the tenant made for it. */
+const orgRefShape = {
+  orgId: z.string().min(1),
+  orgSlug: z.string().min(1),
+  orgName: z.string().min(1),
+}
+
+/** A member of the org, with the issuer's role for them there (mapped through `OIDC_ROLE_MAP`). */
+const memberRefSchema = personRefSchema.extend({ role: z.string().min(1) })
+
 export const identityEventSchema = z.discriminatedUnion('type', [
+  z.object({
+    ...base,
+    type: z.literal('grant.added'),
+    // With `person`, a grant narrowed to that member; without, the org-wide grant, and `members`
+    // is everyone in the org when it was granted.
+    data: z.object({
+      ...orgRefShape,
+      person: memberRefSchema.optional(),
+      members: z.array(memberRefSchema).max(IDP_EVENT_MEMBERS_MAX),
+    }),
+  }),
+  z.object({
+    ...base,
+    type: z.literal('membership.added'),
+    data: memberRefSchema.extend(orgRefShape),
+  }),
   z.object({ ...base, type: z.literal('person.suspended'), data: personRefSchema }),
   z.object({
     ...base,

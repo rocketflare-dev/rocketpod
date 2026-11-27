@@ -18,6 +18,7 @@
 import { identityEventEnvelopeSchema, identityEventSchema } from '@rocketpod/shared/idp'
 import { isIdpManaged } from '../../config'
 import { verifyStandardWebhook, webhookHeaders } from '../auth/standard-webhooks'
+import { platformFeatures } from '../services/features'
 import { applyIdentityEvent } from '../services/idp-tenancy'
 import { NotFoundError, UnauthorizedError, ValidationError } from '../utils/core/errors'
 import { makeDefer } from '../utils/routes/route-helpers'
@@ -58,10 +59,14 @@ identityEventsRouter.post('/events', async c => {
     throw new ValidationError(parsed.error.issues)
   }
 
-  const outcome = await applyIdentityEvent(c.get('db'), cfg, parsed.data, {
-    defer: makeDefer(c),
-    hub: c.get('platform').realtime,
-  })
+  const db = c.get('db')
+  const outcome = await applyIdentityEvent(
+    db,
+    cfg,
+    parsed.data,
+    { defer: makeDefer(c), hub: c.get('platform').realtime },
+    { logger, features: () => platformFeatures(db, cfg) }
+  )
   logger.info({ eventId: parsed.data.id, type: parsed.data.type, outcome }, 'identity event')
   return c.body(null, 204)
 })

@@ -36,7 +36,7 @@ const org = (id: string, name: string, slug: string) => ({
   createdAt: '2025-01-01T00:00:00Z',
 })
 
-function renderAs(tenancyMode: 'multi' | 'single') {
+function renderAs(tenancyMode: 'multi' | 'single', idpManagedTenancy = false) {
   const fetchMock = stubFetch({
     '/api/admin/access-requests': paged([request]),
     '/api/admin/tenants': paged([
@@ -46,7 +46,11 @@ function renderAs(tenancyMode: 'multi' | 'single') {
     [`POST /api/admin/access-requests/${REQ_ID}/decide`]: { ok: true },
   })
   renderWithProviders(<AccessRequests />, {
-    session: makeSession({ user: makeUser({ isGlobalAdmin: true }), tenancyMode }),
+    session: makeSession({
+      user: makeUser({ isGlobalAdmin: true }),
+      tenancyMode,
+      idpManagedTenancy,
+    }),
   })
   return fetchMock
 }
@@ -97,6 +101,24 @@ describe('Admin → Access requests', () => {
     expect(screen.queryByRole('tab', { name: 'New organisation' })).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Organisation name')).not.toBeInTheDocument()
     expect(screen.getByLabelText('Organisation')).toBeInTheDocument()
+  })
+
+  it('IdP-managed tenancy: the new_org branch is hidden, joining an organisation still posts', async () => {
+    const fetchMock = renderAs('multi', true)
+    fireEvent.click(await screen.findByRole('button', { name: 'Approve' }))
+    expect(screen.queryByRole('tab', { name: 'New organisation' })).not.toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.getByRole('option', { name: 'Beta (@beta)' })).toBeInTheDocument()
+    )
+    fireEvent.submit(document.getElementById('approve-form') as HTMLFormElement)
+    await waitFor(() =>
+      expect(
+        requestBody(fetchMock, `POST /api/admin/access-requests/${REQ_ID}/decide`)
+      ).toMatchObject({
+        decision: 'approve',
+        approve: { mode: 'join' },
+      })
+    )
   })
 
   it('reject posts { decision: reject, reason }', async () => {

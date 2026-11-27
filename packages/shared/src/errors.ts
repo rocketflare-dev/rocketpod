@@ -98,6 +98,13 @@ export const ERROR_CODES = {
    * the app may neither edit nor remove it. Change it at the issuer.
    */
   idpManaged: 'idp_managed',
+  /**
+   * 403: under IdP-managed tenancy (`OIDC_MANAGED_TENANCY`) organisations come only from the
+   * identity provider — a sign-in or an identity event creates one per org — so the app refuses to
+   * create a tenant any other way (`POST /api/tenants`, an access request approved into a new
+   * organisation). Whoever asks: a global admin included.
+   */
+  tenantsIdpManaged: 'tenants_idp_managed',
   /** 403: the caller already owns `MAX_OWNED_TENANTS_PER_USER` organisations. */
   tenantLimitReached: 'tenant_limit_reached',
   /** 409: another tenant is already linked to that OIDC issuer org (`tenants.external_org_id`). */

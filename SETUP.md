@@ -468,7 +468,20 @@ an org no longer in the claim loses its `idp` membership. A tenant created this 
 owner** — a global admin can still do owner-only things, and can make an owner from a manual
 membership. `idp` memberships are read-only in Settings → People (409 `idp_managed` from the API).
 
-What an event does: `person.suspended` ends the person's sessions, removes their `idp`
+What it forbids: the identity provider is the only way an organisation comes into existence, so
+the app creates none itself. Creating one (`POST /api/tenants`) or approving an access request
+into a new organisation answers 403 `tenants_idp_managed` — for a global admin too —
+`SIGNUP_MODE=open` makes no personal workspace, the bootstrap admin gets no first workspace,
+`pnpm seed` creates nothing, and the UI shows no "Create organisation" anywhere; a person with no
+organisation is told they come from the identity provider (by its `OIDC_LABEL`). Add the
+organisation at the identity provider instead; an access request can still be approved into an
+existing one.
+
+What an event does: `grant.added` and `membership.added` create the org's tenant if it has none
+(slug and name from the event, linked by `external_org_id`, no owner) and give each named person
+the app already knows an `idp` membership with the mapped role — people it has never seen are
+seated at their first sign-in; a late add for someone removed after it is skipped.
+`person.suspended` ends the person's sessions, removes their `idp`
 memberships and clears a global-admin role the issuer granted (a manual grant stays); `membership.removed`, `grant.revoked` and `org.suspended` remove `idp` memberships;
 `membership.role_changed` changes one; `org.renamed` renames the tenant. Each is signed (Standard
 Webhooks), applied idempotently and in any order; `docs/CONCEPTS.md` §2 has the details.

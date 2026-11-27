@@ -14,11 +14,12 @@ import type {
   UserPreferences,
 } from '@rocketpod/shared/user-settings'
 import { and, eq } from 'drizzle-orm'
-import { type AppConfig, isIdpManaged } from '../../config'
+import type { AppConfig } from '../../config'
 import type { Database } from '../../db/client'
 import { tenantSettings, tenants, tenantUserSettings } from '../../db/schema'
 import type { AuthContext } from '../types'
 import { ConflictError, ForbiddenError, NotFoundError } from '../utils/core/errors'
+import { appTenantCreationRefusal } from '../utils/routes/route-helpers'
 import { enqueueJob, type JobsQueue, requireJobsQueue } from './jobs'
 import { nudge, type Realtime, realtimeEvent } from './realtime'
 
@@ -26,20 +27,17 @@ import { nudge, type Realtime, realtimeEvent } from './realtime'
  * Why this person may not create an organisation themselves, or null when they may. The ONE rule
  * `POST /api/tenants` enforces and `GET /auth/session` reports as `canCreateTenant`, so the UI never
  * offers a button the server refuses. Single mode is the route's own 404 (`requireMultiTenant`).
- * Under IdP-managed tenancy the issuer decides which organisations exist; a person whose access
- * request is pending or rejected waits for an admin. The owned-organisation ceiling is checked at
- * creation, where the count is read under the lock.
+ * Under IdP-managed tenancy the identity provider decides which organisations exist — 403
+ * `tenants_idp_managed` for everyone, global admins included (`appTenantCreationRefusal`); a
+ * person whose access request is pending or rejected waits for an admin. The owned-organisation
+ * ceiling is checked at creation, where the count is read under the lock.
  */
 export function tenantCreationRefusal(
   cfg: AppConfig,
   auth: Pick<AuthContext, 'isGlobalAdmin' | 'tenantId' | 'accessRequestStatus'>
-): ConflictError | ForbiddenError | null {
-  if (isIdpManaged(cfg)) {
-    return new ConflictError(
-      'Organisations are managed by your identity provider.',
-      ERROR_CODES.idpManaged
-    )
-  }
+): ForbiddenError | null {
+  const managed = appTenantCreationRefusal(cfg)
+  if (managed) return managed
   if (
     !auth.isGlobalAdmin &&
     auth.tenantId === null &&

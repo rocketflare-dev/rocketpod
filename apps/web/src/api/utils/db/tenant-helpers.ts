@@ -2,7 +2,9 @@
  * Tenant creation — the single place an organisation comes into existence:
  * `createTenantForUser` is transactional (tenant + membership + settings row + activity) and is
  * called by `POST /api/tenants`, `onNoTenant` (open sign-up / single-tenant bootstrap), the
- * admin `new_org` approval and the seed script. `getSingleTenant` is the `TENANCY_MODE=single`
+ * admin `new_org` approval, IdP-managed tenancy (`services/idp-tenancy.ts`: a sign-in, or a
+ * `grant.added` / `membership.added` event) and the seed script. Under IdP-managed tenancy only
+ * that module's callers run: the rest refuse (`appTenantCreationRefusal`). `getSingleTenant` is the `TENANCY_MODE=single`
  * anchor: the first tenant row. `resolveOwnerTenant` picks the tenant that owns content served
  * without a signed-in member, in either tenancy mode.
  */

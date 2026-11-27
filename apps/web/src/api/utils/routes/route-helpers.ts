@@ -18,7 +18,7 @@
  */
 import { ERROR_CODES } from '@rocketpod/shared/errors'
 import type { PinoLogger } from 'hono-pino'
-import type { AppConfig } from '../../../config'
+import { type AppConfig, isIdpManaged } from '../../../config'
 import { type Database, type DatabaseHandle, openDatabase } from '../../../db/client'
 import type { User } from '../../../db/schema'
 import type { Defer } from '../../../platform/types'
@@ -120,6 +120,28 @@ export function requireMultiTenant(cfg: AppConfig): void {
   if (cfg.TENANCY_MODE === 'single') {
     throw new NotFoundError('Not available in single-tenant mode', ERROR_CODES.tenancyModeSingle)
   }
+}
+
+/**
+ * Why the app may not create an organisation itself, or null when it may. Under IdP-managed
+ * tenancy (`OIDC_MANAGED_TENANCY`) organisations come only from the identity provider — a sign-in
+ * (`services/idp-tenancy.ts` `reconcileIdpClaims`) or an identity event (`grant.added`,
+ * `membership.added`) makes one per org — so every other creation path refuses with 403
+ * `tenants_idp_managed`, a global admin included: `POST /api/tenants`, an access request approved
+ * into a new organisation, `onNoTenant`'s open-sign-up and bootstrap workspaces, and the seed.
+ */
+export function appTenantCreationRefusal(cfg: AppConfig): ForbiddenError | null {
+  if (!isIdpManaged(cfg)) return null
+  return new ForbiddenError(
+    'Organisations come from the identity provider, not from this app',
+    ERROR_CODES.tenantsIdpManaged
+  )
+}
+
+/** Throws `appTenantCreationRefusal(cfg)`: call it at every route that creates a tenant. */
+export function requireAppTenantCreation(cfg: AppConfig): void {
+  const refusal = appTenantCreationRefusal(cfg)
+  if (refusal) throw refusal
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i

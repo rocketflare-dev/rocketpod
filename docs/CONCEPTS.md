@@ -51,7 +51,8 @@ suites on vitest 4, §9 — never part of the gate).
   queues an email to every active global admin for a NEW row (never for a re-login);
   `open` gives a personal tenant through `onNoTenant`. Whatever the mode, the `BOOTSTRAP_ADMIN_EMAILS`
   admin's first login on an install with NO tenant yet creates the first one (named `APP_NAME`, as
-  owner) — the only other way to it was SQL — and never again once any tenant exists. Invitations are handled first on every login
+  owner) — the only other way to it was SQL — and never again once any tenant exists. Neither
+  happens under IdP-managed tenancy (below). Invitations are handled first on every login
   path, and every fallback gates on "has no memberships", not "is new". `POST /api/tenants` refuses
   a person with no membership whose access request is pending or rejected (403
   `pending_approval`; a global admin is not held by one), and one person's owned organisations stop
@@ -136,7 +137,21 @@ suites on vitest 4, §9 — never part of the gate).
   `tenants.external_org_id` (unique, NULL for every tenant the app made) ties a tenant to an org at
   the issuer, and `tenant_users.source` (`manual | idp`) says who manages a membership. The
   sign-in reconcile creates a tenant per org in the claims, keeps its name in step, and adds or
-  removes the person's `idp` rows; identity events change them between sign-ins.
+  removes the person's `idp` rows; identity events change them between sign-ins, and the two that
+  give access (`grant.added`, `membership.added`) create the org's tenant too.
+  **Under managed tenancy the app creates no organisation itself — decided:** organisations come
+  only from the identity provider, through a sign-in or one of those two events. Every other
+  creation path answers 403 `tenants_idp_managed` through ONE helper,
+  `appTenantCreationRefusal` / `requireAppTenantCreation` (`utils/routes/route-helpers.ts`):
+  `POST /api/tenants` and an access request approved into a NEW organisation (approving into an
+  existing one still works); `onNoTenant` makes neither the `open` sign-up's personal workspace nor
+  the bootstrap admin's first one, and `pnpm seed` creates none. **Global admins are not exempt —
+  decided:** a tenant an admin made by hand would be one the identity provider knows nothing of,
+  the drift the mode exists to prevent; an admin adds the org at the identity provider instead.
+  The session's `idpManagedTenancy` (and `canCreateTenant` false) hides every create affordance —
+  `useAuth().canCreateTenant` gates the org switcher, `/select-tenant` (`?create=1` included) and
+  the approve dialog's "New organisation" — and `/select-tenant`'s empty list and `/no-access` say
+  organisations come from the identity provider, named by `OIDC_LABEL`.
   **A tenant made in the app is linked by slug — decided:** on an org's first sign-in, an
   unlinked tenant whose slug is the claim's `slug` becomes that org's tenant, so a tenant made by
   hand (or before managed tenancy) is not duplicated. The issuer's slug is trusted to name it; a
@@ -144,10 +159,9 @@ suites on vitest 4, §9 — never part of the gate).
   it (Admin → the organisation → Identity provider org; `PUT /api/admin/tenants/:id/external-org`,
   409 `external_org_taken` when another tenant holds the org), and can delete a duplicate the
   org's first sign-in made (`DELETE /api/admin/tenants/:id`, the owner's delete with its slug
-  confirmation), which frees the org for the link. Under managed tenancy the issuer decides which
-  organisations exist, so `POST /api/tenants` and a slug change on `PATCH /api/tenant` answer 409
-  `idp_managed`, whoever asks, and the session's `canCreateTenant` is false so the UI offers no
-  "Create organisation"; the slug-link path above is only reachable from a tenant that
+  confirmation), which frees the org for the link. Under managed tenancy a slug change on
+  `PATCH /api/tenant` answers 409 `idp_managed`, whoever asks (creation is the 403 above); the
+  slug-link path above is only reachable from a tenant that
   already had the slug, made by hand or before managed tenancy.
   `idp_synced_at` on both tables records when the issuer last spoke about the row, so a stale event
   is skipped. **A tenant created this way has no owner — decided:** managed tenancy never writes
@@ -165,7 +179,9 @@ conversations, runs, prompts and non-Knowledge files have no visibility; agent-w
 are always `tenant`; no audit log beyond `activity_events`; no personal API keys (tenant keys only);
 no supported pattern for organisations that must share some facts (partners, franchises, shared
 venues), so an app builds its own copy-and-consent exchange; no identity for people outside every
-organisation (guests, customers of a member business) other than a link or a tenant API key.
+organisation (guests, customers of a member business) other than a link or a tenant API key. Under
+IdP-managed tenancy nobody, a global admin included, can make an organisation in the app — not
+even a scratch or internal one — and an access request can only be approved into an existing one.
 `AGENT_TENANT_DAILY_COST_USD` is per organisation, not per person — the creation limit above is
 what bounds one account. A deleted organisation's `ai_usage` rows go with it (the FK cascade), so
 the operator's record of what it spent is lost with the organisation.
@@ -255,7 +271,17 @@ the operator's record of what it spent is lost with the organisation.
   against `IDENTITY_WEBHOOK_SECRET` over the raw body, five minutes' tolerance, two signatures
   during a rotation — `auth/standard-webhooks.ts`). `person.suspended`, `membership.removed`,
   `membership.role_changed`, `grant.revoked` (org-wide, or one person) and `org.suspended` remove
-  or change `idp` memberships; `person.suspended` also ends the person's sessions and the global-admin
+  or change `idp` memberships; `grant.added` (`{ orgId, orgSlug, orgName, members[], person? }` —
+  the org-wide grant with everyone in the org, or one narrowed to `person`) and `membership.added`
+  (`{ orgId, orgSlug, orgName, personId, email, sub?, role }`) ADD them: for each named person the
+  app already knows whose role `OIDC_ROLE_MAP` maps, the org's tenant is found by
+  `external_org_id`, else linked by slug, else created (slug and name from the event, no owner —
+  exactly as at sign-in), and they get an `idp` membership. People the app has never seen are
+  skipped (their first sign-in seats them), so a tenant is never created empty. An existing
+  tenant is used as it is (an event is not a rename), so a second `grant.added` only adds members.
+  A late add is skipped when the person's `idp` row in that tenant was removed AFTER the event's
+  `occurredAt` (`member.removed` in the activity log): a delayed delivery never lets a removed
+  person back in, and errs towards leaving them out until their next sign-in; `person.suspended` also ends the person's sessions and the global-admin
   role the issuer granted (a `manual` grant stays); `org.renamed`
   renames the tenant. Each does what the next sign-in's reconcile would, so nothing outlasts a
   sign-in that says otherwise (a suspended org's members are back when the issuer lets them sign
@@ -343,7 +369,9 @@ goes), so a sign-in whose id_token was issued in the second or two before a remo
 before a concurrent sign-in that cleared global admin, can restore what that removed until the next
 sign-in or the session's end; one orgs claim, one role map and no per-org role
 overrides; the app writes nothing back to the issuer; the slug is taken from the claim once and
-never follows a later rename; `person.suspended` revokes no API keys: a key acts as its creator,
+never follows a later rename; an add skipped as late is mended only by the next sign-in, and the
+late-add check reads the activity log (a removal is found only while its `member.removed` row is);
+`person.suspended` revokes no API keys: a key acts as its creator,
 so the keys in the tenants they lost stop working, and those in their manual tenants do not.
 Plugin sign-in: the kit trusts the plugin's word on `subject`, `email`, `emailVerified` and the
 tenant entirely (proving them is the plugin's job); one plugin may not name another's id, but

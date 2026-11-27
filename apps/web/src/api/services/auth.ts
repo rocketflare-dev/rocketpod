@@ -7,7 +7,7 @@
  */
 import type { SessionResponse, TenantSummary } from '@rocketpod/shared/auth'
 import { and, desc, eq, isNull, sql } from 'drizzle-orm'
-import type { AppConfig } from '../../config'
+import { type AppConfig, isIdpManaged } from '../../config'
 import type { Database } from '../../db/client'
 import {
   accessRequests,
@@ -21,6 +21,7 @@ import { packRules } from '../../permissions'
 import type { AuthContext } from '../types'
 import type { Logger } from '../utils/core/logger'
 import { createTenantForUser, getSingleTenant } from '../utils/db/tenant-helpers'
+import { appTenantCreationRefusal } from '../utils/routes/route-helpers'
 import { recordActivity } from './activity'
 import { accessRequestReceivedEmail } from './email'
 import { platformFeatures } from './features'
@@ -332,6 +333,8 @@ async function notifyAdminsOfAccessRequest(
  *                    → the first workspace, named `APP_NAME`, as `owner` (whatever SIGNUP_MODE)
  *   multi + open     → a personal workspace as `owner`
  *   otherwise        → nothing; the session has no tenant (→ /pending or /select-tenant)
+ * Under IdP-managed tenancy neither workspace is made (`appTenantCreationRefusal`): organisations
+ * come only from the identity provider, so a person it gives none has none.
  */
 export async function onNoTenant(
   db: Database,
@@ -373,6 +376,7 @@ export async function onNoTenant(
   // The first deploy of an invite-only or approval app: nobody can be invited until a workspace
   // exists, and only SQL could make one. Once ANY tenant exists this never fires again, so an admin
   // who later leaves every workspace is not handed a new one.
+  if (appTenantCreationRefusal(cfg)) return null
   if (user.isGlobalAdmin && isBootstrapAdmin(cfg, user.email) && !(await anyTenantExists(db))) {
     const created = await createTenantForUser(db, {
       name: cfg.APP_NAME,
@@ -459,6 +463,7 @@ export async function buildSessionResponse(
     tenancyMode: cfg.TENANCY_MODE,
     signupMode: cfg.SIGNUP_MODE,
     canCreateTenant: cfg.TENANCY_MODE === 'multi' && tenantCreationRefusal(cfg, auth) === null,
+    idpManagedTenancy: isIdpManaged(cfg),
     version: cfg.RELEASE_VERSION,
   }
 }

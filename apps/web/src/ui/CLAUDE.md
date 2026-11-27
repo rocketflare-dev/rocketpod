@@ -114,9 +114,13 @@ The AI pages read the contracts in
   tenant-scoped is linked), `OrgSwitcher` reads "No organisation", `NotificationsBell` and the
   Profile / Notifications menu links render nothing, and `WebSocketProvider` never connects (it
   needs a tenant id).
-- "Create organisation" (`OrgSwitcher`, `/select-tenant`, its `?create=1` link) renders only when
-  `canCreateTenant` (from the session — `tenantCreationRefusal` server-side) is true: never under
-  IdP-managed tenancy or while an access request is pending or rejected.
+- "Create organisation" (`OrgSwitcher`, `/select-tenant`, its `?create=1` link) and the approve
+  dialog's "New organisation" render only when `useAuth().canCreateTenant` is true — the session's
+  `canCreateTenant` (`tenantCreationRefusal` server-side) AND multi mode AND not
+  `idpManagedTenancy`: never under IdP-managed tenancy or while an access request is pending or
+  rejected. Under IdP-managed tenancy `/select-tenant`'s empty list and `/no-access` say
+  organisations come from the identity provider (`useIdpOrganisationsHint`, named by `OIDC_LABEL`
+  from `/auth/methods` — never a product name).
 - Single-tenant mode (`useTenancyMode()`, D25) hides `OrgSwitcher`, `/select-tenant` (redirects
   home), org create/delete and the slug field, the `new_org` approve branch, and collapses
   `/admin/tenants` to the one detail.

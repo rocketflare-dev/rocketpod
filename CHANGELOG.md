@@ -6,6 +6,11 @@ copy of the kit forward without recreating anything its owner deleted.
 
 If you are running a copy: `pnpm kit:upgrade` tells you which of these you are missing.
 
+## 0.45.1 — 2026-11-27
+
+Rocketpod catches up with Rocketflare 0.45.0: run timelines show model calls, knowledge gains a Promote picker, contextual prefixes and CLI `docs`/`facts`, `plugin check` parses source, a guard and a UI lint steer agents, and Home and sign-in are redesigned.
+[Porting note](docs/upgrades/0.45.1.md).
+
 ## 0.45.0 — 2026-11-27
 
 Email goes through a new `mailer` platform member, and Amazon SES v2 joins Resend as a provider (`EMAIL_PROVIDER=log|resend|ses`), so a deployment on AWS sends with its ECS task role and no API key.

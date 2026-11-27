@@ -31,7 +31,8 @@ import {
   resumeRun,
   runOnce,
 } from '@/api/services/agents/runs'
-import { executeRun, finishStep } from '@/api/services/agents/runtime'
+import { claimStep, executeRun, finishStep } from '@/api/services/agents/runtime'
+import { callStructuredTool } from '@/api/services/ai/agent-loop'
 import { AiError } from '@/api/services/ai/errors'
 import { overrideResolveChatForTests } from '@/api/services/ai/resolve'
 import { searchChunks } from '@/api/services/ai/retrieval'
@@ -204,13 +205,33 @@ describe('the agent run (runAgentRun)', () => {
       ['step', 'precheck', 'running'],
       ['step', 'precheck', 'done'],
       ['step', 'summarize', 'running'],
-      ['tool.start', 'submit_summary'],
-      ['tool.end', 'submit_summary'],
+      // Written by the runtime, not the agent: the model call, inside the stage that made it.
+      ['tool.start', 'fake-model'],
+      ['tool.end', 'fake-model'],
       ['text', undefined],
       ['step', 'summarize', 'done'],
       ['artifact', undefined],
       ['status', 'succeeded'],
     ])
+    expect(events.find(e => e.type === 'tool.start')?.data).toEqual({
+      name: 'fake-model',
+      kind: 'model',
+      toolCallId: expect.stringMatching(/^model:0\.[0-9a-f]{8}:1$/),
+      input: { tool: 'submit_summary', messages: 1, tools: 1, maxTokens: 2048 },
+    })
+    // The answer's SHAPE, never its text.
+    expect(events.find(e => e.type === 'tool.end')?.data).toMatchObject({
+      kind: 'model',
+      toolCallId: (
+        events.find(e => e.type === 'tool.start')?.data as { toolCallId?: string } | undefined
+      )?.toolCallId,
+      result: {
+        model: 'fake-model',
+        stopReason: 'tool_use',
+        toolCalls: ['submit_summary'],
+        answer: { summary: '35 chars', keyPoints: '2 items' },
+      },
+    })
     expect(events.find(e => e.type === 'text')?.data).toEqual({
       text: 'Volcanoes are mountains that erupt.',
     })
@@ -494,6 +515,87 @@ describe('the agent run (runAgentRun)', () => {
       expect.arrayContaining(['index-summary', 'summary'])
     )
     expect(effects.every(e => e.tenantId === tenant.id)).toBe(true)
+
+    // A served `ctx.once` makes no model call, so it writes no model row: one call, one pair,
+    // across the park, the resume and the retry.
+    const modelStarts = (await listEvents(db, tenant.id, run.id)).filter(
+      e => e.type === 'tool.start' && (e.data as { kind?: string }).kind === 'model'
+    )
+    expect(modelStarts).toHaveLength(1)
+  })
+
+  it('records the model call inside a pair the agent wrote itself, in the order it wrote them', async () => {
+    const env = createTestEnv()
+    script([TOOL_TURN])
+    installAgent(async ctx => {
+      await ctx.step('answer', 'Answering', 'running')
+      await ctx.emit({ type: 'tool.start', data: { name: 'submit_summary' } })
+      const result = await callStructuredTool(ctx.chat.client, {
+        model: ctx.chat.model,
+        maxTokens: ctx.chat.maxOutputTokens,
+        system: 'Summarise.',
+        messages: [{ role: 'user', content: 'Volcanoes erupt.' }],
+        tool: {
+          name: 'submit_summary',
+          description: 'Submit the summary.',
+          schema: z.object({ summary: z.string(), keyPoints: z.array(z.string()) }),
+        },
+      })
+      await ctx.emit({ type: 'tool.end', data: { name: 'submit_summary' } })
+      await ctx.step('answer', 'Answering', 'done')
+      return result
+    })
+    const { run, tenant } = await queuedRun(env)
+    const { outcome } = await drive(env, run.id, tenant.id)
+    expect(outcome.status).toBe('succeeded')
+    const summary = (e: { type: string; data: unknown }) => {
+      const d = e.data as Record<string, unknown>
+      return e.type === 'step' ? [e.type, d.key, d.status] : [e.type, d.status ?? d.name]
+    }
+    expect((await listEvents(db, tenant.id, run.id)).map(summary)).toEqual([
+      ['status', 'running'],
+      ['step', 'answer', 'running'],
+      ['tool.start', 'submit_summary'],
+      // The model call the runtime records itself, inside the agent's own pair.
+      ['tool.start', 'fake-model'],
+      ['tool.end', 'fake-model'],
+      ['tool.end', 'submit_summary'],
+      ['step', 'answer', 'done'],
+      ['status', 'succeeded'],
+    ])
+  })
+
+  it('a model call that fails closes its row as an error; the retry records its own', async () => {
+    const env = createTestEnv()
+    script([{ error: new AiError('unavailable', 'anthropic_compatible', 'overloaded') }, TOOL_TURN])
+    const { run, tenant } = await queuedRun(env)
+    const cfg = loadConfig(env)
+    const params = { runId: run.id, tenantId: tenant.id }
+    await claimStep(db, env, fakeLogger(), params)
+    // The step retry, as the run engine runs it: the same round again, `run.attempt` unchanged.
+    await expect(executeRun(db, cfg, env, fakeLogger(), params)).rejects.toThrow('overloaded')
+    expect((await executeRun(db, cfg, env, fakeLogger(), params)).status).toBe('succeeded')
+
+    const rows = (await listEvents(db, tenant.id, run.id))
+      .filter(
+        e =>
+          (e.type === 'tool.start' || e.type === 'tool.end') &&
+          (e.data as { kind?: string }).kind === 'model'
+      )
+      .map(e => {
+        const d = e.data as { toolCallId: string; isError?: boolean; result?: { error?: string } }
+        return [e.type, d.toolCallId, d.isError ?? false, d.result?.error]
+      })
+    // Every start has its end — the failed one too — and the retry's id never pairs with the
+    // first invocation's.
+    const [failed, retried] = [rows[0]?.[1], rows[2]?.[1]]
+    expect(failed).not.toBe(retried)
+    expect(rows).toEqual([
+      ['tool.start', failed, false, undefined],
+      ['tool.end', failed, true, expect.stringContaining('did not answer')],
+      ['tool.start', retried, false, undefined],
+      ['tool.end', retried, false, undefined],
+    ])
   })
 
   it('runOnce records a result once per key and replays it, including null', async () => {

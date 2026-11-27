@@ -1001,7 +1001,14 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   (`cancelled`, note `Nobody answered before the deadline`) and wakes the run, where the default
   `expire` cancels it. An ask may name `assignees: { userIds, groupIds }` (visibility groups): they
   are notified, see it in their inbox, may read the run and answer it — the requester then may
-  not; an owner or admin always may. **Child runs**: `ctx.spawn(key, agentKey, input)` starts
+  not; an owner or admin always may. Once an ask is no longer pending (answered, declined,
+  expired, or settled with its run), `resolveInterrupt` / `expireInterrupts` mark its
+  notifications read for every recipient, the reminder included, and nudge `notification.read`,
+  so the bell stops counting a question nobody can answer. "Waiting on you" (the Agents nav badge
+  and the Agents page button) reads `GET /interrupts?mine=true`: only the asks put to the reader,
+  the same people `recipientsFor` notifies (an assignee; otherwise the requester under
+  `approvers: 'requester'`, or the owners and admins by membership role under `'admin'`), never
+  every ask an admin or a support visitor is allowed to read and answer. **Child runs**: `ctx.spawn(key, agentKey, input)` starts
   another agent as its own run (`parent_run_id`; id from `spawn:<parent>:<key>`, so a retried
   parent finds the same child), parks the parent with NO ask while it runs, and the child's
   `finish` (or a cancel of it) wakes the parent, which gets the output (recorded as effect
@@ -1111,7 +1118,23 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   projection (`/agui`), also streamed live by tailing `seq` (`/agui/stream`, #7). A read-stream
   failure emits no `RUN_ERROR` (clients reconnect); `id:` goes on the last frame of a row's group,
   and reconciliation runs once before the first frame. Payloads never go over the tenant-wide realtime channel,
-  because run visibility is per run.
+  because run visibility is per run. **The runtime writes a step's rows itself**
+  (`services/agents/recording.ts`). Each call through `ctx.chat.client` becomes a `tool.start` /
+  `tool.end` pair marked `kind: 'model'` and named for the model, carrying the forced tool, the
+  usage, the stop reason, the tools the model called and a forced answer's shape (counts, never
+  its text); the end is written in a `finally`, so a call that throws or is cancelled never spins.
+  A `runToolLoop` given `ctx.journal` and no `onEvent` of its own gets a row per text block, tool
+  call and result through `ctx.journal.onEvent` (the terminal tool is skipped); a loop with its
+  own `onEvent` keeps writing its own rows. Served work (a `ctx.once` body, a journaled turn)
+  makes no model call and so writes no row. The ids are `model:<round>.<tag>:<n>`, naming one
+  `executeRun` invocation, because an OpenWorkflow step retry re-runs `execute#N` with
+  `run.attempt` unchanged; the timeline marks a call an earlier invocation left open as stopped
+  once a `willRetry` error (or a later attempt's `running` status) lands. Model rows are counted
+  apart from tools in a stage header and on the Usage tab ("Model calls"), and the AG-UI
+  projection, the evals export (`rocketpod evals promote`) and the eval transcript skip them. An
+  agent therefore never brackets a model call with its own pair (that shows the call twice); it
+  still emits a pair around a tool handler it calls directly. A stage that recorded no rows is a
+  plain line, not a disclosure.
 - **Knowledge (D18)**: `documents` + `chunks` (pgvector HNSW). Text is ingested inline or by job;
   uploads go to storage, then the platform `converter` (`src/node/converter.ts`: `unpdf` for PDF,
   `mammoth` for .docx → markdown, HTML stripped to text, XML/text decoded), then the same indexer.

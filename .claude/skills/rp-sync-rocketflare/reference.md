@@ -46,6 +46,7 @@ the same commit, so the next port starts from it.
 | `run_worker_first` upkeep (`pruneWorkerFirst`, `transformWranglerTomls`) | Nothing: the Node server receives every path |
 | A body cap justified by "the Worker holds the body in memory" | The Node process holds a buffered body, and the ingress has its own cap: name ingress-nginx's `proxy-body-size` (Helm values comment, `docs/DEPLOY.md`) |
 | `mapVirtualHost` on the test `ExecutionContext` | Not needed: no wrangler types |
+| "A Workflows step retry keeps `run.attempt`" (0.45.0's model-call ids) | The same on OpenWorkflow: a step retry re-runs `execute#N` with `run.attempt` unchanged, so an id per `executeRun` invocation still holds |
 
 ## Test harness mappings
 
@@ -65,6 +66,7 @@ the same commit, so the next port starts from it.
 | A KV store assertion | the recorded platform member (`stubs(env).kv`, `.queue`, `.files`, `.hub`, `.workflow`) |
 | The queue name `rocketflare-jobs` | `rocketpod-jobs` |
 | Driving the Durable Object | Booting the Node server (`startServer`) and real sockets |
+| An upstream case on `fixture-agent`'s body (`agent-run-runtime.test.ts`, its `submit_answer` pair) | `test-summarize` mirrors `summarize-text`, so it follows the example's changes (0.45.0: no own pair); a case that needs another body installs one with `installAgent` in `agent-run-workflow.test.ts` |
 
 ## Porting mechanics
 

@@ -68,6 +68,7 @@ import { withFanout } from './fanout'
 import { askTiming, notifyApprovers } from './hitl'
 import { approvalsForRun, expireInterrupts, requestInterrupt } from './interrupts'
 import { attemptKeys, EffectKeyConflictError, effectKey } from './keys'
+import { loopEventSink, recordingChatClient } from './recording'
 import type { AgentEvent } from './registry'
 import { getAgent } from './registry'
 import {
@@ -321,7 +322,7 @@ export async function executeRun(
     // model call — a suspended organisation runs no agents.
     if (tenant?.status !== 'active') {
       await cancelRun(db, tenantId, runId)
-      await expireInterrupts(db, tenantId, runId)
+      await expireInterrupts(db, tenantId, runId, realtime)
       await emit({ type: 'status', data: { status: 'cancelled', reason: 'tenant_suspended' } })
       return { runId, status: 'cancelled' }
     }
@@ -381,11 +382,16 @@ export async function executeRun(
       },
       async trace => {
         trace.setAttributes(runConversation(runId))
-        // Metered OUTSIDE the trace wrapper, so a call the budget refuses opens no span.
+        // Metered OUTSIDE the trace wrapper, so a call the budget refuses opens no span; recorded
+        // outside the meter, so a refused call still shows on the timeline as the failure it was.
         const client = abortableChatClient(
-          meterChatClient(
-            traceChatClient(resolved.client, trace, { provider: resolved.provider }, tracer),
-            meter
+          recordingChatClient(
+            meterChatClient(
+              traceChatClient(resolved.client, trace, { provider: resolved.provider }, tracer),
+              meter
+            ),
+            emit,
+            { invocation: `${options.round ?? 0}.${crypto.randomUUID().slice(0, 8)}` }
           ),
           cancel.signal
         )
@@ -426,7 +432,7 @@ export async function executeRun(
             const key = onceKeys.claim(await effectKey(label, onceOptions?.inputs))
             return runOnce(db, tenantId, runId, key, fn)
           },
-          journal: createTurnJournal(db, tenantId, runId),
+          journal: { ...createTurnJournal(db, tenantId, runId), onEvent: loopEventSink(emit) },
           spawn: (key, agentKey, input) => spawnOf(spawner).spawn(key, agentKey, input),
           approvals,
           interrupt: async ask => {
@@ -537,7 +543,7 @@ export async function executeRun(
     // abort error, which would otherwise read as a retryable `unavailable`.
     if (err instanceof AgentCancelledError || cancel.signal.aborted) {
       await cancelRun(db, tenantId, runId)
-      await expireInterrupts(db, tenantId, runId)
+      await expireInterrupts(db, tenantId, runId, realtime)
       await emit({ type: 'status', data: { status: 'cancelled' } })
       return { runId, status: 'cancelled' }
     }
@@ -596,7 +602,7 @@ export async function executeRun(
       if (!parked) {
         // Settled underneath us — cancelled from outside while the gate was being raised. The row
         // is the truth: expire the questions nobody will answer and report what it says.
-        await expireInterrupts(db, tenantId, runId)
+        await expireInterrupts(db, tenantId, runId, realtime)
         const current = await getRun(db, tenantId, runId)
         return { runId, status: current?.status ?? 'cancelled' }
       }
@@ -631,7 +637,7 @@ export async function executeRun(
       // A refusal is a STATUS, not a message: `agent_runs.error` stays NULL and the reason lives
       // on the event row, so the UI never renders "this run failed because a person said no".
       await cancelRun(db, tenantId, runId)
-      await expireInterrupts(db, tenantId, runId)
+      await expireInterrupts(db, tenantId, runId, realtime)
       await emit({ type: 'status', data: { status: 'cancelled', reason: 'rejected' } })
       return { runId, status: 'cancelled' }
     }
@@ -742,7 +748,7 @@ export async function finishStep(
   let row = await getRun(db, tenantId, runId)
   // The workflow is ENDING. A row still parked at this point can never be woken — the instance
   // that would have heard the answer is finishing — so the open asks go either way.
-  if (row?.status === 'awaiting_input') await expireInterrupts(db, tenantId, runId)
+  if (row?.status === 'awaiting_input') await expireInterrupts(db, tenantId, runId, realtime)
   // The one case where a parked row is a FAILURE rather than an expiry: the loop gave up on an
   // agent that kept asking (`MAX_INTERRUPT_ROUNDS`) and said so in the outcome. It is the outcome
   // that decides, never the row's status — do not widen the predicate below.

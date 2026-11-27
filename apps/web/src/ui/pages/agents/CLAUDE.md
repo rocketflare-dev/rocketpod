@@ -65,7 +65,15 @@ are in `.claude/rules/ui.md`.
 - Grouping: a `running` step opens, non-step rows attach, its `done` closes, a different key
   implicitly closes (an unclosed step is a real state, shown spinning); `__preamble__` and
   `__tail__` hold the loose stretches. Expansion is `defaultExpanded` XOR the reader's toggles,
-  keyed by `headerId`, so a live run never reopens a group somebody closed.
+  keyed by `headerId`, so a live run never reopens a group somebody closed. A stage that recorded
+  no rows renders as a plain line (`TimelineGroup`): no button, no chevron that opens nothing.
+- **Model rows**: a `tool.*` event with `kind: 'model'` is a model call the runtime recorded
+  (`ToolRow.model`): `ToolCallRow` shows "Model call · <model> answered" with its tokens
+  (`modelUsage`) and no result cards; a group counts it in `modelCount`, never `toolCount`;
+  `selectWorkStats` adds `modelCalls` / `failedModelCalls` / tokens (the Usage tab's "Model
+  calls") and keeps it out of the per-tool totals. A `willRetry` error, or a `running` status
+  past attempt 1, marks every open call `stopped`; a later answer under the same id still closes
+  it (a journaled tool call the retry finishes).
 - Long runs **window (`TIMELINE_WINDOW_GROUPS` = 40 groups from the end), never virtualise** — row
   heights vary wildly and a virtualiser needs measurement, which fights auto-scroll and collapsing.
   `useStickToBottom` fires only when the reader is at the bottom AND the last row id changed — and
@@ -179,9 +187,11 @@ are in `.claude/rules/ui.md`.
   `/agents/runs?awaiting=1` is a URL and there is a chip for it, and every row is a real `<Link>` (so
   middle-click and open-in-new-tab work — half the point of a run being a page). The SideNav badge
   is `NavItem.badgeKey`/`badgeTone` resolved by `useNavBadges()` inside `SideNav` (the nav-badge
-  convention, `.claude/rules/ui.md`), fed by `GET /interrupts?status=pending&pageSize=1` under
-  `['agent-run','awaiting']` (`useAwaitingInterruptCount`; both server nudges cover it) — never
-  polled.
+  convention, `.claude/rules/ui.md`), fed by `GET /interrupts?status=pending&mine=true&pageSize=1`
+  under `['agent-run','awaiting']` (`useAwaitingInterruptCount`; both server nudges cover it) —
+  never polled. `mine` = the asks ADDRESSED to the reader (an assignee, else the requester or an
+  owner/admin per `approvers`), so an admin or a support visitor who may answer somebody else's ask
+  is not told it waits on them; the same count is AgentsPage's "N waiting on you".
 - `lib/notificationLink.ts` maps a notification's `type` + `data` to a path (unknown → `null`) and
   is used by BOTH `NotificationsBell` and `/notifications`, so a parked run's bell entry opens the
   run rather than a list of notifications about it.

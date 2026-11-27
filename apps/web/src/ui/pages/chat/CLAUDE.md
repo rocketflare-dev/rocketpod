@@ -38,8 +38,13 @@ Streaming, the frame order in `lib/CLAUDE.md`.
 
 `ai_not_configured` (503) — from `POST /api/chat/conversations` (`ApiError`, toast suppressed in
 the hook) or from the send (`AiNotConfiguredError`, `isAiNotConfigured()`) — or readiness
-`chat.ready === false` → `ChatPage` renders the `EmptyState` with a "Configure AI" link to
-`/settings?tab=ai` for `manage AiConfig`, "ask an administrator" otherwise.
+`chat.ready === false` → `NotConfigured`: a "Configure AI" link to `/settings?tab=ai` for
+`manage AiConfig`, "ask an administrator" otherwise. With no conversation open it is the pane's
+`EmptyState`; with one open the thread still renders, read-only, and the call to action takes the
+composer's place — a tenant whose provider was removed can still read its history. The chat pane
+fills the dynamic viewport (`100dvh` less the header and padding). Home's composer
+(`HomeComposer`) starts a conversation and hands the first message over (`handOver.ts`) to this
+page, which sends it once.
 
 ## Tests
 

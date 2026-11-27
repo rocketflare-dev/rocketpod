@@ -128,21 +128,35 @@ brand already sets the colour.
 run `pnpm design:docs --apply-brand`. Re-run `pnpm web test:ui` after every change; a failing
 contrast test names the token and the ratio.
 
-## (f) Logo — report only
+## (f) Logo and the sign-in panel — report only
 
 **What to check.** `apps/web/src/ui/components/shared/LogoMark.tsx` (inline SVG paths),
 `apps/web/src/ui/public/logo.svg` and `apps/web/src/ui/public/favicon.svg` still carry the kit's
 rocket. The script never touches them.
 
+Beside them, the sign-in page's right-hand panel:
+- **the image:** `apps/web/src/ui/components/LoginArt.tsx`, the kit's rocket as tonal linework.
+  It takes its colours from the rail and flare tokens (`.login-art*` in `index.css`), so it
+  already wears the new palette, but it is still the kit's picture;
+- **the tagline:** `LOGIN_PANEL.tagline` in `apps/web/src/ui/lib/login-panel.ts`. The rename set it
+  from `docs/design/design.json` `app.tagline` when the design has one (the report says which);
+  otherwise it is still the kit's line.
+
 **How to check.**
 ```
 ls -la apps/web/src/ui/public/ apps/web/src/ui/components/shared/LogoMark.tsx
+grep -n "art:\|tagline:" apps/web/src/ui/lib/login-panel.ts
 ```
-Open the app (`pnpm dev` prints its URL) once it runs: the mark in the header and the browser tab.
+Open the app (`pnpm dev` prints its URL) once it runs: the mark in the header and the browser tab,
+then sign out to see the sign-in panel (it shows from `lg` up).
 
 **What to change.** Replace the `<path>`s in `LogoMark.tsx` (keep the `viewBox` and the
 `className` prop) and the two svgs with the user's mark. A monochrome mark can use
-`fill="currentColor"` with `className="text-primary"` to follow the theme.
+`fill="currentColor"` with `className="text-primary"` to follow the theme. For the panel, do what
+`docs/design/06-brand.md` recorded, or ask: keep the rocket in their colours, replace the SVG in
+`LoginArt.tsx` with imagery they own (colours from `currentColor` and the `.login-art*` classes,
+so it follows the theme), or set `art: 'type'` in `login-panel.ts` for the name and tagline alone.
+Write the tagline in their words if the rename did not.
 
 ## (g) Installed plugins — translated on the way in, and again on the way forward
 

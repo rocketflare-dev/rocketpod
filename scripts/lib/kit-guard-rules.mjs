@@ -193,6 +193,7 @@ export const GUARD_RULES = [
       'apps/web/src/api/routes/groups.ts',
       'apps/web/src/api/routes/guide.ts',
       'apps/web/src/api/routes/health.ts',
+      'apps/web/src/api/routes/home.ts',
       'apps/web/src/api/routes/identity-events.ts',
       'apps/web/src/api/routes/invitations.ts',
       'apps/web/src/api/routes/invite.ts',

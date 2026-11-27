@@ -320,8 +320,10 @@ from that one fact:
   edit to `Layout` or `App.tsx`: each item sits behind its own guard, `Suspense` and error boundary,
   so a header item that throws must render nothing rather than break the shell. A card on Home is a
   `UiPlugin.homeCards` entry rendered by `PluginHomeCards` the same way, never an edit to
-  `Home.tsx`; the core quick links are data in `pages/home-links.ts`, which hooks import instead
-  of the page
+  `Home.tsx`. Home's work areas are `pages/home-sections.ts` entries, each owned by its feature
+  and fed by one `GET /api/home/summary`; an app adds its own area there. The core quick links
+  are data in `pages/home-links.ts` (destinations for the navigation search, no longer rendered
+  on Home), which hooks import instead of the page
 - **`queryKeys` roots must start with `<id>:`** (checked by `plugins.test.ts`), so one plugin's
   invalidation can never reach another's cache. **The `entity` string of a nudge IS a query-key
   family root**, so declare it once (the plugin's `shared.ts`) — `example-feature`'s

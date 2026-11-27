@@ -30,6 +30,7 @@
         "apps/web/src/api/services/agents/examples/summarize-text.ts",
         "apps/web/src/ui/pages/agents/forms/summarize-text.tsx",
         "apps/web/tests/ui/agent-examples.test.tsx",
+        "apps/web/tests/config/summarize-text-title.test.ts",
         "apps/web/src/ui/pages/agents/outputs/summarize-text.tsx",
         "apps/evals/suites/agents/summarize-text.eval.ts",
         "apps/evals/datasets/summarize-text.jsonl",
@@ -56,6 +57,7 @@
         "apps/web/src/ui/pages/agents/forms/research-topic.tsx",
         "apps/web/tests/api/agent-research.test.ts",
         "apps/web/src/ui/pages/agents/outputs/research-topic.tsx",
+        "apps/web/tests/ui/agent-output-research-topic.test.tsx",
         "apps/evals/suites/agents/research-topic.eval.ts",
         "apps/evals/datasets/research-topic.jsonl",
         "apps/evals/baselines/agents-research-topic.json",
@@ -161,9 +163,14 @@
         "apps/web/tests/api/agui-run.test.ts",
         "apps/web/tests/api/chat.test.ts",
         "apps/web/tests/api/chat-tools.test.ts",
-        "apps/web/tests/ui/chat-page.test.tsx"
+        "apps/web/tests/ui/chat-page.test.tsx",
+        "apps/web/tests/ui/chat-hand-over.test.tsx"
       ],
-      "registries": ["apps/web/src/api/index.ts", "apps/web/src/ui/App.tsx"]
+      "registries": [
+        "apps/web/src/api/index.ts",
+        "apps/web/src/ui/App.tsx",
+        "apps/web/src/ui/pages/home-sections.ts#HOME_SECTIONS"
+      ]
     },
     {
       "id": "feature-agents",
@@ -182,7 +189,8 @@
         ".claude/skills/rp-agent-replay/**",
         "packages/shared/src/ai/agents.ts",
         "apps/web/src/plugins/api/agent-runs.ts",
-        "apps/web/tests/api/plugin-agent-runs.test.ts"
+        "apps/web/tests/api/plugin-agent-runs.test.ts",
+        "apps/web/tests/ui/home-runs.test.tsx"
       ],
       "registries": [
         "apps/web/src/node/runs.ts",
@@ -195,7 +203,9 @@
         "apps/web/src/plugins/api/emit.ts#EventCtx.startAgentRun",
         "apps/web/src/plugins/api/emit.ts#EventCtx.startBoundAgent",
         "apps/web/src/api/services/events/subscribers.ts#agentTriggerSubscribers",
-        "apps/web/tests/kit/unit.ts#recordingAgentRuns"
+        "apps/web/tests/kit/unit.ts#recordingAgentRuns",
+        "apps/web/src/ui/pages/home-sections.ts#HOME_SECTIONS",
+        "apps/web/src/api/services/home.ts#homeSummary"
       ]
     },
     {
@@ -213,12 +223,15 @@
         "apps/web/src/api/queues/handlers/document-index.ts",
         "apps/web/src/api/queues/handlers/document-convert.ts",
         "apps/web/src/plugins/api/knowledge.ts",
-        "apps/web/tests/api/plugin-ingest.test.ts"
+        "apps/web/tests/api/plugin-ingest.test.ts",
+        "apps/web/src/api/services/ai/home-knowledge.ts"
       ],
       "registries": [
         "apps/web/src/api/index.ts",
         "apps/web/src/ui/App.tsx",
-        "apps/web/src/plugins/api/index.ts"
+        "apps/web/src/plugins/api/index.ts",
+        "apps/web/src/ui/pages/home-sections.ts#HOME_SECTIONS",
+        "apps/web/src/api/services/home.ts#homeSummary"
       ]
     },
     {

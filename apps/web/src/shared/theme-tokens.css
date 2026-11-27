@@ -1,4 +1,4 @@
-/* The brand: fonts and the two DaisyUI themes (light default, dark on prefers-color-scheme).
+/* The brand: fonts, shape and the two DaisyUI themes (light default, dark on prefers-color-scheme).
    ONE file, read by the admin stylesheet (`ui/index.css`) and by any public-site stylesheet, so a
    rebrand is one edit. Hexes appear here and nowhere else; the rebrand steps and the contrast
    floors are in the header of `ui/index.css`, and `tests/ui/contrast.test.ts` gates both files.
@@ -10,6 +10,13 @@
   --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
   /* The face of h1–h3; the body face unless a brand sets a heading face alone. */
   --font-heading: var(--font-sans);
+
+  /* Shape. Controls (buttons, inputs, nav items) 5px, cards and panels 6px, popovers 8px: this
+     look is squared-off. Tailwind turns these into `rounded-control`, `rounded-panel`,
+     `rounded-popover`. */
+  --radius-control: 5px;
+  --radius-panel: 6px;
+  --radius-popover: 8px;
 }
 
 /* ------------------------------------------------------------------ Light */

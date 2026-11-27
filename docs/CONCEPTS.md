@@ -778,11 +778,81 @@ calls `putStream` yet (uploads are multipart forms under `MAX_UPLOAD_BYTES`).
 ## 7. UI shell
 
 - **Design tokens (D20)**: two DaisyUI themes in `shared/theme-tokens.css` (read by `ui/index.css`
-  and by public-site stylesheets), where the brand hexes are the only
-  hex values; `contrast.test.ts` gates them. Tailwind scanning is `source(none)` + explicit
-  `@source` lines. A plugin's pages get the `../plugins/**/ui/**` line, and precompiled dependency
-  CSS gets none. The floors and pairs live in `scripts/lib/contrast.mjs`, which the test and the
-  design pages share.
+  and by public-site stylesheets) and the semantic tokens in the two `[data-theme]` blocks of
+  `ui/index.css`; colour literals live nowhere else, and `contrast.test.ts` gates both files.
+  Rocketpod's look is its own: a cool grey (zinc) ramp, one blue primary, the system face,
+  squared-off corners, all hex. White chrome — the side rail and the top bar — frames a light grey
+  canvas with white panels; in dark the canvas is the darkest plane. The shell reads named tokens
+  a brand can move: the rail (`--rail-surface`, `-border`, `-text`, `-text-muted`, `-hover`,
+  `-active`, `-active-text`, `-focus-ring`; in this look the rail IS the white nav, so its values
+  repeat the nav's, and a brand may make it a deep tone with light text), five chart series
+  (`--series-1…5`, for categories; a state uses the state colours), `--flare` (the logo's gold: the
+  sign-in drawing's flame, never text or a state), `--selection-surface`, and the chat turn's
+  `--surface-bubble` / `--selection-bubble`. Shape is in `@theme` (`--radius-control` 5px,
+  `--radius-panel` 6px, `--radius-popover` 8px → `rounded-control` …); depth is
+  `--shadow-panel` / `--shadow-popover`, declared once per surface — a panel has a shadow or a
+  border, never both, and here `--shadow-panel` is a spread-only 1px ring in `--border-default`,
+  which keeps the hairline look. `--font-heading` (default `var(--font-sans)`) is the face of h1–h3
+  alone — page and section titles, the sign-in heading — so a brand can set a heading serif without
+  touching the body. Density is comfortable; `data-density="compact"` on the root tightens it.
+  Tailwind scanning is `source(none)` + explicit `@source` lines. A plugin's pages get the
+  `../plugins/**/ui/**` line, and precompiled dependency CSS gets none. The floors and pairs live
+  in `scripts/lib/contrast.mjs` — text on every surface, the semantic fills, and the shell's
+  `SHELL_PAIRS` (rail text on the rail and its hover and active fills, the rail focus ring, each
+  series ≥3:1 on a panel, ink on the selection and the active row, the flare on the rail) — which
+  the test and the design pages share.
+- **Rocketflare's ember look is offered, never applied.** Upstream's default since 0.45.0 is a
+  tinted shell on one warm rust hue (`oklch(L C 35)` literals, a deep rail, IBM Plex Sans and
+  JetBrains Mono). Rocketpod took its mechanics (the token names, the rail and Home styles, the
+  radii in `@theme`) and kept its own palette and the system face. To take ember:
+  `pnpm design:docs --adopt-default-look --from <dir>`, where `<dir>` holds Rocketflare's three
+  look files (`apps/web/src/shared/theme-tokens.css`, `apps/web/src/ui/index.css`,
+  `apps/web/src/ui/index.html`) in Rocketpod's names — the kit repository keeps a copy at
+  `apps/web/tests/kit-only/fixtures/one-hue-look/` (kit-only: the rename deletes it, so fetch it
+  from the kit's tag into a copy). Without `--from`, a copy adopts the token files of the
+  Rocketpod release it records, which is this look. The faces need their packages:
+  `@fontsource-variable/ibm-plex-sans` and `@fontsource-variable/jetbrains-mono` in
+  `apps/web/package.json` and imported in `ui/main.tsx`; without them the stack falls back to the
+  system face. Then `pnpm design:docs --contrast` and `pnpm web test:ui`.
+- **Sign-in page**: a split screen (`AuthCard split`) — the form on the left (dev quick-login below
+  it, marked as development-only), a panel in the rail tokens on the right that folds away below
+  `lg`. The panel shows `components/LoginArt.tsx`, the rocket as tonal linework coloured from the
+  rail and flare tokens (`.login-art*` in `index.css`), so it follows a rebrand until someone
+  replaces it; `LOGIN_PANEL` in `ui/lib/login-panel.ts` (`art: 'rocket'|'type'`, `tagline`)
+  switches to a type-only panel of the app's name and tagline. The rename sets the tagline from
+  `docs/design/design.json` `app.tagline`.
+- **Home sections**: Home is an operational dashboard laid out from `pages/home-sections.ts`, a
+  registry of `{ id, placement: 'lead'|'main'|'aside', order, guard?, Component }`. A feature owns
+  its section — the chat composer (`lead`, `chat/HomeComposer`, which hands its first message to
+  the chat page), recent agent runs (`agents/HomeRuns`: the fortnight's chart, the newest runs, a
+  clicked day narrowing the list through `GET /api/agents/runs?since=&until=`), recent documents
+  (`documents/HomeDocuments`) — as one entry pointing at a lazily imported component in its own
+  directory, and the file is listed in each feature surface's `registries` in `.rocketflare.json`,
+  so deleting a feature deletes its area. Core owns Team, AI spend and Activity (`pages/home/`);
+  Team counts owners, admins and members and names a support membership apart ("· 1 support
+  visitor"). One request, `GET /api/home/summary` (`routes/home.ts` → `services/home.ts`,
+  `@rocketpod/shared/home`), feeds every section; each part is decided by the reader's
+  permissions, and a section renders nothing when its part is `null`. Its query key is the
+  `['home']` root, which the realtime events behind each part also invalidate (`HOME` and
+  `HOME_ENTITY_ROOTS` in `@rocketpod/shared/realtime`). A plugin does not edit the registry: it
+  contributes `UiPlugin.homeCards` and `homeLinks` (Home's Shortcuts). The core quick links in
+  `home-links.ts` are destinations for the navigation search, no longer drawn on Home. The SVG
+  primitives the sections use are in `components/shared/`: `RunsChart` (bars over days, stacked by
+  status), `TrendLine` (only beside a number that moves) and `AvatarStack`, token-coloured, no
+  chart library. `pnpm seed --demo` spreads its runs, failures included, over the last 14 days and
+  moves its timestamps forward on every run, so the chart is never empty.
+- **Provenance**: one treatment for "where this came from" — `components/shared/Provenance.tsx`,
+  `<Provenance sources work? layout="list"|"inline" />`, with the builders `sourceFromCard`,
+  `sourceFromCitation` and `sourceFromFact` and the pieces `ProvenanceLink` / `ProvenanceQuote`.
+  Chat answers (`ChatBubble`), `Markdown` document links (`DocumentLink` renders through
+  `ProvenanceLink`), agent outputs (`pages/agents/outputs/citationSources.ts`), the run timeline's
+  tool results and Knowledge facts all use it. A plugin imports it from `@/plugins/api/ui`.
+- **Product words**: runs, documents and search read in the reader's words — a run's requester by
+  name (`requestedBy`), status rows as sentences (`statusSentence`), a failed run's Run again,
+  `cancelled` a neutral badge, "Pasted" / "<Key> agent" for a document's source
+  (`documentSourceLabel`), dates without the current year and `timeAgo` short ("3h ago"); search
+  shows no rank numbers or ranking diagnostics, marks whole words minus stop-words and strips
+  markdown from a snippet (`lib/highlight.ts`). Tables stack below `sm` (`lib/stacked-table.ts`).
 - **Design pages** (`pnpm design:docs`, `scripts/design-docs.mjs`): renders `docs/design/*.md` (a
   numeric prefix orders them; the first is `index.html`) and inlines `docs/design/diagrams/*.svg`
   into `docs/design/html/`: static HTML pages in the app's own tokens, light and dark, committed
@@ -795,7 +865,17 @@ calls `putStream` yet (uploads are multipart forms under `MAX_UPLOAD_BYTES`).
   and `index.css`: the pages' stylesheet, `--contrast` (the gate's floors, failing pairs printed per
   theme) and `--apply-brand` (writes each property into whichever file defines it, plus
   `<meta name="theme-color">`) all read that one result, and each warns about a derived tone
-  (`--focus-ring`, `--surface-active`, `--tone-*`) that a changed colour left at the kit's value.
+  (`--focus-ring`, `--surface-active`, `--tone-*`, `--rail-active`, `--rail-focus-ring`,
+  `--selection-surface`) that a changed colour left at the kit's value. A brand may set any token
+  either file defines — colours, rail, series, depth, and in `@theme` fonts and radii — and on an
+  `oklch()` palette `@theme { --brand-hue: <deg|colour>; }` turns the whole palette first (over
+  Rocketpod's hex palette it is reported and ignored). `--adopt-default-look` (only when asked: an
+  upgrade never restyles) takes a look's three token files — from the upgrade's mirror
+  `.upgrade/kit.git` at `.rocketflare.json` `kit.commit`, or `--from <dir>` — translated into the
+  copy's names: `theme-tokens.css` whole, the `[data-theme]` blocks of `index.css` (its styles
+  untouched), `theme-color`; a token of the app's own the look lacks is kept; then brand.css on top
+  (`adoptDefaultLook`). `/rp-design` also writes `docs/design/DESIGN.md`, the visual system in one
+  page, which `.claude/rules/ui.md` sends agents to before they build a screen.
   `--check` exits 1 when the pages are stale. The output is deterministic, and a rebuild deletes only
   pages carrying the generator's meta tag. The script is not kit-only, so it ships in every copy.
 - **Providers**: ErrorBoundary → QueryClient → Auth → Ability → WebSocket → Router. A global 401
@@ -817,7 +897,11 @@ seeded into the one main tenant (an app wanting a second tenant's owner seeds th
 the CLI prints raw role values, not `ROLE_LABELS`. The rendered design's markdown has no raw HTML,
 footnotes, task lists or reference-style links. It inlines only SVGs under `docs/design/diagrams/`,
 and a brand font is linked from Google Fonts whenever it is not a known system font, without
-checking that Google serves it.
+checking that Google serves it. `--adopt-default-look` never ports a look's font imports
+(`main.tsx`, `package.json`) or components, and in a brand.css a new font family still needs its
+package added by hand. Home's sections reach a plugin only through `homeCards`/`homeLinks`: a
+plugin cannot place a work area in the main or side column. The sign-in drawing is the kit's
+rocket until an app replaces it.
 
 ## 8. Analytics
 
@@ -2032,12 +2116,15 @@ Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
   `shell` (the default), `noTenant` and `public`. `Breadcrumbs` (from `@/plugins/api/ui`) is the
   trail on its own, for a surface with no page title.
 - **Home cards (`UiPlugin.homeCards`)**: `{ id, Component, guard?, order? }[]` — Home's "what needs
-  doing" section, above the quick links (approvals waiting, an inbox to triage). `PluginHomeCards`
+  doing" section, under the composer and above the work areas (approvals waiting, an inbox to
+  triage). `PluginHomeCards`
   merges them across plugins, orders by `order`, then plugin id, then card id, and puts each behind
   its guard, its own `Suspense` and its own error boundary, like a header item. A card with nothing
   to ask renders `null`; the section brings no chrome, and with no card passing its guard it is
-  absent. `Component` is `lazy(() => import(...))`. The core quick links are data in
-  `pages/home-links.ts`, so the plugin UI kit never imports the Home page (`plugin-ui-kit-graph.test.ts`).
+  absent. `Component` is `lazy(() => import(...))`. A plugin's `homeLinks` render as a
+  "Shortcuts" panel in Home's side column; the core quick links are no longer on Home (the nav
+  carries them) but stay data in `pages/home-links.ts` as destinations, so the plugin UI kit never
+  imports the Home page (`plugin-ui-kit-graph.test.ts`).
 - **Framing a response (`ctx.embeddable(contentType)`)**: a plugin route that has proved its body
   is an `EMBEDDABLE_MIME_TYPES` type (today PDF) — from its own row, never the request — lets a
   same-origin page frame that one response, the opt-in `/api/files/:id` uses (§6). Any other type

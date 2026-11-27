@@ -98,7 +98,7 @@ export function readDevVars(text) {
 
 /**
  * Where AI traces go (D32), as preflight reports it — read from `.env` values, never printing
- * one that is a secret (keys, `OTEL_EXPORTER_OTLP_HEADERS`). Mirrors `exporterSettings` in
+ * one that is a secret (keys, `OTEL_EXPORTER_OTLP_HEADERS`, `PHOENIX_API_KEY`). Mirrors `exporterSettings` in
  * `apps/web/src/api/observability/tracing.ts`: an explicit preset wins, else Langfuse when both
  * keys are set, else generic when an endpoint is. The local `ai_spans` store is always on.
  */
@@ -116,6 +116,11 @@ export function describeTracing(values) {
   const protocol =
     values.OTEL_EXPORTER_OTLP_PROTOCOL || (preset === 'phoenix' ? 'http/protobuf' : 'http/json')
   const headers = values.OTEL_EXPORTER_OTLP_HEADERS ? ', headers set' : ''
+  if (preset === 'phoenix') {
+    const key = values.PHOENIX_API_KEY ? ', key set' : ''
+    const project = `project ${values.PHOENIX_PROJECT_NAME || 'default'}`
+    return `${local}; exporting to phoenix at ${endpoint} (${protocol}, ${project}${key}${headers})`
+  }
   return `${local}; exporting to ${preset} at ${endpoint} (${protocol}${headers})`
 }
 

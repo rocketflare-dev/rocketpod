@@ -22,6 +22,8 @@ export interface ExporterSettings {
   endpoint: string
   protocol: OtlpProtocol
   headers: Record<string, string>
+  /** The Phoenix project (`openinference.project.name`); only the `phoenix` preset sets it. */
+  projectName?: string
 }
 
 /**
@@ -59,6 +61,8 @@ export function observabilityPreset(cfg: AppConfig): ObservabilityPreset {
  *   deployment that already has Langfuse keys needs no new secret. Without both keys there is
  *   nothing to authenticate as.
  * - `phoenix`: endpoint required (`http://localhost:6006` for the docker image); protobuf by default.
+ *   `PHOENIX_API_KEY` (the key alone) becomes `authorization: Bearer <key>`, and
+ *   `PHOENIX_PROJECT_NAME` the project every trace is filed under.
  * - `generic`: endpoint required; headers exactly as given.
  * Explicit `OTEL_EXPORTER_OTLP_HEADERS` win over preset headers of the same name.
  */
@@ -81,11 +85,22 @@ export function exporterSettings(cfg: AppConfig): ExporterSettings | null {
     }
   }
   if (!cfg.OTEL_EXPORTER_OTLP_ENDPOINT) return null
+  if (preset === 'phoenix') {
+    return {
+      preset,
+      endpoint: cfg.OTEL_EXPORTER_OTLP_ENDPOINT,
+      protocol: cfg.OTEL_EXPORTER_OTLP_PROTOCOL ?? 'http/protobuf',
+      headers: {
+        ...(cfg.PHOENIX_API_KEY && { authorization: `Bearer ${cfg.PHOENIX_API_KEY}` }),
+        ...explicit,
+      },
+      ...(cfg.PHOENIX_PROJECT_NAME && { projectName: cfg.PHOENIX_PROJECT_NAME }),
+    }
+  }
   return {
     preset,
     endpoint: cfg.OTEL_EXPORTER_OTLP_ENDPOINT,
-    protocol:
-      cfg.OTEL_EXPORTER_OTLP_PROTOCOL ?? (preset === 'phoenix' ? 'http/protobuf' : 'http/json'),
+    protocol: cfg.OTEL_EXPORTER_OTLP_PROTOCOL ?? 'http/json',
     headers: explicit,
   }
 }
@@ -130,6 +145,7 @@ export function tracerFor(cfg: AppConfig, options: TracerForOptions = {}): Trace
           serviceName: cfg.APP_NAME,
           serviceVersion: cfg.RELEASE_VERSION,
           environment: cfg.LANGFUSE_TRACING_ENVIRONMENT ?? cfg.APP_ENV,
+          projectName: settings.projectName,
         },
         fetch: options.fetch,
         logger: options.logger,

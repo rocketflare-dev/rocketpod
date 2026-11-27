@@ -354,7 +354,7 @@ store without STS (MinIO, the local gateway); the per-tenant key check applies i
 | `ANTHROPIC_API_KEY` / `AI_API_KEY` | Chat and agents |
 | `EMBEDDINGS_API_KEY` | Knowledge uploads and search |
 | `TYPESAFE_API_KEY` | Platform `ctx.decide` (Jev) |
-| `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `OTEL_EXPORTER_OTLP_HEADERS` | Trace export (§ Tracing) |
+| `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `PHOENIX_API_KEY`, `OTEL_EXPORTER_OTLP_HEADERS` | Trace export (§ Tracing) |
 
 ## Releases and images
 
@@ -422,7 +422,7 @@ one chat turn or agent run should appear in the backend within a minute.
 |---|---|
 | Langfuse Cloud | `LANGFUSE_PUBLIC_KEY` + `LANGFUSE_SECRET_KEY` select the `langfuse` preset (OTLP/JSON to `<LANGFUSE_BASE_URL>/api/public/otel`). Optional `OBSERVABILITY_TRACE_URL=https://cloud.langfuse.com/project/<id>/traces/{traceId}` for the CLI's link-out |
 | Self-hosted Langfuse | The two keys + `LANGFUSE_BASE_URL` (or `OTEL_EXPORTER_OTLP_ENDPOINT` set to the full `/api/public/otel` URL) |
-| Phoenix | `OBSERVABILITY_PRESET=phoenix`, `OTEL_EXPORTER_OTLP_ENDPOINT=https://phoenix.example.com` (the preset defaults to `http/protobuf`). Auth: secret `OTEL_EXPORTER_OTLP_HEADERS=authorization=Bearer%20<key>` |
+| Phoenix | `OBSERVABILITY_PRESET=phoenix`, `OTEL_EXPORTER_OTLP_ENDPOINT=https://phoenix.example.com` (the preset defaults to `http/protobuf`). Auth: secret `PHOENIX_API_KEY`, the key alone (sent as `authorization: Bearer <key>`). Project: `PHOENIX_PROJECT_NAME`, a plain setting matching the project's name exactly, case included (an unknown name makes a new project; unset = `default`). A Phoenix key isn't tied to a project: the export names it |
 | Any OTLP/HTTP collector | `OBSERVABILITY_PRESET=generic` (the default without Langfuse keys), `OTEL_EXPORTER_OTLP_ENDPOINT` (`/v1/traces` is appended), optionally `OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf` |
 
 Prompts, completions and tool I/O are not captured unless `OBSERVABILITY_CAPTURE_CONTENT=true`,

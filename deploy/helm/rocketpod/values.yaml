@@ -65,6 +65,8 @@ config:
   OTEL_EXPORTER_OTLP_ENDPOINT: ""
   OTEL_EXPORTER_OTLP_PROTOCOL: ""
   OBSERVABILITY_PRESET: ""
+  # The Phoenix project traces are filed under (phoenix preset); exact name, case included.
+  PHOENIX_PROJECT_NAME: ""
   # Off when empty: "true" records prompts, completions and tool I/O in traces and ai_spans.
   OBSERVABILITY_CAPTURE_CONTENT: ""
   OBSERVABILITY_TRACE_URL: ""
@@ -144,6 +146,8 @@ secrets:
   LANGFUSE_PUBLIC_KEY: ""
   LANGFUSE_SECRET_KEY: ""
   OTEL_EXPORTER_OTLP_HEADERS: ""
+  # A Phoenix API key, the key alone (the phoenix preset sends it as a Bearer token).
+  PHOENIX_API_KEY: ""
 
 # Extra env for every app container (web, worker, migrate): [{name, value|valueFrom}].
 extraEnv: []

@@ -33,6 +33,8 @@ Email goes through a new `mailer` platform member, and Amazon SES v2 joins Resen
 - `GET /auth/session` gains `idpManagedTenancy` (`sessionResponseSchema`). `useAuth().canCreateTenant` is the session's `canCreateTenant` AND multi mode AND not `idpManagedTenancy`, and also gates the approve dialog's "New organisation"; `useAuth().idpManagedTenancy` is new. `/select-tenant`'s empty list and `/no-access` say organisations come from the identity provider, named by `OIDC_LABEL` (`useIdpOrganisationsHint`, `hooks/useAuthMethods.ts`).
 - Identity events gain `grant.added` (`{ orgId, orgSlug, orgName, members[], person? }`) and `membership.added` (`{ orgId, orgSlug, orgName, personId, email, sub?, role }`): for each named person the app already knows with a mapped role, the org's tenant is found, linked by slug or created (no owner, as at sign-in) and they get an `idp` membership. A late add for a person whose `idp` row in the tenant was removed after the event's `occurredAt` is skipped. `applyIdentityEvent` takes an optional fifth `{ logger, features }`. Design: `docs/CONCEPTS.md` §1 and §2.
 
+- A release workflow for AWS ECS whose infrastructure is managed elsewhere: `.github/workflows/deploy-aws.yml` (`workflow_call` and `workflow_dispatch`, input `version`, optional `asset_dirs`, default `assets`), called by a new `deploy-aws` job in `image.yml` after `publish` on a version tag, only when the repository variable `AWS_DEPLOY_CONFIG` is set. That one JSON variable carries twelve keys (`AWS_REGION`, `AWS_DEPLOY_ROLE_ARN`, `ECR_REPOSITORY`, `ECS_CLUSTER`, `ECS_SUBNETS`, `ECS_SECURITY_GROUP`, `ECS_WEB_SERVICE`, `ECS_WORKER_SERVICE`, `ECS_FAMILY_PREFIX`, `ASSETS_BUCKET`, `IMAGE_PARAMETER`, `LOG_GROUP`), checked in the first step. The job assumes a role over OIDC in the `production` environment, copies the image GHCR → ECR (skipped when the tag exists), syncs `dist/ui/assets` to the assets bucket as immutable (never `--delete`), writes the SSM image parameter, registers `<prefix>-web|worker|migrate` revisions with only the image swapped, runs migrate on Fargate (failing with its last log lines), then rolls web and worker and checks they are stable on the new revisions. The kit ships no infrastructure. Runbook: `docs/DEPLOY.md` § AWS ECS (infrastructure managed elsewhere).
+
 ## How to apply
 
 1. Add `"@aws-sdk/client-sesv2"` to `apps/web/package.json` dependencies at the exact version `@aws-sdk/client-s3` is pinned to, then run `pnpm install`.
@@ -65,6 +67,9 @@ Email goes through a new `mailer` platform member, and Amazon SES v2 joins Resen
 24. Port `canCreateTenant` / `idpManagedTenancy` in `apps/web/src/ui/hooks/useAuth.tsx`, `useIdpOrganisationsHint` in `hooks/useAuthMethods.ts`, `pages/SelectTenant.tsx`, `pages/NoAccess.tsx` and `pages/admin/ApproveRequestModal.tsx`. Gate any create-organisation affordance of the app's own on `useAuth().canCreateTenant`. In tests, add `idpManagedTenancy: false` to `makeSession` (`tests/ui/helpers/renderWithProviders.tsx`).
 25. A client of the app that read 409 `idp_managed` from `POST /api/tenants` now gets 403 `tenants_idp_managed`.
 
+26. `.github/workflows/**` is a `manual` surface: `pnpm kit:upgrade` does not write these files, it shows their diff in `reference/` for you to apply what you want. To take the AWS ECS release, copy `.github/workflows/deploy-aws.yml` in whole, replacing `rocketpod` in its `GHCR_IMAGE` with the image name your `image.yml` publishes, and add the `deploy-aws` job at the end of your `image.yml`, with `needs:` naming your own CI-wait, chart and publish jobs. A copy whose `image.yml` already has a deploy job keeps its own and skips this.
+27. Nothing deploys until you set `AWS_DEPLOY_CONFIG`. To use it, follow `docs/DEPLOY.md` § AWS ECS: create the `production` environment, have your infrastructure's deploy role trust `repo:<owner>/<repo>:environment:production`, then set the variable to the infrastructure's `deploy` output as JSON. From then on every version tag is a production deploy.
+
 ## Conflicts to expect
 
 - `apps/web/src/api/services/email.ts` → `sendEmail` gained a `mailer` parameter and lost its Resend `fetch` → keep the app's templates, take the kit's `sendEmail`.
@@ -77,6 +82,7 @@ Email goes through a new `mailer` platform member, and Amazon SES v2 joins Resen
 - `apps/web/scripts/db-roles.ts` → rewritten around the login → take the kit's; re-apply an app's own extra grants after the REVOKE.
 - `apps/web/src/api/routes/files.ts`, `ai-documents.ts` → `storageFor(c)` became `storageFor(c, tenantId)` → take the kit's; pass the tenant in the app's own calls.
 - `apps/web/src/api/services/idp-tenancy.ts` → `applyIdentityEvent` gained two cases and a fifth parameter → take the kit's, keep any case of the app's own.
+- `.github/workflows/image.yml` → a `deploy-aws` job after `publish` and two header comment lines → keep the app's jobs; point the new job's `needs:` at the app's own job names.
 - `apps/web/src/ui/pages/SelectTenant.tsx` → the empty-state description gained an IdP branch → keep the app's copy for the other two branches.
 
 ## Verify
@@ -91,3 +97,4 @@ Email goes through a new `mailer` platform member, and Amazon SES v2 joins Resen
 8. `pnpm test api apps/web/tests/api/security/tenant-creation.test.ts apps/web/tests/api/security/identity-events.test.ts apps/web/tests/api/auth-bootstrap-workspace.test.ts` passes: every creation path is 403 `tenants_idp_managed` under managed tenancy and unchanged without it; `grant.added` / `membership.added` create the tenant once, a late add is skipped, a replay changes nothing.
 9. `pnpm test ui apps/web/tests/ui/select-tenant.test.tsx apps/web/tests/ui/org-switcher.test.tsx apps/web/tests/ui/admin-access-requests.test.tsx` passes.
 10. `pnpm gate` prints `✔ pnpm gate passed`.
+11. `actionlint .github/workflows/deploy-aws.yml .github/workflows/image.yml` reports nothing, and with `AWS_DEPLOY_CONFIG` unset a version tag's run shows `Deploy (AWS ECS)` skipped.

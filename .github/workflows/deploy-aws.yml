@@ -1,0 +1,288 @@
+name: Deploy (AWS ECS)
+
+# Rolls a published image onto AWS ECS whose infrastructure is managed ELSEWHERE (Terraform or
+# similar owns ECR, the cluster, the services, the task definitions, the assets bucket and its CDN,
+# the SSM image pointer and the deploy role). This workflow owns only the release: which image the
+# task definitions run. docs/DEPLOY.md § AWS ECS (infrastructure managed elsewhere) is the runbook.
+#
+# image.yml calls it after a version tag publishes ghcr.io/<owner>/rocketpod:<version>, when the
+# repository variable AWS_DEPLOY_CONFIG is set. Run it by hand (workflow_dispatch) to redeploy a
+# version or roll back to an older one.
+#
+# Everything it needs is that ONE variable: a JSON object with the keys checked in the first step
+# (the infrastructure's `deploy` output, verbatim). Nothing in it is secret. The job assumes the
+# deploy role over GitHub OIDC; the role trusts this repository's `production` environment only,
+# so no AWS key is stored in GitHub.
+#
+# The order matters, so a release never serves a page whose files are missing:
+#   1. copy the image GHCR -> ECR (ECR tags are immutable: a version is always the same image, and
+#      a rollback finds its tag already there);
+#   2. upload the image's content-hashed static files to the assets bucket, never deleting, so
+#      browser tabs still on the previous release keep loading their chunks;
+#   3. record the image in SSM and register new web/worker/migrate task definitions from the latest
+#      ones, only the app container's image changed (the infrastructure owns everything else and
+#      reads the image back from SSM, so its next plan is no change);
+#   4. run migrate and stop if it fails: the previous version keeps serving;
+#   5. point web and worker at the new revisions and wait until both are stable on them.
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: The published image version (the tag, e.g. 1.2.0 or v1.2.0)
+        type: string
+        required: true
+      asset_dirs:
+        description: Space-separated directories under dist/ui/ served from the assets bucket
+        type: string
+        required: false
+        default: assets
+  workflow_dispatch:
+    inputs:
+      version:
+        description: A published image version, e.g. 1.2.0 (a rollback is an older one)
+        type: string
+        required: true
+      asset_dirs:
+        description: Space-separated directories under dist/ui/ served from the assets bucket
+        type: string
+        required: false
+        default: assets
+
+permissions:
+  contents: read
+  packages: read
+  id-token: write
+
+jobs:
+  deploy:
+    name: Deploy to AWS ECS
+    runs-on: ubuntu-24.04
+    environment: production
+    timeout-minutes: 45
+    # One release at a time, and never interrupt one in flight (a half-run migrate or rollout).
+    concurrency:
+      group: deploy-aws-${{ github.repository }}
+      cancel-in-progress: false
+    env:
+      CONFIG: ${{ vars.AWS_DEPLOY_CONFIG }}
+      VERSION_INPUT: ${{ inputs.version }}
+      ASSET_DIRS: ${{ inputs.asset_dirs || 'assets' }}
+      GHCR_IMAGE: ghcr.io/${{ github.repository_owner }}/rocketpod
+    steps:
+      - name: Read and validate AWS_DEPLOY_CONFIG
+        id: config
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$*"; exit 1; }
+          [ -n "$CONFIG" ] || fail "the repository variable AWS_DEPLOY_CONFIG is not set (docs/DEPLOY.md § AWS ECS)"
+          jq -e 'type == "object"' <<<"$CONFIG" >/dev/null 2>&1 \
+            || fail "AWS_DEPLOY_CONFIG is not a JSON object (set it to the infrastructure's deploy output, as JSON)"
+
+          version="${VERSION_INPUT#v}"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] \
+            || fail "version '$VERSION_INPUT' is not X.Y.Z or vX.Y.Z"
+          for dir in $ASSET_DIRS; do
+            [[ "$dir" =~ ^[A-Za-z0-9_-][A-Za-z0-9._-]*$ ]] || fail "asset_dirs: '$dir' is not a directory name under dist/ui/"
+          done
+
+          keys=(AWS_REGION AWS_DEPLOY_ROLE_ARN ECR_REPOSITORY ECS_CLUSTER ECS_SUBNETS
+                ECS_SECURITY_GROUP ECS_WEB_SERVICE ECS_WORKER_SERVICE ECS_FAMILY_PREFIX
+                ASSETS_BUCKET IMAGE_PARAMETER LOG_GROUP)
+          declare -A shape=(
+            [AWS_REGION]='^[a-z]{2}(-[a-z]+)+-[0-9]+$'
+            [AWS_DEPLOY_ROLE_ARN]='^arn:aws[a-z-]*:iam::[0-9]{12}:role/.+$'
+            [ECR_REPOSITORY]='^[0-9]{12}\.dkr\.ecr\.[a-z0-9-]+\.amazonaws\.com(\.cn)?/[a-z0-9._/-]+$'
+            [ECS_SUBNETS]='^subnet-[0-9a-f]+(,subnet-[0-9a-f]+)*$'
+            [ECS_SECURITY_GROUP]='^sg-[0-9a-f]+$'
+          )
+          missing=() bad=()
+          for key in "${keys[@]}"; do
+            value="$(jq -r --arg k "$key" '.[$k] | if type == "string" then . else "" end' <<<"$CONFIG")"
+            if [ -z "$value" ]; then missing+=("$key"); continue; fi
+            if [[ "$value" =~ [[:space:]] ]]; then bad+=("$key (contains whitespace)"); continue; fi
+            pattern="${shape[$key]:-}"
+            if [ -n "$pattern" ] && ! [[ "$value" =~ $pattern ]]; then bad+=("$key ('$value' does not look like one)"); continue; fi
+            echo "$key=$value" >> "$GITHUB_OUTPUT"
+          done
+          [ ${#missing[@]} -eq 0 ] || fail "AWS_DEPLOY_CONFIG is missing (or has an empty or non-string) ${missing[*]}"
+          [ ${#bad[@]} -eq 0 ] || fail "AWS_DEPLOY_CONFIG has a bad value: ${bad[*]}"
+          extra="$(jq -r --args '[keys[] | select(. as $k | $ARGS.positional | index($k) | not)] | join(" ")' "${keys[@]}" <<<"$CONFIG")"
+          [ -z "$extra" ] || echo "::warning::AWS_DEPLOY_CONFIG has keys this workflow does not read: $extra"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "ghcr=${GHCR_IMAGE,,}:$version" >> "$GITHUB_OUTPUT"
+
+      - name: Assume the deploy role (OIDC)
+        uses: aws-actions/configure-aws-credentials@45666896f5d8e0f10ae255413f3a4cdd03bdc8f5 # v6.3.1
+        with:
+          role-to-assume: ${{ steps.config.outputs.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ steps.config.outputs.AWS_REGION }}
+          role-session-name: deploy-${{ github.run_id }}
+
+      - name: Log in to ghcr.io and ECR
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.actor }}
+          ECR_REPOSITORY: ${{ steps.config.outputs.ECR_REPOSITORY }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
+          aws ecr get-login-password | docker login "${ECR_REPOSITORY%%/*}" -u AWS --password-stdin
+
+      - name: Copy the image to ECR
+        id: image
+        env:
+          VERSION: ${{ steps.config.outputs.version }}
+          SOURCE: ${{ steps.config.outputs.ghcr }}
+          ECR_REPOSITORY: ${{ steps.config.outputs.ECR_REPOSITORY }}
+        run: |
+          set -euo pipefail
+          target="$ECR_REPOSITORY:$VERSION"
+          # ECR tags are immutable: a rollback or a redeploy finds the version already there, and a
+          # second push of it would be refused. Any error but "not found" stops the release.
+          if err="$(aws ecr describe-images --repository-name "${ECR_REPOSITORY#*/}" \
+              --image-ids imageTag="$VERSION" 2>&1 >/dev/null)"; then
+            echo "$target is already in ECR; not copied"
+          elif grep -q ImageNotFoundException <<<"$err"; then
+            docker buildx imagetools create --tag "$target" "$SOURCE"
+          else
+            echo "$err" >&2
+            echo "::error::could not read ECR repository ${ECR_REPOSITORY#*/}"
+            exit 1
+          fi
+          echo "uri=$target" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the static assets
+        env:
+          IMAGE: ${{ steps.image.outputs.uri }}
+          BUCKET: ${{ steps.config.outputs.ASSETS_BUCKET }}
+        run: |
+          set -euo pipefail
+          docker pull --quiet "$IMAGE"
+          container="$(docker create "$IMAGE")"
+          trap 'docker rm "$container" >/dev/null' EXIT
+          mkdir -p ui
+          for dir in $ASSET_DIRS; do
+            docker cp "$container:/app/dist/ui/$dir" "ui/$dir" \
+              || { echo "::error::the image has no dist/ui/$dir (asset_dirs)"; exit 1; }
+          done
+          # Hashed file names never change content, so they are cached for a year. Never --delete:
+          # a tab still on the previous release must keep finding its chunks.
+          immutable='public, max-age=31536000, immutable'
+          for dir in $ASSET_DIRS; do
+            # Types the CLI may guess wrong are uploaded with their own content type first.
+            aws s3 sync "ui/$dir" "s3://$BUCKET/$dir/" --size-only --no-progress \
+              --exclude '*' --include '*.wasm' --content-type application/wasm --cache-control "$immutable"
+            aws s3 sync "ui/$dir" "s3://$BUCKET/$dir/" --size-only --no-progress \
+              --exclude '*' --include '*.mjs' --content-type text/javascript --cache-control "$immutable"
+            aws s3 sync "ui/$dir" "s3://$BUCKET/$dir/" --size-only --no-progress \
+              --exclude '*.wasm' --exclude '*.mjs' --cache-control "$immutable"
+          done
+
+      - name: Record the image and register the task definitions
+        id: tasks
+        env:
+          IMAGE: ${{ steps.image.outputs.uri }}
+          ECR_REPOSITORY: ${{ steps.config.outputs.ECR_REPOSITORY }}
+          PARAMETER: ${{ steps.config.outputs.IMAGE_PARAMETER }}
+          PREFIX: ${{ steps.config.outputs.ECS_FAMILY_PREFIX }}
+        run: |
+          set -euo pipefail
+          aws ssm put-parameter --name "$PARAMETER" --value "$IMAGE" --overwrite >/dev/null
+          for role in web worker migrate; do
+            aws ecs describe-task-definition --task-definition "$PREFIX-$role" --include TAGS \
+              --output json > "current-$role.json"
+            # Only the app's own container (the one running an image from ECR_REPOSITORY) changes;
+            # a sidecar keeps its image. The read-only fields describe returns are dropped.
+            jq --arg image "$IMAGE" --arg repo "$ECR_REPOSITORY" '
+              (.tags // []) as $tags
+              | .taskDefinition
+              | .containerDefinitions |= map(
+                  if ((.image // "") | startswith($repo + ":") or startswith($repo + "@")) then .image = $image else . end)
+              | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities,
+                    .registeredAt, .registeredBy, .deregisteredAt)
+              | if ($tags | length) > 0 then .tags = $tags else . end
+            ' "current-$role.json" > "next-$role.json"
+            jq -e --arg image "$IMAGE" 'any(.containerDefinitions[]; .image == $image)' "next-$role.json" >/dev/null \
+              || { echo "::error::$PREFIX-$role has no container running an image from $ECR_REPOSITORY"; exit 1; }
+            arn="$(aws ecs register-task-definition --cli-input-json "file://next-$role.json" \
+              --query 'taskDefinition.taskDefinitionArn' --output text)"
+            echo "$role: $arn"
+            echo "$role=$arn" >> "$GITHUB_OUTPUT"
+          done
+          container="$(jq -r --arg image "$IMAGE" \
+            'first(.containerDefinitions[] | select(.image == $image))' next-migrate.json)"
+          echo "migrate_container=$(jq -r .name <<<"$container")" >> "$GITHUB_OUTPUT"
+          echo "migrate_stream_prefix=$(jq -r '.logConfiguration.options["awslogs-stream-prefix"] // ""' <<<"$container")" >> "$GITHUB_OUTPUT"
+
+      - name: Migrate
+        env:
+          CLUSTER: ${{ steps.config.outputs.ECS_CLUSTER }}
+          SUBNETS: ${{ steps.config.outputs.ECS_SUBNETS }}
+          SECURITY_GROUP: ${{ steps.config.outputs.ECS_SECURITY_GROUP }}
+          LOG_GROUP: ${{ steps.config.outputs.LOG_GROUP }}
+          TASK_DEFINITION: ${{ steps.tasks.outputs.migrate }}
+          CONTAINER: ${{ steps.tasks.outputs.migrate_container }}
+          STREAM_PREFIX: ${{ steps.tasks.outputs.migrate_stream_prefix }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          aws ecs run-task --cluster "$CLUSTER" --task-definition "$TASK_DEFINITION" \
+            --launch-type FARGATE --count 1 --started-by "github-$RUN_ID" \
+            --network-configuration "awsvpcConfiguration={subnets=[$SUBNETS],securityGroups=[$SECURITY_GROUP],assignPublicIp=DISABLED}" \
+            --output json > run.json
+          task="$(jq -r '.tasks[0].taskArn // ""' run.json)"
+          if [ -z "$task" ]; then
+            jq -r '.failures[]? | "\(.arn // "-"): \(.reason) \(.detail // "")"' run.json >&2
+            echo "::error::ECS did not start the migrate task; nothing was rolled out"
+            exit 1
+          fi
+          echo "migrate task: $task"
+          # Poll rather than `aws ecs wait tasks-stopped`, whose 10 minutes a long migration outlasts.
+          status=""
+          for _ in $(seq 1 150); do
+            aws ecs describe-tasks --cluster "$CLUSTER" --tasks "$task" --output json > task.json
+            status="$(jq -r '.tasks[0].lastStatus' task.json)"
+            [ "$status" = STOPPED ] && break
+            sleep 10
+          done
+          [ "$status" = STOPPED ] || { echo "::error::migrate still $status after 25 minutes ($task)"; exit 1; }
+          code="$(jq -r --arg c "$CONTAINER" '.tasks[0].containers[] | select(.name == $c) | .exitCode // "none"' task.json)"
+          reason="$(jq -r '.tasks[0].stoppedReason // ""' task.json)"
+          if [ "$code" != "0" ]; then
+            if [ -n "$STREAM_PREFIX" ]; then
+              stream="$STREAM_PREFIX/$CONTAINER/${task##*/}"
+              echo "::group::the last migrate log lines ($LOG_GROUP $stream)"
+              aws logs get-log-events --log-group-name "$LOG_GROUP" --log-stream-name "$stream" \
+                --limit 100 --output json | jq -r '.events[].message' || true
+              echo "::endgroup::"
+            fi
+            echo "::error::migrate exited with ${code} (${reason}); nothing was rolled out"
+            exit 1
+          fi
+          echo "migrate exited 0"
+
+      - name: Roll out web and worker
+        env:
+          CLUSTER: ${{ steps.config.outputs.ECS_CLUSTER }}
+          WEB_SERVICE: ${{ steps.config.outputs.ECS_WEB_SERVICE }}
+          WORKER_SERVICE: ${{ steps.config.outputs.ECS_WORKER_SERVICE }}
+          WEB_TASK: ${{ steps.tasks.outputs.web }}
+          WORKER_TASK: ${{ steps.tasks.outputs.worker }}
+          VERSION: ${{ steps.config.outputs.version }}
+        run: |
+          set -euo pipefail
+          aws ecs update-service --cluster "$CLUSTER" --service "$WEB_SERVICE" \
+            --task-definition "$WEB_TASK" --query 'service.serviceName' --output text
+          aws ecs update-service --cluster "$CLUSTER" --service "$WORKER_SERVICE" \
+            --task-definition "$WORKER_TASK" --query 'service.serviceName' --output text
+          aws ecs wait services-stable --cluster "$CLUSTER" --services "$WEB_SERVICE" "$WORKER_SERVICE"
+          # Stable is not enough: a deployment circuit breaker that rolled back is stable too, on
+          # the OLD revision. Check each service settled on the one registered above.
+          aws ecs describe-services --cluster "$CLUSTER" --services "$WEB_SERVICE" "$WORKER_SERVICE" \
+            --output json > services.json
+          for pair in "$WEB_SERVICE=$WEB_TASK" "$WORKER_SERVICE=$WORKER_TASK"; do
+            service="${pair%%=*}" want="${pair#*=}"
+            have="$(jq -r --arg s "$service" '.services[] | select(.serviceName == $s) | .taskDefinition' services.json)"
+            [ "$have" = "$want" ] || { echo "::error::$service runs $have, not $want (rolled back?)"; exit 1; }
+          done
+          echo "### Deployed $VERSION to AWS ECS" >> "$GITHUB_STEP_SUMMARY"

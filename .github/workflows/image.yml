@@ -3,7 +3,8 @@ name: Image
 # The container image and the Helm chart (docs/DEPLOY.md). Pull requests and main BUILD the
 # image (no push) and lint + render the chart, so a broken Dockerfile or template fails before a
 # release; a version tag (`v*` or a bare `X.Y.Z`) pushes ghcr.io/<owner>/rocketpod:<version> and
-# `:latest`. The quality gate stays ci.yml's (its `Gate` check) — nothing here re-runs it, but a TAG
+# `:latest`, then, when the AWS_DEPLOY_CONFIG variable is set, rolls it onto AWS ECS
+# (deploy-aws.yml). The quality gate stays ci.yml's (its `Gate` check) — nothing here re-runs it, but a TAG
 # waits for it: the `ci` job polls until the CI workflow has passed on the tagged commit (a failed
 # or missing run stops the release).
 #
@@ -11,8 +12,9 @@ name: Image
 # every layer to the GitHub Actions cache; `publish` needs BOTH, and only then logs in to ghcr.io
 # and re-runs the same build from the warm cache with `push: true` — a cache hit for every layer,
 # so it costs the push. Nothing is pushed unless CI passed on that commit: `publish` sits behind
-# `ci` by `needs:`, and `image` holds no registry credentials. A copy that adds a deploy job hangs
-# it off `needs: [ci, chart, publish]`, so a tag is never deployed past a red gate.
+# `ci` by `needs:`, and `image` holds no registry credentials. `deploy-aws` hangs off
+# `needs: [ci, chart, publish]`, as any deploy job a copy adds should, so a tag is never deployed
+# past a red gate.
 on:
   pull_request:
   push:
@@ -154,3 +156,19 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: RELEASE_VERSION=${{ github.ref_name }}
+
+  # A tag only, once the image is published: roll it onto AWS ECS (deploy-aws.yml), whose
+  # infrastructure is managed elsewhere. Dark until the repository variable AWS_DEPLOY_CONFIG is
+  # set (docs/DEPLOY.md § AWS ECS); once set, every version tag is a production deploy. Either tag
+  # form `publish` accepts deploys (the kit tags bare X.Y.Z).
+  deploy-aws:
+    name: Deploy (AWS ECS)
+    needs: [ci, chart, publish]
+    if: ${{ startsWith(github.ref, 'refs/tags/') && vars.AWS_DEPLOY_CONFIG != '' && needs.ci.result == 'success' && needs.chart.result == 'success' && needs.publish.result == 'success' }}
+    permissions:
+      contents: read
+      packages: read
+      id-token: write
+    uses: ./.github/workflows/deploy-aws.yml
+    with:
+      version: ${{ github.ref_name }}

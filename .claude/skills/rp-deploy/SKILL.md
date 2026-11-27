@@ -1,7 +1,7 @@
 ---
 name: rp-deploy
-description: Deploy this app as containers — Docker Compose on one host or the Helm chart on Kubernetes. Builds or picks the image, writes the .env or values file, walks the secrets checklist without ever printing a secret, renders and lints the chart, and stops for the user before anything that pushes an image, creates paid resources or touches a live cluster. Use when someone asks to deploy, ship, self-host, run in production, put it on Kubernetes or Docker, or set up a server.
-argument-hint: "[compose|helm] [--single]"
+description: Deploy this app as containers — Docker Compose on one host, the Helm chart on Kubernetes, or the AWS ECS release workflow onto infrastructure managed elsewhere. Builds or picks the image, writes the .env or values file, walks the secrets checklist without ever printing a secret, renders and lints the chart, and stops for the user before anything that pushes an image, creates paid resources or touches a live cluster. Use when someone asks to deploy, ship, self-host, run in production, put it on Kubernetes or Docker, or set up a server.
+argument-hint: "[compose|helm|aws-ecs] [--single]"
 ---
 
 # Deploy in containers
@@ -29,6 +29,8 @@ You are coaching someone from a working checkout to a running deployment. The ru
   - anything against a live cluster: `helm upgrade --install`, `helm uninstall`, `kubectl apply`,
     `kubectl create secret`, `kubectl delete`;
   - creating anything billed: a managed database, a bucket, a load balancer, a DNS record;
+  - setting the `AWS_DEPLOY_CONFIG` repository variable (`gh variable set`) or dispatching
+    `deploy-aws.yml`: either makes a production deploy happen;
   - `docker compose down -v` (deletes the database and bucket volumes).
   Building an image locally, rendering and linting the chart, writing a local `.env` or values file
   and `docker compose up` on the user's own machine are yours to run.
@@ -44,6 +46,7 @@ Ask (one `AskUserQuestion`, unless the argument already says) between:
 | **Compose, two processes** | one host, a VM, a homelab | §1 |
 | **Compose, one process** (`--single`) | the smallest install | §1 with `deploy/compose.single.yml` |
 | **Helm** | Kubernetes, more than one replica | §2 |
+| **AWS ECS** | AWS infrastructure owned by the user's own Terraform (or similar) | §3 |
 
 Then confirm where Postgres and the bucket come from: the bundled `postgres` / `s3` services
 (Compose only — fine on one host, not HA) or managed ones (RDS/Cloud SQL/Neon/Supabase with
@@ -92,6 +95,27 @@ pgvector; S3, GCS, MinIO, Ceph…). The chart bundles neither.
    current-context`, quoted back to them) and the namespace:
    `helm upgrade --install rocketpod deploy/helm/rocketpod -n <ns> --create-namespace -f deploy/values.local.yaml`.
    Then `kubectl -n <ns> get pods`, the migrate Job's logs, and `/readyz` through the Ingress.
+
+## 3. AWS ECS (infrastructure managed elsewhere)
+
+The kit ships no Terraform: the user's infrastructure owns ECR, the cluster and services, the three
+task definitions, the assets bucket and CDN, the SSM image parameter and the deploy role. The kit's
+part is `.github/workflows/deploy-aws.yml`, which `image.yml`'s `deploy-aws` job calls on every
+version tag once the repository variable `AWS_DEPLOY_CONFIG` is set. Walk `docs/DEPLOY.md` § AWS
+ECS (infrastructure managed elsewhere) with them:
+
+1. **The contract.** Get the infrastructure's `deploy` output as JSON and check it carries the
+   twelve keys of the table there (the task-definition families must be
+   `<ECS_FAMILY_PREFIX>-web|worker|migrate`). Nothing in it is secret, so showing it is fine.
+2. **One-time setup.** The `production` environment exists (`gh api repos/<owner>/<repo>/environments`),
+   the deploy role trusts `repo:<owner>/<repo>:environment:production` and carries the listed
+   permissions, the services sit at desired count 0 until the first release.
+3. **The task definitions** meet § "What the image needs" (commands, `/healthz` health checks,
+   `/readyz` on the target group, `/tmp` on a read-only root, `DATABASE_SSL=verify-full`, the
+   environment) — read their Terraform if it is in reach and name any gap.
+4. **Turn it on** — only after `AskUserQuestion`: `gh variable set AWS_DEPLOY_CONFIG --body "$(…)"`.
+   From then on every version tag deploys. A redeploy or rollback is
+   `gh workflow run deploy-aws.yml -f version=<X.Y.Z>`, also asked first.
 
 ## Secrets checklist
 

@@ -1426,6 +1426,13 @@ writes one; `--compare` against a provisional baseline with no cases compares no
 - **Helm** (`deploy/helm/rocketpod`): `web` and `worker` Deployments, the migrate Job as a
   `pre-install,pre-upgrade` hook, Service, Ingress (WebSocket upgrade), ConfigMap + Secret
   (`existingSecret` supported), PodDisruptionBudget. Postgres and S3 are external.
+- **AWS ECS, infrastructure managed elsewhere** (`.github/workflows/deploy-aws.yml`): the kit owns
+  only the release. On a version tag, once the image is published and when the repository variable
+  `AWS_DEPLOY_CONFIG` (the infrastructure's `deploy` output, as JSON) is set, it copies the image
+  to ECR, syncs the hashed assets to the CDN's bucket (never deleting), records the image in SSM,
+  registers new web/worker/migrate revisions with only the image changed, runs migrate on Fargate
+  and stops on a non-zero exit, then rolls web and worker and waits for them to be stable on the
+  new revisions. `workflow_dispatch` with an older version is the rollback. No Terraform ships.
 - **Scaling**: `web` replicas are stateless (realtime fans out over NOTIFY, §5); `worker` replicas
   are safe (pg-boss and OpenWorkflow claim work in the database; cron runs once).
 - **Parity is a test**: `tests/config/packaging.test.ts` holds the Dockerfile to what the build
@@ -1442,8 +1449,10 @@ writes one; `--compare` against a provisional baseline with no cases compares no
   app releases by bumping the root version, adding its own `CHANGELOG.md` section and tagging;
   `pnpm kit:release` and porting notes are the kit repository's only (§13).
 
-**Known gaps:** no live `helm install` has been verified; no image signing or SBOM; no
-autoscaling defaults; the `web` preStop `sleep` needs Kubernetes ≥ 1.30; Launch cannot ship this
+**Known gaps:** no live `helm install` has been verified, nor a live `deploy-aws.yml` run from
+this repository (it is actionlint-clean and its config check was run by hand); no image signing or
+SBOM; no autoscaling defaults; `deploy-aws.yml` targets Fargate only and the CDN is never
+invalidated (only content-hashed files go to its bucket); the `web` preStop `sleep` needs Kubernetes ≥ 1.30; Launch cannot ship this
 kit — its contract is Cloudflare-shaped (`launch.kit.json` `$runtime`).
 
 ---

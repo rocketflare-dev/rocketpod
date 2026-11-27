@@ -53,6 +53,14 @@ describe('OrgSwitcher', () => {
     expect(screen.queryByRole('link', { name: /Create organisation/ })).not.toBeInTheDocument()
   })
 
+  it('offers no "Create organisation" under IdP-managed tenancy, whatever canCreateTenant says', () => {
+    renderWithProviders(<OrgSwitcher />, {
+      session: makeSession({ idpManagedTenancy: true, tenants: [makeTenant(), beta] }),
+    })
+    expect(screen.getByLabelText('Organisation: Acme')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /Create organisation/ })).not.toBeInTheDocument()
+  })
+
   it('with one org and creation refused, there is nothing to switch to and it renders nothing', () => {
     renderWithProviders(<OrgSwitcher />, { session: makeSession({ canCreateTenant: false }) })
     expect(screen.queryByLabelText('Organisation: Acme')).not.toBeInTheDocument()

@@ -84,6 +84,16 @@ function apiUrl(appUrl: string): string {
   if (url.port === String(DEV_PORTS.ui)) url.port = String(DEV_PORTS.api)
   return url.origin
 }
+/**
+ * IdP-managed tenancy (`OIDC_MANAGED_TENANCY` with an issuer, as `isIdpManaged` reads it): the app
+ * creates no organisation itself — they come from the identity provider — so neither does the seed.
+ */
+const IDP_MANAGED =
+  !['', 'false', '0', 'no', 'off'].includes(
+    (process.env.OIDC_MANAGED_TENANCY ?? '').trim().toLowerCase()
+  ) &&
+  Boolean(process.env.OIDC_ISSUER?.trim()) &&
+  Boolean(process.env.OIDC_CLIENT_ID?.trim())
 const DEMO = process.argv.includes('--demo') || process.env.SEED_DEMO === '1'
 // Parsed up front so a malformed `--feature` fails before anything is written.
 const FEATURE_REQUESTS = parseSeedFeatureArgs(process.argv.slice(2))
@@ -146,6 +156,13 @@ async function main() {
   console.log(`seeding ${databaseUrlTarget(DATABASE_URL)}`)
   if (!/localhost|127\.0\.0\.1/.test(DATABASE_URL) && !process.env.SEED_ALLOW_REMOTE) {
     throw new Error('Refusing to seed a non-local database (set SEED_ALLOW_REMOTE=1 to override)')
+  }
+  if (IDP_MANAGED) {
+    console.log(
+      'OIDC_MANAGED_TENANCY is on: organisations come from the identity provider, so the seed ' +
+        'creates none (and no demo data). Sign in through the identity provider instead.'
+    )
+    return
   }
   const db = getScriptDatabase(DATABASE_URL, process.env)
   const log = (s: string) => console.log(s)

@@ -6,7 +6,12 @@
  * - **On every sign-in** the OIDC callback runs `reconcileIdpClaims`, before `completeLogin` — it
  *   cannot live in `admitUser`, because a user who already has a provider link never reaches it.
  * - **Between sign-ins** `applyIdentityEvent` applies the issuer's signed identity events
- *   (`routes/identity-events.ts`), each doing the part of a reconcile that event describes.
+ *   (`routes/identity-events.ts`), each doing the part of a reconcile that event describes. The
+ *   two that give access (`grant.added`, `membership.added`) create the org's tenant and add the
+ *   members the app already knows, so a new org shows up without anyone signing in again.
+ *
+ * These two are the ONLY ways a tenant comes into existence under managed tenancy: every other
+ * creation path refuses (`appTenantCreationRefusal`, `utils/routes/route-helpers.ts`).
  *
  * What a reconcile does, idempotently:
  * - **Tenants.** Each org in the orgs claim (`OIDC_ORGS_CLAIM`) is the tenant whose
@@ -31,7 +36,11 @@
  * Ordering: a sign-in stamps `idp_synced_at` on the tenants and memberships it reconciles, and an
  * event stamps its `occurredAt`. An event older than the stamp on what it would change is stale
  * (the issuer has said something newer since) and is skipped, so events apply in any order, and a
- * retried event, whose `occurredAt` equals the stamp it left, changes nothing.
+ * retried event, whose `occurredAt` equals the stamp it left, changes nothing. A removal leaves no
+ * row to stamp, so an event that ADDS a membership is also skipped when the person's `idp` row in
+ * that tenant was removed after the event happened (`member.removed` in the activity log): a late
+ * delivery never lets a removed person back in. It errs towards leaving them out, which their next
+ * sign-in mends.
  */
 import {
   type IdentityEvent,
@@ -41,11 +50,12 @@ import {
   idpOrgsClaimSchema,
 } from '@rocketpod/shared/idp'
 import type { MembershipRole, MembershipSource } from '@rocketpod/shared/tenants'
-import { and, eq, isNull, lt, lte, notInArray, or, sql } from 'drizzle-orm'
+import { and, eq, gt, isNull, lt, lte, notInArray, or, sql } from 'drizzle-orm'
 import type { AppConfig } from '../../config'
 import { type Database, isUniqueViolation } from '../../db/client'
 import {
   accessRequests,
+  activityEvents,
   oauthProviders,
   type Tenant,
   tenants,
@@ -604,6 +614,93 @@ const CLOCK_SKEW_MS = 60_000
 /** What applying one event did, for the log line. */
 export type IdentityEventOutcome = 'applied' | 'stale' | 'unknown_person' | 'unknown_org'
 
+/** What applying an event may need beyond the database: for the tenant an event creates. */
+export interface IdentityEventOptions {
+  logger?: IdpLogger
+  /**
+   * The deployment's platform features, handed to the tenant hooks (`createTenantForUser`); read
+   * only when an event creates a tenant.
+   */
+  features?: () => Promise<readonly string[]>
+}
+
+const silentLogger: IdpLogger = { info: () => {}, warn: () => {} }
+
+/** A member an access-giving event names, with the issuer's role for them in the org. */
+type AddedMember = IdentityPersonRef & { role: string }
+
+/** Whether the person's `idp` row in the tenant was removed after `at` (the activity log says so). */
+async function removedSince(
+  db: Database,
+  tenantId: string,
+  userId: string,
+  at: Date
+): Promise<boolean> {
+  const [row] = await db
+    .select({ id: activityEvents.id })
+    .from(activityEvents)
+    .where(
+      and(
+        eq(activityEvents.tenantId, tenantId),
+        eq(activityEvents.subjectType, 'TenantMember'),
+        eq(activityEvents.subjectId, userId),
+        eq(activityEvents.type, 'member.removed'),
+        gt(activityEvents.createdAt, at)
+      )
+    )
+    .limit(1)
+  return row !== undefined
+}
+
+/**
+ * `grant.added` and `membership.added`: the org's tenant (found, linked by slug or created, as at
+ * sign-in — slug and name from the event, `external_org_id` the org, no owner) and an `idp`
+ * membership for each member the app already knows whose role `OIDC_ROLE_MAP` maps. The tenant is
+ * made with the first such member, never empty; with none, the first sign-in makes it. An existing
+ * tenant is used as it is: an event is not a rename (`org.renamed` is).
+ */
+async function addMembers(
+  db: Database,
+  cfg: IdpTenancyConfig,
+  org: { orgId: string; orgSlug: string; orgName: string },
+  members: AddedMember[],
+  at: Date,
+  opts: IdentityEventOptions
+): Promise<IdentityEventOutcome> {
+  const logger = opts.logger ?? silentLogger
+  let known = 0
+  let applied = 0
+  for (const member of members) {
+    const appRole = cfg.OIDC_ROLE_MAP[member.role]
+    if (!appRole) continue
+    const user = await findPerson(db, cfg, member)
+    if (!user) continue
+    known++
+    const existing = await findOrgTenant(db, org.orgId)
+    if (existing && (await removedSince(db, existing.id, user.id, at))) continue
+    const tenant =
+      existing ??
+      (await ensureOrgTenant(
+        db,
+        user,
+        { id: org.orgId, slug: org.orgSlug, name: org.orgName, role: member.role, appRole },
+        (await opts.features?.()) ?? [],
+        logger,
+        at
+      ))
+    await upsertIdpMembership(db, {
+      tenantId: tenant.id,
+      userId: user.id,
+      role: appRole,
+      syncedAt: at,
+    })
+    await closePendingAccessRequests(db, user.email)
+    applied++
+  }
+  if (known === 0) return 'unknown_person'
+  return applied > 0 ? 'applied' : 'stale'
+}
+
 /**
  * The user an event's person ref names: the OIDC provider link by `sub` (stored as
  * `<issuer>|<sub>`, `auth/providers/oidc.ts`), else the email. An event carrying a `sub` that no
@@ -636,16 +733,27 @@ async function findPerson(
 /**
  * Apply one verified identity event. Each does what the next sign-in's reconcile would, for the
  * part of the person's tenancy it describes; nothing it does outlasts a sign-in that says
- * otherwise. Records the event nowhere: `idp_synced_at` makes a repeat a no-op.
+ * otherwise. Records the event nowhere: `idp_synced_at` makes a repeat a no-op (a replayed
+ * `webhook-id` included), and an access-giving event for an org whose tenant exists adds members
+ * to it and changes nothing else.
  */
 export async function applyIdentityEvent(
   db: Database,
   cfg: IdpTenancyConfig,
   event: IdentityEvent,
-  realtime?: Realtime
+  realtime?: Realtime,
+  opts: IdentityEventOptions = {}
 ): Promise<IdentityEventOutcome> {
   const at = new Date(event.occurredAt)
   switch (event.type) {
+    case 'grant.added': {
+      const { person, members, ...org } = event.data
+      return addMembers(db, cfg, org, person ? [person] : members, at, opts)
+    }
+    case 'membership.added': {
+      const { orgId, orgSlug, orgName, ...member } = event.data
+      return addMembers(db, cfg, { orgId, orgSlug, orgName }, [member], at, opts)
+    }
     case 'person.suspended': {
       const user = await findPerson(db, cfg, event.data)
       if (!user) return 'unknown_person'

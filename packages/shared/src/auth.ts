@@ -53,6 +53,12 @@ export const sessionResponseSchema = z.object({
    * "Create organisation" when false; the route enforces the same rule.
    */
   canCreateTenant: z.boolean(),
+  /**
+   * IdP-managed tenancy is on (`OIDC_MANAGED_TENANCY` with an issuer): organisations come only from
+   * the identity provider, so the app creates none — no "Create organisation", no new organisation
+   * when an access request is approved, and the no-organisation pages say where they come from.
+   */
+  idpManagedTenancy: z.boolean(),
   /** `RELEASE_VERSION` — lets the UI prompt for a reload after a deploy. */
   version: z.string(),
 })

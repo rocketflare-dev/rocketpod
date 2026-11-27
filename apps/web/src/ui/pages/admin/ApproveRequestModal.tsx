@@ -1,7 +1,7 @@
 /**
  * Decide an access request. Approve = join an existing organisation (picker from
- * `/api/admin/tenants`, role) or create a new one owned by the requester — the latter hidden when
- * `tenancyMode === 'single'`. Reject = optional reason. Both post `decideAccessRequestSchema`.
+ * `/api/admin/tenants`, role) or create a new one owned by the requester — the latter hidden in
+ * single mode and under IdP-managed tenancy (`canCreateTenant`). Reject = optional reason. Both post `decideAccessRequestSchema`.
  */
 import { type AccessRequest, decideAccessRequestSchema } from '@rocketpod/shared/access-requests'
 import { roleLabel, slugify, type TenantRole, tenantRoleSchema } from '@rocketpod/shared/tenants'
@@ -20,11 +20,12 @@ export function ApproveRequestModal({
   request: AccessRequest
   onClose: () => void
 }) {
-  const { tenancyMode } = useAuth()
+  const { canCreateTenant } = useAuth()
   const decide = useDecideAccessRequest()
   const { data: orgs } = useAdminTenants({ pageSize: 200, status: 'active' })
   const organisations = orgs?.items ?? []
-  const allowNewOrg = tenancyMode === 'multi'
+  // A global admin's `canCreateTenant` is multi mode and not IdP-managed.
+  const allowNewOrg = canCreateTenant
 
   const [mode, setMode] = useState<'join' | 'new_org'>('join')
   const [tenantId, setTenantId] = useState(request.requestedTenantId ?? '')

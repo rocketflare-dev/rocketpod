@@ -1,11 +1,15 @@
 /**
  * Who may found an organisation: not a person whose access request is pending or rejected, nobody
- * under IdP-managed tenancy (nor rename one, since the issuer's slug names the tenant it links),
- * and nobody past the ceiling of organisations one person may own.
+ * under IdP-managed tenancy (nor rename one, since the issuer's slug names the tenant it links) —
+ * not through `POST /api/tenants`, an access request approved into a new organisation or an open
+ * sign-up's personal workspace, global admins included — and nobody past the ceiling of
+ * organisations one person may own.
  */
 import { and, eq } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
+import { onNoTenant } from '@/api/services/auth'
 import { createTenantForUser } from '@/api/utils/db/tenant-helpers'
+import { loadConfig } from '@/config'
 import { accessRequests, tenants, tenantUsers } from '@/db/schema'
 import {
   createTestGlobalAdmin,
@@ -102,16 +106,60 @@ describe('organisations under IdP-managed tenancy', () => {
     }
   }
 
-  it('POST /api/tenants is refused for everyone', async () => {
+  it('POST /api/tenants is refused for everyone, global admins included', async () => {
     const { user, cookie } = await owner()
     const res = await create(cookie, managedEnv(), `acme-${slugId()}`)
-    expect(res.status).toBe(409)
-    expect((await json<{ code: string }>(res)).code).toBe('idp_managed')
+    expect(res.status).toBe(403)
+    expect(await json(res)).toMatchObject({ statusCode: 403, code: 'tenants_idp_managed' })
     expect(await ownedBy(user.id)).toHaveLength(1)
 
     const admin = await createTestGlobalAdmin(db)
     const adminCookie = sessionCookieHeader(await createTestSession(db, admin.id))
-    expect((await create(adminCookie, managedEnv())).status).toBe(409)
+    const refused = await create(adminCookie, managedEnv())
+    expect(refused.status).toBe(403)
+    expect((await json<{ code: string }>(refused)).code).toBe('tenants_idp_managed')
+    expect(await ownedBy(admin.id)).toEqual([])
+  })
+
+  it('an access request approved into a NEW organisation is refused; joining one still works', async () => {
+    const admin = await createTestGlobalAdmin(db)
+    const cookie = sessionCookieHeader(await createTestSession(db, admin.id))
+    const email = `lodged_${uniqueId().toLowerCase()}@example.test`
+    const [req] = await db.insert(accessRequests).values({ email }).returning()
+    const decide = (approve: Record<string, unknown>) =>
+      request(
+        `/api/admin/access-requests/${req?.id}/decide`,
+        { method: 'POST', headers: cookie },
+        { env: managedEnv(), json: { decision: 'approve', approve } }
+      )
+
+    const name = `Lodged ${uniqueId()}`
+    const refused = await decide({ mode: 'new_org', name })
+    expect(refused.status).toBe(403)
+    expect((await json<{ code: string }>(refused)).code).toBe('tenants_idp_managed')
+    expect(await db.select().from(tenants).where(eq(tenants.name, name))).toEqual([])
+    const [still] = await db
+      .select()
+      .from(accessRequests)
+      .where(eq(accessRequests.id, req?.id ?? ''))
+    expect(still?.status).toBe('pending')
+
+    const { tenant } = await createTestTenantWithUser(db, 'owner')
+    const joined = await decide({ mode: 'join', tenantId: tenant.id, role: 'member' })
+    expect(joined.status).toBe(200)
+  })
+
+  it('SIGNUP_MODE=open makes no personal workspace; without managed tenancy it still does', async () => {
+    const log = { info: () => {}, warn: () => {}, error: () => {} }
+    const managed = await createTestUser(db)
+    const managedCfg = loadConfig({ ...managedEnv(), SIGNUP_MODE: 'open' } as never)
+    expect(await onNoTenant(db, managedCfg, managed, log)).toBeNull()
+    expect(await ownedBy(managed.id)).toEqual([])
+
+    const plain = await createTestUser(db)
+    const plainCfg = loadConfig(createTestEnv({ SIGNUP_MODE: 'open' }))
+    expect(await onNoTenant(db, plainCfg, plain, log)).not.toBeNull()
+    expect(await ownedBy(plain.id)).toHaveLength(1)
   })
 
   it('PATCH /api/tenant cannot change the slug; a rename and an unchanged slug still pass', async () => {
@@ -296,11 +344,19 @@ describe('the session says whether creating an organisation is allowed', () => {
     return (await json<{ canCreateTenant: boolean }>(res)).canCreateTenant
   }
 
-  it('true for a member, false under IdP-managed tenancy', async () => {
+  it('true for a member, false under IdP-managed tenancy, which idpManagedTenancy reports', async () => {
     const { user, tenant } = await createTestTenantWithUser(db, 'owner')
     const cookie = sessionCookieHeader(await createTestSession(db, user.id, tenant.id))
     expect(await canCreate(cookie, createTestEnv())).toBe(true)
     expect(await canCreate(cookie, managedEnv())).toBe(false)
+    const flag = async (env: ReturnType<typeof createTestEnv>) =>
+      (
+        await json<{ idpManagedTenancy: boolean }>(
+          await request('/auth/session', { headers: cookie }, { env })
+        )
+      ).idpManagedTenancy
+    expect(await flag(createTestEnv())).toBe(false)
+    expect(await flag(managedEnv())).toBe(true)
   })
 
   it('false while an access request is pending or rejected, true for a global admin', async () => {

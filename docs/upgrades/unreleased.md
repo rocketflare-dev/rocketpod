@@ -4,7 +4,7 @@ previous: 0.44.1
 date: null
 breaking: true
 migrations: ["every tenant isolation policy also admits the rocketpod_system role (0018_kit-system-role)"]
-areas: [api, config, db, docs, deploy]
+areas: [api, config, db, docs, deploy, ui]
 touches_surfaces: []
 requires_surfaces: []
 manual: false
@@ -28,6 +28,10 @@ Email goes through a new `mailer` platform member, and Amazon SES v2 joins Resen
 - `withTenantScope` under `enforce` also switches the transaction to `rocketpod_app` when the connection works as the system role, so RLS binds. `loadConfig` refuses `TENANT_SCOPE_MODE=enforce` without `APP_DATABASE_URL`. The chart gains `migrate.ownerOnly` (the owner's `DATABASE_URL` reaches only the migrate Job) and `migrate.existingSecret`.
 - **Breaking**: `Platform.storage` is now a `TenantStorageFactory` (`forTenant(tenantId) → StorageService`), so storage is reached one tenant at a time. The handle refuses a key or prefix outside `tenants/<tenantId>/` (`StorageTenantMismatchError`) and a tenant id that is not a UUID (`StorageTenantRequiredError`) before any network call. Plugin contexts: `JobCtx`/`CronCtx`/`PublicCtx` `storage()` became `storage(tenantId)`; the tenant contexts bind their own.
 - `STORAGE_TENANT_FENCE=off|shadow|on` + `FILES_ROLE_ARN`: `shadow`/`on` sign each tenant's calls with an STS AssumeRole session of the files role tagged `tenant=<id>` (cached per tenant until five minutes before expiry); `shadow` serves a refusal with the process's credentials and logs `storage.fence_denied`. New dependency `@aws-sdk/client-sts`. IAM contract: `docs/DEPLOY.md` § The storage tenant fence.
+
+- Under IdP-managed tenancy (`OIDC_MANAGED_TENANCY`) the app creates no organisation itself. `POST /api/tenants` now answers **403 `tenants_idp_managed`** (was 409 `idp_managed`), and so does an access request approved into a NEW organisation; global admins are not exempt. One helper decides it, `appTenantCreationRefusal` / `requireAppTenantCreation` (`utils/routes/route-helpers.ts`), which `tenantCreationRefusal` now calls. `onNoTenant` makes neither the `open` sign-up's personal workspace nor the bootstrap admin's first one, and `pnpm seed` creates nothing. Approving into an existing organisation still works.
+- `GET /auth/session` gains `idpManagedTenancy` (`sessionResponseSchema`). `useAuth().canCreateTenant` is the session's `canCreateTenant` AND multi mode AND not `idpManagedTenancy`, and also gates the approve dialog's "New organisation"; `useAuth().idpManagedTenancy` is new. `/select-tenant`'s empty list and `/no-access` say organisations come from the identity provider, named by `OIDC_LABEL` (`useIdpOrganisationsHint`, `hooks/useAuthMethods.ts`).
+- Identity events gain `grant.added` (`{ orgId, orgSlug, orgName, members[], person? }`) and `membership.added` (`{ orgId, orgSlug, orgName, personId, email, sub?, role }`): for each named person the app already knows with a mapped role, the org's tenant is found, linked by slug or created (no owner, as at sign-in) and they get an `idp` membership. A late add for a person whose `idp` row in the tenant was removed after the event's `occurredAt` is skipped. `applyIdentityEvent` takes an optional fifth `{ logger, features }`. Design: `docs/CONCEPTS.md` §1 and §2.
 
 ## How to apply
 
@@ -55,6 +59,12 @@ Email goes through a new `mailer` platform member, and Amazon SES v2 joins Resen
 19. Port the call sites: `files.ts`, `ai-documents.ts`, the `document-convert` and `tenant-purge` handlers, `plugins/api/{storage,emit,http,ai,jobs,knowledge}.ts`. In the app's own code, replace every `platform.storage` read with `platform.storage.forTenant(tenantId)` (the tenant from the auth context, the job payload or the run), and in the app's plugins every background `ctx.storage()` with `ctx.storage(tenantId)`. `tsc` finds each one. In tests, `createTestEnv`'s `storage` is `tenantStorageOver(fakes.files)` (`tests/mocks/bindings.ts`) and an override passes a `TenantStorageFactory`; `stubs(env).files` is still the bucket.
 20. A key the app writes outside `tenants/<tenantId>/` now fails: move such objects under the tenant's prefix first. To fence on AWS, provide the files role (`docs/DEPLOY.md` § The storage tenant fence), set `FILES_ROLE_ARN` and `STORAGE_TENANT_FENCE=shadow`, then `on` once `storage.fence_denied` stays quiet.
 
+21. Add `tenantsIdpManaged` to `packages/shared/src/errors.ts`, `idpManagedTenancy` to `sessionResponseSchema` (`packages/shared/src/auth.ts`), and `grant.added` / `membership.added` with `orgRefShape`, `memberRefSchema` and `IDP_EVENT_MEMBERS_MAX` to `packages/shared/src/idp.ts`.
+22. Port `appTenantCreationRefusal` and `requireAppTenantCreation` in `apps/web/src/api/utils/routes/route-helpers.ts`; `tenantCreationRefusal` in `services/tenants.ts`; the call in `routes/tenants.ts` and in the `new_org` branch of `POST /api/admin/access-requests/:id/decide` (`routes/admin.ts`); the early return in `onNoTenant` and `idpManagedTenancy` in `buildSessionResponse` (`services/auth.ts`); the `IDP_MANAGED` skip in `apps/web/scripts/seed.ts`. Call `requireAppTenantCreation(cfg)` in any route of the app's own that creates a tenant.
+23. Port `removedSince`, `addMembers`, `IdentityEventOptions` and the two new cases in `applyIdentityEvent` (`services/idp-tenancy.ts`), and the call in `routes/identity-events.ts` that passes `{ logger, features: () => platformFeatures(db, cfg) }`.
+24. Port `canCreateTenant` / `idpManagedTenancy` in `apps/web/src/ui/hooks/useAuth.tsx`, `useIdpOrganisationsHint` in `hooks/useAuthMethods.ts`, `pages/SelectTenant.tsx`, `pages/NoAccess.tsx` and `pages/admin/ApproveRequestModal.tsx`. Gate any create-organisation affordance of the app's own on `useAuth().canCreateTenant`. In tests, add `idpManagedTenancy: false` to `makeSession` (`tests/ui/helpers/renderWithProviders.tsx`).
+25. A client of the app that read 409 `idp_managed` from `POST /api/tenants` now gets 403 `tenants_idp_managed`.
+
 ## Conflicts to expect
 
 - `apps/web/src/api/services/email.ts` → `sendEmail` gained a `mailer` parameter and lost its Resend `fetch` → keep the app's templates, take the kit's `sendEmail`.
@@ -66,6 +76,8 @@ Email goes through a new `mailer` platform member, and Amazon SES v2 joins Resen
 - `apps/web/src/db/schema/rls.ts` → the policy predicate gained `or current_user = 'rocketpod_system'` → take the kit's (renamed to the app's role names); regenerate rather than merging migrations.
 - `apps/web/scripts/db-roles.ts` → rewritten around the login → take the kit's; re-apply an app's own extra grants after the REVOKE.
 - `apps/web/src/api/routes/files.ts`, `ai-documents.ts` → `storageFor(c)` became `storageFor(c, tenantId)` → take the kit's; pass the tenant in the app's own calls.
+- `apps/web/src/api/services/idp-tenancy.ts` → `applyIdentityEvent` gained two cases and a fifth parameter → take the kit's, keep any case of the app's own.
+- `apps/web/src/ui/pages/SelectTenant.tsx` → the empty-state description gained an IdP branch → keep the app's copy for the other two branches.
 
 ## Verify
 
@@ -76,4 +88,6 @@ Email goes through a new `mailer` platform member, and Amazon SES v2 joins Resen
 5. `docker build -t app . && docker run --rm --read-only --entrypoint node app -e "require('fs').writeFileSync('/tmp/x','1'); console.log(require('tls').getCACertificates('extra').length)"` prints a non-zero count with nothing on stderr.
 6. `pnpm test api apps/web/tests/api/rls-enforcement.test.ts apps/web/tests/api/db-roles.test.ts apps/web/tests/api/rls-coverage.test.ts` passes: on the app login the system role reads every tenant and runs no DDL, an `enforce` scope sees one tenant, the tenant role with no tenant reads nothing.
 7. `pnpm test api apps/web/tests/api/storage-fence.test.ts apps/web/tests/api/testkit.test.ts` passes: AssumeRole carries the tenant tag, one per tenant; `on` never falls back; `shadow` logs `storage.fence_denied`; a key outside the tenant is refused before any call.
-8. `pnpm gate` prints `✔ pnpm gate passed`.
+8. `pnpm test api apps/web/tests/api/security/tenant-creation.test.ts apps/web/tests/api/security/identity-events.test.ts apps/web/tests/api/auth-bootstrap-workspace.test.ts` passes: every creation path is 403 `tenants_idp_managed` under managed tenancy and unchanged without it; `grant.added` / `membership.added` create the tenant once, a late add is skipped, a replay changes nothing.
+9. `pnpm test ui apps/web/tests/ui/select-tenant.test.tsx apps/web/tests/ui/org-switcher.test.tsx apps/web/tests/ui/admin-access-requests.test.tsx` passes.
+10. `pnpm gate` prints `✔ pnpm gate passed`.

@@ -73,4 +73,22 @@ describe('onNoTenant — the bootstrap admin on a fresh multi-tenant install', (
       await onNoTenant(emptyInstall, cfgFor('someone-else@example.test'), other, logger())
     ).toBeNull()
   })
+
+  it('makes none under IdP-managed tenancy: organisations come from the identity provider', async () => {
+    const admin = await createTestUser(db, { isGlobalAdmin: true })
+    const cfg = loadConfig(
+      createTestEnv({
+        TENANCY_MODE: 'multi',
+        SIGNUP_MODE: 'invite_only',
+        BOOTSTRAP_ADMIN_EMAILS: admin.email,
+        OIDC_ISSUER: 'https://idp.example',
+        OIDC_CLIENT_ID: 'client',
+        OIDC_CLIENT_SECRET: 'dummy-oidc-secret',
+        OIDC_MANAGED_TENANCY: 'true',
+      } as never)
+    )
+    expect(await onNoTenant(emptyInstall, cfg, admin, logger())).toBeNull()
+    const owned = await db.select().from(tenantUsers).where(eq(tenantUsers.userId, admin.id))
+    expect(owned).toEqual([])
+  })
 })

@@ -1,7 +1,8 @@
 /**
  * `/select-tenant` (multi mode only): pick which organisation to work in, or create a new one
  * (`createTenantRequestSchema`; slug derived with the shared `slugify`) when the session's
- * `canCreateTenant` allows it. Disabled in single mode.
+ * `canCreateTenant` allows it. Disabled in single mode. Under IdP-managed tenancy there is no create
+ * form (`?create=1` included) and an empty list says organisations come from the identity provider.
  */
 
 import { BuildingOffice2Icon, ChevronRightIcon, PlusIcon } from '@heroicons/react/24/outline'
@@ -16,12 +17,23 @@ import { AuthCard, SignedInAs } from '@/ui/components/AuthCard'
 import { RoleBadge } from '@/ui/components/RoleBadge'
 import { EmptyState, FieldError, fieldErrorFor } from '@/ui/components/shared'
 import { useAuth } from '@/ui/hooks/useAuth'
+import { useIdpOrganisationsHint } from '@/ui/hooks/useAuthMethods'
 import { useCreateTenant } from '@/ui/hooks/useTenant'
 
 export default function SelectTenant() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const { user, tenant, tenants, tenancyMode, canCreateTenant, selectTenant, logout } = useAuth()
+  const {
+    user,
+    tenant,
+    tenants,
+    tenancyMode,
+    canCreateTenant,
+    idpManagedTenancy,
+    selectTenant,
+    logout,
+  } = useAuth()
+  const idpHint = useIdpOrganisationsHint()
   const [switching, setSwitching] = useState<string | null>(null)
   const [creating, setCreating] = useState(canCreateTenant && searchParams.get('create') === '1')
 
@@ -57,7 +69,9 @@ export default function SelectTenant() {
               description={
                 canCreateTenant
                   ? 'Create one to get started.'
-                  : 'Ask an administrator to add you to one.'
+                  : idpManagedTenancy
+                    ? idpHint
+                    : 'Ask an administrator to add you to one.'
               }
             />
           ) : (

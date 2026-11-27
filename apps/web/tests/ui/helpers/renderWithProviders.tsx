@@ -203,6 +203,7 @@ export function makeSession(overrides: Partial<SessionResponse> = {}): SessionRe
     tenancyMode: 'multi',
     signupMode: 'invite_only',
     canCreateTenant: true,
+    idpManagedTenancy: false,
     version: '1.2.3',
     ...overrides,
   }

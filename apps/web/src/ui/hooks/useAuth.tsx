@@ -44,8 +44,15 @@ export interface AuthContextValue {
   isGlobalAdmin: boolean
   tenancyMode: TenancyMode
   signupMode: SignupMode
-  /** The server's `canCreateTenant`: whether to offer "Create organisation" at all */
+  /**
+   * Whether to offer creating an organisation at all: the server's `canCreateTenant`, and never in
+   * single mode or under IdP-managed tenancy (`idpManagedTenancy`). Gates every create affordance — the org
+   * switcher, `/select-tenant` (`?create=1` included), the approve dialog's "New organisation";
+   * the server refuses the request either way.
+   */
   canCreateTenant: boolean
+  /** IdP-managed tenancy: organisations come only from the identity provider. */
+  idpManagedTenancy: boolean
   /** A non-401 failure of the session request (network, 5xx) — `ProtectedRoute` offers a retry */
   error: Error | null
   /** `POST /auth/select-tenant`; the returned session replaces the cache */
@@ -193,7 +200,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isGlobalAdmin: session?.user.isGlobalAdmin ?? false,
       tenancyMode: session?.tenancyMode ?? 'multi',
       signupMode: session?.signupMode ?? 'invite_only',
-      canCreateTenant: session?.canCreateTenant ?? false,
+      canCreateTenant:
+        (session?.canCreateTenant ?? false) &&
+        session?.tenancyMode === 'multi' &&
+        !session.idpManagedTenancy,
+      idpManagedTenancy: session?.idpManagedTenancy ?? false,
       error: queryError ?? null,
       selectTenant,
       logout,

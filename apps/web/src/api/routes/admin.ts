@@ -56,7 +56,12 @@ import {
   ValidationError,
 } from '../utils/core/errors'
 import { paginated } from '../utils/routes/pagination'
-import { requireMultiTenant, uuidParam, withAuth } from '../utils/routes/route-helpers'
+import {
+  requireAppTenantCreation,
+  requireMultiTenant,
+  uuidParam,
+  withAuth,
+} from '../utils/routes/route-helpers'
 import { createRouter } from '../utils/routes/router'
 import { validate } from '../utils/routes/validate'
 
@@ -77,8 +82,11 @@ adminRouter.post(
   async c => {
     const { db, cfg, logger, user } = withAuth(c)
     const decision = c.req.valid('json')
-    if (decision.decision === 'approve' && decision.approve.mode === 'new_org')
+    if (decision.decision === 'approve' && decision.approve.mode === 'new_org') {
       requireMultiTenant(cfg)
+      // Under IdP-managed tenancy an approval may still join an existing organisation.
+      requireAppTenantCreation(cfg)
+    }
     const result = await decideAccessRequest(db, cfg, logger, c.get('platform').jobs, {
       id: uuidParam(c, 'id'),
       decision,

@@ -15,7 +15,7 @@ here.
 > **Fresh copy?** `/rp-adapt <slug>`, then `docs/ADAPTING.md`. `/rp-start`, `/rp-design`, `/rp-setup`,
 > `/rp-adapt`, `/rp-preflight`, `/rp-how-do-i`,
 > `/rp-upgrade`, `/rp-traces`, `/rp-evals`, `/rp-agent-replay`, `/rp-agent-docs`, `/rp-doc-sync`, `/rp-mcp` and `/rp-plugin` you may run yourself. **Deploying** (image, Compose,
-> Helm — `docs/DEPLOY.md`) is `/rp-deploy`: it renders and checks locally, and asks the user before
+> Helm, AWS ECS — `docs/DEPLOY.md`) is `/rp-deploy`: it renders and checks locally, and asks the user before
 > it pushes an image, touches a cluster or creates anything billed.
 > **The Guide** (`docs/CONCEPTS.md` §18): in-app user docs at `/guide` + "Ask the Guide". Pages in
 > `apps/web/content/guide/` declare the code they describe (`sources:`/`verified:`); changing that
@@ -87,6 +87,7 @@ pnpm seed [--demo] && pnpm dev  # tenant/users/key (+ populated workspace); Node
 pnpm build && node apps/web/dist/server.js [web|worker|all]  # the production server
 docker compose up -d --build  # the whole stack from the image: postgres, s3, migrate, web, worker (docs/DEPLOY.md)
 helm upgrade --install rocketpod deploy/helm/rocketpod -f values.yaml  # Kubernetes; Postgres + S3 external
+gh workflow run deploy-aws.yml -f version=X.Y.Z  # AWS ECS, infra managed elsewhere: redeploy/roll back (a tag deploys once AWS_DEPLOY_CONFIG is set)
 pnpm dev:stop · pnpm dev:status · pnpm dev:db:status  # kill this repo's dev tree / port holders / every dev database
 pnpm cli login --server http://localhost:3001  # browser → ~/.rocketpod/config.json, then whoami
 pnpm gate [step…] · pnpm gate --list [--json]  # THE gate: lint → typecheck → test → build (CI runs it in parallel parts behind one `Gate` check; Launch's ship gate)
@@ -159,7 +160,7 @@ docs/upgrades/     one porting note per kit release (+ unreleased.md, kit repo o
                    rp-doc-sync (keep the Guide's pages true to the code; docs:stale + the Stop hook) ·
                    rp-evals (+ reference.md — author, run, compare, harvest, baseline, improve; D33) ·
                    rp-agent-replay (replay an agent's past runs with today's code, no model calls; D38) ·
-                   rp-deploy (Compose or Helm, the secrets checklist, never prints a secret) ·
+                   rp-deploy (Compose, Helm or AWS ECS, the secrets checklist, never prints a secret) ·
                    rp-agent-docs (+ check.mjs — audit and fix CLAUDE.md, rules and skills) ·
                    rp-mcp (connect an AI client, test with a real one, troubleshoot; CONCEPTS §19) ·
                    rp-sync-rocketflare (+ reference.md — kit repo only, `kitOnly`: port

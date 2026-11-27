@@ -381,13 +381,122 @@ absorbs the release; a released kit tag is never force-pushed, because every cop
 commit. An app has neither the command nor the check (the rename removes both), and writes no
 porting note.
 
-**A tag is a release, and once a deploy job hangs off it, a production deploy.** A copy that adds
-one (`needs: [ci, chart, publish]`) deploys every version tag it pushes; nothing asks again. Before
-tagging, read the gate's own verdict (`✔ pnpm gate passed`, or `.gate/last.json`), never an exit
-code piped through `tail`.
+**A tag is a release, and once a deploy job hangs off it, a production deploy.** The kit's own,
+`deploy-aws` (§ AWS ECS), runs only once the `AWS_DEPLOY_CONFIG` variable is set; a copy that adds
+another hangs it off the same `needs: [ci, chart, publish]`. Either way every version tag deploys,
+and nothing asks again. Before tagging, read the gate's own verdict (`✔ pnpm gate passed`, or
+`.gate/last.json`), never an exit code piped through `tail`.
 
 The CLI (`apps/cli`) is not part of the image: it runs on people's machines
 (`rocketpod login --server https://app.example.com`).
+
+## AWS ECS (infrastructure managed elsewhere)
+
+For a deployment whose AWS infrastructure is owned by its own Terraform (or any other tool): an ECR
+repository, an ECS cluster with `web` and `worker` services, three task definitions, an assets
+bucket behind a CDN, an SSM parameter naming the image and a deploy role GitHub assumes over OIDC.
+The kit owns none of that. It ships the release side, `.github/workflows/deploy-aws.yml`, which
+rolls a published image onto it. `image.yml`'s `deploy-aws` job calls it on every version tag
+once `publish` has pushed the image, and only when the repository variable `AWS_DEPLOY_CONFIG` is
+set; without it the job is skipped and nothing about AWS runs.
+
+**The contract.** `AWS_DEPLOY_CONFIG` is ONE repository variable (Settings → Secrets and
+variables → Actions → Variables) holding a JSON object, normally the infrastructure's `deploy`
+output written verbatim (`terraform output -json <module> | jq -c .deploy`). Nothing in it is
+secret. The workflow's first step checks every key is a non-empty string without whitespace, and
+the shaped ones against their AWS form, and fails naming each missing or bad key; a key it does
+not read is a warning.
+
+| Key | Must point to |
+|---|---|
+| `AWS_REGION` | The region everything below lives in |
+| `AWS_DEPLOY_ROLE_ARN` | The deploy role (`arn:aws:iam::<account>:role/…`), trusting this repository's `production` environment |
+| `ECR_REPOSITORY` | The repository URL, `<account>.dkr.ecr.<region>.amazonaws.com/<name>`, with immutable tags |
+| `ECS_CLUSTER` | The cluster name |
+| `ECS_SUBNETS` | Comma-separated private subnet ids (`subnet-…,subnet-…`) the migrate task runs in |
+| `ECS_SECURITY_GROUP` | The tasks' security group id (`sg-…`), which reaches the database |
+| `ECS_WEB_SERVICE` | The `web` service name |
+| `ECS_WORKER_SERVICE` | The `worker` service name |
+| `ECS_FAMILY_PREFIX` | The prefix of the three task-definition families, named exactly `<prefix>-web`, `<prefix>-worker`, `<prefix>-migrate` |
+| `ASSETS_BUCKET` | The bucket the CDN serves `/assets/*` from (only the hashed build output; `index.html` stays the app's) |
+| `IMAGE_PARAMETER` | The SSM `String` parameter the infrastructure reads the image from |
+| `LOG_GROUP` | The CloudWatch log group the tasks' `awslogs` driver writes to |
+
+The workflow's `asset_dirs` input (default `assets`) names the directories under the image's
+`dist/ui/` that go to the bucket; widen it only when the build emits another hashed directory the
+CDN routes to the bucket.
+
+**One-time setup.**
+
+1. Create the GitHub environment `production` (Settings → Environments). Add required reviewers
+   or a deployment tag rule if a person should approve each release; the deploy job waits there.
+2. The deploy role trusts `token.actions.githubusercontent.com` with the `sub`
+   `repo:<owner>/<repo>:environment:production` (and `aud` `sts.amazonaws.com`), nothing wider.
+   It needs: ECR push and read on the repository (`ecr:GetAuthorizationToken`,
+   `ecr:DescribeImages`, `ecr:BatchCheckLayerAvailability`, `ecr:BatchGetImage`,
+   `ecr:GetDownloadUrlForLayer`, `ecr:InitiateLayerUpload`, `ecr:UploadLayerPart`,
+   `ecr:CompleteLayerUpload`, `ecr:PutImage`); `s3:ListBucket` and `s3:PutObject` on the assets
+   bucket; `ssm:PutParameter` on the image parameter; `ecs:DescribeTaskDefinition`,
+   `ecs:RegisterTaskDefinition`, `ecs:TagResource` (the revisions keep the family's tags),
+   `ecs:RunTask` on the migrate family, `ecs:DescribeTasks`, `ecs:UpdateService` and
+   `ecs:DescribeServices` on the two services; `iam:PassRole` on the task and execution roles;
+   `logs:GetLogEvents` on the log group.
+3. Set `AWS_DEPLOY_CONFIG` from the infrastructure's output.
+4. Until the first image exists the services run at desired count 0 (the task definitions name a
+   tag that does not resolve yet). Tag a release; once it has deployed, raise the desired counts in
+   the infrastructure.
+
+**What a release does**, in this order, so nothing serves a page whose files are missing:
+
+1. Assumes the deploy role over OIDC (`aws-actions/configure-aws-credentials`): no AWS key in
+   GitHub.
+2. Logs in to ghcr.io (the job's `packages: read` token) and to ECR.
+3. Copies `ghcr.io/<owner>/rocketpod:<version>` to `<ECR_REPOSITORY>:<version>` with
+   `docker buildx imagetools create`, unless that tag is already in ECR (a redeploy or rollback:
+   ECR tags are immutable, so the version is the same image).
+4. Copies `dist/ui/<asset_dirs>` out of the image (`docker create` + `docker cp`) and
+   `aws s3 sync`s it to the assets bucket with `cache-control: public, max-age=31536000,
+   immutable`. Never `--delete`: a tab still on the previous release keeps loading its chunks.
+5. Writes the image to `IMAGE_PARAMETER` (`ssm put-parameter --overwrite`), so the
+   infrastructure's next plan reads it back and changes nothing.
+6. For each of `<prefix>-web`, `<prefix>-worker` and `<prefix>-migrate`: describes the latest
+   revision, swaps the image of the container that runs one from `ECR_REPOSITORY` (a sidecar
+   keeps its own), drops the read-only fields and registers a new revision with the same tags.
+7. Runs migrate on Fargate (`ECS_SUBNETS`, `ECS_SECURITY_GROUP`, no public IP), waits up to 25
+   minutes for it to stop and reads its exit code. Non-zero: prints the last 100 lines of its log
+   stream in `LOG_GROUP` (`<awslogs-stream-prefix>/<container>/<task id>`) and fails. Web and
+   worker keep running the previous version.
+8. Points `web` and `worker` at the new revisions, `aws ecs wait services-stable`, then checks
+   each service settled on the new revision (a circuit breaker that rolled back is "stable" too).
+
+Releases never overlap: the job's concurrency group queues a second one behind the first and never
+cancels one in flight (GitHub keeps one pending run per group; a third replaces the pending one).
+
+**Redeploy or roll back:** Actions → Deploy (AWS ECS) → Run workflow, with an older published
+version. The image is already in ECR, so it skips the copy and does the rest; the older migrate finds its
+migrations already applied and changes nothing, and the newer schema stays. Migrations are
+forward-only (§ Rollback): an old version that cannot run on the new schema needs a compensating
+migration instead.
+
+**What the image needs from the task definitions:**
+
+- **Commands.** `web`: the default `CMD` (`web`); `worker`: command `["worker"]`; migrate:
+  entry point `["node"]`, command `["dist/migrate.js"]`. The working directory is the image's
+  (`/app`).
+- **Health.** ECS ignores the image's `HEALTHCHECK` unless the task definition repeats it: give
+  `web` and `worker` a container health check on `http://127.0.0.1:3001/healthz` (worker has no
+  port mapping but serves the probes); the load balancer's target group checks `/readyz` on
+  `:3001` (503 while a task drains, so ECS takes it out of rotation first). Give `worker` a
+  `stopTimeout` long enough for in-flight jobs (Fargate allows 120 s).
+- **Read-only root.** `readonlyRootFilesystem: true` works with a writable volume at `/tmp`
+  (the image declares it; mount a task volume there).
+- **The environment the infrastructure sets:** `APP_ENV=production`, `APP_URL`, `PORT=3001`,
+  `TRUSTED_PROXY_HOPS` (2 behind a CDN and a load balancer), the database (`DATABASE_URL` to
+  migrate, `APP_DATABASE_URL` to web and worker — § Two database logins), `DATABASE_SSL=verify-full`
+  on RDS (the image carries the RDS CA, § TLS to Postgres), storage through the task role with no
+  keys (§ Storage on AWS) and optionally the fence (`STORAGE_TENANT_FENCE`, `FILES_ROLE_ARN` —
+  § The storage tenant fence), email through SES (`EMAIL_PROVIDER=ses`, § Email), and the
+  secrets of § Secrets checklist from Secrets Manager or SSM.
 
 ## Observability
 
@@ -434,7 +543,7 @@ never fail a request.
 
 | Situation | Action |
 |---|---|
-| Bad release, schema unchanged | Deploy the previous image tag: `helm rollback rocketpod`, or `ROCKETPOD_IMAGE=…:<previous>` then `docker compose up -d`. Agent runs in flight resume on the rolled-back code: a rollback that also rolls back an agent's `meta.version` applies its `onVersionChange` like any other version change |
+| Bad release, schema unchanged | Deploy the previous image tag: `helm rollback rocketpod`, `ROCKETPOD_IMAGE=…:<previous>` then `docker compose up -d`, or on AWS ECS run Deploy (AWS ECS) with the previous version (§ AWS ECS). Agent runs in flight resume on the rolled-back code: a rollback that also rolls back an agent's `meta.version` applies its `onVersionChange` like any other version change |
 | Schema migration must be undone | Migrations are forward-only: write a compensating migration and release it. Rolling the image back never touches the database (the migrate hook runs on install and upgrade only) |
 | RLS enforce misbehaving | `config.TENANT_SCOPE_MODE=off` and roll the pods — no migration (`docs/RLS.md`) |
 | Tenant AI keys unreadable after rotating `OAUTH_ENCRYPTION_KEY` | There is no re-encrypt path: admins re-enter the key in Settings → AI; the platform keys are unaffected |

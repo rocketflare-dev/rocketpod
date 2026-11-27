@@ -20,6 +20,7 @@ import { buildJobEnvelope } from '@/api/services/jobs'
 import type { Logger } from '@/api/utils/core/logger'
 import { loadConfig } from '@/config'
 import { activityEvents } from '@/db/schema'
+import { createResendMailer } from '@/node/mailer'
 import type { JobBatch } from '@/platform/types'
 import { createTestTenantWithUser } from '../helpers/auth'
 import { setupTestDatabase } from '../helpers/db'
@@ -96,7 +97,7 @@ describe('backoffSeconds', () => {
 })
 
 describe('processJobsBatch', () => {
-  it('email.send without RESEND_API_KEY: dev fallback logged, message acked, DB handle closed', async () => {
+  it('email.send with no mailer: dev fallback logged, message acked, DB handle closed', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch')
     const { deps: d, logger, close } = deps({ RESEND_API_KEY: '' })
     // A job naming a tenant runs only while that tenant is active, so the tenant must exist.
@@ -141,7 +142,11 @@ describe('processJobsBatch', () => {
 
   it('a provider failure retries with exponential backoff and still closes the DB handle', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('nope', { status: 500 }))
-    const { deps: d, logger, close } = deps({ RESEND_API_KEY: 're_test_123' })
+    const {
+      deps: d,
+      logger,
+      close,
+    } = deps({ RESEND_API_KEY: 're_test_123', mailer: createResendMailer('re_test_123') })
     const job = buildJobEnvelope({
       type: 'email.send',
       payload: { to: 'b@example.test', subject: 'S', html: '<p>x</p>', reason: 'test' },
@@ -160,7 +165,10 @@ describe('processJobsBatch', () => {
   it('one failing message does not stop the rest of the batch', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('nope', { status: 502 }))
     const { tenant } = await createTestTenantWithUser(db, 'owner')
-    const { deps: d } = deps({ RESEND_API_KEY: 're_test_123' })
+    const { deps: d } = deps({
+      RESEND_API_KEY: 're_test_123',
+      mailer: createResendMailer('re_test_123'),
+    })
     const failing = fakeMessage(
       buildJobEnvelope({
         type: 'email.send',

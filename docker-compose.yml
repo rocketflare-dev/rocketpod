@@ -30,6 +30,9 @@ x-app: &app
     BOOTSTRAP_ADMIN_EMAILS: ${BOOTSTRAP_ADMIN_EMAILS:-}
     EMAIL_FROM: ${EMAIL_FROM:-Rocketpod <noreply@example.com>}
     RESEND_API_KEY: ${RESEND_API_KEY:-}
+    EMAIL_PROVIDER: ${EMAIL_PROVIDER:-}
+    SES_REGION: ${SES_REGION:-}
+    SES_CONFIGURATION_SET: ${SES_CONFIGURATION_SET:-}
     OAUTH_ENCRYPTION_KEY: ${OAUTH_ENCRYPTION_KEY:-}
     IDENTITY_WEBHOOK_SECRET: ${IDENTITY_WEBHOOK_SECRET:-}
     # No proxy in front of this file: the socket address is the client. Behind one, set the hop count.

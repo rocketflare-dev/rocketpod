@@ -345,7 +345,7 @@ describe('POST /api/invite/:token/accept', () => {
       inviter: owner,
       actor: { isGlobalAdmin: false, tenantUser: { role: 'owner' } },
     })
-    const { verifyUrl } = await requestMagicLink(db, cfg, logger, {
+    const { verifyUrl } = await requestMagicLink(db, cfg, null, logger, {
       email,
       redirectTo: `/invite/${token}`,
     })

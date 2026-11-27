@@ -9,6 +9,9 @@
 import { sharedPlugins } from '@rocketpod/shared/plugins'
 import { z } from 'zod'
 
+/** `EMAIL_FROM` when unset — a placeholder no real provider accepts as a sender. */
+export const DEFAULT_EMAIL_FROM = 'Rocketpod <noreply@example.com>'
+
 /** dotenv passes `KEY=` lines from .env as empty strings; treat those as unset. */
 const optionalString = z.preprocess(
   value => (typeof value === 'string' && value.trim() === '' ? undefined : value),
@@ -95,7 +98,19 @@ const coreConfigSchema = z.object({
    */
   APP_VERSION_ID: optionalString,
   LOG_LEVEL: z.enum(LOG_LEVELS).default('info'),
-  EMAIL_FROM: z.string().min(1).default('Rocketpod <noreply@example.com>'),
+  /** The sender on every email. SES sends only as an identity it has verified, so `ses` needs it set. */
+  EMAIL_FROM: z.string().min(1).default(DEFAULT_EMAIL_FROM),
+  /**
+   * Who delivers email: `resend` (`RESEND_API_KEY`), `ses` (Amazon SES v2 on the AWS SDK's default
+   * credentials — an ECS task role, no key in config) or `log` (nothing sent; the message and,
+   * outside production, its link are logged). Unset = `resend` when `RESEND_API_KEY` is set, else
+   * `log`. `resend` without the key, or `ses` with no `EMAIL_FROM`, fails here.
+   */
+  EMAIL_PROVIDER: optionalEnum(['log', 'resend', 'ses'] as const),
+  /** SES's region. Unset = the AWS SDK's own (`AWS_REGION`, which ECS sets to the task's region). */
+  SES_REGION: optionalString,
+  /** An SES configuration set named on every message (where bounces and complaints are reported). */
+  SES_CONFIGURATION_SET: optionalString,
   /** The schema is identical in both modes; `single` disables the multi-org surface. */
   TENANCY_MODE: z.enum(['multi', 'single']).default('multi'),
   /** Who may create an account. */
@@ -484,6 +499,21 @@ const pluginConfigShape: z.ZodRawShape = Object.assign(
   ...sharedPlugins.map(p => p.config ?? {})
 )
 const configSchema = coreConfigSchema.extend(pluginConfigShape).superRefine((cfg, ctx) => {
+  // Asking for a provider by name and then not configuring it would quietly log every email.
+  if (cfg.EMAIL_PROVIDER === 'resend' && !cfg.RESEND_API_KEY) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['EMAIL_PROVIDER'],
+      message: 'EMAIL_PROVIDER=resend needs RESEND_API_KEY',
+    })
+  }
+  if (cfg.EMAIL_PROVIDER === 'ses' && cfg.EMAIL_FROM === DEFAULT_EMAIL_FROM) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['EMAIL_FROM'],
+      message: 'EMAIL_PROVIDER=ses needs EMAIL_FROM — an address or domain SES has verified',
+    })
+  }
   // An OIDC-only login page with no issuer would offer no way in at all.
   if (cfg.AUTH_OIDC_ONLY && !(cfg.OIDC_ISSUER && cfg.OIDC_CLIENT_ID)) {
     ctx.addIssue({
@@ -554,8 +584,14 @@ export function oauthRedirectUri(cfg: AppConfig, provider: OAuthProviderName): s
   return new URL(`/auth/${provider}/callback`, cfg.APP_URL).toString()
 }
 
-/** Without a Resend key, magic links are logged instead of sent (zero-creds first run). */
-export const hasEmail = (cfg: AppConfig): boolean => Boolean(cfg.RESEND_API_KEY)
+export type EmailProvider = 'log' | 'resend' | 'ses'
+
+/** `EMAIL_PROVIDER`, or by default Resend with a key and the log without (zero-creds first run). */
+export const emailProvider = (cfg: AppConfig): EmailProvider =>
+  cfg.EMAIL_PROVIDER ?? (cfg.RESEND_API_KEY ? 'resend' : 'log')
+
+/** Whether email is delivered at all; `log` only logs it (magic links in the server log). */
+export const hasEmail = (cfg: AppConfig): boolean => emailProvider(cfg) !== 'log'
 
 /** Providers whose client id AND secret are both present — the login page shows only these. */
 export function configuredOAuthProviders(cfg: AppConfig): OAuthProviderName[] {

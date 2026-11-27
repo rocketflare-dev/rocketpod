@@ -1,11 +1,12 @@
 /**
- * Transactional email over Resend's REST API via `fetch` (no SDK) — the zero-creds rule: when
- * `RESEND_API_KEY` is absent nothing is sent, the message (and, except when `APP_ENV` is
- * `production`, its link) is logged at `info` so every flow still works locally, and the result
- * says `delivered: false`. Templates share one
- * plain, brandable shell driven by `APP_NAME`.
+ * Transactional email through `platform.mailer` (`src/node/mailer.ts`: Resend or Amazon SES, per
+ * `EMAIL_PROVIDER`) — the zero-creds rule: with no mailer (the `log` provider) nothing is sent, the
+ * message (and, except when `APP_ENV` is `production`, its link) is logged at `info` so every flow
+ * still works locally, and the result says `delivered: false`. A provider refusal is reported, never
+ * thrown. Templates share one plain, brandable shell driven by `APP_NAME`.
  */
 import type { AppConfig } from '../../config'
+import type { Mailer } from '../../platform/types'
 import type { Logger } from '../utils/core/logger'
 
 export interface EmailMessage {
@@ -25,14 +26,13 @@ export interface EmailResult {
 
 type EmailLogger = Pick<Logger, 'info' | 'warn' | 'error'>
 
-const RESEND_URL = 'https://api.resend.com/emails'
-
 export async function sendEmail(
   cfg: AppConfig,
+  mailer: Mailer | null,
   logger: EmailLogger,
   message: EmailMessage
 ): Promise<EmailResult> {
-  if (!cfg.RESEND_API_KEY) {
+  if (!mailer) {
     const link = cfg.APP_ENV === 'production' ? undefined : message.link
     logger.info(
       { to: message.to, subject: message.subject, link },
@@ -45,34 +45,21 @@ export async function sendEmail(
       )
     }
     if (cfg.APP_ENV === 'production') {
-      logger.warn('RESEND_API_KEY is not set — emails are not delivered')
+      logger.warn('No email provider is configured (EMAIL_PROVIDER) — emails are not delivered')
     }
     return { delivered: false }
   }
   try {
-    const res = await fetch(RESEND_URL, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${cfg.RESEND_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        from: cfg.EMAIL_FROM,
-        to: message.to,
-        subject: message.subject,
-        html: message.html,
-        text: message.text,
-      }),
+    const { id } = await mailer.send({
+      from: cfg.EMAIL_FROM,
+      to: message.to,
+      subject: message.subject,
+      html: message.html,
+      text: message.text,
     })
-    if (!res.ok) {
-      const body = await res.text()
-      logger.error({ status: res.status, body }, 'Resend rejected the email')
-      return { delivered: false, error: `Resend ${res.status}` }
-    }
-    const data = (await res.json().catch(() => ({}))) as { id?: string }
-    return { delivered: true, id: data.id }
+    return id ? { delivered: true, id } : { delivered: true }
   } catch (err) {
-    logger.error({ err }, 'Email delivery failed')
+    logger.error({ err, provider: mailer.provider }, 'Email delivery failed')
     return { delivered: false, error: err instanceof Error ? err.message : String(err) }
   }
 }

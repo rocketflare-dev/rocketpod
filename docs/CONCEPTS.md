@@ -185,7 +185,7 @@ the operator's record of what it spent is lost with the organisation.
   `POST /api/tenants`, `GET /api/invitations/pending`, `POST /api/access-requests` — answer 403
   `insufficient_scope` to a key (`withAccountAuth`).
 - **Magic link** is the zero-credential path: a 256-bit, 15-minute, single-use, SHA-256-hashed
-  token. With no `RESEND_API_KEY` the URL is logged, except when `APP_ENV=production`, where it is
+  token. With no email provider (`EMAIL_PROVIDER` resolves to `log`) the URL is logged, except when `APP_ENV=production`, where it is
   never written to the logs. Past five sign-in mails to one mailbox in 15 minutes the route still
   answers 202 but mints nothing and sends nothing (`platform.rateLimiter`, keyed by a hash of the
   canonical mailbox — lower-cased, a `+tag` dropped, and for `gmail.com` / `googlemail.com` the
@@ -645,9 +645,16 @@ downtime is pg-boss's default, untested.
 
 ## 6. Email and storage
 
-- **Email**: Resend over `fetch`, `sendEmail(...)`, neutral templates. With no key, messages are
-  logged (`[email:dev]`, without the link when `APP_ENV=production`), never errors. The magic link is sent inline; other email is `email.send`
-  jobs.
+- **Email**: `sendEmail(cfg, platform.mailer, …)`, neutral templates. The `mailer` platform member
+  (`src/node/mailer.ts`) is the provider `EMAIL_PROVIDER` names: `resend` (Resend's REST API over
+  `fetch`, `RESEND_API_KEY`), `ses` (Amazon SES v2 `SendEmail` on the AWS SDK's default credential
+  chain — on AWS (ECS task role, SES) no key is configured; `SES_REGION`, else `AWS_REGION`;
+  `SES_CONFIGURATION_SET` named on every message when set) or `log` (no mailer). Unset = `resend`
+  when `RESEND_API_KEY` is set, else `log` — today's zero-creds default. `loadConfig` refuses
+  `resend` without the key and `ses` without `EMAIL_FROM` (SES sends only as a verified identity).
+  With no mailer, messages are logged (`[email:dev]`, without the link when `APP_ENV=production`),
+  never errors; a provider refusal is reported (`delivered: false`, `error`), and an `email.send`
+  job retries it. The magic link is sent inline; other email is `email.send` jobs.
 - **Storage (D23)**: the `StorageService` seam (`c.get('platform').storage`, any S3-compatible
   store). Keys are `tenants/<tenantId>/<scope>/<uuid>-<name>`. Bytes
   stream through the server (no presigned URLs). `get(key, { range })` reads `{ start, end? }`
@@ -690,6 +697,8 @@ downtime is pg-boss's default, untested.
 
 **Known gaps:** `avatarUrl` is global but the object is tenant-scoped (initials fallback elsewhere);
 re-uploads leave the old object; no listing endpoint, quotas or presigned URLs; unbranded templates.
+Email: one recipient per message, no attachments; SES bounces and complaints are not consumed (a
+configuration set can publish them, nothing in the app reads them); no SMTP provider.
 No Azure Blob adapter (not S3-compatible); metadata values travel as HTTP headers, so
 non-ASCII values are not supported (the kit writes only ids and scopes); `put` reports the request
 time as `uploaded` (S3's PutObject does not answer the stored one; `head`/`get` do), and so does

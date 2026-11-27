@@ -1,6 +1,6 @@
 /**
- * Email service (zero-creds): no RESEND_API_KEY → logged (with the link), nothing sent; with a
- * key → one POST to Resend with the Bearer header; a Resend error is reported, never thrown.
+ * Email service (zero-creds): no mailer → logged (with the link), nothing sent; the Resend mailer
+ * → one POST to Resend with the Bearer header; a provider error is reported, never thrown.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -10,6 +10,7 @@ import {
   sendEmail,
 } from '@/api/services/email'
 import { loadConfig } from '@/config'
+import { createResendMailer } from '@/node/mailer'
 import { createTestEnv } from '../mocks/bindings'
 
 const logger = () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() })
@@ -19,12 +20,13 @@ afterEach(() => {
 })
 
 describe('sendEmail', () => {
-  it('without a key: logs To/Subject/Link at info and returns delivered: false', async () => {
+  it('without a mailer: logs To/Subject/Link at info and returns delivered: false', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch')
     const cfg = loadConfig(createTestEnv({ RESEND_API_KEY: '' }))
     const log = logger()
     const result = await sendEmail(
       cfg,
+      null,
       log,
       magicLinkEmail(
         cfg,
@@ -41,7 +43,7 @@ describe('sendEmail', () => {
     expect(log.warn).not.toHaveBeenCalled()
   })
 
-  it('with a key: POSTs to Resend with Authorization: Bearer and the configured from', async () => {
+  it('the Resend mailer: POSTs to Resend with Authorization: Bearer and the configured from', async () => {
     const fetchSpy = vi
       .spyOn(globalThis, 'fetch')
       .mockResolvedValue(new Response(JSON.stringify({ id: 'msg_1' }), { status: 200 }))
@@ -52,7 +54,7 @@ describe('sendEmail', () => {
       role: 'admin',
       acceptUrl: 'http://localhost:3001/invite/tok',
     })
-    const result = await sendEmail(cfg, logger(), msg)
+    const result = await sendEmail(cfg, createResendMailer('re_test_123'), logger(), msg)
     expect(result).toEqual({ delivered: true, id: 'msg_1' })
     expect(fetchSpy).toHaveBeenCalledTimes(1)
     const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit]
@@ -75,6 +77,7 @@ describe('sendEmail', () => {
     const log = logger()
     const result = await sendEmail(
       cfg,
+      createResendMailer('re_test_123'),
       log,
       accessRequestDecidedEmail(cfg, 'c@example.test', { approved: true, tenantName: 'Acme' })
     )

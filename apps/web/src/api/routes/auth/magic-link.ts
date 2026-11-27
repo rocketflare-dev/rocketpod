@@ -1,6 +1,6 @@
 /**
  * Magic-link login. `POST /request` always answers 202 (anti-enumeration) and is
- * rate-limited at the mount; the email — or, with no `RESEND_API_KEY`, the log line — carries
+ * rate-limited at the mount; the email (`platform.mailer`) — or, with none, the log line — carries
  * `${APP_URL}/auth/magic-link/verify?token=…`.
  *
  * Scanner-safe verify: `GET /verify` consumes NOTHING — it 302s to the SPA's
@@ -30,7 +30,7 @@
 import { magicLinkRequestSchema } from '@rocketpod/shared/auth'
 import { type AppConfig, isOidcOnly } from '../../../config'
 import type { Database } from '../../../db/client'
-import type { RateLimiter } from '../../../platform/types'
+import type { Mailer, RateLimiter } from '../../../platform/types'
 import { consumeMagicLinkToken, issueMagicLinkToken } from '../../auth/magic-link'
 import { ssoAllows, ssoRequiredLoginPath } from '../../auth/sso-policy'
 import { assertSameOriginRequest } from '../../middleware/csrf'
@@ -61,13 +61,14 @@ export function verifyUrl(cfg: AppConfig, token: string): string {
 export async function requestMagicLink(
   db: Database,
   cfg: AppConfig,
+  mailer: Mailer | null,
   logger: Pick<Logger, 'info' | 'warn' | 'error'>,
   input: { email: string; redirectTo?: string | null }
 ): Promise<{ verifyUrl: string; expiresAt: Date }> {
   const redirectTo = input.redirectTo ? safeRedirectPath(input.redirectTo) : null
   const { token, expiresAt } = await issueMagicLinkToken(db, input.email, redirectTo)
   const url = verifyUrl(cfg, token)
-  await sendEmail(cfg, logger, magicLinkEmail(cfg, input.email.toLowerCase(), url))
+  await sendEmail(cfg, mailer, logger, magicLinkEmail(cfg, input.email.toLowerCase(), url))
   return { verifyUrl: url, expiresAt }
 }
 
@@ -83,19 +84,20 @@ export type SignInEmailResult =
 export async function requestSignInEmail(
   db: Database,
   cfg: AppConfig,
+  mailer: Mailer | null,
   logger: Pick<Logger, 'info' | 'warn' | 'error'>,
   input: { email: string; redirectTo?: string | null }
 ): Promise<SignInEmailResult> {
   const email = input.email.toLowerCase()
   const decision = await ssoDecisionFor(db, cfg, [email], logger)
   if (ssoAllows(decision, 'core')) {
-    return { kind: 'magic_link', ...(await requestMagicLink(db, cfg, logger, input)) }
+    return { kind: 'magic_link', ...(await requestMagicLink(db, cfg, mailer, logger, input)) }
   }
   const returnUrl = input.redirectTo ? safeRedirectPath(input.redirectTo) : null
   // The mail goes only to the address itself, so prefilling it on the login page is no leak.
   const loginUrl = new URL(ssoRequiredLoginPath(decision, { returnUrl, email }), cfg.APP_URL)
   const label = decision.required ? decision.label : undefined
-  await sendEmail(cfg, logger, ssoRequiredEmail(cfg, email, loginUrl.toString(), label))
+  await sendEmail(cfg, mailer, logger, ssoRequiredEmail(cfg, email, loginUrl.toString(), label))
   return { kind: 'sso_required', loginUrl: loginUrl.toString() }
 }
 
@@ -119,8 +121,12 @@ async function recipientMailAllowed(limiter: RateLimiter | null, email: string):
 magicLinkRouter.post('/request', validate('json', magicLinkRequestSchema), async c => {
   const { email, redirectTo } = c.req.valid('json')
   const cfg = c.get('config')
-  if (!isOidcOnly(cfg) && (await recipientMailAllowed(c.get('platform').rateLimiter, email))) {
-    await requestSignInEmail(c.get('db'), cfg, c.get('logger'), { email, redirectTo })
+  const platform = c.get('platform')
+  if (!isOidcOnly(cfg) && (await recipientMailAllowed(platform.rateLimiter, email))) {
+    await requestSignInEmail(c.get('db'), cfg, platform.mailer, c.get('logger'), {
+      email,
+      redirectTo,
+    })
   }
   return c.json({ ok: true }, 202)
 })

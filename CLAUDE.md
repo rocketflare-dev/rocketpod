@@ -103,8 +103,8 @@ pnpm db:generate · pnpm db:studio
 pnpm kit:upgrade [--to X.Y.Z] [--apply]  # port a later kit release into this app (the kit repo also has kit:release)
 ```
 
-Local env lives in `apps/web/.env` (`.env.example` is the template). No
-`RESEND_API_KEY` → magic-link URLs are logged; no AI key → chat/agents/indexing 503 (there is no
+Local env lives in `apps/web/.env` (`.env.example` is the template). No mailer (`EMAIL_PROVIDER`
+unset and no `RESEND_API_KEY`, or `log`) → magic-link URLs are logged; no AI key → chat/agents/indexing 503 (there is no
 zero-key AI); the gate needs no credentials (tests use an in-process fake model endpoint).
 
 ## Architecture
@@ -202,7 +202,9 @@ LISTEN; direct or session-mode when PgBouncer runs in transaction mode), `DATABA
 `STORAGE_ENDPOINT`, `STORAGE_REGION`, `STORAGE_BUCKET`, `STORAGE_FORCE_PATH_STYLE`, secrets
 `STORAGE_ACCESS_KEY_ID`/`STORAGE_SECRET_ACCESS_KEY` · **AI**: secrets `ANTHROPIC_API_KEY`,
 `AI_API_KEY` (+ `AI_BASE_URL`, `AI_MODEL` — OpenAI-compatible), `EMBEDDINGS_API_KEY` (+
-`EMBEDDINGS_BASE_URL`, `EMBEDDINGS_MODEL`; 1024 dims), `TYPESAFE_API_KEY` · `CHAT_KNOWLEDGE_TOOLS`
+`EMBEDDINGS_BASE_URL`, `EMBEDDINGS_MODEL`; 1024 dims), `TYPESAFE_API_KEY` · **email**: `EMAIL_PROVIDER` (`log|resend|ses`;
+unset = resend with a key, else log), `EMAIL_FROM`, secret `RESEND_API_KEY`, `SES_REGION`,
+`SES_CONFIGURATION_SET` (SES on the AWS default credential chain — the ECS task role) · `CHAT_KNOWLEDGE_TOOLS`
 (`true|false`) · `CHAT_HISTORY_MAX_CHARS` (older turns summarised by `chat.compact`) ·
 `FEATURES_ENABLED` (D30 — comma-separated feature keys this deployment ships at all; fail-closed,
 consulted only for a flag marked `environmentGated`; the rollout state itself lives in Postgres) ·

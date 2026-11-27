@@ -41,9 +41,10 @@ filesystem, so a read-only root filesystem works (`/tmp` is mounted for librarie
   uploads also need `EMBEDDINGS_API_KEY` (+ `EMBEDDINGS_BASE_URL`/`EMBEDDINGS_MODEL`) for an
   endpoint that returns **1024-dimension** vectors. No key → those features answer 503 and the rest
   of the app works.
-- **Email** for magic links and invitations: `RESEND_API_KEY`. Without it the link is logged by the
-  process that sends it: a magic link by **web** (sent inline — a person is waiting), an invitation
-  by **worker** (`email.send` is a job).
+- **Email** for magic links and invitations: `EMAIL_PROVIDER` (`log|resend|ses`; unset = `resend`
+  when `RESEND_API_KEY` is set, else `log`) and `EMAIL_FROM`. Without a provider the link is logged
+  by the process that sends it: a magic link by **web** (sent inline — a person is waiting), an
+  invitation by **worker** (`email.send` is a job). See § Email.
 
 ## Docker Compose
 
@@ -54,7 +55,7 @@ filesystem, so a read-only root filesystem works (`/tmp` is mounted for librarie
 ```bash
 docker compose up -d --build          # builds rocketpod:local once (the migrate service builds it)
 open http://localhost:3001
-docker compose logs -f web worker     # magic links (web) and invitations (worker) without RESEND_API_KEY
+docker compose logs -f web worker     # magic links (web) and invitations (worker) with no email provider
 docker compose down                   # keeps the volumes; `down -v` deletes the data
 ```
 
@@ -207,6 +208,21 @@ Settings → MCP. Three things about the deployment:
 - **Optional outside issuer**: `MCP_AUTHORIZATION_SERVER` (a ConfigMap value, not a secret) makes
   `/mcp` accept that server's JWTs as well; `web` reads its JWKS over https (`SETUP.md` §2.3d).
 
+## Email
+
+- **Resend**: `RESEND_API_KEY` (a secret) and `EMAIL_FROM` on a domain verified in Resend. Setting
+  the key is enough; `EMAIL_PROVIDER=resend` makes a missing key a startup error instead of a
+  silent fall back to the log.
+- **Amazon SES** — on AWS (ECS task role, SES), with no key in config: `EMAIL_PROVIDER=ses`,
+  `EMAIL_FROM` an address or domain **verified in SES** (the server refuses to start without
+  `EMAIL_FROM`), and `ses:SendEmail` granted to the task role (Kubernetes: the pod's IRSA / Pod
+  Identity role) on that identity — and on the configuration set when `SES_CONFIGURATION_SET` is
+  set. `SES_REGION` picks the SES region; unset, the SDK uses `AWS_REGION` (ECS sets it to the
+  task's region). The client reads credentials from the AWS SDK's default chain (task role,
+  instance profile, `AWS_*` variables), so Compose on a plain host needs those in the container's
+  environment (an override file). An account still in the SES sandbox delivers only to verified
+  recipients; a refusal is logged and the `email.send` job retries it.
+
 ## Secrets checklist
 
 | Key | Needed for |
@@ -216,7 +232,7 @@ Settings → MCP. Three things about the deployment:
 | `APP_DATABASE_URL` | Only with `TENANT_SCOPE_MODE=enforce` (`docs/RLS.md`) |
 | `STORAGE_ACCESS_KEY_ID`, `STORAGE_SECRET_ACCESS_KEY` | Uploads, documents, avatars |
 | `OAUTH_ENCRYPTION_KEY` (32+ chars) | OAuth/OIDC sign-in and tenant AI keys at rest |
-| `RESEND_API_KEY` | Delivering magic links and invitations (otherwise logged) |
+| `RESEND_API_KEY` | Delivering magic links and invitations through Resend (otherwise logged; SES needs no key — § Email) |
 | `BOOTSTRAP_ADMIN_EMAILS` | The first global admin |
 | `GOOGLE_*`, `MICROSOFT_*`, `OIDC_CLIENT_SECRET` | The matching sign-in buttons |
 | `ANTHROPIC_API_KEY` / `AI_API_KEY` | Chat and agents |

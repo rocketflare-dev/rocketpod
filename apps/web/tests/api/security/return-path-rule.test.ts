@@ -52,7 +52,9 @@ describe('same-origin path rule', () => {
     const { user } = await createTestTenantWithUser(db, 'member')
     const env = createTestEnv({ APP_ENV: 'production', APP_URL: 'https://app.example' })
     const logger = { info: () => {}, warn: () => {}, error: () => {} }
-    const { verifyUrl } = await requestMagicLink(db, loadConfig(env), logger, { email: user.email })
+    const { verifyUrl } = await requestMagicLink(db, loadConfig(env), env.mailer, logger, {
+      email: user.email,
+    })
     const token = new URL(verifyUrl).searchParams.get('token') as string
     const res = await request(
       '/auth/magic-link/verify',

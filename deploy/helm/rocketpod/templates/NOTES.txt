@@ -13,4 +13,4 @@ No ingress: try it with
 {{- end }}
 
 First admin: put their email in secrets.BOOTSTRAP_ADMIN_EMAILS and sign in by magic link (logged
-by the worker pods when RESEND_API_KEY is empty).
+by the web pods when no email provider is configured — config.EMAIL_PROVIDER, secrets.RESEND_API_KEY).

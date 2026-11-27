@@ -45,7 +45,7 @@ describe('AUTH_OIDC_ONLY and magic links', () => {
   it('POST /auth/magic-link/verify refuses a link issued earlier and leaves it unspent', async () => {
     const { user } = await createTestTenantWithUser(db, 'member')
     const testEnv = env()
-    const { verifyUrl } = await requestMagicLink(db, loadConfig(testEnv), logger, {
+    const { verifyUrl } = await requestMagicLink(db, loadConfig(testEnv), testEnv.mailer, logger, {
       email: user.email,
     })
     const token = new URL(verifyUrl).searchParams.get('token') as string

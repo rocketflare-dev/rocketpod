@@ -92,7 +92,8 @@ async function followLink(verifyUrl: string, env: TestEnv = createTestEnv()) {
 }
 
 async function mintLink(email: string, env: TestEnv = createTestEnv()) {
-  return (await requestMagicLink(db, loadConfig(env), stubLogger(), { email })).verifyUrl
+  return (await requestMagicLink(db, loadConfig(env), env.mailer, stubLogger(), { email }))
+    .verifyUrl
 }
 
 async function tokenRows(email: string) {
@@ -107,7 +108,9 @@ describe('magic link', () => {
     expect(await json(res)).toEqual({ ok: true })
     expect(await tokenRows(email)).toHaveLength(0)
 
-    const sent = await requestSignInEmail(db, loadConfig(createTestEnv()), stubLogger(), { email })
+    const sent = await requestSignInEmail(db, loadConfig(createTestEnv()), null, stubLogger(), {
+      email,
+    })
     expect(sent.kind).toBe('sso_required')
     if (sent.kind !== 'sso_required') throw new Error('unreachable')
     const url = new URL(sent.loginUrl)
@@ -120,7 +123,7 @@ describe('magic link', () => {
   })
 
   it('an invitation’s sign-in is routed to SSO with the invite as the return path', async () => {
-    const sent = await requestSignInEmail(db, loadConfig(createTestEnv()), stubLogger(), {
+    const sent = await requestSignInEmail(db, loadConfig(createTestEnv()), null, stubLogger(), {
       email: acmeEmail(),
       redirectTo: '/invite/abc123',
     })
@@ -154,7 +157,7 @@ describe('magic link', () => {
   it('break-glass: a BOOTSTRAP_ADMIN_EMAILS address signs in by magic link regardless', async () => {
     const email = acmeEmail()
     const env = createTestEnv({ BOOTSTRAP_ADMIN_EMAILS: email })
-    const sent = await requestSignInEmail(db, loadConfig(env), stubLogger(), { email })
+    const sent = await requestSignInEmail(db, loadConfig(env), env.mailer, stubLogger(), { email })
     expect(sent.kind).toBe('magic_link')
     if (sent.kind !== 'magic_link') throw new Error('unreachable')
     const res = await followLink(sent.verifyUrl, env)
@@ -166,7 +169,7 @@ describe('magic link', () => {
 
   it('an unclaimed domain is unaffected', async () => {
     const user = await createTestUser(db)
-    const sent = await requestSignInEmail(db, loadConfig(createTestEnv()), stubLogger(), {
+    const sent = await requestSignInEmail(db, loadConfig(createTestEnv()), null, stubLogger(), {
       email: user.email,
     })
     expect(sent.kind).toBe('magic_link')

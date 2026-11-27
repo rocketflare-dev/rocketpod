@@ -112,6 +112,8 @@ secrets:
   DATABASE_LISTEN_URL: ""
   # Optional RLS app role (docs/RLS.md); read by the migrate Job to give it LOGIN.
   APP_DATABASE_URL: ""
+  # Both or neither. Neither = the AWS SDK's default credential chain (an IRSA / ECS task role,
+  # an instance profile) — on AWS S3 leave them empty and grant the role the bucket.
   STORAGE_ACCESS_KEY_ID: ""
   STORAGE_SECRET_ACCESS_KEY: ""
   # 32+ characters (openssl rand -base64 32); needed for OAuth sign-in.

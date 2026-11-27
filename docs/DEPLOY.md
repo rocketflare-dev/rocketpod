@@ -36,6 +36,9 @@ filesystem, so a read-only root filesystem works (`/tmp` is mounted for librarie
   MinIO, Versity, Ceph… — only the endpoint and path style differ. Unset, uploads answer 503. The
   store must honour `Range` on `GetObject` (a ranged download from one that ignores it is an error,
   not a wrong body) and multipart uploads (`putStream`); every store named here does.
+  `STORAGE_ACCESS_KEY_ID`/`STORAGE_SECRET_ACCESS_KEY` are a pair or neither: with neither, the
+  client signs with the AWS SDK's default credential chain — on AWS (ECS task role) no key is
+  stored at all (§ Storage on AWS).
 - **An AI provider key**, for chat, agents or knowledge: `ANTHROPIC_API_KEY`, or `AI_API_KEY`
   (+ `AI_BASE_URL`/`AI_MODEL` for any OpenAI-compatible endpoint such as OpenRouter). Knowledge
   uploads also need `EMBEDDINGS_API_KEY` (+ `EMBEDDINGS_BASE_URL`/`EMBEDDINGS_MODEL`) for an
@@ -208,6 +211,19 @@ Settings → MCP. Three things about the deployment:
 - **Optional outside issuer**: `MCP_AUTHORIZATION_SERVER` (a ConfigMap value, not a secret) makes
   `/mcp` accept that server's JWTs as well; `web` reads its JWKS over https (`SETUP.md` §2.3d).
 
+## Storage on AWS
+
+On AWS S3 set `STORAGE_DRIVER=s3`, `STORAGE_BUCKET` and `STORAGE_REGION`, leave `STORAGE_ENDPOINT`
+empty (the regional AWS endpoint) and `STORAGE_FORCE_PATH_STYLE=false`, and leave both
+`STORAGE_ACCESS_KEY_ID` and `STORAGE_SECRET_ACCESS_KEY` unset. The S3 client then reads
+credentials from the AWS SDK's default chain: the ECS task role, an EKS service-account role, an
+instance profile, `AWS_*` variables or a profile. Setting exactly one of the two keys is a config
+error at start-up. The role needs, on the bucket (`arn:aws:s3:::<bucket>`) `s3:ListBucket`, and on
+its objects (`arn:aws:s3:::<bucket>/*`) `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject`,
+`s3:AbortMultipartUpload` and `s3:ListMultipartUploadParts` (streamed uploads are multipart). A
+bucket encrypted with a customer-managed KMS key also needs `kms:GenerateDataKey` and
+`kms:Decrypt` on that key.
+
 ## Email
 
 - **Resend**: `RESEND_API_KEY` (a secret) and `EMAIL_FROM` on a domain verified in Resend. Setting
@@ -230,7 +246,7 @@ Settings → MCP. Three things about the deployment:
 | `DATABASE_URL` | Everything (required) |
 | `DATABASE_LISTEN_URL` | Realtime behind PgBouncer in transaction mode |
 | `APP_DATABASE_URL` | Only with `TENANT_SCOPE_MODE=enforce` (`docs/RLS.md`) |
-| `STORAGE_ACCESS_KEY_ID`, `STORAGE_SECRET_ACCESS_KEY` | Uploads, documents, avatars |
+| `STORAGE_ACCESS_KEY_ID`, `STORAGE_SECRET_ACCESS_KEY` | Uploads, documents, avatars — a pair or neither; on AWS (ECS task role) neither (§ Storage on AWS) |
 | `OAUTH_ENCRYPTION_KEY` (32+ chars) | OAuth/OIDC sign-in and tenant AI keys at rest |
 | `RESEND_API_KEY` | Delivering magic links and invitations through Resend (otherwise logged; SES needs no key — § Email) |
 | `BOOTSTRAP_ADMIN_EMAILS` | The first global admin |

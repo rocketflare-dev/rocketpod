@@ -101,7 +101,7 @@ Walk it as a table of **set / missing / not needed** — never values:
 |---|---|
 | `DATABASE_URL` | everything (required; the owner role — migrate creates `vector` if allowed) |
 | `DATABASE_LISTEN_URL` | realtime when `DATABASE_URL` goes through PgBouncer in transaction mode |
-| `STORAGE_ACCESS_KEY_ID`, `STORAGE_SECRET_ACCESS_KEY` | uploads, documents, avatars |
+| `STORAGE_ACCESS_KEY_ID`, `STORAGE_SECRET_ACCESS_KEY` | uploads, documents, avatars — a pair or neither; on AWS S3 neither, with the bucket granted to the pod or task role (`docs/DEPLOY.md` § Storage on AWS) |
 | `OAUTH_ENCRYPTION_KEY` (32+ chars) | OAuth/OIDC sign-in and tenant AI keys at rest |
 | `ANTHROPIC_API_KEY` or `AI_API_KEY` (+ `AI_BASE_URL`/`AI_MODEL`) | chat and agents |
 | `EMBEDDINGS_API_KEY` (+ `EMBEDDINGS_BASE_URL`/`EMBEDDINGS_MODEL`, 1024-dim) | knowledge uploads and search |

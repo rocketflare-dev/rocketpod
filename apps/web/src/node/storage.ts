@@ -2,7 +2,8 @@
  * `StorageService` over any S3-compatible object store:
  * AWS S3, MinIO, Ceph/RGW, GCS in interoperability mode, any other S3 endpoint. They differ
  * only by endpoint and path style, so ONE adapter covers them; `STORAGE_DRIVER=s3` and the
- * `STORAGE_*` vars configure it (`storageConfigOf`), and a missing piece leaves the platform's
+ * `STORAGE_*` vars configure it (`storageConfigOf`; the keys are optional — without them the
+ * SDK's default credential chain, e.g. an ECS task role), and no bucket leaves the platform's
  * `storage` null — the 503 `storage_not_configured` every caller already answers.
  *
  * What the app can see is fixed, whatever the store:
@@ -62,23 +63,32 @@ export interface S3StorageConfig {
   endpoint?: string
   region: string
   bucket: string
-  accessKeyId: string
-  secretAccessKey: string
+  /**
+   * Static keys (`STORAGE_ACCESS_KEY_ID` + `STORAGE_SECRET_ACCESS_KEY`). Absent = the AWS SDK's
+   * default credential chain: `AWS_*` env, a profile, an ECS task role, an instance profile.
+   */
+  credentials?: { accessKeyId: string; secretAccessKey: string }
   /** `true` for MinIO and most self-hosted stores (`http://host/bucket/key`). */
   forcePathStyle: boolean
 }
 
-/** The S3 settings the config names, or null when storage is not (fully) configured. */
+/**
+ * The S3 settings the config names, or null when storage is not configured: `STORAGE_DRIVER=s3`
+ * and a `STORAGE_BUCKET`. The keys are optional — both or neither, which `loadConfig` enforces;
+ * neither means the SDK's default credential chain (an ECS task role on AWS).
+ */
 export function storageConfigOf(config: AppConfig): S3StorageConfig | null {
   if (config.STORAGE_DRIVER !== 's3') return null
   const { STORAGE_BUCKET, STORAGE_ACCESS_KEY_ID, STORAGE_SECRET_ACCESS_KEY } = config
-  if (!STORAGE_BUCKET || !STORAGE_ACCESS_KEY_ID || !STORAGE_SECRET_ACCESS_KEY) return null
+  if (!STORAGE_BUCKET) return null
   return {
     endpoint: config.STORAGE_ENDPOINT,
     region: config.STORAGE_REGION,
     bucket: STORAGE_BUCKET,
-    accessKeyId: STORAGE_ACCESS_KEY_ID,
-    secretAccessKey: STORAGE_SECRET_ACCESS_KEY,
+    credentials:
+      STORAGE_ACCESS_KEY_ID && STORAGE_SECRET_ACCESS_KEY
+        ? { accessKeyId: STORAGE_ACCESS_KEY_ID, secretAccessKey: STORAGE_SECRET_ACCESS_KEY }
+        : undefined,
     forcePathStyle: config.STORAGE_FORCE_PATH_STYLE,
   }
 }
@@ -89,7 +99,8 @@ export function createS3Client(cfg: S3StorageConfig): S3Client {
     endpoint: cfg.endpoint,
     region: cfg.region,
     forcePathStyle: cfg.forcePathStyle,
-    credentials: { accessKeyId: cfg.accessKeyId, secretAccessKey: cfg.secretAccessKey },
+    // Undefined = the SDK resolves credentials itself (env, profile, ECS task role, IMDS).
+    credentials: cfg.credentials,
     // The SDK's default (a CRC checksum on every request that supports one) is refused by several
     // S3-compatible stores; send one only where the API demands it.
     requestChecksumCalculation: 'WHEN_REQUIRED',

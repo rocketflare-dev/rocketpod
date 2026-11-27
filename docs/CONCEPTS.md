@@ -1213,7 +1213,10 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   makes no model call and so writes no row. The ids are `model:<round>.<tag>:<n>`, naming one
   `executeRun` invocation, because an OpenWorkflow step retry re-runs `execute#N` with
   `run.attempt` unchanged; the timeline marks a call an earlier invocation left open as stopped
-  once a `willRetry` error (or a later attempt's `running` status) lands. Model rows are counted
+  once a `willRetry` error (or a later attempt's `running` status) lands. A worker killed mid-call
+  writes neither (the retry keeps `run.attempt`), so that call's row shows as open while the retry
+  runs and as stopped once the run settles (`stopOpenWork`); no `tool.end` is ever stored for it.
+  Model rows are counted
   apart from tools in a stage header and on the Usage tab ("Model calls"), and the AG-UI
   projection, the evals export (`rocketpod evals promote`) and the eval transcript skip them. An
   agent therefore never brackets a model call with its own pair (that shows the call twice); it

@@ -204,10 +204,12 @@ release.
   `invalid_custom_event`. Validate the body and do anything else that can fail BEFORE calling it.
   Test it with `scriptPlatformChat(env, turns)` from `@testkit/integration` (it scripts the env's
   fake model endpoint), never a `vi.mock` of the resolver.
-- **Storage is `ctx.storage()`** on every context (`RequestCtx`, `JobCtx`, `CronCtx`, `PublicCtx`,
-  `AgentCtx`, `ToolCtx`; `platform.storage`, 503 `storage_not_configured` without one), keyed
-  `tenants/<tenantId>/<id>/…` so `tenant.purge` removes it — never `platform.storage` with a
-  hand-built prefix.
+- **Storage is `ctx.storage()`** on every context — bound to the context's tenant on `RequestCtx`,
+  `EventCtx`, `AgentCtx` and `ToolCtx`, and `ctx.storage(tenantId)` on the tenant-less `JobCtx`,
+  `CronCtx` and `PublicCtx` (`platform.storage.forTenant`, 503 `storage_not_configured` without
+  one), keyed `tenants/<tenantId>/<id>/…` so `tenant.purge` removes it. A key outside that tenant
+  is refused (`StorageTenantMismatchError`), and under `STORAGE_TENANT_FENCE=on` the bucket refuses
+  it too (`docs/TENANT-ISOLATION.md`).
 - **Knowledge goes through `ingestDocument` / `ingestDocumentFile`**, never a `documents` insert:
   `source: '<id>:<kind>'` + the item's upstream `externalId`, so a re-sync UPDATES the row rather
   than adding one; `deleteIngestedDocument` for upstream deletes. Visibility defaults to the whole

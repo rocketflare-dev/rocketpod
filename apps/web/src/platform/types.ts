@@ -152,6 +152,39 @@ export interface StorageService {
   list(prefix: string): Promise<StoredObjectMeta[]>
 }
 
+/**
+ * The platform's object store, handed out ONE TENANT AT A TIME (docs/TENANT-ISOLATION.md, "The
+ * storage fence"). `forTenant(tenantId)` answers a `StorageService` that refuses any key or prefix
+ * outside `tenants/<tenantId>/` before a network call, in every mode, and — with
+ * `STORAGE_TENANT_FENCE=on|shadow` — signs with credentials of that tenant's own (an STS session
+ * whose policy admits that prefix only). A missing or malformed tenant id throws: there is no
+ * tenant-less handle, so no call silently falls back to the process's credentials.
+ *
+ * The tenant comes from the auth context, a job's payload or a run's row — never from the key.
+ */
+export interface TenantStorageFactory {
+  forTenant(tenantId: string): StorageService
+}
+
+/** A key or prefix handed to a tenant's storage that is not under `tenants/<tenantId>/`. */
+export class StorageTenantMismatchError extends Error {
+  constructor(
+    readonly tenantId: string,
+    readonly key: string
+  ) {
+    super(`storage: '${key}' is outside tenant ${tenantId}'s prefix (tenants/${tenantId}/)`)
+    this.name = 'StorageTenantMismatchError'
+  }
+}
+
+/** `forTenant` without a tenant (or with one that is not a UUID): refused, never served. */
+export class StorageTenantRequiredError extends Error {
+  constructor(tenantId: unknown) {
+    super(`storage: a tenant id is required, got ${JSON.stringify(tenantId)}`)
+    this.name = 'StorageTenantRequiredError'
+  }
+}
+
 // ---- Realtime -------------------------------------------------------------------------------
 
 /** How many sockets one send reached. */
@@ -429,8 +462,8 @@ export interface WaitUntil {
 export interface Platform {
   /** The background-job producer (pg-boss). */
   readonly jobs: JobsQueue | null
-  /** Object storage for uploads (S3-compatible). */
-  readonly storage: StorageService | null
+  /** Object storage for uploads (S3-compatible), one tenant at a time (`forTenant`). */
+  readonly storage: TenantStorageFactory | null
   /** Socket fan-out and the `/ws` upgrade (LISTEN/NOTIFY). */
   readonly realtime: RealtimeHub | null
   /** Durable agent runs (OpenWorkflow). */

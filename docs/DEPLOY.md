@@ -119,7 +119,9 @@ helm upgrade --install rocketpod deploy/helm/rocketpod -n rocketpod --create-nam
 - **`secrets`** (→ Secret) or **`existingSecret`** — the name of a Secret you manage (External
   Secrets, Sealed Secrets, Vault) with the same keys. `DATABASE_URL` is required either way. The
   migrate hook runs before the release's own Secret exists, so it reads `DATABASE_URL` and
-  `APP_DATABASE_URL` from `existingSecret`, or from a hook-scoped copy the chart renders.
+  `APP_DATABASE_URL` from `migrate.existingSecret`, else `existingSecret`, else a hook-scoped copy
+  the chart renders; `migrate.ownerOnly` keeps `DATABASE_URL` out of what web and worker read
+  (§ Two database logins).
 - **Ingress and `/ws`.** ingress-nginx proxies WebSocket upgrades as they are. Raise its timeouts so
   idle sockets survive (`nginx.ingress.kubernetes.io/proxy-read-timeout` / `proxy-send-timeout:
   "3600"`) and allow 5 MB uploads (`nginx.ingress.kubernetes.io/proxy-body-size: "6m"`). An
@@ -253,6 +255,35 @@ start, and only warns on a bad path, so with `verify-full` the server and the mi
 the file themselves and refuse to start when it is missing or holds no certificate. A server
 certificate a public CA signed needs no bundle at all.
 
+## Two database logins
+
+For an infrastructure that provides an owner login for migrate only and a separate login for the
+app (`docs/TENANT-ISOLATION.md` is the model):
+
+- **`DATABASE_URL`** is the OWNER: the role that owns the database's schema, made by an outside
+  bootstrap (with the database itself) or by you. Give it CREATEROLE: the migrate one-shot creates
+  roles. Only migrate needs it once the app login is in use.
+- **`APP_DATABASE_URL`** is the app login: any user name but the owner's, `rocketpod_app` or
+  `rocketpod_system`, with a password. Migrate creates that role if it is missing, sets the URL's
+  password on it (as a SCRAM verifier), makes it NOINHERIT, grants it the two NOLOGIN roles and
+  grants it CONNECT on the database, so a bootstrap that ran `REVOKE CONNECT … FROM PUBLIC` is
+  fine. Set, `web` and `worker` connect with it for everything (the pool, pg-boss, OpenWorkflow,
+  realtime), as `rocketpod_system`: DML on the app's tables and the engines' schemas, no DDL, no
+  table of its own. `DATABASE_SSL` applies to it as to every connection.
+
+Rollout: give `APP_DATABASE_URL` to migrate first and deploy (migrate creates the login), then to
+web and worker, then take `DATABASE_URL` away from web and worker. In Compose, `&app-env` passes
+both to every service, so the last step is a per-service override. In Helm, `secrets.APP_DATABASE_URL`
+and `migrate.ownerOnly: true` leave `DATABASE_URL` out of the release Secret, so only the migrate
+hook's Secret carries it; with `existingSecret`, name the Job's own Secret in
+`migrate.existingSecret` and keep `DATABASE_URL` out of `existingSecret`.
+
+The owner must be able to grant the login what it needs: `CREATEROLE` (and, on Postgres 16+, the
+ADMIN option it gets on roles it created itself), `GRANT` on the `public` schema, and ownership of
+the database for `GRANT CONNECT`. Without the last, migrate stops with a message naming the grant
+to run when the login cannot connect. Watch for `42501` (permission denied) after web and worker
+move over: it names a privilege the runtime uses that the grants do not cover.
+
 ## Storage on AWS
 
 On AWS S3 set `STORAGE_DRIVER=s3`, `STORAGE_BUCKET` and `STORAGE_REGION`, leave `STORAGE_ENDPOINT`
@@ -265,6 +296,33 @@ its objects (`arn:aws:s3:::<bucket>/*`) `s3:GetObject`, `s3:PutObject`, `s3:Dele
 `s3:AbortMultipartUpload` and `s3:ListMultipartUploadParts` (streamed uploads are multipart). A
 bucket encrypted with a customer-managed KMS key also needs `kms:GenerateDataKey` and
 `kms:Decrypt` on that key.
+
+## The storage tenant fence
+
+With `STORAGE_TENANT_FENCE=shadow|on` each tenant's object calls are signed by an STS session of
+its own, so the bucket, not only the app, keeps tenants apart (design and rollout:
+`docs/TENANT-ISOLATION.md` § The storage fence). The infrastructure provides a **files role**, set
+as `FILES_ROLE_ARN`, and the app does the rest. The contract, described for any IAM-shaped setup:
+
+- **Trust.** Only the app's identity (the ECS task role, the pod's IRSA / Pod Identity role) may
+  `sts:AssumeRole` and `sts:TagSession` on it. The app sends exactly one session tag, `tenant`,
+  whose value is the tenant id (a UUID), so the trust policy can require it
+  (`aws:RequestTag/tenant` present, `aws:TagKeys` only `tenant`) and refuse a value containing `*`,
+  `?` or `/`. Sessions last 3600 s, so the role's maximum session duration must be at least one
+  hour. The session name is `tenant-<id>`, which is what the audit trail shows.
+- **Permissions.** Objects under `arn:aws:s3:::<bucket>/tenants/${aws:PrincipalTag/tenant}/*`:
+  `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject`, `s3:AbortMultipartUpload`,
+  `s3:ListMultipartUploadParts`. On the bucket, `s3:ListBucket` with the condition `s3:prefix` in
+  `tenants/${aws:PrincipalTag/tenant}/` and `tenants/${aws:PrincipalTag/tenant}/*`. A
+  customer-managed KMS key: `kms:GenerateDataKey` and `kms:Decrypt` through S3 only
+  (`kms:ViaService`).
+- **The app's own identity** keeps the § Storage on AWS grants while `shadow` (it serves the
+  fallbacks) and needs `sts:AssumeRole` + `sts:TagSession` on the files role.
+- **The bucket**, once `on` has run clean: a policy denying object actions to every principal but
+  the files role (and whoever operates the bucket).
+
+The key layout is fixed: `tenants/<tenantId>/…`, nothing outside it. Leave the fence `off` on a
+store without STS (MinIO, the local gateway); the per-tenant key check applies in every mode.
 
 ## Email
 
@@ -285,9 +343,9 @@ bucket encrypted with a customer-managed KMS key also needs `kms:GenerateDataKey
 
 | Key | Needed for |
 |---|---|
-| `DATABASE_URL` | Everything (required) |
+| `DATABASE_URL` | The owner: migrate always; web and worker too unless `APP_DATABASE_URL` is set (required) |
 | `DATABASE_LISTEN_URL` | Realtime behind PgBouncer in transaction mode |
-| `APP_DATABASE_URL` | Only with `TENANT_SCOPE_MODE=enforce` (`docs/RLS.md`) |
+| `APP_DATABASE_URL` | A separate non-owner login for web and worker (§ Two database logins); required by `TENANT_SCOPE_MODE=enforce` |
 | `STORAGE_ACCESS_KEY_ID`, `STORAGE_SECRET_ACCESS_KEY` | Uploads, documents, avatars — a pair or neither; on AWS (ECS task role) neither (§ Storage on AWS) |
 | `OAUTH_ENCRYPTION_KEY` (32+ chars) | OAuth/OIDC sign-in and tenant AI keys at rest |
 | `RESEND_API_KEY` | Delivering magic links and invitations through Resend (otherwise logged; SES needs no key — § Email) |

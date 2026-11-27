@@ -10,7 +10,7 @@ import { getTableConfig, PgTable } from 'drizzle-orm/pg-core'
 import { describe, expect, it } from 'vitest'
 import { rows as resultRows } from '@/db/client'
 import * as schema from '@/db/schema'
-import { APP_ROLE, RLS_EXCLUDED_TABLES, RLS_REVOKED_TABLES } from '@/db/schema/rls'
+import { APP_ROLE, RLS_EXCLUDED_TABLES, RLS_REVOKED_TABLES, SYSTEM_ROLE } from '@/db/schema/rls'
 import { serverPlugins } from '@/plugins/server'
 import { setupTestDatabase } from '../helpers/db'
 
@@ -78,7 +78,14 @@ describe('row-level security coverage', () => {
     expect(live.map(p => p.policyname).sort()).toEqual(expected)
     expect(expected).toContain('users_tenant_isolation')
     expect(expected).toContain('tenants_tenant_isolation')
-    for (const p of live) expect(p.roles, `${p.policyname} targets ${APP_ROLE}`).toBe(APP_ROLE)
+    // Tenant isolation admits the tenant role to its tenant and the system role to every row; a
+    // platform read policy is the tenant role's alone (the system role already reads every row).
+    for (const p of live) {
+      const roles = p.policyname.endsWith('_platform_read')
+        ? APP_ROLE
+        : `${APP_ROLE},${SYSTEM_ROLE}`
+      expect(p.roles, `${p.policyname} targets ${roles}`).toBe(roles)
+    }
   })
 
   it('policies use one shared predicate on the tenant GUC', async () => {

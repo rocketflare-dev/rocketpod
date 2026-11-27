@@ -86,13 +86,13 @@ async function canReadOwningDocument(
   return Boolean(row)
 }
 
-/** The platform's storage or a 503 — a deployment without it must fail loudly, not 500 on `null`. */
-function storageFor(c: AppContext): StorageService {
+/** The tenant's storage or a 503 — a deployment without it must fail loudly, not 500 on `null`. */
+function storageFor(c: AppContext, tenantId: string): StorageService {
   const storage = c.get('platform').storage
   if (!storage) {
     throw new ServiceUnavailableError('File storage is not configured', 'storage_not_configured')
   }
-  return storage
+  return storage.forTenant(tenantId)
 }
 
 export function toStoredFile(row: FileRow): StoredFile {
@@ -129,7 +129,7 @@ filesRouter.post('/', uploadBodyLimit, validate('query', uploadQuerySchema), asy
   const { db, tenantId, user, defer } = withAuthAndDb(c)
   guardPermission(c, 'create', 'File')
   const { scope } = c.req.valid('query')
-  const storage = storageFor(c)
+  const storage = storageFor(c, tenantId)
 
   const form = await c.req.formData().catch(() => null)
   const file = form?.get('file')
@@ -205,7 +205,7 @@ filesRouter.get('/:id', async c => {
     throw new NotFoundError('File not found')
   }
 
-  const storage = storageFor(c)
+  const storage = storageFor(c, tenantId)
   let range = parseByteRange(c.req.header('Range'))
   let object: StoredObject | null
   try {
@@ -284,7 +284,7 @@ filesRouter.delete('/:id', async c => {
     throw new ForbiddenError('You can only delete your own files')
   }
 
-  await storageFor(c).delete(row.key)
+  await storageFor(c, tenantId).delete(row.key)
   await db.delete(files).where(and(eq(files.id, row.id), eq(files.tenantId, tenantId)))
   if (user.avatarUrl === filePath(row.id)) {
     await db.update(users).set({ avatarUrl: null }).where(eq(users.id, user.id))

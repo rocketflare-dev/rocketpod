@@ -7,7 +7,8 @@
  * `storage` null — the 503 `storage_not_configured` every caller already answers.
  *
  * What the app can see is fixed, whatever the store:
- * - keys are used verbatim (the tenant prefix is the caller's — `buildStorageKey`);
+ * - keys are used verbatim (the tenant prefix is the caller's — `buildStorageKey` — and the
+ *   platform hands storage out per tenant, refusing a key outside it: `createPlatformStorage`);
  * - the ETag is always quoted and HTTP-ready;
  * - a listing carries no content type or custom metadata (`ListObjectsV2` returns neither), so
  *   `contentType` is the default and `metadata` is `{}` on a listed object;
@@ -33,8 +34,10 @@ import {
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3'
+import { AssumeRoleCommand, STSClient } from '@aws-sdk/client-sts'
 import { Upload } from '@aws-sdk/lib-storage'
 import type { AppConfig } from '../config'
+import { fenceToTenant, requireTenantId, tenantStorageOver } from '../platform/tenant-storage'
 import {
   type StorageBody,
   type StorageRange,
@@ -43,6 +46,7 @@ import {
   type StoredObject,
   type StoredObjectMeta,
   type StoredRange,
+  type TenantStorageFactory,
 } from '../platform/types'
 
 const DEFAULT_CONTENT_TYPE = 'application/octet-stream'
@@ -93,14 +97,20 @@ export function storageConfigOf(config: AppConfig): S3StorageConfig | null {
   }
 }
 
-/** A client for the store. Exported so tests and scripts address the same bucket the same way. */
-export function createS3Client(cfg: S3StorageConfig): S3Client {
+/**
+ * A client for the store. Exported so tests and scripts address the same bucket the same way.
+ * `provider` (a tenant's STS session, `createTenantStorage`) replaces the config's credentials.
+ */
+export function createS3Client(
+  cfg: S3StorageConfig,
+  provider?: () => Promise<{ accessKeyId: string; secretAccessKey: string; sessionToken?: string }>
+): S3Client {
   return new S3Client({
     endpoint: cfg.endpoint,
     region: cfg.region,
     forcePathStyle: cfg.forcePathStyle,
     // Undefined = the SDK resolves credentials itself (env, profile, ECS task role, IMDS).
-    credentials: cfg.credentials,
+    credentials: provider ?? cfg.credentials,
     // The SDK's default (a CRC checksum on every request that supports one) is refused by several
     // S3-compatible stores; send one only where the API demands it.
     requestChecksumCalculation: 'WHEN_REQUIRED',
@@ -339,9 +349,12 @@ export function createS3Storage(
         const failed = out.Errors ?? []
         if (failed.length > 0) {
           const first = failed[0]
-          throw new Error(
+          const error = new Error(
             `storage.deleteMany: ${failed.length} key(s) not deleted (${first?.Key}: ${first?.Code} ${first?.Message ?? ''})`.trim()
           )
+          // A per-key refusal arrives in the body, not as a 403: name it so the fence sees it.
+          if (failed.some(f => f.Code === 'AccessDenied')) error.name = 'AccessDenied'
+          throw error
         }
       }
     },
@@ -357,4 +370,300 @@ export function createS3Storage(
       return all
     },
   }
+}
+
+// ---- The tenant fence -------------------------------------------------------------------------
+
+export type StorageFence = 'off' | 'shadow' | 'on'
+
+/** The STS session's lifetime: the files role's own maximum, one hour. */
+export const TENANT_SESSION_SECONDS = 3600
+/** A tenant's credentials are renewed this long before they expire. */
+export const TENANT_CREDENTIALS_MARGIN_MS = 5 * 60 * 1000
+/** Tenant S3 clients kept at once; the least recently used goes first. */
+export const TENANT_CLIENTS = 256
+/** A tenant client unused this long is dropped on the next lookup (any tenant's). */
+export const TENANT_CLIENT_IDLE_MS = 50 * 60 * 1000
+
+/** One tenant's temporary credentials, as STS issued them. */
+export interface TenantCredentials {
+  accessKeyId: string
+  secretAccessKey: string
+  sessionToken: string
+  expiration: Date
+}
+
+export interface TenantStorageOptions {
+  fence: StorageFence
+  /** The role each tenant's session assumes (`FILES_ROLE_ARN`). Required unless `off`. */
+  filesRoleArn?: string
+  /** `storage.fence_denied` (shadow) and the debug not-found reads under `on`. */
+  log?: (level: 'warn' | 'debug', event: string, fields: Record<string, unknown>) => void
+  /** The STS client (tests point one at a fake endpoint). Default: the SDK's chain, the store's region. */
+  sts?: STSClient
+  /** A tenant's S3 client over its credentials (tests point it at their own store). */
+  clientFor?: (credentials: () => Promise<TenantCredentials>) => S3Client
+  maxClients?: number
+  idleMs?: number
+  /** The clock the credential cache and idle eviction read (tests). */
+  now?: () => number
+}
+
+/**
+ * `sts:AssumeRole` on `roleArn` for ONE tenant: the session tag `tenant=<tenantId>` (the only tag,
+ * which the role's trust policy requires and its permissions interpolate into
+ * `tenants/${aws:PrincipalTag/tenant}/`), session name `tenant-<tenantId>` (what CloudTrail shows).
+ */
+export async function assumeTenantRole(
+  sts: STSClient,
+  roleArn: string,
+  tenantId: string
+): Promise<TenantCredentials> {
+  const id = requireTenantId(tenantId)
+  const out = await sts.send(
+    new AssumeRoleCommand({
+      RoleArn: roleArn,
+      RoleSessionName: `tenant-${id}`,
+      DurationSeconds: TENANT_SESSION_SECONDS,
+      Tags: [{ Key: 'tenant', Value: id }],
+    })
+  )
+  const c = out.Credentials
+  if (!c?.AccessKeyId || !c.SecretAccessKey || !c.SessionToken || !c.Expiration) {
+    throw new Error(`storage: AssumeRole for tenant ${id} answered no credentials`)
+  }
+  return {
+    accessKeyId: c.AccessKeyId,
+    secretAccessKey: c.SecretAccessKey,
+    sessionToken: c.SessionToken,
+    expiration: new Date(c.Expiration),
+  }
+}
+
+/**
+ * Each tenant's credentials, kept until `TENANT_CREDENTIALS_MARGIN_MS` before they expire;
+ * concurrent asks for one tenant share one AssumeRole. `forget(tenantId)` drops them (an
+ * `ExpiredToken` answer, an evicted client).
+ */
+export function tenantCredentialCache(
+  assume: (tenantId: string) => Promise<TenantCredentials>,
+  now: () => number = Date.now
+) {
+  const held = new Map<string, TenantCredentials>()
+  const pending = new Map<string, Promise<TenantCredentials>>()
+  return {
+    get(tenantId: string): Promise<TenantCredentials> {
+      const cached = held.get(tenantId)
+      if (cached && cached.expiration.getTime() - TENANT_CREDENTIALS_MARGIN_MS > now()) {
+        return Promise.resolve(cached)
+      }
+      held.delete(tenantId)
+      let flight = pending.get(tenantId)
+      if (!flight) {
+        flight = assume(tenantId)
+          .then(credentials => {
+            held.set(tenantId, credentials)
+            return credentials
+          })
+          .finally(() => pending.delete(tenantId))
+        pending.set(tenantId, flight)
+      }
+      return flight
+    },
+    forget(tenantId: string): void {
+      held.delete(tenantId)
+    },
+  }
+}
+
+/** AssumeRole failed for a tenant: under `on` the call fails (closed), under `shadow` it is served. */
+export class TenantSessionError extends Error {
+  constructor(
+    readonly tenantId: string,
+    cause: unknown
+  ) {
+    super(`storage: no session for tenant ${tenantId}: ${String(cause)}`, { cause })
+    this.name = 'TenantSessionError'
+  }
+}
+
+/** The S3 error names an expired session answers with. */
+function isExpired(err: unknown): boolean {
+  const name = (err as { name?: string } | null)?.name
+  return (
+    name === 'ExpiredToken' || name === 'ExpiredTokenException' || name === 'TokenRefreshRequired'
+  )
+}
+
+/** AccessDenied: the files role's answer to a key outside its policy, or to a missing one. */
+function isDenied(err: unknown): boolean {
+  const e = err as { name?: string; $metadata?: { httpStatusCode?: number } } | null
+  return (
+    e?.name === 'AccessDenied' || e?.name === 'Forbidden' || e?.$metadata?.httpStatusCode === 403
+  )
+}
+
+/**
+ * The platform's `storage`: every tenant behind the prefix check (`platform/tenant-storage.ts`),
+ * over the process's credentials (`off`) or over the tenant's own STS session of
+ * `FILES_ROLE_ARN` (`on`, `shadow`).
+ *
+ * - `on`: the tenant's session only, never a fallback. Under the files role a HEAD/GET of a
+ *   missing key answers 403 (it may not list the bucket), so a denial inside the tenant's own
+ *   prefix (already checked) reads as not-found.
+ * - `shadow` (the rollout aid): the tenant's session first; on a denial the call is served with
+ *   the process's credentials and `storage.fence_denied` is logged, unless the base store agrees
+ *   the key is missing. A `putStream` body can be sent once, so `shadow` writes it with the
+ *   process's credentials and then HEADs it over the tenant's session, logging a denial there.
+ * - `ExpiredToken` drops the tenant's credentials and retries once.
+ */
+export function createTenantStorage(
+  cfg: S3StorageConfig,
+  options: TenantStorageOptions,
+  base: StorageService = createS3Storage(cfg)
+): TenantStorageFactory {
+  if (options.fence === 'off') return tenantStorageOver(base)
+  const roleArn = options.filesRoleArn
+  if (!roleArn) throw new Error(`STORAGE_TENANT_FENCE=${options.fence} needs FILES_ROLE_ARN`)
+  const fence = options.fence
+  const now = options.now ?? Date.now
+  const log = options.log ?? (() => {})
+  const sts = options.sts ?? new STSClient({ region: cfg.region })
+  const credentials = tenantCredentialCache(id => assumeTenantRole(sts, roleArn, id), now)
+  const clientFor =
+    options.clientFor ??
+    ((provider: () => Promise<TenantCredentials>) => createS3Client(cfg, provider))
+  const max = options.maxClients ?? TENANT_CLIENTS
+  const idleMs = options.idleMs ?? TENANT_CLIENT_IDLE_MS
+  type Session = { storage: StorageService; client: S3Client; usedAt: number }
+  const sessions = new Map<string, Session>()
+
+  function drop(tenantId: string) {
+    sessions.get(tenantId)?.client.destroy()
+    sessions.delete(tenantId)
+    credentials.forget(tenantId)
+  }
+
+  function session(tenantId: string): StorageService {
+    const at = now()
+    // Least recently used first (a Map iterates in insertion order): drop the idle ones.
+    for (const [id, idle] of sessions) {
+      if (at - idle.usedAt <= idleMs) break
+      drop(id)
+    }
+    let entry = sessions.get(tenantId)
+    if (entry) {
+      sessions.delete(tenantId)
+    } else {
+      const client = clientFor(() =>
+        credentials.get(tenantId).catch(err => {
+          throw new TenantSessionError(tenantId, err)
+        })
+      )
+      entry = { client, storage: createS3Storage(cfg, client), usedAt: at }
+    }
+    entry.usedAt = at
+    sessions.set(tenantId, entry)
+    while (sessions.size > max) {
+      const oldest = sessions.keys().next().value as string
+      drop(oldest)
+    }
+    return entry.storage
+  }
+
+  function fenced(tenantId: string): StorageService {
+    async function run<T>(
+      op: string,
+      key: string,
+      call: (s: StorageService) => Promise<T>,
+      /** HEAD/GET: a denial inside the own prefix is a missing key. */
+      missing?: T,
+      retried = false
+    ): Promise<T> {
+      try {
+        return await call(session(tenantId))
+      } catch (err) {
+        if (isExpired(err)) {
+          drop(tenantId)
+          if (!retried) return run(op, key, call, missing, true)
+        }
+        if (fence === 'shadow' && err instanceof TenantSessionError) {
+          // The rollout aid never takes the app down: no session is a warning, served as before.
+          log('warn', 'storage.fence_session_failed', { tenantId, op, error: String(err.cause) })
+          return call(base)
+        }
+        if (!isDenied(err)) throw err
+        if (fence === 'shadow') {
+          const answer = await call(base)
+          if (missing === undefined || answer !== missing) {
+            log('warn', 'storage.fence_denied', { tenantId, op, key })
+          }
+          return answer
+        }
+        if (missing !== undefined) {
+          log('debug', 'storage.fence_not_found', { tenantId, op, key })
+          return missing
+        }
+        throw err
+      }
+    }
+
+    async function shadowPutStream(
+      key: string,
+      body: ReadableStream<Uint8Array>,
+      o: Parameters<StorageService['putStream']>[2]
+    ) {
+      const stored = await base.putStream(key, body, o)
+      try {
+        await session(tenantId).head(key)
+      } catch (err) {
+        if (isExpired(err)) drop(tenantId)
+        if (err instanceof TenantSessionError) {
+          log('warn', 'storage.fence_session_failed', {
+            tenantId,
+            op: 'putStream',
+            error: String(err.cause),
+          })
+        } else if (isDenied(err)) {
+          log('warn', 'storage.fence_denied', { tenantId, op: 'putStream', key, probe: 'head' })
+        }
+      }
+      return stored
+    }
+
+    return {
+      put: (key, body, o) => run('put', key, s => s.put(key, body, o)),
+      // One-shot body: under `on` no retry can resend it, so it is never retried.
+      putStream: (key, body, o) =>
+        fence === 'shadow'
+          ? shadowPutStream(key, body, o)
+          : run('putStream', key, s => s.putStream(key, body, o), undefined, true),
+      get: (key, o) => run('get', key, s => s.get(key, o), null),
+      head: key => run('head', key, s => s.head(key), null),
+      delete: key => run('delete', key, s => s.delete(key)),
+      deleteMany: keys => run('deleteMany', keys[0] ?? '', s => s.deleteMany(keys)),
+      listPage: (prefix, o) => run('listPage', prefix, s => s.listPage(prefix, o)),
+      list: prefix => run('list', prefix, s => s.list(prefix)),
+    }
+  }
+
+  return { forTenant: tenantId => fenceToTenant(fenced(requireTenantId(tenantId)), tenantId) }
+}
+
+/**
+ * The platform member: null without a configured bucket, else every tenant's storage under
+ * `STORAGE_TENANT_FENCE` (`off` by default; `on`/`shadow` need `FILES_ROLE_ARN`, which `loadConfig`
+ * enforces).
+ */
+export function createPlatformStorage(
+  config: AppConfig,
+  log?: TenantStorageOptions['log']
+): TenantStorageFactory | null {
+  const s3 = storageConfigOf(config)
+  if (!s3) return null
+  return createTenantStorage(s3, {
+    fence: config.STORAGE_TENANT_FENCE,
+    filesRoleArn: config.FILES_ROLE_ARN,
+    log,
+  })
 }

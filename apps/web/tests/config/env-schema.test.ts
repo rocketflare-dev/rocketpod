@@ -80,6 +80,30 @@ describe('loadConfig', () => {
     expect(loadConfig(half).STORAGE_ACCESS_KEY_ID).toBeUndefined()
   })
 
+  it('TENANT_SCOPE_MODE=enforce needs the app login: on the owner it would enforce nothing', () => {
+    expect(() => loadConfig({ ...base, TENANT_SCOPE_MODE: 'enforce' })).toThrow(
+      /TENANT_SCOPE_MODE: TENANT_SCOPE_MODE=enforce needs APP_DATABASE_URL/
+    )
+    const app = 'postgres://app_login:pw@db/app'
+    expect(
+      loadConfig({ ...base, TENANT_SCOPE_MODE: 'enforce', APP_DATABASE_URL: app }).TENANT_SCOPE_MODE
+    ).toBe('enforce')
+  })
+
+  it('STORAGE_TENANT_FENCE=on|shadow without FILES_ROLE_ARN is a config error', () => {
+    for (const fence of ['on', 'shadow']) {
+      expect(() => loadConfig({ ...base, STORAGE_TENANT_FENCE: fence })).toThrow(
+        /FILES_ROLE_ARN: STORAGE_TENANT_FENCE=\w+ needs FILES_ROLE_ARN/
+      )
+      const role = 'arn:aws:iam::000000000000:role/files'
+      expect(
+        loadConfig({ ...base, STORAGE_TENANT_FENCE: fence, FILES_ROLE_ARN: role })
+          .STORAGE_TENANT_FENCE
+      ).toBe(fence)
+    }
+    expect(() => loadConfig({ ...base, STORAGE_TENANT_FENCE: 'partial' })).toThrow(ConfigError)
+  })
+
   it('AUTH_OIDC_ONLY=true without an issuer and client id is a config error', () => {
     expect(() => loadConfig({ ...base, AUTH_OIDC_ONLY: 'true' })).toThrow(/AUTH_OIDC_ONLY/)
     expect(() =>

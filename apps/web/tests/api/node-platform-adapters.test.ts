@@ -47,7 +47,8 @@ beforeAll(async () => {
 })
 
 describe('S3 storage (StorageService over the S3 API)', () => {
-  const prefix = `tenants/${randomUUID()}/`
+  const keyTenant = randomUUID()
+  const prefix = `tenants/${keyTenant}/`
   const storage = () => {
     if (!s3) throw new Error('.env.test has no STORAGE_* — the gate configures the S3 gateway')
     return createS3Storage(s3)
@@ -90,13 +91,17 @@ describe('S3 storage (StorageService over the S3 API)', () => {
       process.env.AWS_SECRET_ACCESS_KEY = 'test-secret-key'
       const platform = createNodePlatform(loadConfig(keyless))
       expect(platform.storage).not.toBeNull()
-      await platform.storage?.put(key, 'from the default chain', { contentType: 'text/plain' })
+      await platform.storage
+        ?.forTenant(keyTenant)
+        .put(key, 'from the default chain', { contentType: 'text/plain' })
       expect(await new Response((await storage().get(key))?.body).text()).toBe(
         'from the default chain'
       )
       // A wrong pair in the env is refused by the gateway: the chain is what signs, not a fallback.
       process.env.AWS_SECRET_ACCESS_KEY = 'not-the-secret'
-      await expect(createNodePlatform(loadConfig(keyless)).storage?.head(key)).rejects.toThrow()
+      await expect(
+        createNodePlatform(loadConfig(keyless)).storage?.forTenant(keyTenant).head(key)
+      ).rejects.toThrow()
     } finally {
       restore()
     }

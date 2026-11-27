@@ -1,8 +1,10 @@
 /**
  * Tenant scoping. `off` (default): predicates-only, `fn` gets the handle it was given.
  * `enforce`: run `fn` inside a transaction that first sets the transaction-local GUC
- * `app.tenant_id`, so RLS policies (schema/rls.ts) apply on a connection that is NOT the
- * table owner. Transaction-local because every path is pooled (the Node process pool, a hosted
+ * `app.tenant_id` and, on an app login working as the system role (`APP_DATABASE_URL`,
+ * `db/client.ts`), switches the transaction to the tenant role `rocketpod_app` — so the RLS
+ * policies (schema/rls.ts) admit that tenant's rows and nothing else. On the owner connection the
+ * role stays (the owner bypasses RLS; `loadConfig` refuses `enforce` without an app login). Transaction-local because every path is pooled (the Node process pool, a hosted
  * pooler) — session state would leak into the next request on that connection.
  *
  * No AsyncLocalStorage-pinned connection: there is no connection to pin here, the transaction IS
@@ -10,6 +12,7 @@
  */
 import { sql } from 'drizzle-orm'
 import type { Database } from './client'
+import { APP_ROLE, SYSTEM_ROLE } from './schema/rls'
 
 export type TenantScopeMode = 'off' | 'enforce'
 
@@ -67,7 +70,12 @@ export async function withTenantScope<T>(
 
   return db.transaction(async tx => {
     scopedHandles.set(tx, tenantId)
-    await tx.execute(sql`select set_config('app.tenant_id', ${tenantId}, true)`)
+    // One round trip: the tenant, then the tenant ROLE when this connection works as the system
+    // role. `set_config('role', …, true)` is `SET LOCAL ROLE` — undone at COMMIT, so the pooled
+    // connection goes back to the system role for its next borrower.
+    await tx.execute(
+      sql`select set_config('app.tenant_id', ${tenantId}, true), case when current_user = ${SYSTEM_ROLE} then set_config('role', ${APP_ROLE}, true) end`
+    )
     // drizzle's transaction handle extends the `PgDatabase` base `Database` is, so every
     // service signature stays `(db: Database)` without a second type or a cast.
     return fn(tx)

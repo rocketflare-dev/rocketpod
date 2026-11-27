@@ -21,6 +21,7 @@ import {
   makeWorkflowCtx,
 } from '@testkit/unit'
 import { describe, expect, it } from 'vitest'
+import { StorageTenantMismatchError, StorageTenantRequiredError } from '@/platform/types'
 
 const db = setupTestDatabase()
 const TENANT = '11111111-1111-4111-8111-111111111111'
@@ -127,15 +128,29 @@ describe('the background and run contexts', () => {
   it('give a job and a cron the platform object store, and a 503 when there is none', async () => {
     const env = createTestEnv()
     await makeJobCtx({ db, env })
-      .storage()
+      .storage(TENANT)
       .put(`tenants/${TENANT}/x/a.txt`, 'hello', { contentType: 'text/plain' })
     expect(stubs(env).files?.objects.has(`tenants/${TENANT}/x/a.txt`)).toBe(true)
     const cron = makeCronCtx({ db, env })
-    const object = await cron.storage().get(`tenants/${TENANT}/x/a.txt`)
+    const object = await cron.storage(TENANT).get(`tenants/${TENANT}/x/a.txt`)
     expect(object && (await new Response(object.body).text())).toBe('hello')
 
     const bare = makeJobCtx({ db, env: createTestEnv({ storage: null }) })
-    expect(() => bare.storage()).toThrow(expect.objectContaining({ statusCode: 503 }))
+    expect(() => bare.storage(TENANT)).toThrow(expect.objectContaining({ statusCode: 503 }))
+  })
+
+  it('give a background context storage for the tenant it names only, and none without one', async () => {
+    const env = createTestEnv()
+    const other = '22222222-2222-4222-8222-222222222222'
+    const job = makeJobCtx({ db, env })
+    await expect(
+      job.storage(TENANT).put(`tenants/${other}/x/a.txt`, 'x', { contentType: 'text/plain' })
+    ).rejects.toThrow(StorageTenantMismatchError)
+    await expect(job.storage(TENANT).list(`tenants/${TENANT}/../${other}/`)).rejects.toThrow(
+      StorageTenantMismatchError
+    )
+    expect(stubs(env).files?.objects.size).toBe(0)
+    expect(() => job.storage('' as string)).toThrow(StorageTenantRequiredError)
   })
 
   it('bind a tool to a scope rather than to a bare tenant id', () => {

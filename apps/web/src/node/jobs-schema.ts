@@ -5,14 +5,15 @@
  *
  * pg-boss owns the `pgboss` schema. `installJobsSchema` creates/migrates it and the queues — the
  * `pnpm db:migrate` step, never a `web` boot. It connects with `DATABASE_URL` (the schema owner)
- * through its own small `pg` pool, with `DATABASE_SSL`'s `ssl` option (`db/tls.ts`). The retry curve is the consumer's `backoffSeconds`
+ * through its own small `pg` pool (a runtime instance uses the runtime's login: `createBoss`), with `DATABASE_SSL`'s `ssl` option (`db/tls.ts`). The retry curve is the consumer's `backoffSeconds`
  * (`src/api/queues/jobs.ts`): `tests/api/node-jobs.test.ts` holds the two together.
  */
 import { JOBS_RETRY_LIMIT } from '@rocketpod/shared/jobs'
 import { PgBoss, type Queue as QueueSpec } from 'pg-boss'
 import { JOBS_QUEUE_NAME_PREFIX } from '../api/services/jobs'
-import { type DatabaseEnv, resolveDatabaseUrl } from '../db/client'
+import { type DatabaseEnv, ownerDatabaseUrl, resolveDatabaseUrl } from '../db/client'
 import { databaseConnection, sslOption } from '../db/tls'
+import { engineSchemaGrants } from './engine-grants'
 
 export const PGBOSS_SCHEMA = 'pgboss'
 /** The jobs queue — `JOBS_QUEUE_NAME_PREFIX` itself, so `isJobsQueue` routes it. */
@@ -71,7 +72,10 @@ export interface BossOptions {
  */
 export function createBoss(env: DatabaseEnv, role: BossRole, options: BossOptions = {}): PgBoss {
   // node-postgres lets a URL's `sslmode` override `ssl`; `databaseConnection` refuses that pair.
-  const connection = databaseConnection(resolveDatabaseUrl(env), env)
+  // `migrate` is DDL, so the owner; a producer or worker is the runtime's login (the app login
+  // as the system role when `APP_DATABASE_URL` is set — DML on `pgboss`, which is all they do).
+  const url = role === 'migrate' ? ownerDatabaseUrl(env) : resolveDatabaseUrl(env)
+  const connection = databaseConnection(url, env)
   return new PgBoss({
     connectionString: connection.url,
     ...sslOption(connection),
@@ -113,6 +117,8 @@ export async function installJobsSchema(
   await boss.start()
   try {
     await ensureQueues(boss)
+    // The runtime's app login (as the system role) reads and writes these rows; it never owns them.
+    await boss.getDb().executeSql(engineSchemaGrants(options.schema ?? PGBOSS_SCHEMA))
   } finally {
     await boss.stop({ graceful: false, close: true })
   }

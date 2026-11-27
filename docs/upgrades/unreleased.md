@@ -3,7 +3,7 @@ version: unreleased
 previous: 0.44.1
 date: null
 breaking: true
-migrations: []
+migrations: ["every tenant isolation policy also admits the rocketpod_system role (0018_kit-system-role)"]
 areas: [api, config, db, docs, deploy]
 touches_surfaces: []
 requires_surfaces: []
@@ -23,6 +23,11 @@ Email goes through a new `mailer` platform member, and Amazon SES v2 joins Resen
 - S3 storage no longer needs access keys: `STORAGE_DRIVER=s3` plus `STORAGE_BUCKET` configures it, and with neither `STORAGE_ACCESS_KEY_ID` nor `STORAGE_SECRET_ACCESS_KEY` the client signs with the AWS SDK's default credential chain (an ECS task role on AWS). `loadConfig` refuses exactly one of the two. `S3StorageConfig`'s `accessKeyId`/`secretAccessKey` became an optional `credentials: { accessKeyId, secretAccessKey }`. Operations: `docs/DEPLOY.md` § Storage on AWS.
 - `DATABASE_SSL` (`off|require|verify-full`; unset = the URL's `sslmode` decides, as before) sets TLS for every Postgres connection — the pool, realtime's publisher and `LISTEN`, pg-boss, OpenWorkflow, the scripts and the migrate one-shot — through one function, `databaseConnection(url, env)` in the new `src/db/tls.ts`. Set, `loadConfig` (and the function) refuses a `DATABASE_URL`/`PREVIEW_DATABASE_URL`/`DATABASE_LISTEN_URL` carrying `sslmode`, `ssl`, `sslrootcert`, `sslcert`, `sslkey` or `uselibpqcompat`. With `verify-full`, `src/node/database-tls.ts` refuses to start when `NODE_EXTRA_CA_CERTS` names a missing or certificate-less file. Design: `docs/CONCEPTS.md` §4; operations: `docs/DEPLOY.md` § TLS to Postgres.
 - The image (`# syntax=docker/dockerfile:1.10`) carries the AWS RDS global CA bundle at `/etc/ssl/certs/rds-global-bundle.pem` (`ADD --checksum`, hash in `ARG RDS_CA_BUNDLE_SHA256`) with `NODE_EXTRA_CA_CERTS` pointing at it, and declares `/tmp` a `VOLUME` owned by `node`, so it runs on a read-only root filesystem (ECS Fargate `readonlyRootFilesystem`).
+- `APP_DATABASE_URL` is now a runtime setting: a separate, non-owner login for web and worker. Set, every runtime connection (the pool, pg-boss, OpenWorkflow, realtime) dials it with `options=-c role=rocketpod_system` (`resolveDatabaseUrl` → `runtimeDatabaseUrl` in `src/db/client.ts`); the owner's URL is `ownerDatabaseUrl`, for migrate, the engines' schema installs and the scripts. Unset, nothing changes. `DATABASE_SSL` and its `sslmode` rule apply to it. Design: `docs/TENANT-ISOLATION.md` (new); operations: `docs/DEPLOY.md` § Two database logins.
+- A second NOLOGIN role, `rocketpod_system` (`SYSTEM_ROLE` in `src/db/schema/rls.ts`), is admitted to every row by every `tenantIsolation()`/`membershipIsolation()` policy (`current_user = 'rocketpod_system'`), owns nothing and gets DML on `public`; `installJobsSchema`/`installRunsSchema` grant it their schemas (`src/node/engine-grants.ts`). `scripts/db-roles.ts` creates it, and with `APP_DATABASE_URL` the login: any user name but the owner's, `rocketpod_app` or `rocketpod_system` (**breaking**: it used to have to BE `rocketpod_app`), LOGIN NOINHERIT with the URL's password as a SCRAM verifier, both roles granted, CONNECT on the database. Its post-check fails migrate when a managed role is a superuser, has BYPASSRLS or owns a relation, or the login cannot connect. `ApplyDbRolesResult.loginConfigured` became `login` (the name, or null).
+- `withTenantScope` under `enforce` also switches the transaction to `rocketpod_app` when the connection works as the system role, so RLS binds. `loadConfig` refuses `TENANT_SCOPE_MODE=enforce` without `APP_DATABASE_URL`. The chart gains `migrate.ownerOnly` (the owner's `DATABASE_URL` reaches only the migrate Job) and `migrate.existingSecret`.
+- **Breaking**: `Platform.storage` is now a `TenantStorageFactory` (`forTenant(tenantId) → StorageService`), so storage is reached one tenant at a time. The handle refuses a key or prefix outside `tenants/<tenantId>/` (`StorageTenantMismatchError`) and a tenant id that is not a UUID (`StorageTenantRequiredError`) before any network call. Plugin contexts: `JobCtx`/`CronCtx`/`PublicCtx` `storage()` became `storage(tenantId)`; the tenant contexts bind their own.
+- `STORAGE_TENANT_FENCE=off|shadow|on` + `FILES_ROLE_ARN`: `shadow`/`on` sign each tenant's calls with an STS AssumeRole session of the files role tagged `tenant=<id>` (cached per tenant until five minutes before expiry); `shadow` serves a refusal with the process's credentials and logs `storage.fence_denied`. New dependency `@aws-sdk/client-sts`. IAM contract: `docs/DEPLOY.md` § The storage tenant fence.
 
 ## How to apply
 
@@ -41,6 +46,15 @@ Email goes through a new `mailer` platform member, and Amazon SES v2 joins Resen
 12. Port the `Dockerfile` changes: the syntax line, the two `RDS_CA_BUNDLE_*` args, the `ADD --checksum` + `ENV NODE_EXTRA_CA_CERTS`, and `RUN chown node:node /tmp && chmod 1777 /tmp` + `VOLUME ["/tmp"]` in the runtime stage.
 13. A deployment whose `DATABASE_URL` already says `?sslmode=…` keeps working with `DATABASE_SSL` unset. To move to `DATABASE_SSL`, drop the TLS parameters from every database URL in the same change; on RDS set `DATABASE_SSL=verify-full` and `rds.force_ssl=1`.
 
+14. Port `SYSTEM_ROLE`, `AS_SYSTEM` and the widened `tenantIsolation`/`membershipIsolation` in `apps/web/src/db/schema/rls.ts`, then `pnpm db:generate --name system-role` (one `ALTER POLICY` per tenant table, the app's own included), read the SQL and `pnpm db:migrate`. Port `scripts/db-generate.ts`'s scratch check (it creates both roles), `scripts/db-roles.ts`, `src/node/engine-grants.ts` and the grant step at the end of `installJobsSchema`/`installRunsSchema`.
+15. Port `ownerDatabaseUrl`, `resolveDatabaseUrl`, `runtimeDatabaseUrl` and `DatabaseEnv.APP_DATABASE_URL` in `src/db/client.ts`; `createBoss` (owner for `migrate`) in `src/node/jobs-schema.ts`; `src/node/runs-schema.ts`; the role switch in `src/db/tenant-scope.ts`; `APP_DATABASE_URL` (secrets block), the `enforce` check and the URL-conflict list in `src/config.ts`; the `cfg.APP_DATABASE_URL` test in `ownConnectionSpanStore`. Any connection the app opens itself at runtime takes `resolveDatabaseUrl(config)`; one that runs DDL takes `ownerDatabaseUrl`.
+16. Port the chart's `migrate.ownerOnly` / `migrate.existingSecret` (`values.yaml`, `templates/secret.yaml`, `templates/migrate.yaml`). In tests: `'APP_DATABASE_URL'` in `SECRET_KEYS` (`tests/mocks/bindings.ts`) and a login of the app's own in `.env.test`'s `APP_DATABASE_URL` (not `rocketpod_app`), so its requests run on the login; pass `appDatabaseUrl: ''` to `applyDbRoles` where a test uses a throwaway owner.
+17. A deployment whose `APP_DATABASE_URL` connects as `rocketpod_app` now fails migrate: give the login its own user name. With `APP_DATABASE_URL` set, web and worker now connect with it; to stage the switch, give it to the migrate one-shot first (`docs/TENANT-ISOLATION.md` § Operating it).
+
+18. Add `"@aws-sdk/client-sts"` to `apps/web/package.json` at `@aws-sdk/client-s3`'s exact version and `pnpm install`. Port `apps/web/src/platform/tenant-storage.ts` (new), `TenantStorageFactory` and the two error classes in `apps/web/src/platform/types.ts`, the fence section and `createPlatformStorage` in `apps/web/src/node/storage.ts`, the `storage`/`log` parts in `apps/web/src/node/platform.ts` (and `log` passed from `server.ts`), and `STORAGE_TENANT_FENCE`, `FILES_ROLE_ARN` and their check in `apps/web/src/config.ts`; add both keys to `.env.example`, the chart's `config:` and `docker-compose.yml`.
+19. Port the call sites: `files.ts`, `ai-documents.ts`, the `document-convert` and `tenant-purge` handlers, `plugins/api/{storage,emit,http,ai,jobs,knowledge}.ts`. In the app's own code, replace every `platform.storage` read with `platform.storage.forTenant(tenantId)` (the tenant from the auth context, the job payload or the run), and in the app's plugins every background `ctx.storage()` with `ctx.storage(tenantId)`. `tsc` finds each one. In tests, `createTestEnv`'s `storage` is `tenantStorageOver(fakes.files)` (`tests/mocks/bindings.ts`) and an override passes a `TenantStorageFactory`; `stubs(env).files` is still the bucket.
+20. A key the app writes outside `tenants/<tenantId>/` now fails: move such objects under the tenant's prefix first. To fence on AWS, provide the files role (`docs/DEPLOY.md` § The storage tenant fence), set `FILES_ROLE_ARN` and `STORAGE_TENANT_FENCE=shadow`, then `on` once `storage.fence_denied` stays quiet.
+
 ## Conflicts to expect
 
 - `apps/web/src/api/services/email.ts` → `sendEmail` gained a `mailer` parameter and lost its Resend `fetch` → keep the app's templates, take the kit's `sendEmail`.
@@ -49,6 +63,9 @@ Email goes through a new `mailer` platform member, and Amazon SES v2 joins Resen
 - `Dockerfile` → the runtime stage gained the CA bundle and `/tmp` volume lines → keep the app's own additions after them.
 - `apps/web/src/db/client.ts` → `createDatabase` options and `DatabaseEnv` gained `ssl` / `DATABASE_SSL` → take the kit's.
 - `apps/web/src/node/storage.ts` → `storageConfigOf` returns a config without keys → take the kit's; keep any app-specific options beside it.
+- `apps/web/src/db/schema/rls.ts` → the policy predicate gained `or current_user = 'rocketpod_system'` → take the kit's (renamed to the app's role names); regenerate rather than merging migrations.
+- `apps/web/scripts/db-roles.ts` → rewritten around the login → take the kit's; re-apply an app's own extra grants after the REVOKE.
+- `apps/web/src/api/routes/files.ts`, `ai-documents.ts` → `storageFor(c)` became `storageFor(c, tenantId)` → take the kit's; pass the tenant in the app's own calls.
 
 ## Verify
 
@@ -57,4 +74,6 @@ Email goes through a new `mailer` platform member, and Amazon SES v2 joins Resen
 3. With no `EMAIL_PROVIDER` and no `RESEND_API_KEY`, `pnpm dev` still logs the magic-link URL on a sign-in request.
 4. `pnpm test config apps/web/tests/config/database-tls.test.ts` passes (every connection factory asks for TLS under `require`/`verify-full`, none without).
 5. `docker build -t app . && docker run --rm --read-only --entrypoint node app -e "require('fs').writeFileSync('/tmp/x','1'); console.log(require('tls').getCACertificates('extra').length)"` prints a non-zero count with nothing on stderr.
-6. `pnpm gate` prints `✔ pnpm gate passed`.
+6. `pnpm test api apps/web/tests/api/rls-enforcement.test.ts apps/web/tests/api/db-roles.test.ts apps/web/tests/api/rls-coverage.test.ts` passes: on the app login the system role reads every tenant and runs no DDL, an `enforce` scope sees one tenant, the tenant role with no tenant reads nothing.
+7. `pnpm test api apps/web/tests/api/storage-fence.test.ts apps/web/tests/api/testkit.test.ts` passes: AssumeRole carries the tenant tag, one per tenant; `on` never falls back; `shadow` logs `storage.fence_denied`; a key outside the tenant is refused before any call.
+8. `pnpm gate` prints `✔ pnpm gate passed`.

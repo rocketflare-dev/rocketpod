@@ -40,7 +40,7 @@ entry (`src/node/platform.ts`) and read as `c.get('platform')` / `ctx.platform`:
 | `jobs` | pg-boss producer (`src/node/jobs.ts`); the consumer runs `processJobsBatch` |
 | `runs` | OpenWorkflow (`src/node/runs.ts`) driving `runAgentRun` (`api/workflows/agent-run-body.ts`) |
 | `realtime` | `ws` on `/ws` + Postgres LISTEN/NOTIFY fan-out (`src/node/realtime.ts`): per tenant, per user, or per subscribed TOPIC (`toTopic`, gated by `canSubscribeTopic`); `closeSockets` ends a revoked member's or session's sockets (4001) on every process |
-| `storage` | any S3-compatible store (`src/node/storage.ts`, `STORAGE_*`; configured by `STORAGE_DRIVER=s3` + a bucket, the keys a pair or neither — neither = the SDK's default credential chain): ranged `get` (`StorageRange` → `StoredRange`, `StorageRangeNotSatisfiableError`), multipart `putStream` (`@aws-sdk/lib-storage`, pinned to `client-s3`'s version) |
+| `storage` | any S3-compatible store, handed out per tenant — `forTenant(tenantId)` refuses keys outside `tenants/<id>/` and, with `STORAGE_TENANT_FENCE=shadow|on`, signs with an STS session of `FILES_ROLE_ARN` tagged with the tenant (`docs/TENANT-ISOLATION.md`) (`src/node/storage.ts`, `STORAGE_*`; configured by `STORAGE_DRIVER=s3` + a bucket, the keys a pair or neither — neither = the SDK's default credential chain): ranged `get` (`StorageRange` → `StoredRange`, `StorageRangeNotSatisfiableError`), multipart `putStream` (`@aws-sdk/lib-storage`, pinned to `client-s3`'s version) |
 | `rateLimiter`, `locks` | Postgres tables `rate_limits`, `operation_locks` (`src/node/limits.ts`) |
 | `converter` | unpdf / mammoth (`src/node/converter.ts`) |
 | `guide` | the Guide's pages and images under `content/guide` (`src/node/guide-content.ts`; cached when `NODE_ENV=production`, re-read in dev). A `web`/`all` boot also loads the pages into `guide_chunks` in the defer set (`loadGuide: false` in tests) |
@@ -62,6 +62,9 @@ nudge), never a crash.
 - **TLS to Postgres** is `DATABASE_SSL` for every connection (`src/db/tls.ts`,
   `docs/DEPLOY.md` § TLS to Postgres); the image trusts the AWS RDS CA bundle via
   `NODE_EXTRA_CA_CERTS` and runs on a read-only root, writing only to `/tmp` (a declared `VOLUME`)
+- **Two logins** (`docs/TENANT-ISOLATION.md`): with `APP_DATABASE_URL` set every runtime
+  connection (pool, pg-boss, OpenWorkflow, realtime) is that non-owner login, as `rocketpod_system`;
+  the owner `DATABASE_URL` is for the migrate one-shot. Nothing in `web`/`worker` runs DDL
 - **One database pool per process** (`DATABASE_POOL_MAX`); `openDatabase(config)` returns a view
   over it whose `close()` is a no-op. pg-boss and OpenWorkflow keep their own small pools, and the
   realtime listener holds one direct connection (`DATABASE_LISTEN_URL` behind PgBouncer)

@@ -14,6 +14,7 @@ import type { RealtimeEvent } from '@rocketpod/shared/realtime'
 import type { ExecutionContext } from 'hono'
 import { deterministicEmbedding } from '@/api/services/ai/deterministic-embedding'
 import type { AppBindings } from '@/api/types'
+import { tenantStorageOver } from '@/platform/tenant-storage'
 import type {
   DocumentConverter,
   GetOptions,
@@ -726,6 +727,7 @@ export type TestEnv = AppBindings &
 const SECRET_KEYS = [
   'DATABASE_URL',
   'PREVIEW_DATABASE_URL',
+  'APP_DATABASE_URL',
   'OAUTH_ENCRYPTION_KEY',
   'RESEND_API_KEY',
   'BOOTSTRAP_ADMIN_EMAILS',
@@ -802,7 +804,8 @@ export function createTestEnv(overrides: Partial<TestEnv> = {}): TestEnv {
   const ai = fakes.ai
   const base: Platform = {
     jobs: fakes.queue as unknown as JobsQueue,
-    storage: fakes.files,
+    // The same prefix check the Node adapter applies, over the in-memory bucket (`stubs(env).files`).
+    storage: tenantStorageOver(fakes.files),
     realtime: fakes.hub,
     runs: fakes.workflow as unknown as RunEngine,
     rateLimiter: createMemoryRateLimiter(kv),

@@ -165,7 +165,7 @@ export function toolCtx(ctx: AgentToolContext): ToolCtx {
     features: ctx.features
       ? async () => ctx.features as readonly string[]
       : once(() => tenantFeatures(ctx.db, ctx.cfg, ctx.scope.tenantId)),
-    storage: () => filesStorage(ctx.env),
+    storage: () => filesStorage(ctx.env, ctx.scope.tenantId),
     ...(ctx.maxDocumentChars !== undefined && { maxDocumentChars: ctx.maxDocumentChars }),
     requesterUrls: ctx.requesterUrls ?? noRequesterUrls(),
     requester: ctx.requester ?? null,
@@ -341,7 +341,7 @@ export function agentCtx<Input>(ctx: AgentContext<Input>): AgentCtx<Input> {
     spawn: (key, agentKey, input) => ctx.spawn(key, agentKey, input),
     interrupt: ask => ctx.interrupt(ask),
     chatModel: { provider: ctx.chat.client.provider, model: ctx.chat.model },
-    storage: () => filesStorage(ctx.env),
+    storage: () => filesStorage(ctx.env, ctx.tenantId),
     toolLoop: options =>
       runToolLoop(ctx.chat.client, {
         ...options,

@@ -51,6 +51,11 @@ config:
   STORAGE_REGION: us-east-1
   STORAGE_BUCKET: ""
   STORAGE_FORCE_PATH_STYLE: "false"
+  # The storage tenant fence (docs/TENANT-ISOLATION.md): off | shadow | on. shadow and on assume
+  # FILES_ROLE_ARN once per tenant (session tag tenant=<id>); shadow logs storage.fence_denied and
+  # still serves, on refuses. The pod's identity must be allowed sts:AssumeRole + sts:TagSession.
+  STORAGE_TENANT_FENCE: "off"
+  FILES_ROLE_ARN: ""
   AI_BASE_URL: ""
   AI_MODEL: ""
   EMBEDDINGS_BASE_URL: ""
@@ -108,13 +113,15 @@ config:
 # Secrets, Vault…) with the same keys. Empty values are left out.
 existingSecret: ""
 secrets:
-  # REQUIRED. The owner connection: migrations and the app pool. Direct or a session-mode pooler.
+  # REQUIRED. The owner connection: migrations, and the app's own connections while
+  # APP_DATABASE_URL is empty. Direct or a session-mode pooler.
   DATABASE_URL: ""
   PREVIEW_DATABASE_URL: ""
   # The realtime LISTEN connection. Behind PgBouncer in TRANSACTION mode this must go direct to
   # Postgres (or a session-mode pool); unset = DATABASE_URL.
   DATABASE_LISTEN_URL: ""
-  # Optional RLS app role (docs/RLS.md); read by the migrate Job to give it LOGIN.
+  # Optional separate NON-owner login for web and worker (docs/TENANT-ISOLATION.md): the migrate
+  # Job creates it, sets its password and grants it; set, every runtime connection uses it.
   APP_DATABASE_URL: ""
   # Both or neither. Neither = the AWS SDK's default credential chain (an IRSA / ECS task role,
   # an instance profile) — on AWS S3 leave them empty and grant the role the bucket.
@@ -179,6 +186,12 @@ worker:
 # drizzle migrations, the pgboss and openworkflow schemas. Idempotent.
 migrate:
   enabled: true
+  # true: the owner's DATABASE_URL reaches the migrate Job only; web and worker hold just
+  # APP_DATABASE_URL (docs/DEPLOY.md "Two database logins"). Needs secrets.APP_DATABASE_URL, or
+  # with existingSecret, migrate.existingSecret: a Secret with DATABASE_URL (+ APP_DATABASE_URL)
+  # for the Job, while existingSecret itself carries no DATABASE_URL.
+  ownerOnly: false
+  existingSecret: ""
   backoffLimit: 3
   activeDeadlineSeconds: 600
   resources:

@@ -157,7 +157,8 @@ suites on vitest 4, §9 — never part of the gate).
   be made later from a MANUAL membership. An `idp` row is read-only in the app — role change and
   removal answer 409 `idp_managed` (People shows a "Managed" badge instead of controls); manual
   rows in the same tenant work as ever.
-- **Isolation = predicates + inert RLS (D1)** — §4, `docs/RLS.md`.
+- **Isolation = predicates + RLS + the storage fence (D1)** — §4, §6, `docs/RLS.md`; the layers, the separate app login
+  and the per-tenant storage handle and credentials, and what each guarantees: `docs/TENANT-ISOLATION.md`.
 
 **Known gaps:** no IdP group sync (SCIM/SAML claims); no group hierarchy or per-group roles;
 conversations, runs, prompts and non-Knowledge files have no visibility; agent-written documents
@@ -386,7 +387,7 @@ signed-in account is not checked, and the host trusts the plugin's word that it 
   handlers, cron tasks and the agent-run body (`api/workflows/agent-run-body.ts`, over a neutral
   `Step`) are handed the same object; plugins get it as `ctx.platform`. The implementation is
   `src/node/platform.ts`: jobs (pg-boss), runs (OpenWorkflow), realtime (`ws` + LISTEN/NOTIFY),
-  storage (S3, when `STORAGE_*` is fully configured — else null and 503
+  storage (S3, one tenant at a time — `forTenant`; when `STORAGE_*` is fully configured — else null and 503
   `storage_not_configured`), the rate limiter and operation locks (Postgres tables) and the
   document converter (`unpdf`/`mammoth`). Tests' `createTestEnv()` carries in-memory
   implementations (`tests/mocks/bindings.ts`). `tests/config/platform-seam.test.ts` also fails on
@@ -424,7 +425,7 @@ per-PR previews; no public tunnel for OAuth callbacks in dev (use your own, e.g.
 - **One driver, postgres.js (D35)**. postgres.js reaches any Postgres, Neon included, over TCP.
   `DATABASE_DRIVER` remains, accepting only `postgres` (missing means it), and
   `neon` fails config validation naming the fix. `openDatabase(env)` (`db/client.ts`) is the one
-  resolver — URL `PREVIEW_DATABASE_URL ?? DATABASE_URL`. The Node entry installs ONE pool per
+  resolver — URL `PREVIEW_DATABASE_URL ?? APP_DATABASE_URL ?? DATABASE_URL`. The Node entry installs ONE pool per
   process (`installProcessPool`, `DATABASE_POOL_MAX`, default 10, named prepared statements on)
   and every `openDatabase` for that URL is a view of it whose `close()` is a no-op; the pool is
   ended once on shutdown (tests and scripts open their own clients). The connection is pooled, so
@@ -444,6 +445,16 @@ per-PR previews; no public tunnel for OAuth callbacks in dev (use your own, e.g.
   there — and `src/node/database-tls.ts` refuses to start on a bundle path that is missing or holds
   no certificate. `tests/config/database-tls.test.ts` watches each factory's first message on the
   wire. Operations: `docs/DEPLOY.md` § TLS to Postgres.
+- **Two logins: the owner and the app (`APP_DATABASE_URL`).** Unset, every connection is the
+  owner's (`DATABASE_URL`), as before. Set, the web and worker processes dial it for everything —
+  the pool, pg-boss, OpenWorkflow, realtime — through `resolveDatabaseUrl`, with `options=-c
+  role=rocketpod_system`; the owner (`ownerDatabaseUrl`) is left to the migrate one-shot, the
+  engines' schema installs and the scripts. Migrate creates the login NOINHERIT with the two
+  NOLOGIN policy roles granted, and CONNECT; the engine installers grant `rocketpod_system` their
+  schemas (`src/node/engine-grants.ts`). The test suite's requests run on such a login
+  (`.env.test`), its fixtures on the owner. `TENANT_SCOPE_MODE=enforce` needs it. The layers and
+  what each guarantees: `docs/TENANT-ISOLATION.md`; operations: `docs/DEPLOY.md` § Two database
+  logins.
 - **The driver seam: code never sees the driver** (`src/db/CLAUDE.md`). `db/client.ts` is the only
   place it is named; everything else is normalised there or banned. Normalised: a raw
   `db.execute()` is `unknown` (`Database` is drizzle's `PgDatabase` base) and is read with
@@ -506,7 +517,7 @@ per-PR previews; no public tunnel for OAuth callbacks in dev (use your own, e.g.
   whole gate's tests where there is no Docker — a coding sandbox, whose orchestrator creates a
   throwaway database branch per gate attempt and passes its owner connection string, reached by
   postgres.js over TCP. The runner sets `TEST_DATABASE_EPHEMERAL=1` and an empty
-  `APP_DATABASE_URL` (the app role stays NOLOGIN) and runs every web project.
+  `APP_DATABASE_URL` (no app login: the suite runs on the owner) and runs every web project.
   `TEST_DATABASE_EPHEMERAL=1` without a branch is refused. `safetyCheck()`
   (`tests/helpers/db-safety.ts`) still refuses any non-local `DATABASE_URL` unless ALL hold: that
   profile, a `*.neon.tech` host, `TEST_DATABASE_BRANCH` matching `^gate-[a-z0-9]+-\d+$`, and
@@ -539,10 +550,13 @@ per-PR previews; no public tunnel for OAuth callbacks in dev (use your own, e.g.
 - **Cross-tenant allow-list**: `tests/config/unscoped-allowlist.test.ts` fails a function that
   queries a `tenant_id` table without naming a tenant. Each exception carries a reason. It does
   not prove `admin.ts` is the only cross-tenant surface.
-- **RLS** ships inert: every tenant table has `tenantIsolation()` (enforced by `rls-coverage`),
-  and `TENANT_SCOPE_MODE=enforce` waits on the spike in `docs/RLS.md`.
+- **RLS**: every tenant table has `tenantIsolation()` (enforced by `rls-coverage`), one policy for
+  the tenant role (`app.tenant_id`) and the cross-tenant system role. Inert on the owner; on the
+  app login the system role reads every row outside a scope, and `withTenantScope(…, 'enforce')`
+  narrows a transaction to the tenant role (`rls-enforcement.test.ts` proves it binds).
+  `TENANT_SCOPE_MODE=enforce` waits on the spike in `docs/RLS.md`.
 
-**Known gaps:** the RLS spike has not been run; no read replicas; with `DATABASE_SSL` set, no
+**Known gaps:** the RLS spike has not been run; only the MCP server's tool calls run in a tenant scope (every other path works as the system role on an app login, guarded by the predicates); no audit table for system-role reads; no read replicas; with `DATABASE_SSL` set, no
 client certificates (`sslcert`/`sslkey` are URL-only, with `DATABASE_SSL` unset) and no
 `sslrootcert` — another CA goes through `NODE_EXTRA_CA_CERTS`; `pnpm db:generate`'s scratch
 database (local only) ignores `DATABASE_SSL`; three pools per process (above); the process pool turns named
@@ -669,8 +683,11 @@ downtime is pg-boss's default, untested.
   With no mailer, messages are logged (`[email:dev]`, without the link when `APP_ENV=production`),
   never errors; a provider refusal is reported (`delivered: false`, `error`), and an `email.send`
   job retries it. The magic link is sent inline; other email is `email.send` jobs.
-- **Storage (D23)**: the `StorageService` seam (`c.get('platform').storage`, any S3-compatible
-  store). Keys are `tenants/<tenantId>/<scope>/<uuid>-<name>`. Bytes
+- **Storage (D23)**: the `StorageService` seam, handed out one tenant at a time
+  (`c.get('platform').storage.forTenant(tenantId)`, any S3-compatible store). Keys are
+  `tenants/<tenantId>/<scope>/<uuid>-<name>`, and the handle refuses any other
+  (`StorageTenantMismatchError`) or a tenant id that is not a UUID (`StorageTenantRequiredError`)
+  before a network call. Bytes
   stream through the server (no presigned URLs). `get(key, { range })` reads `{ start, end? }`
   (end inclusive) or `{ suffix }` and answers `range: { start, end, total }` — what a `206`'s
   `Content-Range` needs, `size` staying the whole object's; past the end is
@@ -711,6 +728,13 @@ downtime is pg-boss's default, untested.
   ride in `x-amz-meta-rp-keys` and come back case-preserved. Locally and in tests the store is the
   **Versity S3 Gateway** (Apache-2.0) in the compose files — MinIO's images are no longer published
   for anonymous pulls; `pnpm dev:db:up` starts it and writes the `STORAGE_*` lines into `.env`.
+- **The tenant fence** (`STORAGE_TENANT_FENCE=off|shadow|on`, `FILES_ROLE_ARN`;
+  `createTenantStorage`, `docs/TENANT-ISOLATION.md` § The storage fence): `shadow`/`on` sign each
+  tenant's calls with an STS AssumeRole session of `FILES_ROLE_ARN` tagged `tenant=<id>` (cached
+  until five minutes before expiry, one AssumeRole per tenant at a time), whose policy admits that
+  tenant's prefix only. `on` never falls back (a denied HEAD/GET is not-found); `shadow` serves a
+  denial with the process's credentials and logs `storage.fence_denied`. `on`/`shadow` without
+  `FILES_ROLE_ARN` is a config error. The IAM contract: `docs/DEPLOY.md` § The storage tenant fence.
 
 **Known gaps:** `avatarUrl` is global but the object is tenant-scoped (initials fallback elsewhere);
 re-uploads leave the old object; no listing endpoint, quotas or presigned URLs; unbranded templates.
@@ -1958,12 +1982,13 @@ Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
   that they still may. `memberCan(ctx, { tenantId, userId }, action, subject)` from `@/plugins/api`
   re-reads the membership, role, account block and tenant status now; a public callback calls it
   right after `verifyState`, with the action and subject the start route guarded.
-- **Background feature checks (D34)**: `JobCtx`, `CronCtx` and `PublicCtx` carry `storage()`
-  (`platform.storage`, the same service `RequestCtx.storage()` returns, 503
-  `storage_not_configured` without one; keys under `tenants/<id>/<plugin id>/…` are purged with the
-  tenant) and `features(tenantId)` — the same resolution as `auth.features`, with no user, so a cron that fans
+- **Background feature checks (D34)**: `JobCtx`, `CronCtx` and `PublicCtx` carry
+  `storage(tenantId)` (that tenant's `platform.storage.forTenant`, as `RequestCtx.storage()` is
+  the request's, 503 `storage_not_configured` without one; keys under `tenants/<id>/<plugin id>/…`
+  are purged with the tenant, and a key outside the named tenant is refused) and `features(tenantId)` — the same resolution as `auth.features`, with no user, so a cron that fans
   out across tenants can skip the ones whose flag is off. `AgentCtx` and `ToolCtx` carry the same
-  `storage()` (one `filesStorage(platform)` behind every context's), keyed under the run's tenant.
+  `storage()` (one `filesStorage(platform, tenantId)` behind every context's), bound to the run's
+  tenant.
 - **Starting agent runs from the background**: the same three contexts carry
   `startAgentRun({ agentKey, tenantId, input, idempotencyKey?, concurrencyKey?, triggeredBy? })`
   → `{ runId, status, deduplicated }` — `POST /api/agents/runs` without a request, through the

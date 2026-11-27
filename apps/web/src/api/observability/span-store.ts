@@ -88,7 +88,7 @@ export function databaseSpanStore(db: Database): SpanSink {
 
 /** A sink that opens (and closes) its own client per flush. `null` when no database is configured. */
 export function ownConnectionSpanStore(cfg: AppConfig): SpanSink | null {
-  if (!cfg.PREVIEW_DATABASE_URL && !cfg.DATABASE_URL) return null
+  if (!cfg.PREVIEW_DATABASE_URL && !cfg.DATABASE_URL && !cfg.APP_DATABASE_URL) return null
   return async spans => {
     if (!spans.some(span => asUuid(span.tenantId))) return
     const handle = openDatabase(cfg)

@@ -168,8 +168,8 @@ The server surface: the context family, and the types a plugin must be able to n
     The same nudge to the sockets SUBSCRIBED to `topic` only (`tenantTopic(...)` over a kind the plugin declared in `SharedPlugin.realtimeTopics`). Awaited, like `nudge`.
   - `features(tenantId: string): Promise<readonly string[]>`
     The feature keys one organisation has — what `auth.features` is on a request, resolved here for a tenant named per call. A cron that fans out across every organisation reads this…
-  - `storage(): StorageService`
-    The platform's object store, or a 503 `storage_not_configured` — loud, because a silently absent store loses bytes. The same service `RequestCtx.storage()` returns. Write under…
+  - `storage(tenantId: string): StorageService`
+    ONE tenant's object store (the tenant from the payload, never a key), or a 503 `storage_not_configured` — loud, because a silently absent store loses bytes. Keys outside…
   - `startAgentRun(input: StartAgentRunInput): Promise<StartedAgentRun>`
     Start an agent run for one organisation and return its id — `POST /api/agents/runs` from a job, through the same `enqueueRun`: input validation (400), the exclusive slot, the…
   - `emit: Emit`
@@ -1472,7 +1472,7 @@ nothing in the comparison that can throw.
 @/plugins/api :: member :: BackgroundMethods.nudge :: nudge(tenantId: string, entity: string, id?: string): Promise<void>
 @/plugins/api :: member :: BackgroundMethods.nudgeTopic :: nudgeTopic(tenantId: string, topic: string, entity: string, id?: string): Promise<void>
 @/plugins/api :: member :: BackgroundMethods.features :: features(tenantId: string): Promise<readonly string[]>
-@/plugins/api :: member :: BackgroundMethods.storage :: storage(): StorageService
+@/plugins/api :: member :: BackgroundMethods.storage :: storage(tenantId: string): StorageService
 @/plugins/api :: member :: BackgroundMethods.startAgentRun :: startAgentRun(input: StartAgentRunInput): Promise<StartedAgentRun>
 @/plugins/api :: member :: BackgroundMethods.emit :: emit: Emit
 @/plugins/api :: class :: BadRequestError :: class BadRequestError extends ApiError

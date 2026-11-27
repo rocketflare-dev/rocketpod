@@ -289,7 +289,7 @@ export function makeRequestCtx(options: RequestCtxOptions): FakeRequestCtx {
           'storage_not_configured'
         )
       }
-      return storage
+      return storage.forTenant(options.tenantId)
     },
     // The REAL emitter over the real handle: a test of a route that emits proves the row and the
     // queued deliveries (`stubs(env).queue.messages`), not a recording.

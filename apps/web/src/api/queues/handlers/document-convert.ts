@@ -29,7 +29,7 @@ export async function handleDocumentConvert(
     ctx.logger.warn({ tenantId, documentId }, 'document.convert: document no longer exists')
     return
   }
-  const storage = ctx.platform.storage
+  const storage = ctx.platform.storage?.forTenant(tenantId) ?? null
   if (!storage) {
     throw new Error(
       'document.convert: storage is not configured (set STORAGE_DRIVER=s3 and STORAGE_BUCKET)'

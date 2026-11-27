@@ -187,7 +187,7 @@ Environment variables — `apps/web/.env` locally; deployed, the compose `.env` 
 `APP_ENV` (`development|staging|production`) · `APP_URL` · `TENANCY_MODE` (`multi|single` — same
 schema; single auto-joins the one tenant) · `SIGNUP_MODE` (`open|invite_only|approval`;
 `BOOTSTRAP_ADMIN_EMAILS` seeds the first admin) · `TENANT_SCOPE_MODE` (`off|enforce`, `docs/RLS.md`) ·
-**database**: `DATABASE_URL` (secret), `DATABASE_POOL_MAX` (10), `DATABASE_SSL` (`off|require|verify-full`
+**database**: `DATABASE_URL` (secret; the owner — migrate, and the server unless `APP_DATABASE_URL`), `APP_DATABASE_URL` (secret; a separate non-owner login for web and worker, created and granted by migrate, `docs/TENANT-ISOLATION.md`), `DATABASE_POOL_MAX` (10), `DATABASE_SSL` (`off|require|verify-full`
 for every connection; unset = the URL's `sslmode`; set, a URL with its own is refused —
 `src/db/tls.ts`, `docs/DEPLOY.md`), `DATABASE_LISTEN_URL` (realtime
 LISTEN; direct or session-mode when PgBouncer runs in transaction mode), `DATABASE_DRIVER`
@@ -203,7 +203,8 @@ LISTEN; direct or session-mode when PgBouncer runs in transaction mode), `DATABA
 `APP_VERSION_ID` (the build an agent run records per attempt; Helm sets the image tag) · **storage**: `STORAGE_DRIVER` (`s3`),
 `STORAGE_ENDPOINT`, `STORAGE_REGION`, `STORAGE_BUCKET`, `STORAGE_FORCE_PATH_STYLE`, secrets
 `STORAGE_ACCESS_KEY_ID`/`STORAGE_SECRET_ACCESS_KEY` (a pair or neither — neither = the AWS SDK
-default chain, an ECS task role) · **AI**: secrets `ANTHROPIC_API_KEY`,
+default chain, an ECS task role), `STORAGE_TENANT_FENCE` (`off|shadow|on` — per-tenant STS
+credentials, `docs/TENANT-ISOLATION.md`) + `FILES_ROLE_ARN` (required unless `off`) · **AI**: secrets `ANTHROPIC_API_KEY`,
 `AI_API_KEY` (+ `AI_BASE_URL`, `AI_MODEL` — OpenAI-compatible), `EMBEDDINGS_API_KEY` (+
 `EMBEDDINGS_BASE_URL`, `EMBEDDINGS_MODEL`; 1024 dims), `TYPESAFE_API_KEY` · **email**: `EMAIL_PROVIDER` (`log|resend|ses`;
 unset = resend with a key, else log), `EMAIL_FROM`, secret `RESEND_API_KEY`, `SES_REGION`,
@@ -220,7 +221,7 @@ consulted only for a flag marked `environmentGated`; the rollout state itself li
 `tests/config/packaging.test.ts` holds the chart to it.
 
 Rules (auto-loaded by path): `.claude/rules/api.md` · database.md · ui.md · cli.md · testing.md ·
-code-quality.md · runtime.md · tools.md. Runbooks: `docs/DEPLOY.md` · `docs/RLS.md`
+code-quality.md · runtime.md · tools.md. Runbooks: `docs/DEPLOY.md` · `docs/RLS.md` · `docs/TENANT-ISOLATION.md`
 
 ## Non-Negotiables
 
@@ -236,7 +237,7 @@ code-quality.md · runtime.md · tools.md. Runbooks: `docs/DEPLOY.md` · `docs/R
   it is, the guard in `driver-results.test.ts` bans the rest, and `tests/driver/` proves it (a
   per-request client and the Node process pool) and is never skipped (`apps/web/src/db/CLAUDE.md`)
 - **Tenant isolation**: every domain query filters by `tenantId` from the auth context; every tenant
-  table calls `tenantIsolation()` (RLS inert; `rls-coverage.test.ts` enforces), a plugin's tables
+  table calls `tenantIsolation()` (inert on the owner, binding on the app login; `rls-coverage.test.ts` enforces), a plugin's tables
   included — and a plugin adding a query surface of its own (the analytics plugin's cubes) owns the
   test that proves it scopes, because the kit cannot
 - **Contracts first**: zod schema in `packages/shared/src/` → route `validate()` → UI/CLI parse the same

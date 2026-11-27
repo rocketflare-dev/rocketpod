@@ -96,7 +96,12 @@ describe('loadConfig — DATABASE_SSL', () => {
 
   it('refuses a database URL with its own sslmode while DATABASE_SSL is set, naming the var', () => {
     const tls = 'postgres://u:p@h/db?sslmode=require'
-    for (const key of ['DATABASE_URL', 'PREVIEW_DATABASE_URL', 'DATABASE_LISTEN_URL']) {
+    for (const key of [
+      'DATABASE_URL',
+      'APP_DATABASE_URL',
+      'PREVIEW_DATABASE_URL',
+      'DATABASE_LISTEN_URL',
+    ]) {
       expect(() => loadConfig({ ...base, DATABASE_SSL: 'require', [key]: tls })).toThrow(
         new RegExp(`${key}: ${key} carries sslmode`)
       )
@@ -263,6 +268,32 @@ describe('every connection factory honours DATABASE_SSL on the wire', () => {
         }
       })
     }
+  }
+
+  // With an app login the runtime dials APP_DATABASE_URL, not DATABASE_URL (which points here at a
+  // port nobody answers): DATABASE_SSL must reach that connection too.
+  const RUNTIME = [
+    'the per-request client (openDatabase)',
+    'the process pool (installProcessPool)',
+    'pg-boss (createBoss)',
+    "OpenWorkflow's pool (createNodeRuns)",
+    "realtime's publisher (createNodeRealtime)",
+  ]
+  for (const name of RUNTIME) {
+    it(`${name} on the app login (APP_DATABASE_URL) asks for TLS`, async () => {
+      const fake = await fakePostgres()
+      const open = FACTORIES[name] as (env: FactoryEnv) => Promise<void>
+      try {
+        await open({
+          DATABASE_URL: 'postgres://owner:p@127.0.0.1:1/unused',
+          APP_DATABASE_URL: fake.url,
+          DATABASE_SSL: 'require',
+        })
+        expect(await firstMessage(fake)).toBe('ssl')
+      } finally {
+        await fake.close()
+      }
+    })
   }
 
   it("realtime's LISTEN connection (DATABASE_LISTEN_URL) asks for TLS too", async () => {

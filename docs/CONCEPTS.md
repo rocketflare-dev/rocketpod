@@ -1145,7 +1145,7 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   (jsonb refuses `\u0000`, 22P05). Search is hybrid dense + lexical
   (the lexical half matches ANY query word, ranked by `ts_rank_cd` — `anyTermTsquery` — so a
   sentence's filler words cannot veto it — over `chunks.search_vector`, a STORED generated
-  `to_tsvector(SEARCH_TEXT_CONFIG, heading path + table header + text)` behind a GIN index) with RRF, scoped by `AccessScope`
+  `to_tsvector(SEARCH_TEXT_CONFIG, context + heading path + table header + text)` behind a GIN index) with RRF, scoped by `AccessScope`
   (§1). `searchChunks` takes an optional `documents` corpus (a predicate over `documents`) that is
   ANDed with the reader's visibility, so it narrows a search and can never widen it.
   `document-content.ts` is the one text reader behind both
@@ -1186,6 +1186,31 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   counts what is stale, and a `failed` document has a Retry. An unchanged upsert (same
   `contentHash`, current model) re-embeds nothing. A plain ingest whose text matches a tenant-wide
   document of the same source answers that document (`deduplicated: true`).
+- **Contextual prefixes** (flag `knowledge-context`, default off, rolled out per tenant;
+  `services/ai/contextualize.ts`, after Anthropic's "Contextual Retrieval"): a passage cut out of
+  its document often never says what it is about ("the fee rises to £300 from April"). When an
+  index changed a document's text, `afterTextIndexed` enqueues `document.contextualize` beside
+  fact extraction. The job asks the model on prompt key `knowledge-context` (point it at a cheap
+  one) for one or two sentences that place each passage in its document. The document, or past
+  48,000 characters the window around the passage, is the stable system prompt, so the provider
+  caches it; the passage is the user turn. The answer is cleaned, cut to
+  `SITUATING_CONTEXT_MAX_CHARS` and stored in `chunks.context` (with `context_model`). The passage
+  is then re-embedded with the context ahead of its heading path (`embeddingInput`), and the
+  stored `search_vector` reads `context` first, so keyword search matches it too. The stored text,
+  offsets and citations do not change, and no reader is ever shown a context. Only passages
+  without a context are asked, and each window is written as it finishes, so a retry resumes. A
+  row is written only while the document still holds the text the job read. Re-indexing the same
+  text (a re-embed or a retry) keeps each passage's context, matched by `seq` and exact text; new
+  text starts with none until its own job runs. Every call is a `knowledge.context` usage row and
+  the re-embed a `knowledge.embeddings` one. The daily knowledge cap pauses the job until the next
+  UTC day, as it does extraction (`secondsUntilNextUtcDay`, now in `services/ai/usage.ts`). For
+  documents indexed before the flag was on, `/facets` counts the visible ones with no context on
+  any passage (`withoutContext`, 0 without the flag). The Search page shows that count to a
+  `manage Document` reader only, with "Add context", which calls
+  `POST /api/ai/documents/contextualize` (admin+, flag on, 202 `{ enqueued, remaining }`, at most
+  200 a call) until nothing remains, then polls the count down. A document's text is untrusted:
+  the prompt tells the model to ignore instructions in it, and a context only ever helps retrieval.
+  `pnpm eval retrieval --context` measures the change over a corpus (`docs/EVALS.md`).
 - **Search filters**: `POST /api/ai/documents/search` takes `filters` (`sources`, `contentTypes`,
   `createdFrom` / `createdTo` as inclusive UTC days). They become one predicate over `documents`
   (`documentFilterPredicate`) ANDed with the tenant and visibility predicates, so a filter can only
@@ -1243,10 +1268,22 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   viewer's Facts tab, whose "Show in document" marks the quoted span), every entity with current
   visible facts (`GET /api/knowledge/entities`, the Knowledge page's `?view=facts`), and the facts
   about the entities a query names (`GET /api/knowledge/mentioned`, cards above the Search
-  results). Chat and the run timeline show an entity card per entity for `lookup_facts` and the
+  results). A query names staging entities and also the DOMAIN rows of each registered type
+  (`mentionFinderFor`: the registration's own `mentions`, else `word_similarity` over its label and
+  alias columns, only over rows some non-rejected fact is about), so a row that never had a
+  staging entity is still found by being named; at most 3 entities come back, counted among those
+  with a fact the reader can see. The entity page's Promote is a picker: `GET
+  /api/knowledge/entities/:id/promote-candidates?q=` searches the type's rows (the entity's own
+  name when `q` is empty) by `similarity` or `word_similarity` ≥ 0.3, at most 10, in the reader's
+  scope and behind the same gate as promoting; each row has its own Link button. Every review
+  action and every extraction run nudges `entity.changed { entity: 'knowledge' }` tenant-wide for
+  the pages, and `knowledge-review-count` only to the reviewers whose items moved
+  (`services/knowledge/notify.ts`): the nav badge has its own query-key root,
+  `['knowledge-review-count']`, because every member has it mounted. `access.changed` invalidates
+  both. Chat and the run timeline show an entity card per entity for `lookup_facts` and the
   `search_knowledge` facts block. Extraction is metered
-  (`knowledge.extraction`, beside `knowledge.embeddings` and `knowledge.rerank`), and it pauses
-  until the next UTC day at `KNOWLEDGE_TENANT_DAILY_COST_USD`.
+  (`knowledge.extraction`, beside `knowledge.embeddings`, `knowledge.rerank` and
+  `knowledge.context`), and it pauses until the next UTC day at `KNOWLEDGE_TENANT_DAILY_COST_USD`.
 - **Usage**: one `ai_usage` row per call, costed at write time from the one price table
   (`shared/ai/pricing`, longest prefix wins; an unknown model gets `null` and is counted as
   unpriced). The two `*_compatible` providers are priced only for VENDOR-QUALIFIED ids — Fireworks'
@@ -1351,7 +1388,7 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
 from the Models API; no `effort` setting (thinking is on/off — on means the model's default); Haiku
 5.5's > 100k-token price tier is not modelled (`pricing.ts` uses the ≤ 100k rate); OpenAI tools are
 sent non-strict; an assistant message's `phase` is not replayed to the Responses API;
-no page numbers on chunks (`page` is always null); no platform reranker; knowledge facts have no `private` visibility yet and ship no entity type of their own (a plugin registers them); an entity's name is the first document's wording, so one created from a group-restricted document keeps that name once a tenant-visible document links to it, and aliases stored before 0.40.0 stay on their entity; the decision model is asked about an entity only when trigram or embedding puts a known one nearby, so two names sharing no words stay two entities, and never about a `refs` key; a person's decision survives a re-read only when the value repeats or was judged the same; no Excel or OpenDocument conversion (refused at upload); no document summary or thumbnail (the card is an excerpt);
+no page numbers on chunks (`page` is always null); no platform reranker; knowledge facts have no `private` visibility yet and ship no entity type of their own (a plugin registers them); an entity's name is the first document's wording, so one created from a group-restricted document keeps that name once a tenant-visible document links to it, and aliases stored before 0.40.0 stay on their entity; the decision model is asked about an entity only when trigram or embedding puts a known one nearby, so two names sharing no words stay two entities, and never about a `refs` key; a person's decision survives a re-read only when the value repeats or was judged the same; the Promote picker and a domain row's mention finder scan the type's table (no index serves `word_similarity`), the finder only the rows some fact names, and a type with a custom `resolve`, no `labelColumn` and no `mentions` is found only through `lookup_facts`, never by being named in a search; the badge nudge reaches the reviewers of the facts and entities a write touched, so a reviewer whose possible match only lists an entity that was merged away sees the count move on their next page load; contextual prefixes are not rewritten when the `knowledge-context` prompt or model changes (only new text gets new ones), cost one model call per passage with no batching, and come with no query rewriting (chat's `search_knowledge` query is already model-written); no Excel or OpenDocument conversion (refused at upload); no document summary or thumbnail (the card is an excerpt);
 `charOffset` does not map to PDF pages; no image input in chat or uploads (the `image` block is for callers that build their own turns), and the tracer records image bytes like any other content (redact them yourself, or leave `OBSERVABILITY_CAPTURE_CONTENT` off); no images inside rendered
 Markdown (a model's or document's image is shown as a link, `MarkdownImageLink`); no frontend tools
 in chat and no human approval in chat (a tool with an approval gate is available to agent runs
@@ -1491,8 +1528,10 @@ a second copy of the contract (D26). `api.ts` is the only `fetch` site. Config l
 case to `apps/evals/datasets/` (D33, both admin+). `agents list`, `agents run <key> --input x.json |
 --batch x.jsonl` (chunks of 100, failed lines reported, exit 1) and `agents runs list [--batch id] [--parent id]
 [--since iso] [--agent-version n]` start and follow runs (D39); `agents inspect <runId>` prints the
-run's timeline — versions, spend against budget, turns, effects, decisions, asks, children (admin). Exit codes: 0 ok · 1 error · 2 not logged in ·
-3 forbidden.
+run's timeline — versions, spend against budget, turns, effects, decisions, asks, children (admin).
+`docs list|search|ingest|retry` reach the knowledge base, and `facts review` / `facts
+confirm|reject|prefer <factId>` the knowledge-facts review items (D43). Exit codes: 0 ok · 1 error ·
+2 not logged in · 3 forbidden.
 No command prints a full key. Human output shows server text as inert text: `renderTable` cells,
 free-text lines and the logger drop terminal control characters, and colour is applied after that
 (a column's `style`); `--json` is unchanged. Plugins register top-level commands named after their id.
@@ -1500,7 +1539,9 @@ Detail: `.claude/rules/cli.md`.
 
 **Known gaps:** no device-code flow; one profile at a time; `logout` does not revoke the key; no
 shell completion; not yet published to npm (`rocketpod` / `@rocketpod/cli` are the intended names;
-no publish workflow exists).
+no publish workflow exists); `docs ingest` takes a text file only (a PDF or Word file goes through
+the web upload, which converts it) and always shares it tenant-wide; `facts review` lists possible
+matches, but they are settled in the web app (no merge or promote command).
 
 ## 12. Shared package
 

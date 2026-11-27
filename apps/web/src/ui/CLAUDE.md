@@ -54,7 +54,8 @@ Built to `dist/ui`, served in production by the Node server (`src/node/assets.ts
   `useCanSettle`), `PossibleMatch`, `ReviewItem`, `EntityFactsCard` (the chat card).
   Markdown-free, NOT in the eager barrel: only lazy pages (documents, knowledge, chat via
   `ChatBubble`) import them. Hooks: `useKnowledge.ts`, all under `['knowledge']`, which the server
-  nudges.
+  nudges — except the nav badge's count, `['knowledge-review-count']`, nudged to the affected
+  reviewers only.
 - `hooks/` — `useAuth` (session, `status`, `selectTenant`, `logout`, `applySession`,
   `useTenancyMode`), `usePermissions` (`can/cannot/isOwnerLevel/isAdminLevel/isGlobalAdmin`),
   `useNavGuard` (the ONE place nav and route guards are decided), `useFeature` (in

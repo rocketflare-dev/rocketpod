@@ -15,6 +15,8 @@
  * embeddings; `POST /:id/retry` (owner or `manage Document`) re-enqueues a failed document.
  */
 import {
+  CONTEXTUALIZE_BACKFILL_MAX,
+  type ContextualizeBackfillResponse,
   type DocumentFacets,
   type DocumentsHealth,
   documentContentQuerySchema,
@@ -28,11 +30,13 @@ import {
   searchRequestSchema,
   uploadDocumentFieldsSchema,
 } from '@rocketpod/shared/ai/embeddings'
+import { ERROR_CODES } from '@rocketpod/shared/errors'
 import { MAX_UPLOAD_BYTES } from '@rocketpod/shared/files'
 import { type GroupRef, setVisibilityRequestSchema } from '@rocketpod/shared/groups'
 import { paginationQuerySchema } from '@rocketpod/shared/pagination'
 import { and, count, desc, eq, isNotNull, max, min } from 'drizzle-orm'
 import { type DocumentRow, documents, files } from '../../db/schema'
+import { hasFeature } from '../../permissions/features'
 import { uploadBodyLimit } from '../middleware/body-limit'
 import { can, guardPermission } from '../middleware/permissions'
 import {
@@ -43,6 +47,11 @@ import {
   visibleDocuments,
 } from '../services/access'
 import { recordActivity } from '../services/activity'
+import {
+  countVisibleWithoutContext,
+  enqueueContextualizeBackfill,
+  KNOWLEDGE_CONTEXT_FEATURE,
+} from '../services/ai/contextualize'
 import {
   listDocumentPassages,
   readDocumentCard,
@@ -63,6 +72,7 @@ import {
 } from '../services/ai/reindex'
 import { resolveEmbeddingsModel } from '../services/ai/resolve'
 import { searchKnowledgeChunks } from '../services/ai/retrieval'
+import { requireJobsQueue } from '../services/jobs'
 import { deleteDocumentsWithFacts } from '../services/knowledge/remove'
 import { nudge, realtimeEvent } from '../services/realtime'
 import { deleteStoredFile, type StorageService } from '../services/storage'
@@ -360,7 +370,8 @@ aiDocumentsRouter.post('/search', validate('json', searchRequestSchema), async c
  * What the Search page's filters can offer: the distinct sources and content types of the indexed
  * documents THIS reader may see (tenant AND `visibleDocuments`, like every read here), with
  * counts, the range of their dates, and how many of them are embedded by another model than
- * today's (`staleEmbeddings` — `/health` is admin-only, this is any reader's). Never lists a value
+ * today's (`staleEmbeddings` — `/health` is admin-only, this is any reader's), and how many have no
+ * contextual prefix yet (`withoutContext`, 0 without the `knowledge-context` flag). Never lists a value
  * only an invisible document carries.
  */
 aiDocumentsRouter.get('/facets', async c => {
@@ -377,7 +388,11 @@ aiDocumentsRouter.get('/facets', async c => {
     const model = await resolveEmbeddingsModel(db, cfg, c.get('platform'), tenantId)
     return model ? countVisibleStaleDocuments(db, scope, model) : 0
   }
-  const [sources, contentTypes, [span], staleEmbeddings] = await Promise.all([
+  const withoutContext = () =>
+    hasFeature(auth.features, KNOWLEDGE_CONTEXT_FEATURE)
+      ? countVisibleWithoutContext(db, scope)
+      : Promise.resolve(0)
+  const [sources, contentTypes, [span], staleEmbeddings, missingContext] = await Promise.all([
     db
       .select({ value: documents.source, count: n })
       .from(documents)
@@ -395,6 +410,7 @@ aiDocumentsRouter.get('/facets', async c => {
       .from(documents)
       .where(where),
     staleCount(),
+    withoutContext(),
   ])
   const body: DocumentFacets = {
     total: span?.total ?? 0,
@@ -403,6 +419,7 @@ aiDocumentsRouter.get('/facets', async c => {
     oldest: span?.oldest ?? null,
     newest: span?.newest ?? null,
     staleEmbeddings,
+    withoutContext: missingContext,
   }
   return c.json(body)
 })
@@ -449,6 +466,45 @@ aiDocumentsRouter.post('/reembed', async c => {
     staleChunks: health.staleChunks,
     enqueued,
   }
+  return c.json(body, 202)
+})
+
+// ---- POST /api/ai/documents/contextualize ---------------------------------------------------------
+
+/**
+ * Backfill contextual prefixes (`knowledge-context` flag): one `document.contextualize` job per
+ * indexed document that still has a passage without one, oldest first, at most
+ * `CONTEXTUALIZE_BACKFILL_MAX` per call (202 with `enqueued` and `remaining` — call again until
+ * `remaining` is 0). Flag off → 404 `feature_disabled`, as the mount gate answers; no jobs queue
+ * → `JobsQueueNotConfiguredError` before anything is read.
+ */
+aiDocumentsRouter.post('/contextualize', async c => {
+  const { db, tenantId, user, auth, defer } = withAuthAndDb(c)
+  guardPermission(c, 'manage', 'Document')
+  if (!hasFeature(auth.features, KNOWLEDGE_CONTEXT_FEATURE)) {
+    throw new NotFoundError(
+      `Not found: ${new URL(c.req.url).pathname}`,
+      ERROR_CODES.featureDisabled
+    )
+  }
+  const jobs = requireJobsQueue(c.get('platform').jobs)
+  const body: ContextualizeBackfillResponse = await enqueueContextualizeBackfill(
+    db,
+    jobs,
+    tenantId,
+    CONTEXTUALIZE_BACKFILL_MAX
+  )
+  if (body.enqueued > 0)
+    defer(() =>
+      recordActivity(db, {
+        tenantId,
+        userId: user.id,
+        type: 'document.contextualize_requested',
+        subjectType: 'Document',
+        subjectId: null,
+        metadata: { enqueued: body.enqueued, remaining: body.remaining },
+      })
+    )
   return c.json(body, 202)
 })
 

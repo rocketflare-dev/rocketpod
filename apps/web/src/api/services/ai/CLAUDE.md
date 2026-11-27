@@ -19,7 +19,8 @@ through `agent-loop.ts`.
 | `reindex.ts` | Upkeep: stale = an `indexed` document with text and a chunk whose `embedding_model` is distinct from `resolveEmbeddingsModel` (the resolved model WITHOUT a client or a decrypt — use it, never `resolveEmbeddings`, just to compare). `documentsHealth`, `reembedBatch` (`indexDocument(…, { markFailedOnError: false })` — a failed re-embed must not cost a document the lexical search it still has), `reembedAfterEmbeddingsChange` (called by `routes/ai-config.ts` after the commit, never throws — the config write stands without a queue) and `retryFailedDocument` (queue proved first, CAS `failed → pending`, reverted if the send throws) |
 | `errors.ts` | `AiError { code: auth \| rate_limit \| invalid_request \| unavailable \| unknown }`, `normalizeAiError`, `describeAiError`, `redactSecrets`, `AiNotConfiguredError` |
 | `prompt-version.ts` | `promptVersion(key, text)` = `<key>@<first 12 hex of sha256(text)>`, the ONE prompt hash: the eval targets record it, baselines carry it (`promptVersions`), the gate's coverage check (`tests/config/eval-coverage.test.ts`) compares it. Callers hash the TEMPLATE (override or default), never the interpolated text |
-| `usage.ts` | `recordUsage` → `ai_usage` (cost frozen from `@rocketpod/shared/ai/pricing` unless the caller passes one), `tapUsage(client, cb)`, `summarizeUsage` (prices rows with no stored cost from the same table; `unpricedCalls` counts what has no price at all). Knowledge metering: `embedCounted` (provider tokens from `embedWithUsage`, else `estimateTokens`), `recordKnowledgeUsage` (`knowledge.embeddings` / `knowledge.rerank` / `knowledge.extraction` rows; NEVER throws — logged and swallowed), `knowledgeSpendToday` + `knowledgeExtractionAllowed` (`KNOWLEDGE_TENANT_DAILY_COST_USD`, UTC day; only extraction pauses) |
+| `usage.ts` | `recordUsage` → `ai_usage` (cost frozen from `@rocketpod/shared/ai/pricing` unless the caller passes one), `tapUsage(client, cb)`, `summarizeUsage` (prices rows with no stored cost from the same table; `unpricedCalls` counts what has no price at all). Knowledge metering: `embedCounted` (provider tokens from `embedWithUsage`, else `estimateTokens`), `recordKnowledgeUsage` (`knowledge.embeddings` / `knowledge.rerank` / `knowledge.extraction` / `knowledge.context` rows; NEVER throws — logged and swallowed), `knowledgeSpendToday` + `knowledgeExtractionAllowed` (`KNOWLEDGE_TENANT_DAILY_COST_USD`, UTC day; only extraction and contextual prefixes pause), `secondsUntilNextUtcDay` (the pause) |
+| `contextualize.ts` | Contextual prefixes (`knowledge-context` flag): `contextualizeDocument` — the `document.contextualize` job body (gates → one call per passage still without a context, prompt key `knowledge-context`, the document or its 48 000-char window as the STABLE system prompt so it caches, the passage as the user turn → `cleanContext` → re-embed with `storedEmbeddingInput` → write per window, guarded on the content hash and the passage text); `enqueueContextualize` (from `afterTextIndexed`, never throws); `enqueueContextualizeBackfill` (the route's) |
 | `connection-test.ts` | `testConfig` — 10-token completion / one embedding / one `noul` question (decisions) / two short documents reranked (rerank), same builders as the resolver, never throws a provider error |
 | `deterministic-embedding.ts` | `deterministicEmbedding` (hashed bag of words, `EMBEDDING_DIM` wide, L2-normalised, never zero) + `DETERMINISTIC_EMBEDDING_MODEL = 'seed:deterministic'` — for `pnpm seed --demo` and the test `RecordingAi` stub ONLY; nothing on the request path imports it, so the server bundle (`build:server`) never carries it (`grep -rn deterministic-embedding apps/web/src` must list only this file) |
 
@@ -115,17 +116,19 @@ Rules:
   at a heading — whole sections that fit a window packed together, only a longer one cut inside —
   with the shared `headingPath`, GFM tables split between rows with `tableHeader` on the later
   chunks — bounded to a quarter of the window, so a wide header is cut, never repeated whole;
-  `embeddingInput` prefixes path + header (at most `EMBEDDING_CONTEXT_MAX_CHARS`) to what is
-  EMBEDDED, never to the stored text; line classification is a linear scan — never add a
+  `embeddingInput` prefixes the situating context (`chunks.context`, at most
+  `SITUATING_CONTEXT_MAX_CHARS`) then path + header (at most `EMBEDDING_CONTEXT_MAX_CHARS`) to what
+  is EMBEDDED, never to the stored text — and `indexDocument` carries a passage's context over a
+  re-index of the SAME text (same hash, `seq` and text), never onto new text; line classification is a linear scan — never add a
   backtracking regex on the upload path;
   text is normalised — `normalizeDocumentText`, control chars + CRLF — before it is stored or
   chunked). Inline indexing is ONE `ingest document` span (`IngestDeps.tracer` — the route's
   `withAuth` tracer), so its `traceEmbed` batches nest; the span's output is the outcome, never
   the row (it holds the text). A document records its `origin` (`upload`; `integration` from
   `@/plugins/api` `ingestDocument`) and an optional `reviewer_user_id` — the trust and the
-  reviewer of the facts read from it. `afterTextIndexed` is the one place `knowledge.extract` is
-  enqueued, and only when the text changed (never on `unchanged` or a dedupe); it reaches
-  `../knowledge/enqueue` through a LAZY import, because `@/plugins/api` loads this file and the
+  reviewer of the facts read from it. `afterTextIndexed` is the one place `knowledge.extract` and
+  `document.contextualize` are enqueued, and only when the text changed (never on `unchanged` or a
+  dedupe); it reaches `../knowledge/enqueue` and `./contextualize` through a LAZY import, because `@/plugins/api` loads this file and the
   knowledge registry reads the plugin barrel (`tests/config/plugin-api-load-order.test.ts`); `ingest.ts` — `ingestText(db, cfg, env, input, { jobs })` (JSON text)
   and `ingestFile(db, cfg, env, input, { jobs, storage })` (multipart — original to object storage
   as a `files` row scope `documents`, `fileId` on the document). Text-like types index inline ≤ 50

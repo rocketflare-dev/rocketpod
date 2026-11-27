@@ -179,7 +179,8 @@ server sends the browser to `/cli/confirm`, whose `POST /auth/cli/confirm` mints
 `cli:<host>` → `?key=&tenant_id=&tenant_name=&state=` (the CLI checks its per-login `state`); stored `0600` in
 `~/.rocketpod/config.json` (`ROCKETPOD_API_KEY`/`ROCKETPOD_URL` for CI). Also `logout|whoami|status|config`,
 `members|keys|activity|groups|features list --json`, `groups members`, `traces list|show`,
-`feedback list`, `evals promote`, `agents list|run <key> --input|--batch|runs list|inspect <runId>` (D39; `inspect` is the run timeline) (`.claude/rules/cli.md`)
+`feedback list`, `evals promote`, `agents list|run <key> --input|--batch|runs list|inspect <runId>` (D39; `inspect` is the run timeline),
+`docs list|search|ingest|retry`, `facts review|confirm|reject|prefer` (`.claude/rules/cli.md`)
 
 ## Config model
 

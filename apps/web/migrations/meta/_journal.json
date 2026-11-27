@@ -134,6 +134,13 @@
       "when": 1795763471284,
       "tag": "0018_kit-system-role",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1795769974012,
+      "tag": "0019_kit-knowledge-context",
+      "breakpoints": true
     }
   ]
 }

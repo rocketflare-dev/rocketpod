@@ -47,6 +47,10 @@ the same commit, so the next port starts from it.
 | A body cap justified by "the Worker holds the body in memory" | The Node process holds a buffered body, and the ingress has its own cap: name ingress-nginx's `proxy-body-size` (Helm values comment, `docs/DEPLOY.md`) |
 | `mapVirtualHost` on the test `ExecutionContext` | Not needed: no wrangler types |
 | "A Workflows step retry keeps `run.attempt`" (0.45.0's model-call ids) | The same on OpenWorkflow: a step retry re-runs `execute#N` with `run.attempt` unchanged, so an id per `executeRun` invocation still holds |
+| `realtime?.env.NOTIFICATIONS_HUB` as a "is there anyone to nudge?" guard (0.45.0's knowledge nudges) | `realtime?.hub` (`Realtime` is `{ defer, hub }`) |
+| `env.JOBS_QUEUE` in a test, a `JobContext` of `{ db, env, config, logger }` | `env.jobs`; the context adds `platform: resolvePlatform(env)` |
+| A migration regenerating `chunks.search_vector` over a NEW column (0.45.0's `context`) | drizzle-kit writes the new column's `ADD COLUMN` after the `search_vector` that reads it, and drops `chunks_search_vector_idx` with the column: move the `ADD COLUMN`s first and add the `CREATE INDEX … USING gin` by hand; the vector stays STORED |
+| A new prompt in `CORE_PROMPT_REGISTRY` | An entry in `packages/shared/src/ai/eval-coverage.ts` (Rocketflare has no coverage contract): a suite, or an `exempt` with its reason |
 
 ## Test harness mappings
 

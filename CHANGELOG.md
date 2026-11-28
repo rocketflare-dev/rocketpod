@@ -6,6 +6,11 @@ copy of the kit forward without recreating anything its owner deleted.
 
 If you are running a copy: `pnpm kit:upgrade` tells you which of these you are missing.
 
+## 0.46.1 — 2026-11-28
+
+Migrate accepts the tenant role itself (`<snake>_app`) as `APP_DATABASE_URL`'s login, for platforms that provision the login under that name, and `pnpm kit:release` no longer refuses a version file that already carries the release's version.
+[Porting note](docs/upgrades/0.46.1.md).
+
 ## 0.46.0 — 2026-11-28
 
 Rocketpod catches up with Rocketflare 0.46.0: uploads go through `/api/uploads` (reserve, `PUT`, confirm), straight to S3 on a presigned URL when `STORAGE_DIRECT_UPLOADS` is on, and plugins gain `uploadTargets`.

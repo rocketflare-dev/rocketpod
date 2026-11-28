@@ -6,6 +6,11 @@ copy of the kit forward without recreating anything its owner deleted.
 
 If you are running a copy: `pnpm kit:upgrade` tells you which of these you are missing.
 
+## 0.46.0 — 2026-11-28
+
+Rocketpod catches up with Rocketflare 0.46.0: uploads go through `/api/uploads` (reserve, `PUT`, confirm), straight to S3 on a presigned URL when `STORAGE_DIRECT_UPLOADS` is on, and plugins gain `uploadTargets`.
+[Porting note](docs/upgrades/0.46.0.md).
+
 ## 0.45.1 — 2026-11-27
 
 Rocketpod catches up with Rocketflare 0.45.0: run timelines show model calls, knowledge gains a Promote picker, contextual prefixes and CLI `docs`/`facts`, `plugin check` parses source, a guard and a UI lint steer agents, and Home and sign-in are redesigned.

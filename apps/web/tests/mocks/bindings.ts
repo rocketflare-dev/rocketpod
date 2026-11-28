@@ -21,6 +21,8 @@ import type {
   JobsQueue,
   Locks,
   Platform,
+  PresignedPut,
+  PresignPutOptions,
   PutOptions,
   RateLimitDecision,
   RateLimiter,
@@ -33,7 +35,11 @@ import type {
   StoredObjectMeta,
   StoredRange,
 } from '@/platform/types'
-import { RunInstanceNotFoundError, StorageRangeNotSatisfiableError } from '@/platform/types'
+import {
+  RunInstanceNotFoundError,
+  StorageObjectExistsError,
+  StorageRangeNotSatisfiableError,
+} from '@/platform/types'
 
 // ---- Key/value store ----------------------------------------------------------------------
 
@@ -236,8 +242,30 @@ export class MemoryStorage implements StorageService {
       metadata: options?.metadata ?? {},
       uploaded: new Date(),
     }
+    // Checked at the write itself, after the body is in, as S3 checks `If-None-Match: *`: two
+    // writes racing on "only if absent" cannot both land.
+    if (options?.ifAbsent && this.objects.has(key)) throw new StorageObjectExistsError(key)
     this.objects.set(key, entry)
     return this.meta(key, entry)
+  }
+
+  /** Every `presignPut` asked of this store, in order. */
+  readonly presigned: { key: string; options: PresignPutOptions }[] = []
+
+  /**
+   * A URL no request can reach (`memory-storage.test`): enough for a test that the flow signs
+   * through the storage handle. A `PUT` against a real presigned URL is the S3 gateway's
+   * (`tests/api/uploads-direct.test.ts`).
+   */
+  async presignPut(key: string, options: PresignPutOptions): Promise<PresignedPut> {
+    this.presigned.push({ key, options })
+    const url = new URL(`https://memory-storage.test/${key}`)
+    url.searchParams.set('X-Test-Expires', String(options.expiresInSeconds))
+    return {
+      url: url.toString(),
+      headers: { 'Content-Type': options.contentType, 'If-None-Match': '*' },
+      expiresAt: new Date(Date.now() + options.expiresInSeconds * 1000),
+    }
   }
 
   async putStream(

@@ -1,8 +1,8 @@
 /**
  * Embeddings / retrieval contracts: the `documents` row the API returns (never the raw
  * text or vectors), the text-ingest request, and the hybrid search request/response. Retrieval
- * ships WITH this ingest path so `searchChunks` is never dead code. File uploads
- * (`POST /upload`, multipart) share the same `documents` row: the allowlist below is what the UI's
+ * ships WITH this ingest path so `searchChunks` is never dead code. File uploads (the
+ * `documents` target of `/api/uploads`) share the same `documents` row: the allowlist below is what the UI's
  * `<input accept>` offers and what the route answers 415 to.
  */
 import { z } from 'zod'
@@ -261,7 +261,7 @@ export type SearchResponse = z.infer<typeof searchResponseSchema>
 // ---- File upload -----------------------------------------------------------------------------
 
 /**
- * What `POST /api/ai/documents/upload` accepts. `text` types are decoded as UTF-8 and indexed like
+ * What the `documents` upload target accepts. `text` types are decoded as UTF-8 and indexed like
  * pasted text; `convert` types go through the platform's `DocumentConverter` in the
  * `document.convert` job, and the upload is refused (415) when the converter does not declare the
  * type. Spreadsheets, OpenDocument and images are absent because the Node converter cannot read
@@ -349,13 +349,12 @@ export function documentTypeLabel(contentType: string): string {
   return isDocumentUploadMimeType(base) ? DOCUMENT_UPLOAD_TYPES[base].label : 'Text'
 }
 
-/** The text fields of the multipart upload body (`file` is the third part, validated by the route). */
+/** The `fields` of a `documents` upload (`POST /api/uploads`), checked before the URL is signed. */
 export const uploadDocumentFieldsSchema = z.object({
   /** Defaults to the filename without its extension. */
   title: z.string().trim().min(1).max(200).optional(),
   /** Defaults to the sanitised filename. */
   source: z.string().trim().min(1).max(200).optional(),
-  /** A multipart form carries these as text parts; `groupIds` is a JSON array of uuids. */
   visibility: resourceVisibilitySchema.optional(),
   groupIds: z.array(z.string().uuid()).max(200).optional(),
 })

@@ -208,7 +208,9 @@ LISTEN; direct or session-mode when PgBouncer runs in transaction mode), `DATABA
 `AGENT_TENANT_DAILY_COST_USD` (D39 budgets, unset = no cap; `meta.budget` overrides per agent) ·
 `AGENT_TRANSCRIPT_RETENTION_DAYS` (30 — days a settled run keeps its tool-loop journal, `agent_run_turns`) ·
 `APP_VERSION_ID` (the build an agent run records per attempt; Helm sets the image tag) · **storage**: `STORAGE_DRIVER` (`s3`),
-`STORAGE_ENDPOINT`, `STORAGE_REGION`, `STORAGE_BUCKET`, `STORAGE_FORCE_PATH_STYLE`, secrets
+`STORAGE_ENDPOINT`, `STORAGE_REGION`, `STORAGE_BUCKET`, `STORAGE_FORCE_PATH_STYLE`,
+`STORAGE_DIRECT_UPLOADS` (`false` — `true` hands the browser a presigned S3 `PUT` instead of the
+server's own upload URL; `docs/DEPLOY.md` § Direct uploads), secrets
 `STORAGE_ACCESS_KEY_ID`/`STORAGE_SECRET_ACCESS_KEY` (a pair or neither — neither = the AWS SDK
 default chain, an ECS task role), `STORAGE_TENANT_FENCE` (`off|shadow|on` — per-tenant STS
 credentials, `docs/TENANT-ISOLATION.md`) + `FILES_ROLE_ARN` (required unless `off`) · **AI**: secrets `ANTHROPIC_API_KEY`,

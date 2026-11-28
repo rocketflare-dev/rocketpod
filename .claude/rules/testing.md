@@ -350,10 +350,11 @@ would otherwise enter the plugin import cycle from the plugin's side and leave a
   missing one — `access-visibility.test.ts` is the kit's).
 - Producers: assert on `stubs(env).queue.messages` (RecordingQueue) — `body.type`, `body.payload` —
   and that the route did NOT do the work itself (no `[email:dev]` line, no provider fetch)
-- Uploads: `new FormData()` + `form.append('file', new File([bytes], 'a.png', { type: 'image/png' }))`
-  as the request body (no `Content-Type` header — the runtime sets the boundary); assert the row, the
-  object in `stubs(env).files.objects`, and the 413/415 envelopes (`files.test.ts`,
-  `document-upload.test.ts`)
+- Uploads: `directUpload(env, cookie, target, file, fields?)` (`tests/helpers/uploads.ts`) runs
+  presign → the server's PUT URL → confirm; `createUploadRequest` / `putUpload` /
+  `confirmUploadRequest` are the steps. The shared flow (mismatch, expiry, 404s, prune, key rule,
+  write-once) is `uploads.test.ts`; presigned PUTs on the S3 gateway, `uploads-direct.test.ts`. A
+  UI test uses `uploadRoutes` / `uploadCalls` (`tests/ui/helpers/uploads.ts`)
 
 ## What every API test file includes
 

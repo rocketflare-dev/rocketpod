@@ -12,7 +12,13 @@
  * - the ETag is always quoted and HTTP-ready;
  * - a listing carries no content type or custom metadata (`ListObjectsV2` returns neither), so
  *   `contentType` is the default and `metadata` is `{}` on a listed object;
- * - downloads stream through the server (no presigned URLs);
+ * - downloads stream through the server (no presigned GETs); an upload may be a presigned `PUT`
+ *   (`presignPut`, `@aws-sdk/s3-request-presigner`, pinned to `client-s3`'s version) with
+ *   `Content-Type`, `Content-Length` and `If-None-Match: *` in `X-Amz-SignedHeaders`, so the store
+ *   refuses another type, another length or a second write;
+ * - `ifAbsent` is `If-None-Match: *` on the PutObject (or the CompleteMultipartUpload) itself, and
+ *   S3's 412 `PreconditionFailed` (or 409 `ConditionalRequestConflict`, a concurrent write) is
+ *   `StorageObjectExistsError`;
  * - a ranged `get` is a `Range` header on `GetObject`, its `Content-Range` parsed back into
  *   `range`, and S3's 416 (`InvalidRange`) is `StorageRangeNotSatisfiableError`; a store that
  *   ignored the `Range` (answered 200 from byte 0) is an error, never a silently wrong body;
@@ -36,10 +42,14 @@ import {
 } from '@aws-sdk/client-s3'
 import { AssumeRoleCommand, STSClient } from '@aws-sdk/client-sts'
 import { Upload } from '@aws-sdk/lib-storage'
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import type { AppConfig } from '../config'
 import { fenceToTenant, requireTenantId, tenantStorageOver } from '../platform/tenant-storage'
 import {
+  type PresignedPut,
+  type PresignPutOptions,
   type StorageBody,
+  StorageObjectExistsError,
   type StorageRange,
   StorageRangeNotSatisfiableError,
   type StorageService,
@@ -189,10 +199,64 @@ function parseUnsatisfiedTotal(err: unknown): number | undefined {
   return m ? Number(m[1]) : undefined
 }
 
+/** The answer to a conditional write that found an object (or lost a race to one). */
+function isPreconditionFailed(err: unknown): boolean {
+  const e = err as { name?: string; $metadata?: { httpStatusCode?: number } }
+  return (
+    e?.name === 'PreconditionFailed' ||
+    e?.name === 'ConditionalRequestConflict' ||
+    e?.$metadata?.httpStatusCode === 412
+  )
+}
+
+/** The headers a presigned PUT signs (`host` is always signed). */
+const PRESIGNED_PUT_HEADERS = new Set(['content-type', 'content-length', 'if-none-match'])
+
 /** `NoSuchKey` (GET) and the bare 404 a HEAD answers both mean "no such object". */
 function isNotFound(err: unknown): boolean {
   const e = err as { name?: string; $metadata?: { httpStatusCode?: number } }
   return e?.name === 'NoSuchKey' || e?.name === 'NotFound' || e?.$metadata?.httpStatusCode === 404
+}
+
+/**
+ * A presigned PutObject with the type, the length and `If-None-Match: *` in the signature. A URL
+ * is only as good as the credentials that signed it: one signed with temporary credentials (an
+ * ECS task role, an STS session) stops working when they expire, so `expiresAt` is the earlier of
+ * the two, and credentials that would expire first are refreshed once before signing.
+ */
+async function presignPut(
+  client: S3Client,
+  Bucket: string,
+  key: string,
+  options: PresignPutOptions
+): Promise<PresignedPut> {
+  const signedAt = Date.now()
+  const wanted = signedAt + options.expiresInSeconds * 1000
+  const provider = client.config.credentials as (o?: {
+    forceRefresh?: boolean
+  }) => Promise<{ expiration?: Date }>
+  let identity = await provider()
+  if (identity.expiration && identity.expiration.getTime() < wanted) {
+    identity = await provider({ forceRefresh: true })
+  }
+  const headers = { 'Content-Type': options.contentType, 'If-None-Match': '*' }
+  const url = await getSignedUrl(
+    client,
+    new PutObjectCommand({
+      Bucket,
+      Key: key,
+      ContentType: options.contentType,
+      ContentLength: options.contentLength,
+      IfNoneMatch: '*',
+    }),
+    {
+      expiresIn: options.expiresInSeconds,
+      signableHeaders: PRESIGNED_PUT_HEADERS,
+      signingDate: new Date(signedAt),
+    }
+  )
+  const until = identity.expiration ? Math.min(wanted, identity.expiration.getTime()) : wanted
+  return { url, headers, expiresAt: new Date(until) }
 }
 
 export function createS3Storage(
@@ -246,16 +310,22 @@ export function createS3Storage(
   return {
     async put(key, body, options) {
       const bytes = await toBytes(body)
-      const out = await client.send(
-        new PutObjectCommand({
-          Bucket,
-          Key: key,
-          Body: bytes,
-          ContentLength: bytes.byteLength,
-          ContentType: options.contentType,
-          Metadata: toS3Metadata(options.metadata),
+      const out = await client
+        .send(
+          new PutObjectCommand({
+            Bucket,
+            Key: key,
+            Body: bytes,
+            ContentLength: bytes.byteLength,
+            ContentType: options.contentType,
+            Metadata: toS3Metadata(options.metadata),
+            ...(options.ifAbsent ? { IfNoneMatch: '*' } : {}),
+          })
+        )
+        .catch(err => {
+          if (options.ifAbsent && isPreconditionFailed(err)) throw new StorageObjectExistsError(key)
+          throw err
         })
-      )
       return {
         key,
         size: bytes.byteLength,
@@ -285,12 +355,20 @@ export function createS3Storage(
           Body: counted,
           ContentType: options.contentType,
           Metadata: toS3Metadata(options.metadata),
+          // lib-storage spreads the params into the PutObject (one part) or the
+          // CompleteMultipartUpload (several), where S3 checks the condition.
+          ...(options.ifAbsent ? { IfNoneMatch: '*' } : {}),
         },
         partSize: PART_SIZE,
         queueSize: UPLOAD_QUEUE,
         // The default, stated: a failed upload aborts, so no parts are left billed and invisible.
         leavePartsOnError: false,
-      }).done()
+      })
+        .done()
+        .catch(err => {
+          if (options.ifAbsent && isPreconditionFailed(err)) throw new StorageObjectExistsError(key)
+          throw err
+        })
       return {
         key,
         size,
@@ -359,6 +437,9 @@ export function createS3Storage(
       }
     },
     listPage,
+    async presignPut(key, options) {
+      return presignPut(client, Bucket, key, options)
+    },
     async list(prefix) {
       const all: StoredObjectMeta[] = []
       let cursor: string | undefined
@@ -441,7 +522,8 @@ export async function assumeTenantRole(
 }
 
 /**
- * Each tenant's credentials, kept until `TENANT_CREDENTIALS_MARGIN_MS` before they expire;
+ * Each tenant's credentials, kept until `TENANT_CREDENTIALS_MARGIN_MS` before they expire (or
+ * `validForMs`, for a caller that needs them to last longer — a presigned URL signed with them);
  * concurrent asks for one tenant share one AssumeRole. `forget(tenantId)` drops them (an
  * `ExpiredToken` answer, an evicted client).
  */
@@ -452,9 +534,9 @@ export function tenantCredentialCache(
   const held = new Map<string, TenantCredentials>()
   const pending = new Map<string, Promise<TenantCredentials>>()
   return {
-    get(tenantId: string): Promise<TenantCredentials> {
+    get(tenantId: string, validForMs = TENANT_CREDENTIALS_MARGIN_MS): Promise<TenantCredentials> {
       const cached = held.get(tenantId)
-      if (cached && cached.expiration.getTime() - TENANT_CREDENTIALS_MARGIN_MS > now()) {
+      if (cached && cached.expiration.getTime() - validForMs > now()) {
         return Promise.resolve(cached)
       }
       held.delete(tenantId)
@@ -516,6 +598,9 @@ function isDenied(err: unknown): boolean {
  *   the key is missing. A `putStream` body can be sent once, so `shadow` writes it with the
  *   process's credentials and then HEADs it over the tenant's session, logging a denial there.
  * - `ExpiredToken` drops the tenant's credentials and retries once.
+ * - `presignPut` under `on` signs with the tenant's session, renewed first when it would expire
+ *   before the URL (`TENANT_SESSION_SECONDS` is an hour, a URL ten minutes); under `shadow` with the
+ *   process's credentials.
  */
 export function createTenantStorage(
   cfg: S3StorageConfig,
@@ -644,6 +729,22 @@ export function createTenantStorage(
       deleteMany: keys => run('deleteMany', keys[0] ?? '', s => s.deleteMany(keys)),
       listPage: (prefix, o) => run('listPage', prefix, s => s.listPage(prefix, o)),
       list: prefix => run('list', prefix, s => s.list(prefix)),
+      presignPut: (key, o) => presignForTenant(key, o),
+    }
+
+    /**
+     * `on`: signed with the tenant's own session, so the URL writes under `tenants/<tenantId>/` and
+     * nowhere else; the session is renewed first if it would die before the URL. `shadow`: signed
+     * with the process's credentials — the store answers the browser, not this process, so a
+     * refusal could be neither served nor logged, and the rollout aid never takes uploads down.
+     */
+    async function presignForTenant(key: string, o: PresignPutOptions): Promise<PresignedPut> {
+      if (fence === 'shadow') return base.presignPut(key, o)
+      const outlive = o.expiresInSeconds * 1000 + TENANT_CREDENTIALS_MARGIN_MS
+      await credentials.get(tenantId, outlive).catch(err => {
+        throw new TenantSessionError(tenantId, err)
+      })
+      return session(tenantId).presignPut(key, o)
     }
   }
 

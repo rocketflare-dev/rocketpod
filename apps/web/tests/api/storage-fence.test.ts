@@ -33,6 +33,8 @@ const s3 = storageConfigOf(loadConfig({ ...process.env, DATABASE_URL: testDataba
 
 /** What the fake STS answers: the gateway's own pair (admitted), or a pair it does not know. */
 let issue: 'admitted' | 'refused' | 'fail' = 'admitted'
+/** How long the credentials the fake STS issues last. */
+let lifetimeMs = 3600_000
 const assumed: URLSearchParams[] = []
 /** Every session token a tenant client was handed. */
 const tokens: string[] = []
@@ -58,7 +60,7 @@ beforeAll(async () => {
       }
       const [id, secret] =
         issue === 'admitted' ? ['test', 'test-secret-key'] : ['test', 'not-the-secret']
-      const expiration = new Date(Date.now() + 3600_000).toISOString()
+      const expiration = new Date(Date.now() + lifetimeMs).toISOString()
       res.writeHead(200, { 'content-type': 'text/xml' })
       res.end(
         `<AssumeRoleResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/"><AssumeRoleResult><Credentials><AccessKeyId>${id}</AccessKeyId><SecretAccessKey>${secret}</SecretAccessKey><SessionToken>session-${params.get('RoleSessionName')}</SessionToken><Expiration>${expiration}</Expiration></Credentials><AssumedRoleUser><Arn>${ROLE}/x</Arn><AssumedRoleId>AROA:x</AssumedRoleId></AssumedRoleUser></AssumeRoleResult><ResponseMetadata><RequestId>r</RequestId></ResponseMetadata></AssumeRoleResponse>`
@@ -83,7 +85,7 @@ afterAll(async () => {
 
 type Logged = { level: string; event: string; fields: Record<string, unknown> }
 
-function fence(mode: 'on' | 'shadow', cfg: S3StorageConfig) {
+function fence(mode: 'on' | 'shadow', cfg: S3StorageConfig, keepToken = false) {
   const logged: Logged[] = []
   const storage = createTenantStorage(cfg, {
     fence: mode,
@@ -95,11 +97,14 @@ function fence(mode: 'on' | 'shadow', cfg: S3StorageConfig) {
     }),
     // The gateway refuses any session token (it has no STS), so the token the fake STS issued is
     // checked here and left off the wire; the key pair the session resolved to still signs.
+    // `keepToken`: a presigned URL is signed here and never sent, so it may keep the token.
     clientFor: provider =>
       createS3Client(cfg, async () => {
-        const { accessKeyId, secretAccessKey, sessionToken } = await provider()
+        const { accessKeyId, secretAccessKey, sessionToken, expiration } = await provider()
         tokens.push(sessionToken)
-        return { accessKeyId, secretAccessKey }
+        return keepToken
+          ? { accessKeyId, secretAccessKey, sessionToken, expiration }
+          : { accessKeyId, secretAccessKey, expiration }
       }),
     log: (level, event, fields) => logged.push({ level, event, fields }),
   })
@@ -195,6 +200,69 @@ describe('STORAGE_TENANT_FENCE=on', () => {
     ).rejects.toThrow()
     issue = 'admitted'
     await createS3Storage(config()).delete(key)
+  })
+})
+
+describe('a presigned PUT under the fence', () => {
+  const put = { contentType: 'text/plain', contentLength: 5, expiresInSeconds: 600 }
+
+  it("under on is signed with the tenant's own session, never another tenant's or the base pair", async () => {
+    issue = 'admitted'
+    lifetimeMs = 3600_000
+    const { storage } = fence('on', config(), true)
+    const tenant = randomUUID()
+    const other = randomUUID()
+    const signed = await storage.forTenant(tenant).presignPut(`tenants/${tenant}/up/a.txt`, put)
+    const theirs = await storage.forTenant(other).presignPut(`tenants/${other}/up/a.txt`, put)
+    const token = (url: string) => new URL(url).searchParams.get('X-Amz-Security-Token')
+    expect(token(signed.url)).toBe(`session-tenant-${tenant}`)
+    expect(token(theirs.url)).toBe(`session-tenant-${other}`)
+    expect(new URL(signed.url).searchParams.get('X-Amz-SignedHeaders')).toBe(
+      'content-length;content-type;host;if-none-match'
+    )
+    // A key outside the tenant is refused before anything is signed.
+    await expect(
+      storage.forTenant(tenant).presignPut(`tenants/${other}/up/a.txt`, put)
+    ).rejects.toThrow(StorageTenantMismatchError)
+  })
+
+  it('renews a session that would expire before the URL', async () => {
+    issue = 'admitted'
+    // Eight minutes: good for an ordinary call (the cache's margin is five), short of the URL's ten.
+    lifetimeMs = 8 * 60_000
+    const { storage } = fence('on', config(), true)
+    const tenant = randomUUID()
+    const scoped = storage.forTenant(tenant)
+    // A one-minute URL fits inside the session: no second AssumeRole.
+    await scoped.presignPut(`tenants/${tenant}/up/a.txt`, { ...put, expiresInSeconds: 60 })
+    const before = assumed.length
+    lifetimeMs = 3600_000
+    const signed = await scoped.presignPut(`tenants/${tenant}/up/b.txt`, put)
+    expect(assumed.length - before).toBe(1)
+    expect(signed.expiresAt.getTime()).toBeGreaterThanOrEqual(Date.now() + 599_000)
+  })
+
+  it('a URL signed with a session that cannot outlive it says when it dies', async () => {
+    issue = 'admitted'
+    lifetimeMs = 8 * 60_000
+    const { storage } = fence('on', config(), true)
+    const tenant = randomUUID()
+    const signed = await storage.forTenant(tenant).presignPut(`tenants/${tenant}/up/a.txt`, put)
+    expect(signed.expiresAt.getTime()).toBeLessThan(Date.now() + 8 * 60_000 + 1000)
+    expect(signed.expiresAt.getTime()).toBeGreaterThan(Date.now() + 7 * 60_000)
+    lifetimeMs = 3600_000
+  })
+
+  it("under shadow is signed with the process's credentials: the browser's PUT is never refused", async () => {
+    issue = 'refused'
+    lifetimeMs = 3600_000
+    const { storage } = fence('shadow', config(), true)
+    const tenant = randomUUID()
+    const before = assumed.length
+    const signed = await storage.forTenant(tenant).presignPut(`tenants/${tenant}/up/a.txt`, put)
+    expect(new URL(signed.url).searchParams.has('X-Amz-Security-Token')).toBe(false)
+    expect(assumed.length).toBe(before)
+    issue = 'admitted'
   })
 })
 

@@ -134,11 +134,13 @@ is `// ui-allow <rule>: <reason>` on the line above; an allow with no reason is 
 - Pagination meta is `{ page, pageSize, total, totalPages }`; every list renders
   `PaginationControls` (it hides itself at one page). Forms: controlled inputs validated with the
   `@rocketpod/shared` schema the server uses; `FieldError` per field
-- Files (D23): `api.upload('/api/files?scope=…', formData, { schema: uploadResponseSchema })` posts
-  multipart **without** a JSON `Content-Type` (the browser sets the boundary). Check
+- Files (D23): `api.upload(target, file, { fields, schema })` is the upload flow — presign
+  (`POST /api/uploads`), `PUT` the file to the answered URL with exactly the answered headers and
+  no cookie (`credentials: 'omit'`; S3 itself with `STORAGE_DIRECT_UPLOADS`, else the server's own
+  upload URL), then confirm, whose answer `schema` parses. Never post a file as multipart. Check
   `isAvatarMimeType` / `MAX_UPLOAD_BYTES` from `@rocketpod/shared/files` client-side first
   (`validateAvatarFile` in `hooks/useProfile.ts`) so the server's 413/415 are a backstop, not the
-  UX; `useUploadAvatar()` → `POST /api/files?scope=avatars` then invalidates `me` + `auth` and
+  UX; `useUploadAvatar()` → `api.upload('avatars', …)` then invalidates `me` + `auth` and
   refreshes the session. Render `<img src={user.avatarUrl}>` with an `onError` fallback to
   initials — the object is tenant-scoped, the URL is not
 

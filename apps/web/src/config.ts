@@ -180,6 +180,16 @@ const coreConfigSchema = z.object({
   /** Path-style addressing (`http://host/bucket/key`) — true for MinIO and most self-hosted stores. */
   STORAGE_FORCE_PATH_STYLE: optionalBoolean(false),
   /**
+   * Uploads straight to the bucket (`services/uploads`): `POST /api/uploads` answers a presigned S3
+   * `PUT` (type, length and `If-None-Match: *` signed, 10 minutes) signed with the same credentials
+   * the server uses — the tenant's own session under `STORAGE_TENANT_FENCE=on`. The browser must
+   * reach `STORAGE_ENDPOINT` (or AWS S3), and the bucket needs a CORS rule admitting a `PUT` from
+   * `APP_URL` (`docs/DEPLOY.md` § Direct uploads). Off (the default): the URL is the server's own
+   * `PUT /api/upload-content/:id`, which streams the body to the bucket under the same rules, up to
+   * `MAX_SERVER_UPLOAD_BYTES` (50 MiB) a file.
+   */
+  STORAGE_DIRECT_UPLOADS: optionalBoolean(false),
+  /**
    * The storage tenant fence (docs/TENANT-ISOLATION.md): `off` signs every tenant's objects with
    * the process's credentials; `on` with an STS session of `FILES_ROLE_ARN` per tenant (session tag
    * `tenant=<id>`), whose policy admits `tenants/<id>/` only; `shadow` tries that session, serves a

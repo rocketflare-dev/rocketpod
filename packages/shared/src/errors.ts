@@ -149,6 +149,28 @@ export const ERROR_CODES = {
   mcpTenantRequired: 'mcp_tenant_required',
   /** 416: the `Range` asked for starts past the end of the object (`Content-Range: bytes *\/n`). */
   rangeNotSatisfiable: 'range_not_satisfiable',
+  /** 400 on `POST /api/uploads`: no core target and no installed plugin's has that id. */
+  unknownUploadTarget: 'unknown_upload_target',
+  /** 410 on confirm (or 403 on the server's own `PUT`): the upload's URL expired; the object, if any, is gone. */
+  uploadExpired: 'upload_expired',
+  /** 400 on confirm: nothing arrived at the upload's URL. */
+  uploadMissing: 'upload_missing',
+  /**
+   * 400 on confirm: what arrived is not what was declared — another size or `Content-Type`. The
+   * object is deleted; start a new upload.
+   */
+  uploadMismatch: 'upload_mismatch',
+  /**
+   * 409 on `POST /api/uploads`: an object is already stored at the key the target answered, so no
+   * URL is handed out — an upload never overwrites what is there.
+   */
+  uploadKeyExists: 'upload_key_exists',
+  /**
+   * 500 on `POST /api/uploads`: the target answered a storage key it may not use — outside the
+   * tenant's prefix, or, for a plugin, outside `tenants/<tenantId>/<pluginId>/` or without the
+   * upload id. A bug in the target, never the client's; nothing is recorded.
+   */
+  uploadKeyInvalid: 'upload_key_invalid',
 } as const
 
 export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES]

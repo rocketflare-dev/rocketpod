@@ -5,7 +5,7 @@ The rules every UI edit follows (cache-only server data, realtime roots, SSE via
 
 - `api-client.ts` — fetch wrapper, `ApiError`, `parseErrorBody` (reuse it for any non-JSON
   transport), `setUnauthorizedHandler` / `notifyUnauthorized` (the global 401 path, coalesced),
-  `api.upload` for multipart (no JSON content-type). `queryClient.ts` is the module-level client
+  `api.upload` for an upload (presign → `PUT`, `credentials: 'omit'` → confirm). `queryClient.ts` is the module-level client
   and routes `QueryCache` and `MutationCache` 401s into it.
 - `query-keys.ts` — `queryKeys` = `CORE_QUERY_KEYS` spread with every plugin's families, plus
   `cleanFilters` / `toSearchParams`. The family roots — `['invitations']`,

@@ -124,10 +124,13 @@ helm upgrade --install rocketpod deploy/helm/rocketpod -n rocketpod --create-nam
   (§ Two database logins).
 - **Ingress and `/ws`.** ingress-nginx proxies WebSocket upgrades as they are. Raise its timeouts so
   idle sockets survive (`nginx.ingress.kubernetes.io/proxy-read-timeout` / `proxy-send-timeout:
-  "3600"`) and allow 5 MB uploads (`nginx.ingress.kubernetes.io/proxy-body-size: "6m"`). An
-  installed plugin may take more: up to 10 MB beneath its `uploadPaths` and up to 50 MiB on an
-  exact `uploadLimits` path, so raise `proxy-body-size` to the largest cap a plugin declares, or
-  the ingress answers 413 before the app sees the request.
+  "3600"`) and let uploads through. With `STORAGE_DIRECT_UPLOADS=false` (the default) a file comes
+  through the app's own upload URL, up to the largest upload target's size within 50 MiB
+  (`MAX_SERVER_UPLOAD_BYTES`; the core targets take 5 MB): set
+  `nginx.ingress.kubernetes.io/proxy-body-size` to that plus a little (`"6m"` for core alone,
+  `"51m"` when a plugin target declares 50 MiB), or the ingress answers 413 before the app sees
+  the request. With direct uploads on, no file passes the ingress (§ Direct uploads). A plugin's
+  deprecated `uploadPaths` (10 MB) and `uploadLimits` (≤ 50 MiB) need the same.
 - **Drain.** `web` gets a 5 s `preStop` sleep (the `sleep` lifecycle action, Kubernetes ≥ 1.30), so
   the endpoint is removed before the process stops accepting. SIGTERM then drains requests,
   deferred work and sockets (closed with 1001, so clients reconnect to another pod). `worker`
@@ -297,6 +300,42 @@ its objects (`arn:aws:s3:::<bucket>/*`) `s3:GetObject`, `s3:PutObject`, `s3:Dele
 bucket encrypted with a customer-managed KMS key also needs `kms:GenerateDataKey` and
 `kms:Decrypt` on that key.
 
+## Direct uploads
+
+Every upload is three requests (`docs/CONCEPTS.md` §6): `POST /api/uploads` reserves it and answers
+a URL, the client `PUT`s the file there, then `POST /api/uploads/:id/confirm`. Where the URL points
+is `STORAGE_DIRECT_UPLOADS`:
+
+- **`false` (default)**: the app's own `PUT /api/upload-content/:id?token=`, which streams the body
+  to the store (never buffered) with the same type, length and write-once rules, up to 50 MiB a
+  file. Nothing to configure beyond the ingress body size (§ Kubernetes). The write-once rule needs a store that honours `If-None-Match: *` on `PutObject` and `CompleteMultipartUpload`, as AWS S3 and the Versity gateway do; on one that ignores it, a second `PUT` before confirm overwrites the first.
+- **`true`**: a presigned S3 `PutObject`, valid for 10 minutes, signed with `Content-Type`,
+  `Content-Length` and `If-None-Match: *` — the browser sends the file to the bucket and the store
+  refuses another type, another length or a second write. Up to 5 GiB a file (the largest target's
+  `maxBytes`), and no upload traffic through the app. It needs:
+  1. **A store that checks presigned headers and `If-None-Match`** on `PutObject`: AWS S3 and
+     Versity do (the test gateway proves it); check yours with a second `PUT` to one URL, which
+     must answer 412.
+  2. **An `https` store endpoint** reachable from the browser: the CSP's `connect-src` admits
+     `'self'`, `wss:` and `https:` only, so an `http://` endpoint (MinIO without TLS) is blocked.
+     `STORAGE_ENDPOINT` is the URL the browser is handed, so it cannot be an in-cluster name.
+  3. **A CORS rule on the bucket** for the app's origin. For S3:
+
+     ```json
+     [{ "AllowedOrigins": ["https://app.example.com"], "AllowedMethods": ["PUT"],
+        "AllowedHeaders": ["content-type", "if-none-match"], "MaxAgeSeconds": 3600 }]
+     ```
+
+     (`aws s3api put-bucket-cors --bucket <bucket> --cors-configuration '{"CORSRules": …}'`).
+     Without it the browser's preflight fails and the upload never starts; the CLI is unaffected.
+  4. **The signing identity's `s3:PutObject`** on the tenant prefix — the grants in § Storage on
+     AWS or the files role's (§ The storage tenant fence) already include it. A URL is only as
+     good as the credentials that signed it: one signed with an STS session dies when the session
+     does, which the app accounts for (it renews a session that would expire first).
+
+A URL that leaks stays usable until it expires (10 minutes), but only for that one key, type and
+length, and only until something is written there.
+
 ## The storage tenant fence
 
 With `STORAGE_TENANT_FENCE=shadow|on` each tenant's object calls are signed by an STS session of
@@ -318,6 +357,11 @@ as `FILES_ROLE_ARN`, and the app does the rest. The contract, described for any 
   (`kms:ViaService`).
 - **The app's own identity** keeps the § Storage on AWS grants while `shadow` (it serves the
   fallbacks) and needs `sts:AssumeRole` + `sts:TagSession` on the files role.
+- **Direct uploads** (`STORAGE_DIRECT_UPLOADS=true`): under `on` a presigned `PUT` is signed with
+  the tenant's session, so the files role's `s3:PutObject` is what the bucket checks — a URL for
+  another tenant's prefix is refused by S3 as well as by the app. Under `shadow` it is signed with
+  the app's own identity, so a browser's upload never depends on the role. The conditional write
+  (`If-None-Match: *`) is part of `s3:PutObject` and needs no action of its own.
 - **The bucket**, once `on` has run clean: a policy denying object actions to every principal but
   the files role (and whoever operates the bucket).
 

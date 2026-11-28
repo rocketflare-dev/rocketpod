@@ -425,15 +425,15 @@ signed-in account is not checked, and the host trusts the plugin's word that it 
   every API prefix as JSON, so a missing route never returns `index.html`. Order and exceptions:
   `.claude/rules/api.md`.
 - **Body limits**: 1 MB on `/api/*`, `/auth/*` and a plugin's prefixes outside `/api`, before any
-  parsing (413 `payload_too_large`). Beneath an upload prefix (`/api/files`,
-  `/api/ai/documents/upload`, a plugin's `uploadPaths`) a JSON body keeps the 1 MB cap, and any
-  other body is capped at `MAX_UPLOAD_PATH_BODY_BYTES` (10 MB + 64 KB multipart overhead, the
-  largest file an upload route may take); each upload route mounts its own tighter cap and checks
-  the exact per-file size itself. A public mount's `bodyLimitBytes` replaces the cap (§16). A
-  plugin's `uploadLimits` names EXACT paths whose non-JSON body may go higher, up to
-  `MAX_PLUGIN_UPLOAD_LIMIT_BYTES` (50 MiB, clamped; `uploadLimitIssues` in `plugins.test.ts`
-  refuses more) plus multipart overhead — checked first, for that path alone (§16). The ingress in
-  front has its own cap (`proxy-body-size`, `docs/DEPLOY.md`).
+  parsing (413 `payload_too_large`). No core route takes a file (§6, uploads). The exceptions:
+  - `/api/upload-content/:id`, the server's own upload URL (`STORAGE_DIRECT_UPLOADS` off), capped
+    at the largest upload target's `maxBytes` within `MAX_SERVER_UPLOAD_BYTES` (50 MiB).
+  - A public mount's `bodyLimitBytes` replaces the cap beneath its prefix (§16).
+  - Deprecated, for a plugin that has not moved to `uploadTargets`: beneath a plugin's
+    `uploadPaths` a non-JSON body may be 10 MB + 64 KB, and an exact `uploadLimits` path up to
+    50 MiB (§16).
+
+  The ingress in front has its own cap (`proxy-body-size`, `docs/DEPLOY.md`).
 - **Contracts (D13)**: zod schemas from `@rocketpod/shared` are used by the server, UI and CLI.
   There is no `hono/client` RPC. Errors are `{ error, statusCode, code?, details? }` everywhere,
   and success bodies are bare.
@@ -715,16 +715,64 @@ downtime is pg-boss's default, untested.
   (`c.get('platform').storage.forTenant(tenantId)`, any S3-compatible store). Keys are
   `tenants/<tenantId>/<scope>/<uuid>-<name>`, and the handle refuses any other
   (`StorageTenantMismatchError`) or a tenant id that is not a UUID (`StorageTenantRequiredError`)
-  before a network call. Bytes
-  stream through the server (no presigned URLs). `get(key, { range })` reads `{ start, end? }`
+  before a network call. Downloads stream through the server, which applies the tenant and
+  visibility checks; uploads may go straight to the store (below). `get(key, { range })` reads `{ start, end? }`
   (end inclusive) or `{ suffix }` and answers `range: { start, end, total }` — what a `206`'s
   `Content-Range` needs, `size` staying the whole object's; past the end is
   `StorageRangeNotSatisfiableError` (a `416`). `putStream(key, stream)` stores a body of unknown
   length as a multipart upload, never whole in memory. `purgePrefix(storage, prefix)`
   (`services/storage.ts`) deletes one tenant DIRECTORY a page at a time — the tenant purge is it
   over `tenants/<id>/`; a prefix that is not a whole directory under `tenants/` is refused. The `files` table is the immutable index and the only thing the browser can name. Writes
-  go object first, then row, and a failed insert deletes the object.
-- **`/api/files`**: upload with per-scope type/size checks (413/415); tenant-scoped read (another
+  go object first, then row, and a failed insert deletes the object. `put`/`putStream` take
+  `ifAbsent` (`If-None-Match: *`; an existing key is `StorageObjectExistsError`, on the multipart
+  complete too), and `presignPut(key, { contentType, contentLength, expiresInSeconds })` answers a
+  presigned `PutObject` signed with those headers and `If-None-Match: *`
+  (`@aws-sdk/s3-request-presigner`, pinned with `client-s3`) — `expiresAt` is the earlier of the
+  asked expiry and the signing credentials' own.
+- **Uploads (`services/uploads/`, `/api/uploads`)**: straight to the store when
+  `STORAGE_DIRECT_UPLOADS=true` (opt-in), through the server otherwise; the client cannot tell
+  which. There are three steps:
+  1. `POST /api/uploads { target, name, contentType, size, fields? }` runs every check the target
+     makes BEFORE a byte moves: permission, 415 type, 413 size, 400 `file_empty`, 503
+     `storage_not_configured`, and for documents 503 `conversion_not_configured` and the embeddings
+     503. The key must be under the tenant's prefix (a plugin's under its own, naming the upload;
+     500 `upload_key_invalid`), and nothing may be stored there yet (409 `upload_key_exists`). It
+     records a `pending_uploads` row, then answers a `PUT` URL valid for 10 minutes: a presigned
+     S3 URL from the tenant's storage handle (`presignPut`, so the fence signs it — §6 tenant
+     fence) when direct uploads are on, else the server's own `/api/upload-content/:id?token=` (a
+     256-bit token, stored hashed). A failed presign deletes the row.
+  2. The `PUT` must carry the declared `Content-Type` and `Content-Length` and `If-None-Match: *`.
+     The store holds them because the URL signs them; the server URL holds the same rules itself
+     (token hash compared in constant time, type, length, expiry, and write-once as ONE conditional
+     put, so two concurrent `PUT`s cannot both land) and streams the body to the store, never
+     buffering it. Another type, size or a second write is refused. The server URL is also spent
+     once the upload is confirmed (403), even if the confirmed file was deleted since.
+  3. `POST /api/uploads/:id/confirm` resolves the row's target and storage — a target since
+     uninstalled is 400 `unknown_upload_target`, no storage 503, both leaving the row unclaimed —
+     then claims the row (compare-and-set on `confirmed_at`), `head`s the object and refuses a
+     size or type other than the one declared (400 `upload_mismatch`, object deleted). It then
+     runs the target's `confirm`, whose answer it returns: a `files` row (201), or a document (201,
+     or 200 `deduplicated: true` — dedupe can only be decided here, once the bytes exist).
+
+  The rules around the steps:
+  - Another tenant's or another person's upload id is a 404, as is a second confirm.
+  - Past the URL's expiry plus a 15-minute grace, confirm is 410 `upload_expired`.
+  - A failed confirm un-claims the row, so the nightly `prunePendingUploads` (`0 4 * * *`) still
+    deletes the object of an upload nobody confirmed. For a CONFIRMED core upload (`avatars`,
+    `uploads`, `documents`) it also deletes the object when no `files` row records the key — a
+    file deleted since and written again through its still-live presigned URL. A confirmed row
+    waits until its claim is past the grace too, so a running confirm is never pruned under.
+  - `pending_uploads.user_id` is `set null` when the person is deleted: the row outlives them, can
+    be neither `PUT` nor confirmed, and the prune deletes its object.
+  - The targets are the core `avatars`, `uploads` and `documents`, plus each plugin's
+    `uploadTargets` (§16), composed by `uploadTargets()`.
+  - Direct uploads need a store that checks presigned headers and `If-None-Match`, an `https`
+    endpoint the browser can reach (the CSP's `connect-src`), and a CORS rule on the bucket
+    (`docs/DEPLOY.md` § Direct uploads).
+  - Without them the bytes pass through the server, so a target is capped at
+    `MAX_SERVER_UPLOAD_BYTES` (50 MiB; a larger file is 413 with `details.directUploads: false`).
+- **`/api/files`**: files arrive through the `avatars` / `uploads` targets (avatars allowlist
+  images); tenant-scoped read (another
   tenant's file is 404) with ETag/304 and ONE HTTP `Range` (`parseByteRange`,
   `utils/routes/byte-range.ts`: `bytes=a-b` / `a-` / `-n` → 206 + `Content-Range`; malformed or
   several ranges are ignored → 200; past the end → 416 `range_not_satisfiable` with
@@ -765,15 +813,26 @@ downtime is pg-boss's default, untested.
   `FILES_ROLE_ARN` is a config error. The IAM contract: `docs/DEPLOY.md` § The storage tenant fence.
 
 **Known gaps:** `avatarUrl` is global but the object is tenant-scoped (initials fallback elsewhere);
-re-uploads leave the old object; no listing endpoint, quotas or presigned URLs; unbranded templates.
+re-uploads leave the old object; no listing endpoint or quotas; unbranded templates. Direct uploads
+are a single `PUT`, so 5 GiB is the ceiling (no multipart upload, no resume); through the server,
+50 MiB. A presigned URL stays valid for its whole expiry (10 minutes) whatever happens meanwhile:
+the confirm does not spend it, so while it lives it can write the key again once the confirmed
+object is gone — the prune deletes such an object for a core target, but not for a plugin target
+(the kit cannot tell which of a plugin's rows records a key, so a plugin deleting a confirmed
+object inside that window owns the cleanup); and a leaked one is usable by whoever holds it, for
+that one key, type and length. Whether a store other than AWS S3 and the Versity gateway enforces
+the signed `Content-Length` and `If-None-Match` is not tested here (the confirm `head` is the
+backstop for the size and type). Under `STORAGE_TENANT_FENCE=on` a URL dies with the STS session
+that signed it; the app renews a session that would die first, so a URL is never shorter than
+asked unless STS itself answers a shorter session. A document is deduplicated only after its bytes
+are stored, then deleted again.
 Email: one recipient per message, no attachments; SES bounces and complaints are not consumed (a
 configuration set can publish them, nothing in the app reads them); no SMTP provider.
 No Azure Blob adapter (not S3-compatible); metadata values travel as HTTP headers, so
 non-ASCII values are not supported (the kit writes only ids and scopes); `put` reports the request
 time as `uploaded` (S3's PutObject does not answer the stored one; `head`/`get` do), and so does
 `putStream`. A range read is one range — no multi-range (`multipart/byteranges`). `putStream`
-cannot resume: a failed upload is aborted and the caller sends the stream again. Nothing in core
-calls `putStream` yet (uploads are multipart forms under `MAX_UPLOAD_BYTES`).
+cannot resume: a failed upload is aborted and the caller sends the stream again.
 
 ## 7. UI shell
 
@@ -2132,10 +2191,33 @@ Working guide: `apps/web/src/plugins/CLAUDE.md`, `/rp-plugin`,
   is an `EMBEDDABLE_MIME_TYPES` type (today PDF) — from its own row, never the request — lets a
   same-origin page frame that one response, the opt-in `/api/files/:id` uses (§6). Any other type
   is refused (`false`) and `DENY` stands. Call it before any 304 early return.
-- **Large uploads (`ServerPlugin.uploadLimits`)**: `{ '/api/<id>/upload': bytes }` — an exact path
-  whose non-JSON body may exceed `uploadPaths`' 10 MB, up to 50 MiB (§3, body limits). The route
-  still mounts its own `bodyLimit` and checks each file; a buffered body sits in the Node process's
-  memory, and the ingress's `proxy-body-size` must allow it (`docs/DEPLOY.md`).
+- **Upload targets (`ServerPlugin.uploadTargets`)**: `PluginUploadTarget` entries from
+  `@/plugins/api`. Each one has:
+  - an `id` of `<plugin id>.<name>`;
+  - `maxBytes`, at most 5 GiB (one PUT) — above `MAX_SERVER_UPLOAD_BYTES` (50 MiB) only with
+    `STORAGE_DIRECT_UPLOADS` on;
+  - optional `contentTypes` (others 415) and a zod `fields` schema (without one, any field is a 400);
+  - a required `permission: { action, subject }`, which the host checks before anything else (403),
+    as the core targets check `create File` / `create Document`;
+  - optional `prepare(ctx, { uploadId, filename, contentType, size, fields })`, which makes any
+    further check and may return `{ key?, contentType?, state? }`;
+  - `confirm(ctx, { uploadId, key, filename, contentType, size, state, storage, read() })` →
+    `{ status?, body }` — `storage` is the tenant's handle, the one store there is. `bucket`,
+    Rocketflare's name, is the same handle (deprecated), so a plugin written for Rocketflare
+    compiles unchanged; a target's own `bucket` option is not supported (typed `never`).
+
+  The default key is `tenants/<t>/<plugin id>/<uploadId>-<name>`. A key of the plugin's own must
+  sit under `tenants/<t>/<plugin id>/` and contain the `uploadId`, in plain path segments; any
+  other is refused (500 `upload_key_invalid`, nothing recorded), because a failed confirm, the
+  expiry and the prune delete the recorded key. No URL is handed out for a key that already holds
+  an object (409 `upload_key_exists`). The client is `api.upload(target, file, { fields })` (UI) or
+  `upload(...)` (CLI); the plugin never sees the bytes in a request.
+- **Deprecated: `uploadPaths` / `uploadLimits`** — the multipart seam `uploadTargets` replaces,
+  kept so an installed plugin's upload route keeps working until it moves. Beneath an
+  `uploadPaths` prefix (under `/api/<id>/`) a non-JSON body may be 10 MB + 64 KB; an exact
+  `uploadLimits` path, up to 50 MiB (clamped; `uploadLimitIssues` refuses more). A JSON body keeps
+  1 MB on both. The route mounts its own `bodyLimit` and checks each file; a buffered body sits in
+  the Node process's memory, and the ingress's `proxy-body-size` must allow it (`docs/DEPLOY.md`).
 - **Header items (`UiPlugin.header`)**: `{ id, Component, guard?, order?, placement? }[]` adds
   controls to the top bar — `placement: 'center'` (a search box, in `Layout`'s `headerCenter`) or
   `'end'` (the default, ahead of the kit's status, Guide help, bell and user menu). `App.tsx`

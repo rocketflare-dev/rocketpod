@@ -3,8 +3,9 @@
  * delete documents, hybrid search. Documents are tenant-wide by default and can be restricted to
  * GROUPS: every read path here ANDs `visibleDocuments(scope)` with the tenant predicate, and
  * a document the caller may not see answers **404**, the same body as one that does not exist.
- * Two ways in, one path: `POST /ingest` (JSON text) and `POST /upload` (multipart — the original
- * goes to object storage as a `files` row, scope `documents`). Small texts index inline (201
+ * Two ways in, one path: `POST /ingest` (JSON text) and the `documents` upload target
+ * (`/api/uploads`, `services/uploads/targets.ts` — the original lands in object storage, then a
+ * `files` row, scope `documents`, at confirm). Small texts index inline (201
  * `indexed`); the same text again as a tenant-wide document of the same source answers the
  * existing one (200, `deduplicated: true`); large texts and every binary upload return `pending`
  * and a `document.index` / `document.convert` job finishes them. Deleting someone else's document needs
@@ -25,19 +26,15 @@ import {
   ingestTextRequestSchema,
   type ReembedResponse,
   type RetryDocumentResponse,
-  resolveDocumentUploadType,
   type SearchResponse,
   searchRequestSchema,
-  uploadDocumentFieldsSchema,
 } from '@rocketpod/shared/ai/embeddings'
 import { ERROR_CODES } from '@rocketpod/shared/errors'
-import { MAX_UPLOAD_BYTES } from '@rocketpod/shared/files'
 import { type GroupRef, setVisibilityRequestSchema } from '@rocketpod/shared/groups'
 import { paginationQuerySchema } from '@rocketpod/shared/pagination'
 import { and, count, desc, eq, isNotNull, max, min } from 'drizzle-orm'
 import { type DocumentRow, documents, files } from '../../db/schema'
 import { hasFeature } from '../../permissions/features'
-import { uploadBodyLimit } from '../middleware/body-limit'
 import { can, guardPermission } from '../middleware/permissions'
 import {
   accessScopeOf,
@@ -58,12 +55,7 @@ import {
   readDocumentWindow,
 } from '../services/ai/document-content'
 import { AiNotConfiguredError } from '../services/ai/errors'
-import {
-  ConversionNotConfiguredError,
-  ingestFile,
-  ingestText,
-  toDocument,
-} from '../services/ai/ingest'
+import { ingestText, toDocument } from '../services/ai/ingest'
 import {
   countVisibleStaleDocuments,
   documentsHealth,
@@ -77,15 +69,7 @@ import { deleteDocumentsWithFacts } from '../services/knowledge/remove'
 import { nudge, realtimeEvent } from '../services/realtime'
 import { deleteStoredFile, type StorageService } from '../services/storage'
 import type { AppContext } from '../types'
-import {
-  ApiError,
-  BadRequestError,
-  ConflictError,
-  ForbiddenError,
-  NotFoundError,
-  ServiceUnavailableError,
-  ValidationError,
-} from '../utils/core/errors'
+import { ConflictError, ForbiddenError, NotFoundError } from '../utils/core/errors'
 import { pageWindow, paginated } from '../utils/routes/pagination'
 import { uuidParam, withAuthAndDb } from '../utils/routes/route-helpers'
 import { createRouter } from '../utils/routes/router'
@@ -117,15 +101,6 @@ async function groupsOf(
   documentId: string
 ) {
   return (await grantsForResources(db, tenantId, 'document', [documentId])).get(documentId) ?? []
-}
-
-/** The platform's storage or a 503 — same rule as `/api/files`: no storage fails loudly. */
-function storageFor(c: AppContext, tenantId: string): StorageService {
-  const storage = c.get('platform').storage
-  if (!storage) {
-    throw new ServiceUnavailableError('File storage is not configured', 'storage_not_configured')
-  }
-  return storage.forTenant(tenantId)
 }
 
 /** Storage may be absent (a delete still succeeds; the object is logged as left behind). */
@@ -176,99 +151,6 @@ aiDocumentsRouter.post('/ingest', validate('json', ingestTextRequestSchema), asy
   return ingestResponse(c, document, deduplicated, await groupsOf(db, tenantId, document.id))
 })
 
-// ---- POST /api/ai/documents/upload ----------------------------------------------------------------
-
-aiDocumentsRouter.post('/upload', uploadBodyLimit, async c => {
-  const { db, tenantId, user, cfg, auth, defer, tracer } = withAuthAndDb(c)
-  guardPermission(c, 'create', 'Document')
-  const storage = storageFor(c, tenantId)
-
-  const form = await c.req.formData().catch(() => null)
-  const file = form?.get('file')
-  if (!(file instanceof File)) {
-    throw new BadRequestError('Expected multipart form data with a `file` field', 'file_required')
-  }
-  if (file.size === 0) throw new BadRequestError('The file is empty', 'file_empty')
-  if (file.size > MAX_UPLOAD_BYTES) {
-    throw new ApiError(
-      413,
-      `File exceeds the ${MAX_UPLOAD_BYTES} byte limit`,
-      'payload_too_large',
-      {
-        maxBytes: MAX_UPLOAD_BYTES,
-        sizeBytes: file.size,
-      }
-    )
-  }
-  const type = resolveDocumentUploadType(file.name ?? '', file.type)
-  if (!type) {
-    throw new ApiError(
-      415,
-      'Unsupported document type: upload a PDF, Word, HTML, XML, CSV, JSON, Markdown or text file',
-      'unsupported_media_type',
-      { contentType: file.type || null, filename: file.name ?? null }
-    )
-  }
-  const fields = uploadDocumentFieldsSchema.safeParse({
-    title: stringField(form, 'title'),
-    source: stringField(form, 'source'),
-    visibility: stringField(form, 'visibility'),
-    groupIds: jsonArrayField(form, 'groupIds'),
-  })
-  if (!fields.success) throw new ValidationError(fields.error.issues, 'Invalid form')
-  const access = await resolveRequestedVisibility(db, accessScopeOf(auth), fields.data)
-
-  let result: Awaited<ReturnType<typeof ingestFile>>
-  try {
-    result = await ingestFile(
-      db,
-      cfg,
-      c.get('platform'),
-      {
-        tenantId,
-        userId: user.id,
-        file,
-        filename: file.name || 'file',
-        type,
-        title: fields.data.title,
-        source: fields.data.source,
-        visibility: access.visibility,
-        groupIds: access.groupIds,
-      },
-      { jobs: c.get('platform').jobs, storage, tracer }
-    )
-  } catch (err) {
-    if (err instanceof ConversionNotConfiguredError) {
-      throw new ServiceUnavailableError(
-        'Document conversion is not configured on this server; upload text, Markdown, CSV or JSON instead',
-        'conversion_not_configured'
-      )
-    }
-    throw err
-  }
-  const { document, mode, deduplicated } = result
-  if (!deduplicated)
-    defer(() =>
-      recordActivity(db, {
-        tenantId,
-        userId: user.id,
-        type: 'document.ingested',
-        subjectType: 'Document',
-        subjectId: document.id,
-        metadata: {
-          mode,
-          status: document.status,
-          chunkCount: document.chunkCount,
-          contentType: document.contentType,
-          sizeBytes: document.sizeBytes,
-          fileId: document.fileId,
-          visibility: document.visibility,
-        },
-      })
-    )
-  return ingestResponse(c, document, deduplicated, await groupsOf(db, tenantId, document.id))
-})
-
 /**
  * `201` with the new document, or `200` with the EXISTING one when the same text was already a
  * tenant-wide document of the same source (`deduplicated: true`).
@@ -281,25 +163,6 @@ function ingestResponse(
 ) {
   const body: IngestDocumentResponse = { ...toDocument(document, groups), deduplicated }
   return c.json(body, deduplicated ? 200 : 201)
-}
-
-/** `groupIds` travels through multipart as a JSON array; anything unparseable is left to zod. */
-function jsonArrayField(form: FormData | null, name: string): unknown {
-  const raw = stringField(form, name)
-  if (raw === undefined) return undefined
-  try {
-    return JSON.parse(raw)
-  } catch {
-    return raw
-  }
-}
-
-/** A text part of the form, or undefined when absent/blank (a `File` in a text field is ignored). */
-function stringField(form: FormData | null, name: string): string | undefined {
-  const value = form?.get(name)
-  if (typeof value !== 'string') return undefined
-  const trimmed = value.trim()
-  return trimmed.length > 0 ? trimmed : undefined
 }
 
 // ---- GET /api/ai/documents ------------------------------------------------------------------------

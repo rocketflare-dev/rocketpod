@@ -1,7 +1,7 @@
 // @vitest-isolate
 // Spies on the global fetch (a fake authorization server), so it needs its own registry.
 /**
- * The MCP server's second credential (Rocketpod only, `auth/mcp.ts`): a token from an OUTSIDE
+ * The MCP server's second credential (Rocketpod kit only, `auth/mcp.ts`): a token from an OUTSIDE
  * authorization server, `MCP_AUTHORIZATION_SERVER`. A fake server publishes RFC 8414 metadata and
  * a JWKS and signs real access tokens with a jose key pair, so every check `jwtVerify` makes runs
  * for real — and the token then meets the same caller as the app's own (the organisation's switch,

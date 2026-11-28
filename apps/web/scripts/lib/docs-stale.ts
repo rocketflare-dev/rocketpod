@@ -21,6 +21,14 @@
  * commit both — would otherwise leave the doc stale the moment it lands. Commits after `verified`
  * that also modify the doc are therefore not counted against it.
  *
+ * **A copy's pages carry the kit's shas.** `scripts/detach.sh` replaces the kit's history with one
+ * commit, so every `verified` a page arrived with names a commit the copy never had — and a later
+ * `pnpm kit:upgrade` brings pages verified at the kit's later commits. In a copy (`.rocketflare.json`
+ * records the `kit.commit` it came from), an unknown `verified` is therefore read from the copy's
+ * commit that brought that exact `verified:` line in: the page was true to its sources when the kit
+ * shipped it, and that commit is when this history got both. It is reported as `baselined`, not as
+ * an error. In the kit itself (`kit.commit` null) an unknown sha stays a structural error — a typo.
+ *
  * Everything git-shaped goes through the `DocsGit` seam so the rules are testable without a repo.
  */
 import path from 'node:path'
@@ -72,6 +80,10 @@ export interface DocsGit {
   commitsSince(sha: string): CommitChanges[]
   /** Index + working tree vs HEAD, plus untracked files. */
   workingChanges(): FileChange[]
+  /** True in a copy: `.rocketflare.json` records the kit commit it was detached from. */
+  isKitCopy(): boolean
+  /** The full sha of the oldest commit that added the line `verified: <verified>` to `doc`, or null. */
+  verifiedLineArrived(doc: string, verified: string): string | null
 }
 
 export interface StaleDoc {
@@ -85,11 +97,20 @@ export interface DocError {
   message: string
 }
 
+/** A page whose `verified` is a kit commit this copy lacks, checked from where its line arrived. */
+export interface BaselinedDoc {
+  doc: string
+  verified: string
+  /** The copy's commit that brought the `verified:` line in (the detach, or an upgrade). */
+  from: string
+}
+
 export interface DocsStaleReport {
   mode: 'history' | 'changed'
   checked: number
   stale: StaleDoc[]
   errors: DocError[]
+  baselined: BaselinedDoc[]
 }
 
 /** The YAML between a leading `---` line and the next `---` line, or null when there is none. */
@@ -126,6 +147,8 @@ export function checkDocs(git: DocsGit, opts: { changed?: boolean } = {}): DocsS
   const docs = files.filter(isDocInScope).sort()
   const errors: DocError[] = []
   const stale: StaleDoc[] = []
+  const baselined: BaselinedDoc[] = []
+  const copy = git.isKitCopy()
   const working = opts.changed ? git.workingChanges() : []
   const workingPaths = new Set(working.map(c => c.path))
   const historyCache = new Map<string, CommitChanges[]>()
@@ -149,9 +172,18 @@ export function checkDocs(git: DocsGit, opts: { changed?: boolean } = {}): DocsS
         errors.push({ doc, message: `source glob matches no files: ${glob}` })
       }
     }
-    const full = git.resolveCommit(verified)
+    let full = git.resolveCommit(verified)
+    if (!full && copy) {
+      full = git.verifiedLineArrived(doc, verified)
+      if (full) baselined.push({ doc, verified, from: full })
+    }
     if (!full) {
-      errors.push({ doc, message: `verified sha is not a known commit: ${verified}` })
+      errors.push({
+        doc,
+        message: copy
+          ? `verified sha is not a known commit, and no commit here brought it in: ${verified}`
+          : `verified sha is not a known commit: ${verified}`,
+      })
       continue
     }
 
@@ -173,7 +205,13 @@ export function checkDocs(git: DocsGit, opts: { changed?: boolean } = {}): DocsS
     if (changed.length > 0) stale.push({ doc, verified, files: mergeChanges(changed) })
   }
 
-  return { mode: opts.changed ? 'changed' : 'history', checked: docs.length, stale, errors }
+  return {
+    mode: opts.changed ? 'changed' : 'history',
+    checked: docs.length,
+    stale,
+    errors,
+    baselined,
+  }
 }
 
 function stat(c: FileChange): string {
@@ -212,6 +250,13 @@ export function formatReport(report: DocsStaleReport, opts: { quiet?: boolean } 
 
   if (lines.length === 0) {
     lines.push(`docs:stale — ${report.checked} doc(s) checked, none stale.`)
+  }
+  if (!opts.quiet && report.baselined.length > 0) {
+    const from = [...new Set(report.baselined.map(b => b.from.slice(0, 7)))].join(', ')
+    lines.push(
+      `${report.baselined.length} page(s) carry a kit \`verified\` sha this history lacks; ` +
+        `each is checked from the commit that brought it in (${from}).`
+    )
   }
   return lines.join('\n')
 }

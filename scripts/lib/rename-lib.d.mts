@@ -57,6 +57,8 @@ export interface ReplacementClass {
 /** A vocabulary replacements start from: the kit's own (`KIT`) or the ecosystem's. */
 export interface Vocabulary {
   readonly slug: string
+  /** The SQL-identifier form when it is not the slug (a hyphenated app slug's). */
+  readonly snake?: string
   readonly upper: string
   readonly display: string
   readonly domains: readonly string[]
@@ -201,5 +203,20 @@ export function rewriteDevServerPorts(
 export function portsForBlock(base: number): PortBlock
 export function slugHash(slug: string): number
 export function choosePortBlock(slug: string, isFree: (port: number) => boolean): PortBlock | null
-export function rewritePorts(text: string, ports: PortBlock): { text: string; count: number }
+export function readTestPorts(composeText: string | null | undefined): { db: number; s3: number }
+export function rewritePorts(
+  text: string,
+  ports: PortBlock,
+  from?: { db: number; s3: number }
+): { text: string; count: number }
 export function rewriteDevPortStarts(source: string, ports: PortBlock): string
+export function toKitNames(
+  text: string,
+  app: { slug: string; display?: string; domain?: string }
+): string
+export const GUIDE_PAGES_PREFIX: string
+export function repointVerified(
+  text: string,
+  isKnown: (sha: string) => boolean,
+  head: string | null
+): string | null

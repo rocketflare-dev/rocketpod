@@ -84,7 +84,7 @@ export async function resolveMcpCaller(input: ResolveMcpCallerInput): Promise<Mc
 
 /**
  * The caller behind a live grant — the tail both credentials share: the app's own access token
- * (above) and a token from the outside authorization server (`auth/mcp.ts`, Rocketpod only), whose
+ * (above) and a token from the outside authorization server (`auth/mcp.ts`, Rocketpod kit only), whose
  * grant `outsideMcpGrant` made. Everything about the PERSON is re-read here, on every call.
  */
 export async function callerForGrant(

@@ -1,8 +1,9 @@
 # Adapt — the rows that need a person
 
-`scripts/rename.mjs` prints these as "Careful rows (a)–(h)" and fixes what is mechanical. Walk
-them in order after the rename has run, then (g) — which the script does not print — when this app
-has a plugin installed. Paths are repository-relative; `<slug>` / `<snake>` /
+`scripts/rename.mjs` prints these as "Careful rows" (a)–(j), plus (k) when `.rocketflare.json` has
+no kit commit, and fixes what is mechanical; the letters here are the letters it prints. Walk them
+in order after the rename has run, then (l) — which the script does not print — when this app has
+a plugin installed. Paths are repository-relative; `<slug>` / `<snake>` /
 `<UPPER>` are the names the script printed on its first line (`my-app` / `my_app` / `MY_APP`).
 
 ---
@@ -158,7 +159,90 @@ then sign out to see the sign-in panel (it shows from `lg` up).
 so it follows the theme), or set `art: 'type'` in `login-panel.ts` for the name and tagline alone.
 Write the tagline in their words if the rename did not.
 
-## (g) Installed plugins — translated on the way in, and again on the way forward
+## (g) Local ports — done by the script
+
+**What to check.** The report names this app's port block (between 5600 and 6999): the dev UI and
+API (`pnpm dev`'s Vite and Node server, the kit's :3000/:3001), test Postgres, test S3, and where
+the dev Postgres and dev S3 ranges start. The block is chosen from the slug and checked free on this
+machine, so the app, the kit and Rocketflare can each run `pnpm dev`, `pnpm test` and a dev
+database at the same time. The CONTAINER still listens on :3001 — compose, the Dockerfile and the
+chart are not touched.
+
+**How to check.**
+```
+grep -n "PORT" scripts/lib/bootstrap-lib.mjs | head -8
+grep -n "DEFAULT_.*_PORT =" scripts/lib/dev-ports.mjs
+grep -n "ports:" -A2 apps/web/docker-compose.test.yml
+```
+
+**What to change.** Nothing, normally. If the report warned that every block was taken, free a
+port and re-run the rename, or set `TEST_DB_PORT` / `TEST_S3_PORT` and their mentions by hand.
+
+## (h) Helm chart — done by the script
+
+**What to check.** `deploy/helm/<slug>/` exists and `deploy/helm/rocketpod/` does not; the chart's
+`name` and every path to it already say the slug.
+
+**How to check.**
+```
+ls deploy/helm/   # then `pnpm gate`: packaging.test.ts reads the chart from its new path
+```
+
+## (i) Image and chart links — the owner's registry and repository
+
+**What to check.** The rename turned `ghcr.io/rocketflare-dev/rocketpod` into
+`ghcr.io/rocketflare-dev/<slug>` in the chart values, the compose example and the docs: a
+placeholder, because only the owner knows where the image is published. `image.yml` publishes
+`ghcr.io/<their GitHub org>/<slug>`. The chart's `home` and `sources` still point at the kit's
+repository (`rocketflare-dev/rocketpod` is upstream, so the rename keeps it).
+
+**How to check.**
+```
+grep -rn "ghcr.io/" deploy docs/DEPLOY.md | head
+grep -n "home:\|sources:" -A1 deploy/helm/*/Chart.yaml
+```
+
+**What to change.** Ask for the GitHub org (or registry) and the app's repository URL, then set the
+image owner in those files and the chart's `home`/`sources`. Nothing else depends on it.
+
+## (j) Licence — whose app this is
+
+**What to check.** The root `LICENSE` is still the kit's MIT notice, and every `package.json` says
+`"license": "MIT"`. Left alone, the app's own code reads as MIT-licensed, with copyright in the kit
+author's name. `LICENSES/kit-MIT.txt` holds the kit's notice, which the MIT licence requires the
+app to keep.
+
+**How to check.**
+```
+head -3 LICENSE; grep -n '"license"' package.json apps/*/package.json packages/*/package.json
+cat docs/design/design.json 2>/dev/null | grep -A2 '"owner"'
+```
+
+**What to change.** Take the owner and licence from `design.json` `owner`, or ask: "Who owns this
+app, by legal name, and may anyone else use its code?" Recommend all rights reserved.
+- **All rights reserved:** write `LICENSE` as
+  `Copyright (c) <year> <legal name>. All rights reserved.`, then a blank line, then
+  `This app includes the Rocketpod starter kit, used under the MIT licence. Its notice is in
+  LICENSES/kit-MIT.txt.`. Set every `package.json` `"license"` to `"UNLICENSED"` (npm's word for
+  "not licensed to others").
+- **An open licence:** write that licence's text with their name, add the same sentence about the
+  kit, and set `"license"` to its SPDX id.
+
+Never edit or delete `LICENSES/kit-MIT.txt`. `LICENSE` and `LICENSES/**` are on `neverPort`, so a
+later `kit:upgrade` leaves both alone.
+
+## (k) Kit commit — printed only when it is missing
+
+**What to check.** The script prints this row only when `.rocketflare.json` `kit.commit` is null:
+`pnpm kit:upgrade` then cannot tell which kit release this copy started from. `scripts/detach.sh`
+(the installer, `/rp-start`, `/rp-setup`) records it, so a detached copy never sees this row.
+
+**How to check.** `grep -n '"commit"' .rocketflare.json | head -1`
+
+**What to change.** Set it to the kit commit the copy was cloned at (`git rev-parse HEAD` in the
+kit's clone, before detaching; the first commit's message says `Kit commit: <sha>` after a detach).
+
+## (l) Installed plugins — not printed by the script; translated on the way in, and again on the way forward
 
 **What to check.** A plugin is a git repository copied into this app, and it is written in the
 **kit's** vocabulary — `@rocketpod/shared`, `rocketpod_app`, the kit's own name in strings and
@@ -190,63 +274,7 @@ not see that file: fix it by hand, then `pnpm typecheck`. Never edit the five ba
 migration for a plugin's tables, that is (b)'s fresh database, not a rename problem: `pnpm
 db:generate --name plugin-<id>-<version>` then `pnpm db:migrate`.
 
-## (h) Licence — whose app this is
-
-**What to check.** The root `LICENSE` is still the kit's MIT notice, and every `package.json` says
-`"license": "MIT"`. Left alone, the app's own code reads as MIT-licensed, with copyright in the kit
-author's name. `LICENSES/kit-MIT.txt` holds the kit's notice, which the MIT licence requires the
-app to keep.
-
-**How to check.**
-```
-head -3 LICENSE; grep -n '"license"' package.json apps/*/package.json packages/*/package.json
-cat docs/design/design.json 2>/dev/null | grep -A2 '"owner"'
-```
-
-**What to change.** Take the owner and licence from `design.json` `owner`, or ask: "Who owns this
-app, by legal name, and may anyone else use its code?" Recommend all rights reserved.
-- **All rights reserved:** write `LICENSE` as
-  `Copyright (c) <year> <legal name>. All rights reserved.`, then a blank line, then
-  `This app includes the Rocketpod starter kit, used under the MIT licence. Its notice is in
-  LICENSES/kit-MIT.txt.`. Set every `package.json` `"license"` to `"UNLICENSED"` (npm's word for
-  "not licensed to others").
-- **An open licence:** write that licence's text with their name, add the same sentence about the
-  kit, and set `"license"` to its SPDX id.
-
-Never edit or delete `LICENSES/kit-MIT.txt`. `LICENSE` and `LICENSES/**` are on `neverPort`, so a
-later `kit:upgrade` leaves both alone.
-
 ---
 
-When all of them (seven, or eight with a plugin installed) are done: `pnpm gate`, commit, then update `docs/ADAPTING.md` §1 (or delete the table) so the next reader
+When all of them are done: `pnpm gate`, commit, then update `docs/ADAPTING.md` §1 (or delete the table) so the next reader
 knows the rename happened.
-
-## (g) Local ports — done by the script
-
-**What to check.** The report names this app's port block (between 5600 and 6999): the dev UI and
-API (`pnpm dev`'s Vite and Node server, the kit's :3000/:3001), test Postgres, test S3, and where
-the dev Postgres and dev S3 ranges start. The block is chosen from the slug and checked free on this
-machine, so the app, the kit and Rocketflare can each run `pnpm dev`, `pnpm test` and a dev
-database at the same time. The CONTAINER still listens on :3001 — compose, the Dockerfile and the
-chart are not touched.
-
-**How to check.**
-```
-grep -n "PORT" scripts/lib/bootstrap-lib.mjs | head -8
-grep -n "DEFAULT_.*_PORT =" scripts/lib/dev-ports.mjs
-grep -n "ports:" -A2 apps/web/docker-compose.test.yml
-```
-
-**What to change.** Nothing, normally. If the report warned that every block was taken, free a
-port and re-run the rename, or set `TEST_DB_PORT` / `TEST_S3_PORT` and their mentions by hand.
-
-## (h) Helm chart — done by the script
-
-**What to check.** `deploy/helm/<slug>/` exists and `deploy/helm/rocketpod/` does not; the chart's
-`name` and every path to it already say the slug.
-
-**How to check.**
-```
-ls deploy/helm/   # then `pnpm gate`: packaging.test.ts reads the chart from its new path
-```
-

@@ -68,8 +68,11 @@ pgvector; S3, GCS, MinIO, Ceph…). The chart bundles neither.
    ```bash
    docker compose ps                                  # migrate exited 0; web + worker healthy
    curl -fsS localhost:${WEB_PORT:-3001}/readyz        # {"status":"ready"}
-   docker compose logs web | grep -i "magic link"     # the first admin's sign-in link (no RESEND key)
    ```
+   The first admin signs in by an emailed magic link: under the default `APP_ENV=production` the
+   link is never logged, so set `RESEND_API_KEY` (or `EMAIL_PROVIDER=ses`) or OIDC first. For a
+   local try-out only, `APP_ENV=staging` logs it (`docker compose logs web | grep -i "sign in"`).
+   Never staging on a reachable host.
 5. **Managed services instead:** set `DATABASE_URL` / `STORAGE_*` in `.env` and remove `postgres` /
    `s3` and their `depends_on` from the user's copy of `docker-compose.yml`.
 
@@ -129,13 +132,13 @@ Walk it as a table of **set / missing / not needed** — never values:
 | `OAUTH_ENCRYPTION_KEY` (32+ chars) | OAuth/OIDC sign-in and tenant AI keys at rest |
 | `ANTHROPIC_API_KEY` or `AI_API_KEY` (+ `AI_BASE_URL`/`AI_MODEL`) | chat and agents |
 | `EMBEDDINGS_API_KEY` (+ `EMBEDDINGS_BASE_URL`/`EMBEDDINGS_MODEL`, 1024-dim) | knowledge uploads and search |
-| `RESEND_API_KEY` | delivering magic links and invitations through Resend (otherwise logged — magic links by `web`, queued invitations by `worker`); SES needs no secret: `config.EMAIL_PROVIDER=ses`, a verified `EMAIL_FROM` and `ses:SendEmail` on the pod or task role (`docs/DEPLOY.md` § Email) |
+| `RESEND_API_KEY` | delivering magic links and invitations through Resend (otherwise logged — magic links by `web`, queued invitations by `worker` — without the link under `APP_ENV=production`); SES needs no secret: `config.EMAIL_PROVIDER=ses`, a verified `EMAIL_FROM` and `ses:SendEmail` on the pod or task role (`docs/DEPLOY.md` § Email) |
 | `GOOGLE_*`, `MICROSOFT_*`, `OIDC_CLIENT_SECRET` | the matching sign-in buttons |
 | `TYPESAFE_API_KEY`, `LANGFUSE_*`, `PHOENIX_API_KEY`, `OTEL_EXPORTER_OTLP_HEADERS` | optional: Jev decisions, trace export |
 
 ## End of turn
 
 End with `AskUserQuestion`, not a paragraph. The choices after a deploy are: **sign in as the first
-admin** (the magic link from the `web` log or email), **set up email** (`RESEND_API_KEY`, or SES — `docs/DEPLOY.md` § Email),
+admin** (the emailed magic link — or the `web` log under `APP_ENV=staging`, local only), **set up email** (`RESEND_API_KEY`, or SES — `docs/DEPLOY.md` § Email),
 **add AI keys**, or **wire tracing** (`/rp-traces`). After a dry run (render only), the choice is
 whether to install now.

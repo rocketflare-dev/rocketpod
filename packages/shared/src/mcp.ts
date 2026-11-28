@@ -8,7 +8,7 @@ import { z } from 'zod'
 
 /**
  * Which organisation a request acts in, for a token from the OUTSIDE authorization server
- * (`MCP_AUTHORIZATION_SERVER`, Rocketpod only) whose person belongs to several: the tenant's id,
+ * (`MCP_AUTHORIZATION_SERVER`, Rocketpod kit only) whose person belongs to several: the tenant's id,
  * its slug, or the id the issuer knows its org by. `/mcp/t/<slug>` names it in the URL instead.
  * The app's own tokens never need it — their organisation was chosen at consent.
  */

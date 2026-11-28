@@ -46,13 +46,17 @@ Pick an app slug (`myapp`, lowercase, digits, hyphens; starts with a letter), a 
 **`/rp-adapt <slug> ["Name"] [--domain <apex>] [--colour <#hex>]`** in Claude Code, or by hand
 `node scripts/rename.mjs --dry-run <slug> ["Display Name"] [--domain …] [--colour …]` then the same
 without `--dry-run`, performs the mechanical rows below in one pass and reports the careful ones —
-`.claude/skills/rp-adapt/checklist.md` walks those eight, lettered (a)–(h) as in the **Script** column.
+`.claude/skills/rp-adapt/checklist.md` walks them under the letters the script prints, (a)–(j) as in
+the **Script** column (plus (k), printed only when `.rocketflare.json` has no kit commit, and (l),
+installed plugins, which it does not print).
 The script walks every text file git knows about (tracked and untracked, `.gitignore` honoured;
 `pnpm-lock.yaml`, `LICENSE`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, the two svgs,
 the tool itself, its test and the adapt skill are skipped (`CONTRIBUTING.md` and
 `CODE_OF_CONDUCT.md` are then deleted as `kitOnly`, and `SECURITY.md` rewritten as the app's own); the `rocketflare-dev` org and every
 `rocketflare-dev/<repo>` — the kit's origin, its plugins, the reusable plugin CI — is preserved as upstream, as is the plugin
-catalogue page `rocketflare.dev/plugins`) plus `apps/web/.env` when it exists (git-ignored, but its
+catalogue page `rocketflare.dev/plugins`, and two phrases that name the kit, never the app: the
+detach commit's subject `Start from Rocketpod` and `Rocketpod kit` — a sentence about the kit's own
+history says "the Rocketpod kit" so it survives the rename) plus `apps/web/.env` when it exists (git-ignored, but its
 `DATABASE_URL` must follow the compose file), applies nine ordered token classes — `@rocketpod/`
 → `@<slug>/`, `ROCKETPOD` → `<UPPER>`, `rocketpod.example.com|.local` → `<domain>` (default
 `<slug>.example.com`), `.rocketpod` → `.<slug>`, the Postgres owner `rocketpod` → `<snake>`,
@@ -81,7 +85,7 @@ or nothing resolves.
 | `~/.rocketpod` (CLI config dir) | `apps/cli/src/config.ts` (`ROCKETPOD_CONFIG_DIR` default); `.claude/rules/cli.md`; `SETUP.md` 1.7 | `~/.myapp` | automatic (`cfgdir`) |
 | `ROCKETPOD_` (CLI env prefix: `ROCKETPOD_API_KEY`, `ROCKETPOD_URL`, `ROCKETPOD_CONFIG_DIR`, `ROCKETPOD_DEBUG`) | `apps/cli/src/config.ts`; `apps/cli/tests`; `docs/CONCEPTS.md` → CLI; `.claude/rules/cli.md` | `MYAPP_` | automatic (`env`) |
 | `ROCKETPOD_BOOTSTRAP_SKIP`, `ROCKETPOD_ALLOW_ROOT` (the bootstrap's sandbox switches) | `scripts/bootstrap.mjs`, `scripts/lib/bootstrap-lib.mjs`; `launch.kit.json` `session.env` | `MYAPP_BOOTSTRAP_SKIP`, `MYAPP_ALLOW_ROOT` | automatic (`env`); `launch.kit.json` keeps its `kit` block (`id`, `name`, `repo`) — it names the kit, not the app (`renameKitManifest`) |
-| `rocketpod` (image, chart, compose) | the `Dockerfile` labels, `docker-compose.yml` (`image: rocketpod:local`, the compose database/bucket names), `deploy/compose.env.example`, `deploy/helm/rocketpod/` (directory name stays; `Chart.yaml` `name`, `values.yaml` `image.repository`), `.github/workflows/image.yml` (`ghcr.io/<owner>/rocketpod`) | `myapp` — rename the chart directory yourself if you want `helm install myapp deploy/helm/myapp` | automatic (`bare` / `kebab`) |
+| `rocketpod` (image, chart, compose) | the `Dockerfile` labels, `docker-compose.yml` (`image: rocketpod:local`, the compose database/bucket names), `deploy/compose.env.example`, `deploy/helm/rocketpod/` (directory moved to `deploy/helm/myapp/`; `Chart.yaml` `name`, `values.yaml` `image.repository`), `.github/workflows/image.yml` (`ghcr.io/<owner>/rocketpod`) | `myapp` — the image's registry owner is yours to set | automatic (`bare` / `kebab`); reported as (h) and (i) |
 | `rocketpod-jobs` (the pg-boss queue; `-dlq` its dead-letter queue) | **`JOBS_QUEUE_NAME_PREFIX` in `apps/web/src/api/services/jobs.ts`** and `src/node/jobs-schema.ts`; the literals in `apps/web/tests/api/{queue-dispatch,jobs-producer,node-jobs}.test.ts` | `myapp-jobs` — `pnpm db:migrate` creates the queues | automatic (`kebab`) |
 | `rocketpod_dev`, `rocketpod_test`, `rocketpod` / `rocketpod_pass`, `test` / `test` | `apps/web/docker-compose.dev.yml`, `apps/web/docker-compose.test.yml`, `apps/web/.env.example`, `apps/web/.env.test`, `apps/web/drizzle.config.ts`, the root `docker-compose.yml`, `.github/workflows/ci.yml` (Postgres service) | `myapp_dev`, `myapp_test`, `myapp` / a local-only password | automatic (`dbuser` + `snake`: the owner stays the snake form — `db-roles.ts` refuses a hyphenated identifier; `.env` `DATABASE_URL` rewritten when the file exists); reported as (c) |
 | `rocketpod_app`, `rocketpod_system` | `apps/web/src/db/schema/rls.ts` `APP_ROLE` / `SYSTEM_ROLE`, `apps/web/.env.test` `APP_DATABASE_URL`, `docs/RLS.md` | `myapp_app`, `myapp_system` (policies name the roles; do this before the first migration) | automatic, including `apps/web/migrations/**` (SQL + meta snapshots) — WARNED as (b): a database migrated under the old name keeps the old role; drop it and migrate again |
@@ -187,17 +191,20 @@ embedder of its own.
 **Ask first: is this a feature of YOUR app, or a capability somebody else could install?** (D31,
 `docs/CONCEPTS.md` §16.) A plugin is a separate git repository copied into an app — never installed
 from npm, exactly like the kit itself — that contributes contracts, schema, routes, jobs, agents,
-UI and CLI commands through six barrels it is the only thing allowed to write a line into — and
+UI and CLI commands through five barrels it is the only thing allowed to write a line into — and
 which imports the kit only through the declared entries (`docs/plugin-api.md`), receiving everything
 else as injected context. Written
 as a plugin, a feature is one tree you can lift out, version and install somewhere else; written
 into core, it is diffused across twenty files nobody can separate again.
 
-Default to the plugin. **Core is still right when the change is to the kit's OWN tables
-(`tenants`, `users`, `tenant_users`, `documents`…), to auth or tenancy, or to a cross-cutting
-middleware** — the things a plugin composes ON TOP of and must not redefine. Everything else — a
-resource with its own table, its own screens, its own jobs — is a plugin, and
-`apps/web/src/plugins/example-feature/` is the worked example of every slot below.
+**Default to the app: your app's own features are built in the app.** Build a plugin only for
+something reusable across apps — a capability you mean to install in another product too (the rule
+`/rp-design` plans by, `.claude/skills/rp-design/shape.md` §8). A plugin is the format for sharing,
+and its packaging (its own repository, version, release notes and namespace) costs time your own
+domain does not need. Either way, the kit's OWN tables (`tenants`, `users`, `tenant_users`,
+`documents`…), auth, tenancy and cross-cutting middleware change in core, never from a plugin.
+When you do write one, `apps/web/src/plugins/example-feature/` is the worked example of every slot
+below.
 
 The layer walk is the same either way; what changes is where the line goes. The contract comes
 first and lives in the shared package, so the API, the UI and the CLI parse one schema.

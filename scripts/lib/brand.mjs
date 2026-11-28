@@ -301,7 +301,7 @@ export function applyBrand(files, brandCss) {
     const h = hueOf(value)
     if (h.error) problems.push(`@theme ${BRAND_HUE}: ${h.error}; ignored`)
     else if (brandHue(`${tokensCss}\n${indexCss}`) === null)
-      // A hex palette (Rocketpod's own, today) has no oklch() hue to turn.
+      // A hex palette (the Rocketpod kit's own, today) has no oklch() hue to turn.
       problems.push(
         `@theme ${BRAND_HUE}: the token files have no oklch() colours to turn; set --color-primary and its tones instead; ignored`
       )

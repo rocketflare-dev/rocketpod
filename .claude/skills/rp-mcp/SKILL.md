@@ -33,7 +33,7 @@ internet, so explain that first.
      confirmation), or Selected (tick each one);
    - copy the **server URL** shown there: `<APP_URL>/mcp/t/<slug>` under multi-tenancy, `/mcp`
      under single.
-   - (Rocketpod only) to accept tokens from an OAuth server people already use as well, set
+   - (Rocketpod kit only) to accept tokens from an OAuth server people already use as well, set
      `MCP_AUTHORIZATION_SERVER` — `SETUP.md` §2.3d. Everything above still applies to them.
 4. Verify: `curl -si -X POST <APP_URL>/mcp` answers 401 with a `WWW-Authenticate: Bearer
    resource_metadata="…"` header. A 404 means `mcp` is not in `FEATURES_ENABLED`.

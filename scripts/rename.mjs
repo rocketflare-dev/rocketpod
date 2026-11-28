@@ -62,9 +62,11 @@ import {
   DEPLOY_PORT_PATHS,
   deriveNames,
   designTagline,
+  GUIDE_PAGES_PREFIX,
   isBinary,
   isExcluded,
   KIT,
+  KIT_DEV_PORTS,
   KIT_MANIFEST_FILE,
   OPT_IN_IGNORED_PATHS,
   PORT_BLOCK_COUNT,
@@ -76,7 +78,9 @@ import {
   REDACTED_KEY_MARGIN,
   readIntConstant,
   readStringConstant,
+  readTestPorts,
   renameKitManifest,
+  repointVerified,
   restartAppVersion,
   rewriteDevPortStarts,
   rewriteDevServerPorts,
@@ -104,6 +108,7 @@ const DESIGN_JSON = 'docs/design/design.json'
 const MIGRATIONS_DIR = 'apps/web/migrations/'
 const DEV_VARS = 'apps/web/.env'
 const BOOTSTRAP_LIB = 'scripts/lib/bootstrap-lib.mjs'
+const TEST_COMPOSE = 'apps/web/docker-compose.test.yml'
 const HELM_DIR = 'deploy/helm'
 // The two package.json files that could wire the kit-only vitest project (or a kit-only script).
 const PACKAGE_JSONS = ['package.json', 'apps/web/package.json']
@@ -349,6 +354,34 @@ function main(argv) {
     edits.set('CHANGELOG.md', restarted.changelog)
   }
 
+  // ------------------------------------------------------------- Guide pages' `verified:`
+  // A detached copy's pages name the kit's commits; re-point them to this copy's HEAD (the detach)
+  // so `docs:stale` reads shas this history has, and the rename commit counts as each page's check.
+  const head = (() => {
+    try {
+      return (
+        execFileSync('git', ['rev-parse', '--short', 'HEAD'], {
+          cwd: REPO_ROOT,
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'ignore'],
+        }).trim() || null
+      )
+    } catch {
+      return null
+    }
+  })()
+  const knownCommit = sha =>
+    spawnSync('git', ['cat-file', '-e', `${sha}^{commit}`], { cwd: REPO_ROOT, stdio: 'ignore' })
+      .status === 0
+  let repointedPages = 0
+  for (const rel of candidateFiles(new Set(kitOnly))) {
+    if (!rel.startsWith(GUIDE_PAGES_PREFIX) || !rel.endsWith('.md')) continue
+    const next = repointVerified(current(rel), knownCommit, head)
+    if (next === null) continue
+    edits.set(rel, next)
+    repointedPages += 1
+  }
+
   // ------------------------------------------------------------- local ports
   // The copy's own port block (rename-lib `choosePortBlock`): the kit's test ports are rewritten
   // wherever they are written down, and the dev ranges start inside the block — so this app, the
@@ -360,12 +393,18 @@ function main(argv) {
   const ports = choosePortBlock(names.slug, port => free.has(port))
   let portRewrites = 0
   let devPortRewrites = 0
+  // The ports this tree's test compose publishes — what `pnpm test` uses, so what moves.
+  const testPorts = readTestPorts(
+    existsSync(path.join(REPO_ROOT, TEST_COMPOSE))
+      ? readFileSync(path.join(REPO_ROOT, TEST_COMPOSE), 'utf8')
+      : null
+  )
   if (ports) {
     for (const rel of candidateFiles(new Set(kitOnly))) {
       if (rel.startsWith(MIGRATIONS_DIR)) continue
       const buf = edits.has(rel) ? null : readFileSync(path.join(REPO_ROOT, rel))
       if (buf && isBinary(buf)) continue
-      const result = rewritePorts(current(rel), ports)
+      const result = rewritePorts(current(rel), ports, testPorts)
       portRewrites += result.count
       if (result.count > 0) edits.set(rel, result.text)
       // The dev UI/API ports move too — except where 3001 is the container's own port.
@@ -445,6 +484,8 @@ function main(argv) {
   // (b) migrations / RLS role / EMBEDDING_DIM
   {
     const migrationRows = rows.filter(row => row.rel.startsWith(MIGRATIONS_DIR))
+    // A role is a SQL identifier: the kit's is its snake form, as the app's is (`rocketpod_app`).
+    const kitSnake = KIT.slug.replaceAll('-', '_')
     const containers = runningContainers()
     const oldDev = `${KIT.slug}-dev-postgres`
     const oldTest = `${KIT.slug}-test-postgres`
@@ -452,7 +493,7 @@ function main(argv) {
     const live = containers.filter(c => c === oldTest || c === oldDev || c.startsWith(`${oldDev}-`))
     const hasDevVars = existsSync(path.join(REPO_ROOT, DEV_VARS))
     const lines = [
-      `(b) ${migrationRows.length} files under ${MIGRATIONS_DIR} rename the RLS role \`${KIT.slug}_app\` → \`${names.snake}_app\` ` +
+      `(b) ${migrationRows.length} files under ${MIGRATIONS_DIR} rename the RLS role \`${kitSnake}_app\` → \`${names.snake}_app\` ` +
         '(SQL + meta snapshots). A database that already ran the OLD migrations keeps the old role and policies:',
       '    rename BEFORE the first migration. If a dev DB exists, drop it and migrate again —',
       `    \`pnpm dev:db:down\` BEFORE the rename (the compose file names the old container), or afterwards`,
@@ -562,7 +603,8 @@ function main(argv) {
     ports
       ? `(g) Local ports: this app's block is ${ports.base}–${ports.base + 99} — dev UI :${ports.devUi}, dev API :${ports.devApi}, test Postgres :${ports.testDb}, ` +
           `test S3 :${ports.testS3}, dev Postgres from :${ports.devDbStart}, dev S3 from :${ports.devS3Start} ` +
-          `(${portRewrites} test-port and ${devPortRewrites} dev-port mentions rewritten; the container still listens on :3001; dev starts in ${BOOTSTRAP_LIB}). The kit keeps 3000/3001, 5533/7433 and ` +
+          `(${portRewrites} test-port and ${devPortRewrites} dev-port mentions rewritten; the container still listens on :${KIT_DEV_PORTS.api}; dev starts in ${BOOTSTRAP_LIB}). The kit keeps ` +
+          `${KIT_DEV_PORTS.ui}/${KIT_DEV_PORTS.api} and test Postgres/S3 ${testPorts.db}/${testPorts.s3} (${TEST_COMPOSE}), and ` +
           'Rocketflare 5433, so all of them can run `pnpm test` side by side.'
       : '(g) Local ports: WARNING — every port block (5600–6999) has its test ports taken on this machine; ' +
           "the kit's ports are kept. Free one and re-run, or edit TEST_DB_PORT / TEST_S3_PORT and their mentions by hand."
@@ -627,6 +669,13 @@ function main(argv) {
       : 'Version: left as it is (the root version is not the kit’s, so it is already the app’s own).',
     ''
   )
+  if (repointedPages > 0) {
+    out(
+      `Guide: ${repointedPages} page(s) named a kit commit this history lacks in \`verified:\` — ` +
+        `${args.dryRun ? 'would re-point' : 're-pointed'} to ${head}, so \`pnpm web docs:stale\` reads them from here.`,
+      ''
+    )
+  }
   out('Careful rows (docs/ADAPTING.md §1):', ...report.map(r => `  ${r}`), '')
   out(
     `Preserved as upstream: the rocketflare-dev org and its repos (the kit, plugins, plugin CI), ${KIT.preserved.join(', ')}. Not touched by design: ` +

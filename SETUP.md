@@ -352,8 +352,9 @@ Compose or the chart's `config` (ConfigMap) / `secrets` (Secret, or your `existi
 3. Grant `ses:SendEmail` on the identity to the role the server runs as. Credentials come from the
    AWS SDK's default chain: the task role on ECS, a profile or `AWS_*` variables locally
 
-Absent: magic links, invitations and admin notifications are logged, never sent. Verify: request a
-magic link — it arrives by email.
+Absent: magic links, invitations and admin notifications are logged, never sent — and under
+`APP_ENV=production` the log line leaves the link out (`docs/DEPLOY.md` § Docker Compose). Verify:
+request a magic link — it arrives by email.
 
 ### 2.2 Google OAuth
 1. Google Cloud Console → APIs & Services → OAuth consent screen: External; scopes `openid`,

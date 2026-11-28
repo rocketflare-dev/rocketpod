@@ -12,5 +12,6 @@ No ingress: try it with
 (the session cookie needs https, or localhost: set config.APP_URL=http://localhost:3001 for that).
 {{- end }}
 
-First admin: put their email in secrets.BOOTSTRAP_ADMIN_EMAILS and sign in by magic link (logged
-by the web pods when no email provider is configured — config.EMAIL_PROVIDER, secrets.RESEND_API_KEY).
+First admin: put their email in secrets.BOOTSTRAP_ADMIN_EMAILS and sign in by magic link. With
+config.APP_ENV=production (the default) the link is EMAILED, never logged: configure a provider
+(secrets.RESEND_API_KEY, or config.EMAIL_PROVIDER=ses) or OIDC first.

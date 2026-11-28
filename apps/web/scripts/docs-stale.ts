@@ -16,12 +16,13 @@
  * Claude continue the turn, so a stale doc would re-trigger it on every stop.) It always exits 0:
  * the hook is a reminder, never a gate.
  *
- * Exit 1 on a structural error (a doc missing `sources`/`verified`, a dead glob, an unknown sha);
+ * Exit 1 on a structural error (a doc missing `sources`/`verified`, a dead glob, an unknown sha —
+ * in a copy, only one no commit here brought in: `scripts/lib/docs-stale.ts`);
  * staleness alone exits 0 — it is reported, not blocking. Needs full history (it is not in the
  * gate; a shallow clone cannot answer it).
  */
 import { execFileSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import {
   checkDocs,
@@ -66,6 +67,29 @@ const realGit: DocsGit = {
     }))
     return [...tracked, ...untracked]
   },
+  isKitCopy: () => {
+    const file = path.join(root, '.rocketflare.json')
+    if (!existsSync(file)) return false
+    try {
+      const commit: unknown = JSON.parse(readFileSync(file, 'utf8'))?.kit?.commit
+      return typeof commit === 'string' && commit.length > 0
+    } catch {
+      return false
+    }
+  },
+  verifiedLineArrived: (doc, verified) =>
+    lines(
+      git(
+        'log',
+        '--reverse',
+        '--format=%H',
+        '-E',
+        '-G',
+        `^verified:[[:space:]]*${verified}([[:space:]]|#|$)`,
+        '--',
+        doc
+      )
+    )[0] ?? null,
 }
 
 const args = new Set(process.argv.slice(2))

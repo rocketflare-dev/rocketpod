@@ -56,7 +56,7 @@ irreversibly, replaced by one of their own. Two cases you must name in the quest
 signature is identical for both:
 
 - **They copied the kit** → detaching is right, and is what `docs/ADAPTING.md` §0 tells them to do.
-- **This IS the kit** (they are working on Rocketpod itself, or a fork they intend to pull from)
+- **This IS the kit** (they are working on the Rocketpod kit itself, or a fork they intend to pull from)
   → say no. Deleting the history of the kit's own checkout is the one truly unrecoverable thing in
   this skill.
 

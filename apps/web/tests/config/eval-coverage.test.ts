@@ -41,11 +41,37 @@ import {
   readEvalWarnings,
   renderEvalWarnings,
 } from '../../../../scripts/lib/eval-warnings.mjs'
+import {
+  applyReplacements,
+  deriveNames,
+  KIT,
+  toKitNames,
+} from '../../../../scripts/lib/rename-lib.mjs'
 
 const REPO = path.resolve(__dirname, '../../../..')
 const EVALS = path.join(REPO, 'apps/evals')
 
 const COVERAGE = evalCoverageOf(sharedPlugins)
+
+/** A renamed copy's names (`.rocketflare.json` `app`), or null in the kit. */
+function appNames(): { slug: string; display?: string; domain?: string } | null {
+  try {
+    const app = JSON.parse(readFileSync(path.join(REPO, '.rocketflare.json'), 'utf8'))?.app
+    return app && typeof app.slug === 'string' ? app : null
+  } catch {
+    return null
+  }
+}
+
+/** Every version that is today's template: its own, and in a copy the kit's spelling of it. */
+function todaysVersions(
+  key: string,
+  template: string,
+  app: { slug: string; display?: string; domain?: string } | null
+): string[] {
+  const own = promptVersion(key, template)
+  return app ? [own, promptVersion(key, toKitNames(template, app))] : [own]
+}
 
 const covered = (map: Readonly<Record<string, EvalCoverageEntry>>) =>
   Object.entries(map).filter((e): e is [string, EvalCoverage] => !isExemption(e[1]))
@@ -184,6 +210,26 @@ describe('eval coverage: prompt drift warns, never fails', () => {
     ).toMatch(/is provisional/)
   })
 
+  it('reads a template the rename only re-named as the one the kit baselined, and still warns on a real edit', () => {
+    // A template naming the kit outright, as the kit baselined it. Built from `KIT` (rename-lib is
+    // never renamed): a literal here would itself be renamed in a copy, and test nothing there.
+    const kitText = `You are the ${KIT.display} assistant. Keys look like ${KIT.slug}_abc.`
+    const baseline = { promptVersions: { x: promptVersion('x', kitText) } }
+    const app = { slug: 'field-notes', display: 'Field Notes' }
+    // …after the rename, in the copy's names.
+    const renamed = applyReplacements(kitText, deriveNames('field-notes', 'Field Notes')).text
+    expect(renamed).not.toBe(kitText)
+    expect(baselineWarning('x', entry, baseline, promptVersion('x', renamed))).toMatch(/changed/)
+    expect(baselineWarning('x', entry, baseline, todaysVersions('x', renamed, app))).toBeNull()
+    // A genuine edit in the copy is still drift.
+    const edited = `${renamed} Answer in French.`
+    expect(baselineWarning('x', entry, baseline, todaysVersions('x', edited, app))).toMatch(
+      /changed since its baseline/
+    )
+    // In the kit (no app block) only the template's own version counts.
+    expect(todaysVersions('x', kitText, null)).toEqual([promptVersion('x', kitText)])
+  })
+
   it('hands the runners only warnings written during THIS run', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'eval-warnings-'))
     const file = path.join(root, EVAL_WARNINGS_FILE)
@@ -209,9 +255,10 @@ describe('eval coverage: prompt drift warns, never fails', () => {
       ) as EvalBaselineHeader
       // The file is the suite's: a baseline copied under another name would compare nonsense.
       expect(baseline.suite, `baselines/${e.baseline}.json`).toBe(e.baseline)
-      const current = promptVersion(
+      const current = todaysVersions(
         key,
-        PROMPT_REGISTRY[key as keyof typeof PROMPT_REGISTRY].defaultText
+        PROMPT_REGISTRY[key as keyof typeof PROMPT_REGISTRY].defaultText,
+        appNames()
       )
       const warning = baselineWarning(key, e, baseline, current)
       if (warning) warnings.push(warning)

@@ -97,7 +97,7 @@ have signed it off. The rename reads its names, brand and licence from that desi
 
 Run `/rp-adapt` with the slug, display name and domain from `docs/design/design.json`
 (`app.slug`, `app.name`, `app.domain`). It renames the kit and, when the design has them, applies
-`docs/design/brand.css` and the licence answer (its `checklist.md` rows (e), (h)).
+`docs/design/brand.css` and the licence answer (its `checklist.md` rows (e), (j)).
 
 If the dev stack from §2 is running, stop it first (`pnpm dev:stop`), and take the database down
 as `rp-adapt` §1 says. The rename changes the container's name.

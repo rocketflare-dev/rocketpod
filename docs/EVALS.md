@@ -183,7 +183,10 @@ call and no database:
   exemption with an honest reason.
 - **Warns, never fails**: a baseline whose `promptVersions` differ from the prompt's current
   template (you edited the prompt), or a **provisional** one (`"provisional": true`, or no
-  `promptVersions` at all, as with a baseline written before versions were recorded). The warning
+  `promptVersions` at all, as with a baseline written before versions were recorded). In a
+  renamed copy a template also matches when, read back in the kit's names (`toKitNames` in
+  `scripts/lib/rename-lib.mjs`, from `.rocketflare.json` `app`), it is the one the baseline
+  measured: a rename that only re-named the app does not warn; any other edit still does. The warning
   names the command that refreshes it (`pnpm eval <suite> && pnpm eval:baseline <id>`). The test
   writes the lines to `apps/evals/.evals/gate-warnings.txt`, and `pnpm test` and `pnpm gate` print
   them last (`scripts/lib/eval-warnings.mjs`; a file older than the run is ignored). Re-baselining

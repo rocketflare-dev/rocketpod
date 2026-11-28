@@ -25,7 +25,7 @@ export const aiProviderSchema = z.enum(AI_PROVIDERS)
 export type AiProvider = z.infer<typeof aiProviderSchema>
 
 /**
- * Providers a RECORD may name: every configurable provider plus the ones Rocketpod dropped.
+ * Providers a RECORD may name: every configurable provider plus the ones the Rocketpod kit dropped.
  * `workers_ai` was a zero-key provider earlier versions offered; it can no longer be configured,
  * but `ai_usage`, `conversations` and `messages` rows written back then still name it and must
  * stay readable. Contracts that describe history parse with this schema;

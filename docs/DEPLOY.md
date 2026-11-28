@@ -50,9 +50,11 @@ for `DATABASE_SSL=verify-full` (§ TLS to Postgres).
   endpoint that returns **1024-dimension** vectors. No key → those features answer 503 and the rest
   of the app works.
 - **Email** for magic links and invitations: `EMAIL_PROVIDER` (`log|resend|ses`; unset = `resend`
-  when `RESEND_API_KEY` is set, else `log`) and `EMAIL_FROM`. Without a provider the link is logged
-  by the process that sends it: a magic link by **web** (sent inline — a person is waiting), an
-  invitation by **worker** (`email.send` is a job). See § Email.
+  when `RESEND_API_KEY` is set, else `log`) and `EMAIL_FROM`. Without a provider the message is
+  logged by the process that sends it: a magic link by **web** (sent inline — a person is waiting),
+  an invitation by **worker** (`email.send` is a job). Under `APP_ENV=production` that log line
+  carries no link (a sign-in link is a credential), so a production deployment needs a provider
+  or OIDC before anyone can sign in. See § Email.
 
 ## Docker Compose
 
@@ -63,9 +65,21 @@ for `DATABASE_SSL=verify-full` (§ TLS to Postgres).
 ```bash
 docker compose up -d --build          # builds rocketpod:local once (the migrate service builds it)
 open http://localhost:3001
-docker compose logs -f web worker     # magic links (web) and invitations (worker) with no email provider
 docker compose down                   # keeps the volumes; `down -v` deletes the data
 ```
+
+**Signing in the first time.** The compose default is `APP_ENV=production`, and production never
+writes a sign-in link to the logs: with no email provider, `docker compose logs web` shows that a
+magic link was requested and to whom, never the link. Pick one:
+
+- **An email provider** — `RESEND_API_KEY` (and `EMAIL_FROM` on a domain verified in Resend), or
+  `EMAIL_PROVIDER=ses` (§ Email). The link arrives by email; this is the production answer.
+- **Single sign-on** — `OIDC_ISSUER` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` and
+  `OAUTH_ENCRYPTION_KEY` (`SETUP.md` 2.3b), with the first admin in `BOOTSTRAP_ADMIN_EMAILS`.
+- **A local try-out only** — `APP_ENV=staging` in `.env`. Staging logs the link like development
+  does (`docker compose logs -f web worker` shows magic links from `web`, invitations from
+  `worker`) but keeps dev-login off. Never on a host other people can reach: anyone who can read
+  the logs can sign in as anyone.
 
 Settings go in a root `.env` (compose reads it for interpolation) — start from
 `deploy/compose.env.example`. The ones that matter first:
@@ -396,7 +410,7 @@ store without STS (MinIO, the local gateway); the per-tenant key check applies i
 | `APP_DATABASE_URL` | A separate non-owner login for web and worker (§ Two database logins); required by `TENANT_SCOPE_MODE=enforce` |
 | `STORAGE_ACCESS_KEY_ID`, `STORAGE_SECRET_ACCESS_KEY` | Uploads, documents, avatars — a pair or neither; on AWS (ECS task role) neither (§ Storage on AWS) |
 | `OAUTH_ENCRYPTION_KEY` (32+ chars) | OAuth/OIDC sign-in and tenant AI keys at rest |
-| `RESEND_API_KEY` | Delivering magic links and invitations through Resend (otherwise logged; SES needs no key — § Email) |
+| `RESEND_API_KEY` | Delivering magic links and invitations through Resend (otherwise logged — with no link under `APP_ENV=production`; SES needs no key — § Email) |
 | `BOOTSTRAP_ADMIN_EMAILS` | The first global admin |
 | `GOOGLE_*`, `MICROSOFT_*`, `OIDC_CLIENT_SECRET` | The matching sign-in buttons |
 | `ANTHROPIC_API_KEY` / `AI_API_KEY` | Chat and agents |

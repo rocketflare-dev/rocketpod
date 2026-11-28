@@ -23,6 +23,10 @@ interface FakeRepo {
   files: Record<string, string>
   commits?: Record<string, CommitChanges[]>
   working?: FileChange[]
+  /** A copy: `.rocketflare.json` records its kit commit. */
+  copy?: boolean
+  /** `doc` → the copy's commit that brought its `verified:` line in. */
+  arrived?: Record<string, string>
 }
 
 function fakeGit(repo: FakeRepo): DocsGit {
@@ -32,6 +36,8 @@ function fakeGit(repo: FakeRepo): DocsGit {
     resolveCommit: ref => (repo.commits && ref in repo.commits ? `${ref}full` : null),
     commitsSince: sha => repo.commits?.[sha.replace(/full$/, '')] ?? [],
     workingChanges: () => repo.working ?? [],
+    isKitCopy: () => repo.copy ?? false,
+    verifiedLineArrived: doc => repo.arrived?.[doc] ?? null,
   }
 }
 
@@ -110,6 +116,41 @@ describe('history mode', () => {
     expect(report.errors[1]?.message).toContain('src/gone/**')
     expect(report.errors[2]?.message).toContain('deadbeef')
     expect(exitCodeFor(report)).toBe(1)
+  })
+})
+
+describe('a copy: pages verified at kit commits its history lacks', () => {
+  const page = `${G}start/a.md`
+  // Detached: the kit's `kitsha1` is gone; `root` is the detach commit that brought the line in.
+  const detached = (extra: Partial<FakeRepo> = {}): FakeRepo => ({
+    files: { [page]: fm(['src/**'], 'kitsha1'), 'src/a.ts': '' },
+    commits: { root: [] },
+    copy: true,
+    arrived: { [page]: 'root' },
+    ...extra,
+  })
+
+  it('checks a kit sha from the commit that brought it in, and is clean straight after detach', () => {
+    const report = checkDocs(fakeGit(detached()))
+    expect(report.errors).toEqual([])
+    expect(report.stale).toEqual([])
+    expect(report.baselined).toEqual([{ doc: page, verified: 'kitsha1', from: 'root' }])
+    expect(exitCodeFor(report)).toBe(0)
+    expect(checkDocs(fakeGit(detached()), { changed: true }).errors).toEqual([])
+  })
+
+  it('still reports the page stale once the copy changes its sources', () => {
+    const git = fakeGit(
+      detached({ commits: { root: [{ sha: 'c1', files: [change('src/a.ts', 2, 1)] }] } })
+    )
+    expect(checkDocs(git).stale.map(s => s.doc)).toEqual([page])
+  })
+
+  it('keeps an unknown sha an error in the kit, and in a copy when no commit brought it in', () => {
+    expect(checkDocs(fakeGit(detached({ copy: false }))).errors[0]?.message).toContain('kitsha1')
+    expect(checkDocs(fakeGit(detached({ arrived: {} }))).errors[0]?.message).toContain(
+      'no commit here brought it in'
+    )
   })
 })
 

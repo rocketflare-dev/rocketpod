@@ -43,7 +43,10 @@ How the Guide works mechanically is `docs/CONCEPTS.md` § The Guide.
 
 1. **Gather.** `pnpm -C apps/web -s docs:stale --json` →
    `{ stale: [{ doc, verified, files }], errors }`. Fix `errors` first (a missing field, a glob
-   that matches nothing — point it at where the code went — or an unknown sha). Add pages the
+   that matches nothing — point it at where the code went — or an unknown sha; in a detached copy
+   a kit sha the history lacks is not an error: it is read from the commit that brought the
+   `verified:` line in and listed as `baselined`, and the rename re-points it to the copy's own
+   commit). Add pages the
    session is editing: `pnpm -C apps/web docs:stale --changed`.
 2. **Read the diff, then the page.** `git diff <verified>..HEAD -- <files>` plus the working tree.
    List every claim in the page the diff touches: behaviour, commands and flags, names, limits,

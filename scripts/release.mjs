@@ -505,7 +505,9 @@ function main(argv) {
     if (!existsSync(abs(repoRoot, file))) continue
     const text = read(repoRoot, file)
     const next = text.replace(pattern, `$1"${version}"`)
-    if (next === text) {
+    // A file already AT `version` is fine (a merge of an upstream release may have brought the
+    // bump in); only a file with no version field to stamp is an error.
+    if (!pattern.test(text)) {
       warn(`error: could not find the version to stamp in ${file}`)
       return 1
     }

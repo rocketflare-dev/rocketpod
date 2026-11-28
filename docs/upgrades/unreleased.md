@@ -4,7 +4,7 @@ previous: 0.46.0
 date: null
 breaking: false
 migrations: []
-areas: []
+areas: [tooling]
 touches_surfaces: []
 requires_surfaces: []
 manual: false
@@ -12,20 +12,18 @@ manual: false
 
 ## What changed
 
-_Nothing yet. Add an entry here in the same pull request as the change. This first paragraph is
-lifted VERBATIM into `CHANGELOG.md`, so make it ONE standalone summary sentence of ≤ 40 words —
-then one bullet per change, one line each, and no `###` sub-headings. Rationale belongs in
-`docs/CONCEPTS.md` and is linked, never restated; see `README.md` beside this file._
+`pnpm kit:release` releases a version a version file already carries, instead of refusing it: a merge of an upstream kit's release tag can bring the bump in first.
+
+- `scripts/release.mjs`: a version file already at the release version is stamped as it is; a file with no version field is still an error (`tests/kit-only/release-stamp.test.ts`).
 
 ## How to apply
 
-_Numbered, imperative, each step self-contained — no "these", "them" or "the above" reaching
-outside its own step._
+1. Take the `scripts/release.mjs` hunk as it is.
 
 ## Conflicts to expect
 
-_One line each: `path → what changed → what to do`. Or exactly `None.`_
+None.
 
 ## Verify
 
-_Numbered checkable commands and assertions only._
+1. `pnpm test kit-only apps/web/tests/kit-only/release-stamp.test.ts` passes.

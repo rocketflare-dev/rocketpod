@@ -35,7 +35,7 @@ import type {
   SearchRequest,
 } from '@rocketpod/shared/ai/embeddings'
 import { KNOWLEDGE_USAGE_FEATURES } from '@rocketpod/shared/ai/usage'
-import { and, eq, gte, inArray, isNull, lt, or, type SQL, sql } from 'drizzle-orm'
+import { and, asc, eq, gte, inArray, isNull, lt, or, type SQL, sql } from 'drizzle-orm'
 import type { AppConfig } from '../../../config'
 import { type Database, rows } from '../../../db/client'
 import { chunks, documents } from '../../../db/schema'
@@ -495,7 +495,7 @@ async function runSearch(
       .from(chunks)
       .innerJoin(documents, eq(documents.id, chunks.documentId))
       .where(and(eq(chunks.tenantId, tenantId), scope, eq(chunks.embeddingModel, vector.model)))
-      .orderBy(sql`${chunks.embedding} <=> ${vector.literal}::vector`)
+      .orderBy(sql`${chunks.embedding} <=> ${vector.literal}::vector`, asc(chunks.id))
       .limit(pool)
   // The platform corpus: `tenant_id IS NULL` and a named source, never anything else — and only
   // the documents embedded by THIS query vector's model. Always under the iterative scan: the
@@ -508,7 +508,7 @@ async function runSearch(
         .from(chunks)
         .innerJoin(documents, eq(documents.id, chunks.documentId))
         .where(and(isNull(chunks.tenantId), platformScope, eq(chunks.embeddingModel, vector.model)))
-        .orderBy(sql`${chunks.embedding} <=> ${vector.literal}::vector`)
+        .orderBy(sql`${chunks.embedding} <=> ${vector.literal}::vector`, asc(chunks.id))
         .limit(pool)
     })
 
@@ -540,7 +540,7 @@ async function runSearch(
             eq(chunks.embeddingModel, vector.model)
           )
         )
-        .orderBy(sql`${chunks.embedding} <=> ${vector.literal}::vector`)
+        .orderBy(sql`${chunks.embedding} <=> ${vector.literal}::vector`, asc(chunks.id))
         .limit(pool)
     })
   const denseLegs: Promise<Candidate[]>[] = shared
@@ -570,7 +570,8 @@ async function runSearch(
             )
           )
           .orderBy(
-            sql`ts_rank_cd(${chunks.searchVector}, to_tsquery(${SEARCH_TEXT_CONFIG}, ${terms})) DESC`
+            sql`ts_rank_cd(${chunks.searchVector}, to_tsquery(${SEARCH_TEXT_CONFIG}, ${terms})) DESC`,
+            asc(chunks.id)
           )
           .limit(pool)
       : Promise.resolve([] as Candidate[]),

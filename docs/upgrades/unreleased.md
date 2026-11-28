@@ -4,7 +4,7 @@ previous: 0.46.1
 date: null
 breaking: false
 migrations: []
-areas: []
+areas: [api, docs]
 touches_surfaces: []
 requires_surfaces: []
 manual: false
@@ -12,20 +12,22 @@ manual: false
 
 ## What changed
 
-_Nothing yet. Add an entry here in the same pull request as the change. This first paragraph is
-lifted VERBATIM into `CHANGELOG.md`, so make it ONE standalone summary sentence of ≤ 40 words —
-then one bullet per change, one line each, and no `###` sub-headings. Rationale belongs in
-`docs/CONCEPTS.md` and is linked, never restated; see `README.md` beside this file._
+Knowledge search breaks a score tie by chunk id in every dense and lexical leg, so equal-scored passages come back in the same order whichever plan Postgres picks.
+
+- `apps/web/src/api/services/ai/retrieval.ts`: the tenant, platform and shared dense legs order by `<=>` then `asc(chunks.id)`; the lexical leg by `ts_rank_cd DESC` then `asc(chunks.id)`. The HNSW index is still used (an incremental sort over it).
+- `apps/web/tests/api/ingest-retrieval.test.ts`: two passages tied in both legs, the later-stored one with the smaller id, rank in chunk-id order.
+- `docs/CONCEPTS.md` §9 and `apps/web/src/api/services/ai/CLAUDE.md` say so.
 
 ## How to apply
 
-_Numbered, imperative, each step self-contained — no "these", "them" or "the above" reaching
-outside its own step._
+1. In `apps/web/src/api/services/ai/retrieval.ts`, add `asc` to the `drizzle-orm` import and append `asc(chunks.id)` to the `.orderBy(...)` of every dense query and of the lexical query.
+2. Take the new `it` in `apps/web/tests/api/ingest-retrieval.test.ts` as it is.
+3. Take the one-sentence hunks in `docs/CONCEPTS.md` and `apps/web/src/api/services/ai/CLAUDE.md`.
 
 ## Conflicts to expect
 
-_One line each: `path → what changed → what to do`. Or exactly `None.`_
+- `apps/web/src/api/services/ai/retrieval.ts` → a copy that changed a leg's `orderBy` → keep the copy's ordering and append `asc(chunks.id)` as its last key.
 
 ## Verify
 
-_Numbered checkable commands and assertions only._
+1. `pnpm test api apps/web/tests/api/ingest-retrieval.test.ts apps/web/tests/api/knowledge-rerank.test.ts` passes.

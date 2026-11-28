@@ -157,6 +157,45 @@ describe('POST /api/ai/documents/ingest + /search', () => {
     expect(bList.items).toEqual([])
   })
 
+  it('passages tied on both signals rank in chunk-id order, not in the order Postgres scanned them', async () => {
+    const a = await actor()
+    const env = fakeEmbeddingsEnv()
+    const cfg = loadConfig(env)
+    // Same vector (no topic word) and the same keyword once each: a tie in BOTH legs.
+    const add = async (n: number) => {
+      const { document } = await ingestText(
+        db,
+        cfg,
+        env,
+        {
+          tenantId: a.tenant.id,
+          userId: a.user.id,
+          title: `tied ${n}`,
+          text: `Tied ${n}. zephyr.`,
+        },
+        { jobs: env.jobs }
+      )
+      const [chunk] = await db.select().from(chunks).where(eq(chunks.documentId, document.id))
+      return { documentId: document.id, chunkId: chunk?.id as string }
+    }
+    // Write them so the one stored LATER has the SMALLER id: a scan-order answer then disagrees
+    // with the id order, so a leg without the tiebreak answers the wrong order here.
+    const first = await add(0)
+    let later = await add(1)
+    for (let n = 2; later.chunkId > first.chunkId; n++) {
+      await db.delete(documents).where(eq(documents.id, later.documentId))
+      later = await add(n)
+    }
+    const body = searchResponseSchema.parse(
+      await json(await search(a.cookie, env, { query: 'zephyr', limit: 2 }))
+    )
+    expect(body.hits.map(h => h.chunkId)).toEqual([later.chunkId, first.chunkId])
+    expect(body.hits.map(h => [h.denseRank, h.lexicalRank])).toEqual([
+      [1, 1],
+      [2, 2],
+    ])
+  })
+
   it('validation 400s, 401 anon, 503 ai_not_configured without any embeddings provider (no row written)', async () => {
     const a = await actor()
     const env = fakeEmbeddingsEnv()

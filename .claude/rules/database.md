@@ -11,7 +11,7 @@ paths:
 # Database Patterns
 
 Drizzle ORM over PostgreSQL (any Postgres deployed, Docker locally). **One driver (D35, narrowed in
-Rocketpod): `postgres.js`** — the Node entry's process pool. Never add `pg`. **No driver import outside
+the Rocketpod kit): `postgres.js`** — the Node entry's process pool. Never add `pg`. **No driver import outside
 `apps/web/src/db/client.ts` and `apps/web/scripts/lib/sql.ts`** (+ `migrate.ts`'s migrators) —
 `tests/config/driver-results.test.ts` fails one in `src/`. All domain data is tenant-scoped.
 

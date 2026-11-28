@@ -12,7 +12,7 @@
  * content type; and the document's own `client_id` must equal the URL it came from. A name can
  * still RESOLVE to a private address, so the fetch itself goes through `Platform.publicFetch`
  * (`src/node/egress.ts`), which refuses to connect to any non-public address — judged at connect
- * time, so a rebinding answer is caught too (Rocketpod; upstream leans on the Worker's egress).
+ * time, so a rebinding answer is caught too (the Rocketpod kit; upstream leans on the Worker's egress).
  *
  * The document is cached in `oauth_clients` and refetched once it is a day old. The cache is a
  * cache: a failed refetch is a failed authorization, never a silent fall-back to stale redirect

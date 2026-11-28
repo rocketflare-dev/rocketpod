@@ -1,5 +1,5 @@
 /**
- * The MCP server's SECOND credential (docs/CONCEPTS.md §19, Rocketpod only): a JWT access token
+ * The MCP server's SECOND credential (docs/CONCEPTS.md §19, Rocketpod kit only): a JWT access token
  * from an outside OAuth authorization server, `MCP_AUTHORIZATION_SERVER` (Cognito, Entra, Okta…).
  * The app's own authorization server (`services/mcp/authorization.ts`) is the first; both end in
  * the SAME caller (`services/mcp/caller.ts` `callerForGrant`), so membership, the block, the

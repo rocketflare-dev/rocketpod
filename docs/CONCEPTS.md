@@ -865,14 +865,14 @@ cannot resume: a failed upload is aborted and the caller sends the stream again.
   the test and the design pages share.
 - **Rocketflare's ember look is offered, never applied.** Upstream's default since 0.45.0 is a
   tinted shell on one warm rust hue (`oklch(L C 35)` literals, a deep rail, IBM Plex Sans and
-  JetBrains Mono). Rocketpod took its mechanics (the token names, the rail and Home styles, the
+  JetBrains Mono). The Rocketpod kit took its mechanics (the token names, the rail and Home styles, the
   radii in `@theme`) and kept its own palette and the system face. To take ember:
   `pnpm design:docs --adopt-default-look --from <dir>`, where `<dir>` holds Rocketflare's three
   look files (`apps/web/src/shared/theme-tokens.css`, `apps/web/src/ui/index.css`,
   `apps/web/src/ui/index.html`) in Rocketpod's names — the kit repository keeps a copy at
   `apps/web/tests/kit-only/fixtures/one-hue-look/` (kit-only: the rename deletes it, so fetch it
   from the kit's tag into a copy). Without `--from`, a copy adopts the token files of the
-  Rocketpod release it records, which is this look. The faces need their packages:
+  Rocketpod kit release it records, which is this look. The faces need their packages:
   `@fontsource-variable/ibm-plex-sans` and `@fontsource-variable/jetbrains-mono` in
   `apps/web/package.json` and imported in `ui/main.tsx`; without them the stack falls back to the
   system face. Then `pnpm design:docs --contrast` and `pnpm web test:ui`.
@@ -1707,7 +1707,7 @@ cycle). Detail: `packages/shared/CLAUDE.md`.
 ## 13. Upgrading a copy
 
 **A renamed copy with deleted examples still absorbs later kit releases (D27).** A copy upgrades
-from Rocketpod releases (`kit.repo` is `rocketflare-dev/rocketpod`). `.rocketflare.json` and `rocketflare-plugin.json`
+from Rocketpod kit releases (`kit.repo` is `rocketflare-dev/rocketpod`). `.rocketflare.json` and `rocketflare-plugin.json`
 keep their names on purpose — they are the plugin ecosystem's fixed filenames (`KIT.ecosystem`).
 
 - **`.rocketflare.json`**: kit `{id, repo, version, commit}`, the app's names (`app === null` means
@@ -1730,8 +1730,9 @@ keep their names on purpose — they are the plugin ecosystem's fixed filenames 
   gate runs (`pnpm test` names the project only while its directory exists); its workflows
   (`kit.yml`, `plugin-ci.yml`, `notify-plugins.yml`); its maintainer scripts (`release.mjs`,
   `changelog-nudge.mjs` and `lib/nudge-lib.mjs`, `default-plugins.mjs`, `install.sh`); the
-  maintainer skill `rp-sync-rocketflare` (porting Rocketflare releases into Rocketpod); and its
-  project files (`CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, the maintainers' ledger `docs/FORK.md`,
+  maintainer skill `rp-sync-rocketflare` (porting Rocketflare releases into the Rocketpod kit);
+  and its project files (`CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, the maintainers' ledger
+  `docs/FORK.md`,
   the kit roadmap `docs/ROADMAP.md`, the pending porting notes `docs/upgrades/unreleased.md`).
   `scripts/rename.mjs` deletes them when a
   copy is born, and with them every package.json script (`kit:release`) and `.claude/settings.json`
@@ -1950,7 +1951,7 @@ as merging a PR. A plugin repo mirrors the host tree and ships **no migration an
 `package.json`**. Plugins share Rocketflare's ecosystem files (`rocketflare-plugin.json`), so one
 that uses only the injected context installs in either kit. A plugin is written in Rocketflare's
 vocabulary (`@rocketflare/shared/…`, `ROCKETFLARE_…`), and `plugin add`/`upgrade` translate it into
-Rocketpod's first (`pluginTranslator`, `scripts/lib/rename-lib.mjs`), then into a renamed app's; the
+the Rocketpod kit's first (`pluginTranslator`, `scripts/lib/rename-lib.mjs`), then into a renamed app's; the
 fixed filenames and `rocketflare-dev/…` references are kept. Known difference: `ToastType` is
 `'error' | 'warning'` here (toasts report problems only), so a plugin calling
 `showToast(…, 'success')` fails typecheck in Rocketpod. One that declares Cloudflare
@@ -2612,7 +2613,10 @@ Guide" pane) and from a header `?` slide-over (or the `?` key) that shares one c
   the one place a screen's help topic is defined; `GuideLink` takes its target from there, and the
   staleness test holds every target to a real page (a member screen to a member page).
 - **Staying true**: `pnpm web docs:stale` lists pages whose `sources` changed after `verified`
-  (structural errors exit 1; staleness never does). A Claude Code `Stop` hook runs it on the
+  (structural errors exit 1; staleness never does). In a copy (`.rocketflare.json` `kit.commit`
+  set) a `verified` naming a kit commit the history lacks — every page after the detach, a page a
+  `kit:upgrade` brought — is read from the copy's commit that brought that line in (`baselined`
+  in `--json`), not an error; the rename re-points those to the copy's HEAD. A Claude Code `Stop` hook runs it on the
   working tree (`--changed --quiet --hook`): silent when nothing is stale, a `systemMessage` when
   something is, and it never blocks or fails a session. `pnpm web guide:shots` regenerates the
   screenshots in `screenshots.yaml` from a local dev server (dev login as the seed's owner, frozen
@@ -2757,7 +2761,7 @@ tool and connecting a client; `.claude/rules/tools.md` is the checklist for a sa
   `mcp.client_connected`): an unredeemed grant is never listed or counted, and the nightly
   retention deletes it an hour after it was made.
 
-- **A second issuer (Rocketpod only)**: `MCP_AUTHORIZATION_SERVER` names an OUTSIDE OAuth server
+- **A second issuer (Rocketpod kit only)**: `MCP_AUTHORIZATION_SERVER` names an OUTSIDE OAuth server
   (Cognito, Entra, Okta…) whose JWT access tokens `/mcp` also accepts (`api/auth/mcp.ts`). A
   bearer without the `mcpat_` prefix is verified against that server's JWKS (RFC 8414
   `jwks_uri`, re-read hourly and for an unknown `kid`): ES256/RS256, `typ` `at+jwt`, `JWT` or

@@ -143,7 +143,7 @@ function batchRefused(): Response {
 
 /**
  * The caller behind a token from the OUTSIDE authorization server (`MCP_AUTHORIZATION_SERVER`,
- * Rocketpod only; `auth/mcp.ts`): the token → the person, through the SSO policy and `admitUser`
+ * Rocketpod kit only; `auth/mcp.ts`): the token → the person, through the SSO policy and `admitUser`
  * like any sign-in → the organisation the URL or `mcp-tenant` names (or their only one) → a grant
  * of its own, and from there the SAME caller as the app's own tokens (`callerForGrant`).
  */

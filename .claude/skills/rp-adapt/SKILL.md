@@ -7,8 +7,9 @@ argument-hint: "<slug> [\"Display Name\"] [--domain example.com] [--colour #hex|
 # Adapt — rename the kit to your app
 
 `docs/ADAPTING.md` §1 is a 20-row find/replace table. `scripts/rename.mjs` does the mechanical
-rows in one pass and reports the six that need a person; `checklist.md` beside this file walks
-those six, plus a seventh — (g) — when a plugin is installed. You drive both. Every step ends with
+rows in one pass and reports the careful rows (a)–(j) (plus (k) when the kit commit is missing);
+`checklist.md` beside this file walks them under the same letters, plus (l) when a plugin is
+installed. You drive both. Every step ends with
 what the user should see.
 
 Arguments: `$ARGUMENTS` — the slug is required (`my-app`: lowercase, digits, hyphens); the display
@@ -40,7 +41,7 @@ node scripts/rename.mjs --dry-run $ARGUMENTS
 ```
 
 Expect exit 0, a table of `file → replacements per token class` ending in a `TOTAL` row, then the
-eight careful rows (a)–(h) and a "nothing written" line. Show the user the header line (the derived
+careful rows (a)–(j) and a "nothing written" line. Show the user the header line (the derived
 `slug · snake · UPPER · domain`), the TOTAL row, and the careful rows. Confirm the derived names
 are what they want — the display name and domain in particular — then ask: **apply?**
 
@@ -51,7 +52,7 @@ so a plugin's files appear as ordinary rows under `apps/web/src/plugins/<id>/`,
 `packages/shared/src/plugins/<id>/` and `apps/cli/src/plugins/<id>/` — there is no "plugins"
 heading to look for. Say so when `pnpm plugin list` shows anything, and check one of those rows has
 a non-zero count: a plugin is written in the kit's vocabulary and this pass is what translates it
-(row (g) of `checklist.md`).
+(row (l) of `checklist.md`).
 
 ## 3. Apply
 
@@ -67,15 +68,15 @@ lines) at the end. Expect `wrote N files.`, the install and biome output, then t
 
 ## 4. Walk the checklist
 
-Open `checklist.md` (this directory) and go through rows (a)–(h) **one at a time**, in order —
-then (g) if `pnpm plugin list` printed anything, then (h), the licence. For each: say what to check, run the "how to check"
+Open `checklist.md` (this directory) and go through rows (a)–(j) **one at a time**, in order —
+then (k) if the script printed it, then (l) if `pnpm plugin list` printed anything. For each: say what to check, run the "how to check"
 command, show the result, and either confirm "nothing to do" or make the change the row describes —
 with the user's yes for anything that is a design choice (colour, logo, domain). Rows (a), (c), (d)
 are usually already done by the script; (b) is a database decision; (e) and (f) are the user's
 brand (applied from `docs/design/brand.css` when the design has one) and (f) includes the sign-in
-panel's image and tagline; (g) verifies that the
-rename reached the installed plugins; (h) makes the app's `LICENSE` its owner's, taken from
-`design.json` `owner` when there is one.
+panel's image and tagline; (g) and (h) confirm the ports and the chart the script moved; (i) is
+the owner's image registry; (j) makes the app's `LICENSE` its owner's, taken from `design.json`
+`owner` when there is one; (l) verifies that the rename reached the installed plugins.
 
 ## 5. Verify
 
@@ -102,5 +103,5 @@ Tell the user:
   real ones** — not now.
 
 Then **end the turn with `AskUserQuestion`** rather than a paragraph — the same as `/rp-setup` does.
-The choices after a rename are: **run it** (`/rp-setup`, or `SETUP.md` Part 1 by hand), **walk the eight careful rows** (`checklist.md` beside this
+The choices after a rename are: **run it** (`/rp-setup`, or `SETUP.md` Part 1 by hand), **walk the careful rows** (`checklist.md` beside this
 file), or **stop here**.

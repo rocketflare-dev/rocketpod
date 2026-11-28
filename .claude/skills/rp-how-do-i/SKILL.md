@@ -50,10 +50,14 @@ thing allowed to write a line into — importing the kit only through the declar
 version and install somewhere else; written into core, it is diffused across twenty files nobody
 can separate again.
 
-**Default to the plugin.** Core is still right when the change is to the kit's OWN tables
-(`tenants`, `users`, `tenant_users`, `documents`…), to auth or tenancy, or to a cross-cutting
-middleware — the things a plugin composes ON TOP of and must not redefine. Everything else — a
-resource with its own table, its own screens, its own jobs — is a plugin.
+**Default to the app.** An app's own features — its domain, its tables, its screens, its jobs — are
+built in the app, in the stage that first needs them (the same rule `/rp-design` writes into the
+plan, `.claude/skills/rp-design/shape.md` §8). **Build a plugin only for something reusable across
+apps**: a capability the owner means to install in another product too. A plugin is the format for
+sharing, and its packaging (its own repository, version, release notes and namespace) costs time a
+builder does not need to spend on their own domain. Either way, never redefine the kit's OWN tables
+(`tenants`, `users`, `tenant_users`, `documents`…), auth, tenancy or a cross-cutting middleware
+from a plugin — those change in core.
 
 Two things to say out loud when the answer is "plugin", because they surprise people:
 
@@ -68,7 +72,8 @@ Everything the plugin keys carries its id: tables prefixed from it (`example-fea
 `/api/<id>`, query-key roots `<id>:…`, the CLI command `<id>`, feature/prompt/agent keys, and AG-UI
 CUSTOM events `<id>.` — **never `kit.`**, which is the kit's own namespace.
 
-**Done when** they have said app or plugin, and you have said which of the two reasons decided it.
+**Done when** they have said app or plugin, and you have said why: their own feature (the app), or
+something another app will install too (a plugin).
 
 ## 1. Turn the idea into a slice
 

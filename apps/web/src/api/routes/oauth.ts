@@ -299,7 +299,7 @@ function protectedResource(c: AppContext, slug?: string) {
   const cfg = c.get('config')
   return c.json({
     resource: mcpResourceUrl(cfg, slug),
-    // The outside server first when there is one (Rocketpod only, `MCP_AUTHORIZATION_SERVER`): a
+    // The outside server first when there is one (Rocketpod kit only, `MCP_AUTHORIZATION_SERVER`): a
     // deployment that set it wants clients to sign in there, and a client takes the first.
     authorization_servers: cfg.MCP_AUTHORIZATION_SERVER
       ? [cfg.MCP_AUTHORIZATION_SERVER, oauthIssuer(cfg)]

@@ -38,7 +38,7 @@ describe('priceFor', () => {
   it('knows nothing about a self-hosted or unlisted model', () => {
     expect(priceFor('openai_compatible', 'llama-on-my-laptop')).toBeNull()
     expect(priceFor('anthropic', 'claude-9-imaginary')).toBeNull()
-    // A provider Rocketpod dropped still parses on old rows, and simply has no price.
+    // A provider the Rocketpod kit dropped still parses on old rows, and simply has no price.
     expect(priceFor('workers_ai', '@cf/baai/bge-m3')).toBeNull()
   })
 })

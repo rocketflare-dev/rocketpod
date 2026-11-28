@@ -38,7 +38,9 @@ import {
   REDACTED_KEY_MARGIN,
   readIntConstant,
   readStringConstant,
+  readTestPorts,
   renameKitManifest,
+  repointVerified,
   restartAppVersion,
   rewriteDevPortStarts,
   rewriteDevServerPorts,
@@ -49,6 +51,25 @@ import {
   topLevelObjectSpan,
   validateSlug,
 } from '../../../../scripts/lib/rename-lib.mjs'
+
+describe('repointVerified', () => {
+  const page = (verified: string) =>
+    `---\ntitle: Signing in\nsources:\n  - apps/web/src/a.ts\nverified: ${verified}\n---\n\nverified: ${verified} in prose\n`
+  const known = new Set(['abc1234'])
+  const isKnown = (sha: string) => known.has(sha)
+
+  it('re-points a kit sha this history lacks to HEAD, in the frontmatter only', () => {
+    expect(repointVerified(page('8ed8bdd'), isKnown, 'f00d123')).toBe(
+      '---\ntitle: Signing in\nsources:\n  - apps/web/src/a.ts\nverified: f00d123\n---\n\nverified: 8ed8bdd in prose\n'
+    )
+  })
+
+  it('leaves a known sha, a page without frontmatter and a repo without HEAD alone', () => {
+    expect(repointVerified(page('abc1234'), isKnown, 'f00d123')).toBeNull()
+    expect(repointVerified('# No frontmatter\nverified: 8ed8bdd\n', isKnown, 'f00d123')).toBeNull()
+    expect(repointVerified(page('8ed8bdd'), isKnown, null)).toBeNull()
+  })
+})
 
 describe('deriveNames', () => {
   it('derives snake, UPPER, display and the placeholder domain from a hyphenated slug', () => {
@@ -247,6 +268,33 @@ describe('applyReplacements', () => {
     expect(text).toContain('acme-web and @acme/shared still move')
     expect(text).not.toMatch(/\.acme\.json|acme-plugin\.json|acme\.example\.com\.json/)
     expect(preserved).toBe(4)
+  })
+
+  it('keeps the phrases that name the kit, not the app: the detach commit and "the Rocketpod kit"', () => {
+    const input = [
+      'if [ "$FIRST" = "Start from Rocketpod" ]; then',
+      '// plus the ones the Rocketpod kit dropped',
+      '`Rocketpod kit update available: 0.47.0`',
+      'Welcome to Rocketpod', // the app's own name still moves
+    ].join('\n')
+    const { text } = applyReplacements(input, deriveNames('field-notes'))
+    expect(text.split('\n')).toEqual([
+      'if [ "$FIRST" = "Start from Rocketpod" ]; then',
+      '// plus the ones the Rocketpod kit dropped',
+      '`Rocketpod kit update available: 0.47.0`',
+      'Welcome to Field Notes',
+    ])
+  })
+
+  it('leaves detach.sh recognising the commit it writes, after the rename', () => {
+    const script = readFileSync(path.join(__dirname, '../../../../scripts/detach.sh'), 'utf8')
+    const renamed = applyReplacements(script, deriveNames('field-notes')).text
+    const written = renamed.match(/commit -q -m "([^"]+)"/)?.[1]
+    const checked = renamed.match(/\[ "\$FIRST" = "([^"]+)" \]/)?.[1]
+    expect(written).toBeDefined()
+    expect(checked).toBe(written)
+    // …and that is the subject every copy's history already starts with: the kit's.
+    expect(written).toBe(script.match(/commit -q -m "([^"]+)"/)?.[1])
   })
 
   it('never rewrites the published plugin catalogue page, while the app domain still moves', () => {
@@ -776,6 +824,21 @@ describe('local port blocks — every copy gets its own ports', () => {
     expect(count).toBe(7)
   })
 
+  it('reads the test ports the test compose publishes, and moves those', () => {
+    const compose = readFileSync(
+      path.join(__dirname, '../../../../apps/web/docker-compose.test.yml'),
+      'utf8'
+    )
+    // The kit's own file publishes the ports every kit test-port mention is written in.
+    expect(readTestPorts(compose)).toEqual({ db: 5533, s3: 7433 })
+    // A tree whose test ports were moved (a fork) renames ITS ports, not the kit's.
+    const moved = readTestPorts('    ports:\n      - "6133:5432"\n    ports:\n      - 6170:7070\n')
+    expect(moved).toEqual({ db: 6133, s3: 6170 })
+    const { text } = rewritePorts('localhost:6133 and :6170, not 5533', portsForBlock(5800), moved)
+    expect(text).toBe('localhost:5833 and :5870, not 5533')
+    expect(readTestPorts(null)).toEqual({ db: 5533, s3: 7433 })
+  })
+
   it('moves the dev UI/API ports only where they are written as dev ports', () => {
     const ports = portsForBlock(5800)
     const text = [
@@ -792,6 +855,8 @@ describe('local port blocks — every copy gets its own ports', () => {
       '              containerPort: 3001',
       'retry after 30001 ms',
       "  'http://localhost:3000', // rename: keep",
+      'docker compose up --build   # web + worker on :3001',
+      'The container still listens on :3001',
     ].join('\n')
     const { text: out, count } = rewriteDevServerPorts(text, ports)
     expect(out.split('\n')).toEqual([
@@ -807,10 +872,14 @@ describe('local port blocks — every copy gets its own ports', () => {
       '              containerPort: 3001',
       'retry after 30001 ms',
       "  'http://localhost:3000', // rename: keep",
+      'docker compose up --build   # web + worker on :3001',
+      'The container still listens on :3001',
     ])
     expect(count).toBe(8)
     expect(DEPLOY_PORT_PATHS.test('docker-compose.yml')).toBe(true)
     expect(DEPLOY_PORT_PATHS.test('deploy/helm/acme/templates/web.yaml')).toBe(true)
+    // The runbook's `open http://localhost:3001` is compose's WEB_PORT, which never moves.
+    expect(DEPLOY_PORT_PATHS.test('docs/DEPLOY.md')).toBe(true)
     expect(DEPLOY_PORT_PATHS.test('apps/web/src/api/middleware/cors.ts')).toBe(false)
   })
 

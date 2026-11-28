@@ -201,7 +201,7 @@ export interface OutsideMcpGrantInput {
 
 /**
  * The connection behind a token from the OUTSIDE authorization server (`MCP_AUTHORIZATION_SERVER`,
- * Rocketpod only): one grant per (person, organisation, issuer client, URL), made — already
+ * Rocketpod kit only): one grant per (person, organisation, issuer client, URL), made — already
  * redeemed — on the first call, so it is listed, limited, logged and revocable like the app's own.
  * Its scopes follow the newest token. Revoked or lapsed, it is replaced only by a token issued
  * AFTER that happened (a person who revokes a connection expects the token in hand to stop

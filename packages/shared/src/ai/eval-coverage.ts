@@ -74,7 +74,11 @@ export interface EvalBaselineHeader {
 /**
  * The gate's drift WARNING for one prompt, or null when its baseline is current. `current` is
  * `promptVersion(key, template)` — the same function the eval targets record and the baseline
- * carries (`apps/web/src/api/services/ai/prompt-version.ts`); this function only compares.
+ * carries (`apps/web/src/api/services/ai/prompt-version.ts`); this function only compares. A list
+ * is every version that counts as today's text: in a renamed copy, the template's own and the
+ * template read back in the kit's names, because the kit's baseline measured the kit's spelling and
+ * a rename that only re-named the app changed nothing a model sees differently. The warning names
+ * the first.
  *
  * A baseline with no `promptVersions` at all predates them (or was hand-written) and reads as
  * provisional: its scores are real, but nothing says which prompt text earned them.
@@ -83,8 +87,9 @@ export function baselineWarning(
   promptKey: string,
   entry: EvalCoverage,
   baseline: EvalBaselineHeader,
-  current: string
+  current: string | readonly string[]
 ): string | null {
+  const today = typeof current === 'string' ? [current] : current
   const fix = `run \`${rebaselineCommand(entry)}\``
   if (baseline.provisional || baseline.promptVersions === undefined) {
     return `${promptKey}: baselines/${entry.baseline}.json is provisional (no recorded prompt versions) — ${fix}`
@@ -94,8 +99,8 @@ export function baselineWarning(
     return `${promptKey}: baselines/${entry.baseline}.json records no version of this prompt — ${fix}`
   }
   const versions = typeof recorded === 'string' ? [recorded] : recorded
-  if (versions.length === 1 && versions[0] === current) return null
-  return `${promptKey} changed since its baseline (${versions.join(', ')} → ${current}) — ${fix}`
+  if (versions.length === 1 && today.includes(versions[0] as string)) return null
+  return `${promptKey} changed since its baseline (${versions.join(', ')} → ${today[0]}) — ${fix}`
 }
 
 const CHAT: EvalCoverage = {

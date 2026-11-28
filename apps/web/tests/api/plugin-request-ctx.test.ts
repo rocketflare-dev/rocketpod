@@ -34,7 +34,7 @@ const db = setupTestDatabase()
 
 const app = new Hono<AppEnv>()
 app.onError(errorHandler)
-// Rocketpod: `requestCtx` reads `platform`, which the real app sets after config.
+// The Rocketpod kit: `requestCtx` reads `platform`, which the real app sets after config.
 app.use('*', requestIdMiddleware, requestLogger, configMiddleware, platformMiddleware)
 app.use('*', securityHeaders, databaseMiddleware)
 app.use('/probe', authMiddleware)

@@ -46,8 +46,8 @@ export const KIT = Object.freeze({
    */
   preservedPattern: /(?<!ghcr\.io\/)\brocketflare-dev(?:\/[\w.-]+|(?![\w-]))/g,
   /**
-   * Literal strings restored after the pass, longest first: the three filenames that keep the
-   * KIT's name in a renamed app.
+   * Literal strings restored after the pass, longest first: the filenames (and two phrases) that
+   * keep the KIT's name in a renamed app.
    *
    * `.rocketflare.json` is deliberately not renamed — it describes the KIT, and a fixed path is
    * what lets `kit:upgrade` and `pnpm plugin` find it (D27, D31). Its sidecar follows it, and
@@ -57,12 +57,21 @@ export const KIT = Object.freeze({
    *
    * `rocketflare.dev/plugins` is the published plugin catalogue `pnpm plugin list --available`
    * points at — upstream, like the org; renamed, it became a page on the app's own domain.
+   *
+   * Two phrases name the KIT, never the app. `Start from Rocketpod` is the subject of the commit
+   * `scripts/detach.sh` writes, which a copy's history keeps whatever the copy is called — renamed,
+   * the script and `/rp-setup` looked for `Start from <App>` and no longer saw that the copy is
+   * already detached. `Rocketpod kit` is how prose and messages say "the kit this came from" (the
+   * update check's `Rocketpod kit update available`, a comment on what the kit dropped): a comment
+   * about the kit's own history says `the Rocketpod kit`, and keeps saying it in a copy.
    */
   preserved: [
     '.rocketflare.local.json',
     'rocketflare.dev/plugins',
     'rocketflare-plugin.json',
+    'Start from Rocketpod',
     '.rocketflare.json',
+    'Rocketpod kit',
   ],
 })
 
@@ -153,6 +162,9 @@ const KIT_NAMES = Object.freeze({
  */
 export function buildReplacements(names, from = KIT) {
   const kit = from.slug
+  // The vocabulary's SQL-identifier form: the kit's and the ecosystem's slugs have no hyphen, but
+  // an app's (`toKitNames`) may — `field-notes` is `field_notes_` in a role or a key prefix.
+  const snake = from.snake ?? kit
   return [
     {
       id: 'scope',
@@ -184,13 +196,13 @@ export function buildReplacements(names, from = KIT) {
     {
       id: 'dbuser',
       label: `${kit} (Postgres owner)`,
-      pattern: new RegExp(`(postgresql://|POSTGRES_USER: |-U )${kit}\\b`, 'g'),
+      pattern: new RegExp(`(postgresql://|POSTGRES_USER: |-U )${snake}\\b`, 'g'),
       replacement: `$1${names.snake}`,
     },
     {
       id: 'snake',
-      label: `${kit}_`,
-      pattern: new RegExp(`${kit}_`, 'g'),
+      label: `${snake}_`,
+      pattern: new RegExp(`${snake}_`, 'g'),
       replacement: `${names.snake}_`,
     },
     {
@@ -249,6 +261,24 @@ export function applyReplacements(text, names, from = KIT) {
   })
   const total = Object.values(counts).reduce((a, b) => a + b, 0)
   return { text: total === 0 ? text : out, counts, total, preserved: preservedHits }
+}
+
+/**
+ * Text in a renamed app's names → the same text in the kit's: the rename's pass run backwards, for
+ * COMPARING a file with what the kit shipped (the eval gate's prompt versions: a template the rename
+ * only re-named is still the one the kit's baseline measured). `app` is `.rocketflare.json`'s `app`
+ * block. Lossy where the app's name is also an ordinary word, which can only make two texts differ.
+ */
+export function toKitNames(text, app) {
+  const names = deriveNames(app.slug, app.display, app.domain ? { domain: app.domain } : {})
+  const vocabulary = {
+    slug: names.slug,
+    snake: names.snake,
+    upper: names.upper,
+    display: names.display,
+    domains: [names.domain],
+  }
+  return applyReplacements(text, KIT_NAMES, vocabulary).text
 }
 
 /**
@@ -706,6 +736,28 @@ export function parseArgs(argv) {
   return { ...opts, slug, display }
 }
 
+// ---------------------------------------------------------------------------- Guide `verified:`
+
+/** Where the Guide's pages live — the pages that carry `sources:` + `verified:` (`docs:stale`). */
+export const GUIDE_PAGES_PREFIX = 'apps/web/content/guide/'
+
+/**
+ * A Guide page's `verified: <sha>` (in its leading frontmatter) re-pointed to `head` when
+ * `isKnown(sha)` says this history lacks that commit — a detached copy's pages name the KIT's
+ * commits. The rename's own commit then touches the page, which `docs:stale` reads as the check,
+ * so the mechanical rename of the page's sources does not leave every page stale; and the sha it
+ * names is one the copy has. Null when nothing changes (no frontmatter, a known sha, no `head`).
+ */
+export function repointVerified(text, isKnown, head) {
+  if (!head) return null
+  const fm = /^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/.exec(text)
+  if (!fm) return null
+  const line = /^(verified:[ \t]*)([0-9a-f]{7,40})\b/m.exec(fm[0])
+  if (!line || isKnown(line[2]) || line[2] === head) return null
+  const block = fm[0].replace(line[0], `${line[1]}${head}`)
+  return block + text.slice(fm[0].length)
+}
+
 // ---------------------------------------------------------------------------- local port blocks
 
 /**
@@ -724,6 +776,22 @@ export const PORT_BLOCK_COUNT = 14
 export const KIT_TEST_PORTS = Object.freeze({ db: 5533, s3: 7433 }) // rename: keep
 /** The kit's dev UI (Vite) and API (the Node dev server) ports. */
 export const KIT_DEV_PORTS = Object.freeze({ ui: 3000, api: 3001 }) // rename: keep
+
+/**
+ * The test ports this tree actually publishes, read from `apps/web/docker-compose.test.yml` (the
+ * Postgres service's `"<host>:5432"`, the S3 gateway's `"<host>:7070"`), so the pass rewrites and
+ * reports the ports written down here — a tree whose test ports were moved still renames — with
+ * `KIT_TEST_PORTS` for whichever cannot be read.
+ */
+export function readTestPorts(composeText) {
+  const published = container =>
+    Number(new RegExp(`["']?(\\d+):${container}["']?\\s*$`, 'm').exec(composeText ?? '')?.[1]) ||
+    null
+  return {
+    db: published(5432) ?? KIT_TEST_PORTS.db,
+    s3: published(7070) ?? KIT_TEST_PORTS.s3,
+  }
+}
 
 /** The ports of the block that starts at `base`. */
 export function portsForBlock(base) {
@@ -768,10 +836,11 @@ export function choosePortBlock(slug, isFree) {
 const portPattern = port => new RegExp(`(?<=[:\\s"'(=\`])${port}(?=[\\s"'):,\`/.\\]]|$)`, 'gm')
 
 /**
- * Rewrite the kit's test ports to the copy's, line by line. A line carrying `rename: keep` is left
- * alone (the lists of OTHER kits' ports must keep naming them).
+ * Rewrite the kit's test ports (`from`, by default `KIT_TEST_PORTS`; `rename.mjs` passes
+ * `readTestPorts`) to the copy's, line by line. A line carrying `rename: keep` is left alone (the
+ * lists of OTHER kits' ports must keep naming them).
  */
-export function rewritePorts(text, ports) {
+export function rewritePorts(text, ports, from = KIT_TEST_PORTS) {
   let count = 0
   const swap = (line, from, to) =>
     line.replace(portPattern(from), () => {
@@ -783,7 +852,7 @@ export function rewritePorts(text, ports) {
     .map(line =>
       line.includes('rename: keep')
         ? line
-        : swap(swap(line, KIT_TEST_PORTS.db, ports.testDb), KIT_TEST_PORTS.s3, ports.testS3)
+        : swap(swap(line, from.db, ports.testDb), from.s3, ports.testS3)
     )
     .join('\n')
   return { text: out, count }
@@ -803,17 +872,27 @@ export function rewriteDevPortStarts(source, ports) {
 }
 
 /**
- * Paths whose :3001 is the CONTAINER's port (the image, compose, the chart), not the dev server's:
- * `rewriteDevServerPorts` never touches them.
+ * Paths whose :3001 is the CONTAINER's port (the image, compose, the chart, and the deploy runbook
+ * and skill that describe them), not the dev server's: `rewriteDevServerPorts` never touches them.
+ * `docs/DEPLOY.md`'s `open http://localhost:3001` is compose's `WEB_PORT` default, which the rename
+ * leaves at 3001 — rewritten, the doc sent a copy to a port nothing listens on.
  */
-export const DEPLOY_PORT_PATHS = /^(docker-compose\.yml$|deploy\/|Dockerfile$)/
+export const DEPLOY_PORT_PATHS =
+  /^(docker-compose\.yml$|deploy\/|Dockerfile$|docs\/DEPLOY\.md$|\.claude\/skills\/rp-deploy\/)/
+
+/**
+ * A line about the container rather than the dev server (`docker compose up … on :3001`, "the
+ * container listens on :3001"), wherever it is written: its port is compose's, so it stays.
+ */
+const CONTAINER_PORT_LINE = /\bdocker[ -]compose\b|\bcontainers?\b/i
 
 /**
  * Rewrite the kit's dev UI/API ports (3000/3001) to the copy's, line by line. Unlike the test
  * ports these digits are common (`GRACE_MS = 3000`, a 3000 ms poll), so only a port written AS a
  * dev port moves: after `localhost:` / `127.0.0.1:`, a prose `:3000` (after a space, `(` or a
  * backtick), the `DEFAULT_UI_PORT` / `DEFAULT_API_PORT` constants and the `DEV_UI_PORT` /
- * `DEV_API_PORT` defaults. A line carrying `rename: keep` is left alone.
+ * `DEV_API_PORT` defaults. A line carrying `rename: keep`, or one about the container
+ * (`CONTAINER_PORT_LINE`), is left alone.
  */
 export function rewriteDevServerPorts(text, ports) {
   let count = 0
@@ -824,7 +903,7 @@ export function rewriteDevServerPorts(text, ports) {
   const out = text
     .split('\n')
     .map(line => {
-      if (line.includes('rename: keep')) return line
+      if (line.includes('rename: keep') || CONTAINER_PORT_LINE.test(line)) return line
       let next = line
       for (const [from, to, kind] of pairs) {
         const patterns = [

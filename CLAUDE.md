@@ -169,7 +169,7 @@ docs/upgrades/     one porting note per kit release (+ unreleased.md, kit repo o
                    rp-agent-docs (+ check.mjs — audit and fix CLAUDE.md, rules and skills) ·
                    rp-mcp (connect an AI client, test with a real one, troubleshoot; CONCEPTS §19) ·
                    rp-sync-rocketflare (+ reference.md — kit repo only, `kitOnly`: port
-                   Rocketflare releases into Rocketpod, `docs/FORK.md`) ·
+                   Rocketflare releases into the Rocketpod kit, `docs/FORK.md`) ·
                    example-feature (demo the reference plugin)
 ```
 

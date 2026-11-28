@@ -6,6 +6,11 @@ copy of the kit forward without recreating anything its owner deleted.
 
 If you are running a copy: `pnpm kit:upgrade` tells you which of these you are missing.
 
+## 0.46.3 — 2026-11-28
+
+Production Compose sign-in is documented; the rename leaves Compose ports alone, reads test ports, re-points Guide `verified:` shas, keeps kit-history phrases (fixing `detach.sh`'s "already detached" check) and stops flagging eval baselines; checklist letters match and plugin-or-app guidance agrees.
+[Porting note](docs/upgrades/0.46.3.md).
+
 ## 0.46.2 — 2026-11-28
 
 Knowledge search breaks a score tie by chunk id in every dense and lexical leg, so equal-scored passages come back in the same order whichever plan Postgres picks.

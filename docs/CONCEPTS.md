@@ -478,7 +478,10 @@ per-PR previews; no public tunnel for OAuth callbacks in dev (use your own, e.g.
   the pool, pg-boss, OpenWorkflow, realtime — through `resolveDatabaseUrl`, with `options=-c
   role=rocketpod_system`; the owner (`ownerDatabaseUrl`) is left to the migrate one-shot, the
   engines' schema installs and the scripts. Migrate creates the login NOINHERIT with the two
-  NOLOGIN policy roles granted, and CONNECT; the engine installers grant `rocketpod_system` their
+  NOLOGIN policy roles granted, and CONNECT — or, when the URL's user IS `rocketpod_app` (a platform
+  that provisions the login under the tenant role's name), makes that role a NOINHERIT LOGIN
+  holding `rocketpod_system` and changes nothing else about it; the owner and `rocketpod_system`
+  are refused as the login. The engine installers grant `rocketpod_system` their
   schemas (`src/node/engine-grants.ts`). The test suite's requests run on such a login
   (`.env.test`), its fixtures on the owner. `TENANT_SCOPE_MODE=enforce` needs it. The layers and
   what each guarantees: `docs/TENANT-ISOLATION.md`; operations: `docs/DEPLOY.md` § Two database

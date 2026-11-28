@@ -9,7 +9,8 @@ CLAUDE.md). Rules for queries: `.claude/rules/database.md`.
 
 **Two logins** (`docs/TENANT-ISOLATION.md`). `resolveDatabaseUrl(env)` is the RUNTIME's URL:
 `APP_DATABASE_URL` when set (through `runtimeDatabaseUrl`, which adds `options=-c
-role=rocketpod_system`), else the owner's. `ownerDatabaseUrl(env)` is the owner's
+role=rocketpod_system`, and, for a login that IS `rocketpod_app`, switches that role's own
+timeouts off), else the owner's. `ownerDatabaseUrl(env)` is the owner's
 (`PREVIEW_DATABASE_URL ?? DATABASE_URL`), for DDL: migrate, the engines' schema installs
 (`src/node/{jobs,runs}-schema.ts`) and `getScriptDatabase`. A new connection site picks one of the
 two on purpose: anything a web or worker process opens at runtime is `resolveDatabaseUrl`.

@@ -8,12 +8,19 @@
  * - `rocketpod_system`: NOLOGIN. The cross-tenant role an app login works as outside a tenant
  *   scope; DML on every `public` table. The job and run engines' installers grant it their
  *   schemas (`src/node/engine-grants.ts`).
- * - the APP LOGIN, only when `APP_DATABASE_URL` is set: its user (any plain identifier but the
- *   owner and the two roles above), created if missing, with LOGIN, the URL's password (sent as a
- *   SCRAM verifier, never the plaintext), NOINHERIT, and both roles granted. It holds no privilege
- *   of its own and reaches data only by working AS one of them (`SET ROLE`, which the runtime does
- *   at connect: `src/db/client.ts` `runtimeDatabaseUrl`). CONNECT on the database is granted to it,
- *   since an outside bootstrap may have revoked CONNECT from PUBLIC.
+ * - the APP LOGIN, only when `APP_DATABASE_URL` is set, in one of two shapes
+ *   (docs/TENANT-ISOLATION.md § 3):
+ *   - a SEPARATE login (the default; any plain identifier but the owner and the two roles above):
+ *     created if missing, with LOGIN, the URL's password (sent as a SCRAM verifier, never the
+ *     plaintext), NOINHERIT, and both roles granted. It holds no privilege of its own and reaches
+ *     data only by working AS one of them (`SET ROLE`, which the runtime does at connect:
+ *     `src/db/client.ts` `runtimeDatabaseUrl`).
+ *   - `rocketpod_app` ITSELF, for a platform that provisions the login under the tenant role's
+ *     name: the role becomes LOGIN NOINHERIT with the URL's password and is granted the system
+ *     role. Its own privileges are the tenant role's, so a `RESET ROLE` leaves a connection that
+ *     sees what the tenant role sees with no tenant set: nothing on a tenant table.
+ *   Either way CONNECT on the database is granted to it, since an outside bootstrap may have
+ *   revoked CONNECT from PUBLIC. The owner and the system role are never accepted as the login.
  *
  * None of them is a superuser, has BYPASSRLS or owns a relation; the post-check proves it on every
  * host. Only a superuser may even name SUPERUSER/BYPASSRLS/REPLICATION in an ALTER ROLE, so those
@@ -43,7 +50,8 @@ export interface ApplyDbRolesOptions {
   databaseUrl?: string
   /**
    * The runtime's app login (default: APP_DATABASE_URL). Its user is created/reconciled as a
-   * NOINHERIT login holding the app and system roles; it may not be the owner or either role.
+   * NOINHERIT login holding the app and system roles, or (named `APP_ROLE`) the app role itself
+   * made a NOINHERIT login holding the system role; it may not be the owner or the system role.
    */
   appDatabaseUrl?: string
   phase?: DbRolesPhase
@@ -96,8 +104,14 @@ function directHost(url: string): string {
   return isNeonUrl(url) ? toDirectNeonHost(url) : url
 }
 
-/** The app login named by `APP_DATABASE_URL`, checked: never the owner or a policy role. */
-function appLoginOf(appDatabaseUrl: string, owner: string): { name: string; password: string } {
+/**
+ * The app login named by `APP_DATABASE_URL`, checked: never the owner or the system role.
+ * `isAppRole`: the login IS the tenant role (a platform provisioned it under that name).
+ */
+function appLoginOf(
+  appDatabaseUrl: string,
+  owner: string
+): { name: string; password: string; isAppRole: boolean } {
   const app = parseCredentials(appDatabaseUrl, 'APP_DATABASE_URL')
   if (!IDENTIFIER_RE.test(app.username)) {
     throw new Error(`APP_DATABASE_URL username '${app.username}' is not a plain SQL identifier`)
@@ -107,15 +121,15 @@ function appLoginOf(appDatabaseUrl: string, owner: string): { name: string; pass
       `APP_DATABASE_URL must be a separate login, not the owner '${owner}' (which bypasses RLS)`
     )
   }
-  if (app.username === APP_ROLE || app.username === SYSTEM_ROLE) {
+  if (app.username === SYSTEM_ROLE) {
     throw new Error(
-      `APP_DATABASE_URL must connect as its own login, not '${app.username}' (that role is granted TO the login)`
+      `APP_DATABASE_URL must not connect as '${SYSTEM_ROLE}' (it sees every tenant; it is granted TO the login)`
     )
   }
   if (!app.password) {
     throw new Error(`APP_DATABASE_URL must include a password for '${app.username}'`)
   }
-  return { name: app.username, password: app.password }
+  return { name: app.username, password: app.password, isAppRole: app.username === APP_ROLE }
 }
 
 export async function applyDbRoles(options: ApplyDbRolesOptions = {}): Promise<ApplyDbRolesResult> {
@@ -196,23 +210,33 @@ export async function applyDbRoles(options: ApplyDbRolesOptions = {}): Promise<A
       )
       if (login) {
         const { login_ident: loginIdent, login_lit: loginLit } = quoted
-        statements.push(
-          [
-            'create app login',
-            `DO $do$ BEGIN
+        // The tenant role as the login: created NOLOGIN above (or by the platform), so it only
+        // gains LOGIN, NOINHERIT and the system role; it cannot be granted to itself.
+        if (!login.isAppRole) {
+          statements.push(
+            [
+              'create app login',
+              `DO $do$ BEGIN
                IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = ${loginLit}) THEN
                  CREATE ROLE ${loginIdent} LOGIN NOINHERIT;
                END IF;
              EXCEPTION WHEN duplicate_object THEN NULL;
              END $do$`,
-          ],
-          ...hygiene(loginIdent, loginLit, 'app login'),
-          // NOINHERIT: the login holds no privilege of its own; it works AS a granted role.
+            ],
+            ...hygiene(loginIdent, loginLit, 'app login')
+          )
+        }
+        statements.push(
+          // NOINHERIT: the login holds no privilege of its own (or, as the tenant role, only the
+          // tenant role's); it works AS a granted role, never with the system role's privileges.
           [
             'app login credential',
             `ALTER ROLE ${loginIdent} LOGIN NOINHERIT PASSWORD ${quoted.verifier_lit}`,
           ],
-          ['app login roles', `GRANT ${role}, ${system} TO ${loginIdent}`],
+          [
+            'app login roles',
+            `GRANT ${login.isAppRole ? system : `${role}, ${system}`} TO ${loginIdent}`,
+          ],
           [
             // A bootstrap that REVOKEd CONNECT from PUBLIC leaves a new login unable to connect.
             // Granting needs the database's ownership (or a grant option); without either, the
@@ -285,8 +309,14 @@ export async function applyDbRoles(options: ApplyDbRolesOptions = {}): Promise<A
     await postCheck(sql.query, { wantsRole, login: login?.name ?? null })
 
     log(
-      `Roles '${APP_ROLE}', '${SYSTEM_ROLE}' ready [${phase}] (nologin, nosuperuser, nobypassrls` +
-        `${login ? `; app login '${login.name}' holds both, NOINHERIT` : '; no app login'})`
+      `Roles '${APP_ROLE}', '${SYSTEM_ROLE}' ready [${phase}] (nosuperuser, nobypassrls` +
+        `${
+          login?.isAppRole
+            ? `; '${APP_ROLE}' is the app login, NOINHERIT, holding '${SYSTEM_ROLE}'`
+            : login
+              ? `; app login '${login.name}' holds both, NOINHERIT`
+              : '; no app login'
+        })`
     )
     return { login: login?.name ?? null, revoked }
   } finally {
@@ -359,13 +389,15 @@ async function postCheck(
     rolinherit: boolean
     owns: number
     can_connect: boolean
+    inherits_system: boolean
   }>(
     `SELECT r.rolname, r.rolsuper, r.rolbypassrls, r.rolcreatedb, r.rolcreaterole,
             r.rolcanlogin, r.rolinherit,
             (SELECT count(*)::int FROM pg_class c WHERE c.relowner = r.oid) AS owns,
-            has_database_privilege(r.oid, current_database(), 'CONNECT') AS can_connect
+            has_database_privilege(r.oid, current_database(), 'CONNECT') AS can_connect,
+            pg_has_role(r.oid, $2::text, 'USAGE') AS inherits_system
      FROM pg_roles r WHERE r.rolname = ANY($1::text[])`,
-    [names]
+    [names, SYSTEM_ROLE]
   )
   const byName = new Map(roles.map(r => [r.rolname, r]))
   for (const name of names) {
@@ -391,6 +423,14 @@ async function postCheck(
     if (!l?.rolcanlogin || l.rolinherit) {
       throw new Error(
         `App login '${options.login}' must be LOGIN NOINHERIT (rolcanlogin=${l?.rolcanlogin}, rolinherit=${l?.rolinherit})`
+      )
+    }
+    // A grant made while the login inherited (or by hand, WITH INHERIT TRUE) would hand it the
+    // system role's privileges outright: the infrastructure tables, every tenant after RESET ROLE.
+    if (l.inherits_system) {
+      throw new Error(
+        `App login '${options.login}' inherits '${SYSTEM_ROLE}'s privileges; it must hold it with SET only ` +
+          `(REVOKE ${SYSTEM_ROLE} FROM ${options.login}, then re-run migrate)`
       )
     }
     if (!l.can_connect) {

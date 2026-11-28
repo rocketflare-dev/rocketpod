@@ -52,14 +52,33 @@ separate login for the app:
 | Variable | Role | Used by | Can |
 |---|---|---|---|
 | `DATABASE_URL` | the owner (an outside bootstrap creates it and the database) | the migrate one-shot; the server too while `APP_DATABASE_URL` is unset | everything; bypasses RLS |
-| `APP_DATABASE_URL` | the app login, any user name but the owner's and the two roles' | every runtime connection of `web` and `worker`: the pool, pg-boss, OpenWorkflow, realtime | nothing of its own (NOINHERIT); works as `rocketpod_system`, or `rocketpod_app` in a scope |
+| `APP_DATABASE_URL` | the app login: a separate login, or `rocketpod_app` itself (below); never the owner or `rocketpod_system` | every runtime connection of `web` and `worker`: the pool, pg-boss, OpenWorkflow, realtime | nothing of its own beyond the tenant role's (NOINHERIT); works as `rocketpod_system`, or `rocketpod_app` in a scope |
 
-The migrate one-shot (`scripts/db-roles.ts`, as the owner) creates the two roles and, when
-`APP_DATABASE_URL` is set, the login: LOGIN with the URL's password (sent as a SCRAM verifier, so
-the plaintext is in no statement), NOINHERIT, both roles granted, and CONNECT on the database (a
-bootstrap may have revoked it from PUBLIC). It ends with a post-check that fails the migration if
-any of the three is a superuser, has BYPASSRLS or owns a relation, if the system role can log in,
-or if the login cannot connect. The job and run engines' installers grant `rocketpod_system` their
+The login comes in two shapes, chosen by `APP_DATABASE_URL`'s user name:
+
+- **A separate login (the default)**, any plain identifier but the owner's and the two roles'
+  (`rocketpod_login`, say). Use it whenever you choose the name. Migrate creates it if missing:
+  LOGIN with the URL's password, NOINHERIT, both roles granted. It holds no privilege of its own,
+  so a `RESET ROLE` leaves a connection that can read nothing.
+- **The tenant role itself, `rocketpod_app`.** For a platform that provisions the app's database
+  login on its own, under the tenant role's name (`<db>_app`), keeps its password in a secret and
+  expects the app's migrate to make that role a login. Migrate makes `rocketpod_app` LOGIN
+  NOINHERIT with the URL's password and grants it `rocketpod_system`. That is the only change: it
+  is still the role the policies name, NOBYPASSRLS, owns nothing, and has the tenant role's grants
+  (the infrastructure tables REVOKEd) and nothing more. A `RESET ROLE` leaves a connection as the
+  tenant role with no tenant set: no tenant's row, only the platform rows every tenant may read
+  (`platformReadable`). Its per-role timeouts (`statement_timeout`, `lock_timeout`,
+  `idle_in_transaction_session_timeout`) would govern every session that logs in as it, so
+  `runtimeDatabaseUrl` switches them off at connect; a separate login never loads them, because a
+  `SET ROLE` does not apply role settings. On Postgres 16+ the owner needs the ADMIN option on a
+  `rocketpod_app` it did not create.
+
+The owner and `rocketpod_system` are always refused as the login, as is a name that is not a plain
+identifier. Either way the URL's password is sent as a SCRAM verifier, so the plaintext is in no
+statement, and the login gets CONNECT on the database (a bootstrap may have revoked it from
+PUBLIC). Migrate ends with a post-check that fails the migration if any of the roles is a
+superuser, has BYPASSRLS or owns a relation, if the system role can log in, if the login inherits
+the system role's privileges (it must hold it with SET only), or if the login cannot connect. The job and run engines' installers grant `rocketpod_system` their
 schemas (`apps/web/src/node/engine-grants.ts`): USAGE and DML only, since pg-boss and OpenWorkflow
 do their DDL at install time, which is migrate's.
 

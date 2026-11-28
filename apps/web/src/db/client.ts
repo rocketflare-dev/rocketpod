@@ -20,7 +20,7 @@ import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core'
 import { drizzle as drizzlePostgres } from 'drizzle-orm/postgres-js'
 import postgres from 'postgres'
 import * as schema from './schema'
-import { SYSTEM_ROLE } from './schema/rls'
+import { APP_ROLE, SYSTEM_ROLE } from './schema/rls'
 import { type DatabaseTls, databaseConnection, sslOption } from './tls'
 
 export type Database = PgDatabase<PgQueryResultHKT, typeof schema>
@@ -109,17 +109,29 @@ export function resolveDatabaseUrl(env: DatabaseEnv): string {
 /**
  * An app login's URL with `options=-c role=rocketpod_system`: every session starts as the
  * cross-tenant system role (`schema/rls.ts`), which the login holds with SET but not INHERIT —
- * so the login itself has no privilege at all, a `RESET ROLE` leaves a connection that can read
- * nothing, and `withTenantScope` narrows a transaction to the tenant role. Both drivers send
+ * so the login itself has no privilege at all (or, when the login IS the tenant role, only the
+ * tenant role's, which admit no tenant's row without `app.tenant_id`), a `RESET ROLE` leaves a
+ * connection that can read no tenant's data, and `withTenantScope` narrows a transaction to the
+ * tenant role. Both drivers send
  * `options` as the startup parameter Postgres reads; an `options` the URL already carries is kept.
  */
 export function runtimeDatabaseUrl(appDatabaseUrl: string): string {
   const parsed = new URL(appDatabaseUrl)
   const existing = parsed.searchParams.get('options')
   const role = `-c role=${SYSTEM_ROLE}`
-  parsed.searchParams.set('options', existing ? `${existing} ${role}` : role)
+  // A login that IS the tenant role (docs/TENANT-ISOLATION.md § 3) would start every session with
+  // the tenant role's own `ALTER ROLE … SET` timeouts, which a separate login never loads (a
+  // `SET ROLE` does not apply role settings): the system role's sweeps, pg-boss and the run
+  // engine would run under the 30 s / 5 s limits. Startup options outrank role settings, so these
+  // switch them off for the session; an `options` of the URL's own comes later and still wins.
+  const session = decodeURIComponent(parsed.username) === APP_ROLE ? [APP_ROLE_SESSION_RESETS] : []
+  parsed.searchParams.set('options', [...session, existing, role].filter(Boolean).join(' '))
   return parsed.toString()
 }
+
+/** The tenant role's per-role settings (`scripts/db-roles.ts`), switched off for a session. */
+const APP_ROLE_SESSION_RESETS =
+  '-c statement_timeout=0 -c idle_in_transaction_session_timeout=0 -c lock_timeout=0'
 
 // ---- The process pool (Node) ----------------------------------------------------------------
 

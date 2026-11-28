@@ -266,11 +266,15 @@ app (`docs/TENANT-ISOLATION.md` is the model):
 - **`DATABASE_URL`** is the OWNER: the role that owns the database's schema, made by an outside
   bootstrap (with the database itself) or by you. Give it CREATEROLE: the migrate one-shot creates
   roles. Only migrate needs it once the app login is in use.
-- **`APP_DATABASE_URL`** is the app login: any user name but the owner's, `rocketpod_app` or
-  `rocketpod_system`, with a password. Migrate creates that role if it is missing, sets the URL's
-  password on it (as a SCRAM verifier), makes it NOINHERIT, grants it the two NOLOGIN roles and
-  grants it CONNECT on the database, so a bootstrap that ran `REVOKE CONNECT … FROM PUBLIC` is
-  fine. Set, `web` and `worker` connect with it for everything (the pool, pg-boss, OpenWorkflow,
+- **`APP_DATABASE_URL`** is the app login, with a password: a separate login (any user name but
+  the owner's, `rocketpod_app` or `rocketpod_system`; the default), or `rocketpod_app` itself when
+  your platform provisions the login under the tenant role's name. Migrate creates a separate
+  login if it is missing, sets the URL's password on it (as a SCRAM verifier), makes it
+  NOINHERIT, grants it the two NOLOGIN roles and grants it CONNECT on the database, so a bootstrap
+  that ran `REVOKE CONNECT … FROM PUBLIC` is fine. Named `rocketpod_app`, the tenant role itself
+  becomes the NOINHERIT LOGIN, with the same password and CONNECT, holding `rocketpod_system`;
+  nothing else about it changes (`docs/TENANT-ISOLATION.md` § 3). The owner and
+  `rocketpod_system` are refused. Set, `web` and `worker` connect with it for everything (the pool, pg-boss, OpenWorkflow,
   realtime), as `rocketpod_system`: DML on the app's tables and the engines' schemas, no DDL, no
   table of its own. `DATABASE_SSL` applies to it as to every connection.
 

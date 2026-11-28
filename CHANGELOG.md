@@ -6,6 +6,11 @@ copy of the kit forward without recreating anything its owner deleted.
 
 If you are running a copy: `pnpm kit:upgrade` tells you which of these you are missing.
 
+## 0.46.2 — 2026-11-28
+
+Knowledge search breaks a score tie by chunk id in every dense and lexical leg, so equal-scored passages come back in the same order whichever plan Postgres picks.
+[Porting note](docs/upgrades/0.46.2.md).
+
 ## 0.46.1 — 2026-11-28
 
 Migrate accepts the tenant role itself (`<snake>_app`) as `APP_DATABASE_URL`'s login, for platforms that provision the login under that name, and `pnpm kit:release` no longer refuses a version file that already carries the release's version.

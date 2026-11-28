@@ -41,7 +41,12 @@ import {
   readEvalWarnings,
   renderEvalWarnings,
 } from '../../../../scripts/lib/eval-warnings.mjs'
-import { applyReplacements, deriveNames, toKitNames } from '../../../../scripts/lib/rename-lib.mjs'
+import {
+  applyReplacements,
+  deriveNames,
+  KIT,
+  toKitNames,
+} from '../../../../scripts/lib/rename-lib.mjs'
 
 const REPO = path.resolve(__dirname, '../../../..')
 const EVALS = path.join(REPO, 'apps/evals')
@@ -206,8 +211,9 @@ describe('eval coverage: prompt drift warns, never fails', () => {
   })
 
   it('reads a template the rename only re-named as the one the kit baselined, and still warns on a real edit', () => {
-    // A template naming the kit outright, as the kit baselined it…
-    const kitText = 'You are the Rocketpod assistant. Keys look like rocketpod_abc.'
+    // A template naming the kit outright, as the kit baselined it. Built from `KIT` (rename-lib is
+    // never renamed): a literal here would itself be renamed in a copy, and test nothing there.
+    const kitText = `You are the ${KIT.display} assistant. Keys look like ${KIT.slug}_abc.`
     const baseline = { promptVersions: { x: promptVersion('x', kitText) } }
     const app = { slug: 'field-notes', display: 'Field Notes' }
     // …after the rename, in the copy's names.

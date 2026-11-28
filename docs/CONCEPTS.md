@@ -1295,7 +1295,8 @@ Server: `api/services/{ai,agents}/**` (read their `CLAUDE.md`), `services/prompt
   (the lexical half matches ANY query word, ranked by `ts_rank_cd` — `anyTermTsquery` — so a
   sentence's filler words cannot veto it — over `chunks.search_vector`, a STORED generated
   `to_tsvector(SEARCH_TEXT_CONFIG, context + heading path + table header + text)` behind a GIN index) with RRF, scoped by `AccessScope`
-  (§1). `searchChunks` takes an optional `documents` corpus (a predicate over `documents`) that is
+  (§1). Each leg breaks a score tie by chunk id, so equal-scored passages rank the same whatever
+  plan Postgres picks (a sort or the HNSW index). `searchChunks` takes an optional `documents` corpus (a predicate over `documents`) that is
   ANDed with the reader's visibility, so it narrows a search and can never widen it.
   `document-content.ts` is the one text reader behind both
   the viewer and `get_document`. Agent tools resolve the requester's access at execute time.

@@ -159,7 +159,7 @@ Rules:
   `<=>` over the chunks whose `embeddingModel` is the query vector's (every leg, tenant and
   platform) + lexical over ANY query word (`anyTermTsquery`: the distinct `\p{L}\p{N}` words OR-ed —
   never `websearch_to_tsquery`, which ANDs a sentence's filler words into zero hits) ranked by
-  `ts_rank_cd` over the stored `chunks.search_vector`, RRF `k = 60`; an optional `documents` corpus
+  `ts_rank_cd` over the stored `chunks.search_vector` (every leg breaks a tie by `chunks.id`), RRF `k = 60`; an optional `documents` corpus
   predicate (`SearchChunksOptions`) is ANDed with the reader's visibility, so it narrows and never
   widens; then the top `RERANK_CANDIDATES` (config, default 20) fused candidates go through the
   reranker `resolveRerank` picks, filtered by `RERANK_MIN_SCORE` when set, cut to `limit` (hits

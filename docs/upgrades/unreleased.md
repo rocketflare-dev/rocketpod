@@ -12,7 +12,7 @@ manual: false
 
 ## What changed
 
-Migrate accepts the tenant role itself (`<snake>_app`) as `APP_DATABASE_URL`'s login, for platforms that provision the login under that name, and `pnpm kit:release` releases a version a version file already carries instead of refusing it.
+Migrate accepts the tenant role itself (`<snake>_app`) as `APP_DATABASE_URL`'s login, for platforms that provision the login under that name, and `pnpm kit:release` no longer refuses a version file that already carries the release's version.
 
 - `scripts/release.mjs`: a version file already at the release version is stamped as it is; a file with no version field is still an error (`tests/kit-only/release-stamp.test.ts`).
 - `apps/web/scripts/db-roles.ts`: an `APP_DATABASE_URL` user equal to `APP_ROLE` makes that role LOGIN NOINHERIT with the URL's password, grants it `SYSTEM_ROLE` and CONNECT, and changes nothing else about it; the owner, `SYSTEM_ROLE` and a non-identifier are still refused; the separate login is unchanged (`docs/TENANT-ISOLATION.md` § 3).

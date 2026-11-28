@@ -1,10 +1,10 @@
 ---
 version: unreleased
-previous: 0.46.2
+previous: 0.46.3
 date: null
 breaking: false
 migrations: []
-areas: [shared, config, docs]
+areas: []
 touches_surfaces: []
 requires_surfaces: []
 manual: false
@@ -12,35 +12,20 @@ manual: false
 
 ## What changed
 
-A renamed copy no longer inherits the kit's false notes: Compose sign-in is documented truthfully, Guide pages and eval baselines stay clean after detach and rename, and the rename keeps kit-history wording and reports matching checklist rows.
-
-- `docs/DEPLOY.md` § Docker Compose, `deploy/compose.env.example`, the chart's `NOTES.txt`, `rp-deploy` and `SETUP.md` 2.1: under the default `APP_ENV=production` a magic link is never logged; sign in first through a mailer or OIDC, or `APP_ENV=staging` for a local try-out.
-- `apps/web/scripts/lib/docs-stale.ts`: in a copy (`.rocketflare.json` `kit.commit` set) an unknown `verified` sha is read from the commit that brought that line in (`baselined`), not a structural error; `docs-stale.ts` supplies `isKitCopy` and `verifiedLineArrived`.
-- `scripts/rename.mjs`: re-points Guide pages' kit `verified:` shas to the copy's HEAD (`repointVerified`); leaves `docs/DEPLOY.md`, `rp-deploy` and any line naming docker compose or the container on port 3001; reads the test ports from `apps/web/docker-compose.test.yml` (`readTestPorts`); names the old role `<kit snake>_app`.
-- `scripts/lib/rename-lib.mjs`: `Start from Rocketpod` and `Rocketpod kit` are preserved, so `detach.sh` still recognises a detached copy and comments about the kit's history ("the ones the Rocketpod kit dropped") keep naming the kit; `toKitNames` reads an app's text back in the kit's names.
-- `packages/shared/src/ai/eval-coverage.ts`: `baselineWarning` takes a list of current versions; `tests/config/eval-coverage.test.ts` passes the template's own and, in a copy, its `toKitNames` reading, so a rename alone never warns.
-- `.claude/skills/rp-adapt/checklist.md` and its `SKILL.md`: rows lettered as the script prints them, (a)–(j) plus (k) when the kit commit is missing; installed plugins are (l).
-- `rp-how-do-i` §0 and `docs/ADAPTING.md` §3 now agree with `rp-design`'s `shape.md` §8: an app's own features are built in the app; a plugin is for something reusable across apps.
-- MCP comments say "Rocketpod kit only"; `docs/CONCEPTS.md` §13 and §18, `docs/EVALS.md`, `docs/ADAPTING.md` and `rp-doc-sync` describe the above.
+_Nothing yet. Add an entry here in the same pull request as the change. This first paragraph is
+lifted VERBATIM into `CHANGELOG.md`, so make it ONE standalone summary sentence of ≤ 40 words —
+then one bullet per change, one line each, and no `###` sub-headings. Rationale belongs in
+`docs/CONCEPTS.md` and is linked, never restated; see `README.md` beside this file._
 
 ## How to apply
 
-1. Take `apps/web/scripts/lib/docs-stale.ts`, `apps/web/scripts/docs-stale.ts` and `apps/web/tests/config/docs-stale.test.ts` from the kit; then `pnpm web docs:stale` lists the kit shas it baselined instead of failing on them.
-2. Take `packages/shared/src/ai/eval-coverage.ts`, `scripts/lib/rename-lib.mjs`, `scripts/lib/rename-lib.d.mts` and `apps/web/tests/config/eval-coverage.test.ts` from the kit, translated into the app's names (`pnpm kit:upgrade` does it).
-3. In `scripts/detach.sh` and `.claude/skills/rp-setup/SKILL.md`, put back the kit's literal `Start from Rocketpod` wherever the rename wrote `Start from <App>`: it is the subject of the copy's first commit.
-4. Take the doc hunks: `docs/DEPLOY.md` § Docker Compose ("Signing in the first time"), `deploy/compose.env.example`, `deploy/helm/<slug>/templates/NOTES.txt`, `.claude/skills/rp-deploy/SKILL.md`, `SETUP.md` 2.1, `docs/CONCEPTS.md` §18 "Staying true", `docs/EVALS.md` § The coverage contract, `.claude/skills/rp-doc-sync/SKILL.md`.
-5. If `docs/DEPLOY.md` says `open http://localhost:<dev API port>` under § Docker Compose, set it back to the compose `WEB_PORT` default, 3001.
-6. Take the `.claude/skills/rp-how-do-i/SKILL.md` §0 "Default to the app" paragraph and its "Done when" line, and `docs/ADAPTING.md` §3's matching paragraph, from the kit.
-7. `rp-adapt` is `neverPort`: copy its `checklist.md` and `SKILL.md` row letters from the kit by hand if you still use them.
+_Numbered, imperative, each step self-contained — no "these", "them" or "the above" reaching
+outside its own step._
 
 ## Conflicts to expect
 
-- `docs/DEPLOY.md` → the Compose block lost its `docker compose logs` line and gained a sign-in paragraph → keep your own edits around it.
-- `apps/web/tests/config/eval-coverage.test.ts` → `current` is now a list → take the kit's `todaysVersions` call.
+_One line each: `path → what changed → what to do`. Or exactly `None.`_
 
 ## Verify
 
-1. `pnpm web docs:stale` in a detached copy exits 0, and `--json` lists the kit shas under `baselined`.
-2. `pnpm test config apps/web/tests/config/eval-coverage.test.ts apps/web/tests/config/docs-stale.test.ts` passes and prints no `eval baselines need attention` block for a prompt only the rename touched.
-3. `grep -n "Start from Rocketpod" scripts/detach.sh` matches both the check and the commit message.
-4. `grep -n "^open http://localhost" docs/DEPLOY.md` names the port `docker-compose.yml` publishes (`WEB_PORT`, default 3001).
+_Numbered checkable commands and assertions only._
